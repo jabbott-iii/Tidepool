@@ -1,98 +1,65 @@
-# Tidepool — Claude Code project instructions
+@AGENTS.md
 
-Tidepool is a zero-dependency IDE written in Rust. Initial focus: Rust and Markdown. Later:
-Android (`.apk`/`.aab`) and iOS (`.app`/`.xcarchive`/`.ipa`) build and signing, AI integration
-through pluggable language agents, and a native GUI.
+## Claude Code specifics
 
-- Plan and milestones: `docs/PLAN.md` (read the relevant milestone before starting work)
-- Dependency policy and ledger: `docs/DEPENDENCIES.md`
-- Decision records: `docs/adr/` (template: `docs/adr/0000-template.md`)
+The project rules are in `AGENTS.md` (imported above), shared with any other
+coding agent. This section covers only what is specific to Claude Code.
 
-## Hard rules
+**Project skills** (in `.claude/skills`):
 
-1. **No third-party crates.** Only Rust `std`/`core`/`alloc`. Never run `cargo add`, never add a
-   `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, or `[workspace.dependencies]`
-   entry that is not a `path` dependency inside this repo. If something seems to need a crate,
-   stop and propose an ADR instead. `sh scripts/check-deps.sh` must pass.
-2. **`unsafe` only in `crates/tp-sys`.** Every other crate has `#![forbid(unsafe_code)]`. Every
-   `unsafe` block gets a `// SAFETY:` comment stating the invariants it relies on.
-3. **OS bindings are hand-written** in `tp-sys`. No `-sys` crates, no `bindgen`, no `build.rs`
-   that compiles C. New linked libraries and new external programs get a row in
-   `docs/DEPENDENCIES.md` in the same change.
-4. **External programs** (cargo, rust-analyzer, git, Android SDK, JDK, Xcode, ssh, curl) are run
-   with `std::process::Command` and an argv vector. Never through a shell, never by building a
-   command string. Missing tools produce a clear diagnostic, not a panic.
-5. **Secrets** (keystore passwords, signing identities, API keys) never go on argv, into logs,
-   settings files, test snapshots, error messages, or AI agent context. Never read or print the
-   contents of keystores, `.p12`/`.p8`/`.pem`/`.key` files, `.env` files, or provisioning profiles.
-6. **No in-house cryptography for signing.** Signing is delegated to `apksigner`, `jarsigner`,
-   and `codesign`. Proposing otherwise requires an ADR.
-7. **The core binary opens no network sockets** in v1. Network access belongs in external
-   processes (agents, git, ssh).
-8. **Do not weaken checks** to make something pass: no `#[allow]` to silence a real warning, no
-   `#[ignore]`d or deleted tests, no skipped verification. Fix the cause or report it.
-9. **Git:** do not commit, amend, rebase, reset, tag, merge, push, or otherwise change history.
-   Leave all changes uncommitted for the owner to review. At the end of a unit of work, propose
-   a commit message (Conventional Commits style) in your reply.
+| Skill | Use it to… |
+| :- | :- |
+| `/next-task [task-id]` | Pick the next unblocked roadmap task, or the one named, and carry it through the definition of done |
+| `/verify` | Run the full verification suite and report exact results |
+| `/record-decision <title>` | Append an ADR to `docs/decisions.md` |
+| `/evaluate-dependency <crate> <need>` | Run the build-vs-buy evaluation before anyone proposes a third-party crate |
+| `/add-ffi-binding <os> <api>` | Add OS bindings to `tidepool-sys` and wrap them safely in `tidepool-platform` |
+| `/add-managed-tool <tool>` | Add or update a managed tool: descriptor, detection, install plan, tests, panel row |
 
-## Commands
-
-The Cargo workspace is created in milestone M0. Until then there is nothing to build.
-
-```sh
-cargo build --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all -- --check
-sh scripts/check-deps.sh        # dependency policy; fails closed
-sh scripts/ci.sh                # all of the above (created in M0)
-```
-
-Real-toolchain integration tests are opt-in: `TIDEPOOL_IT_ANDROID=1`, `TIDEPOOL_IT_IOS=1`,
-`TIDEPOOL_IT_RA=1` (rust-analyzer). When a gated test cannot run it must print
-`SKIPPED: <reason>`; never report a skipped test as passed.
-
-## Architecture in one screen
-
-- One UI thread owns editor state; worker threads do I/O; communication via `std::sync::mpsc`.
-  The UI thread never blocks on I/O, subprocesses, LSP servers, or agents. No async runtime.
-- Frontends (`tp-tui` first, `tp-gui` later) render the same `tp-ui` draw model.
-- LSP, DAP, and the Tidepool Agent Protocol (TAP) share one JSON-RPC transport in `tp-rpc`.
-- Crates are created when their milestone starts. See the crate table in `docs/PLAN.md` §4.3.
-
-## Conventions
-
-- Rust edition 2024. Library crates return `Result` with crate-specific error enums; no
-  `unwrap()`/`expect()` on data that comes from files, processes, or the network.
-- Parsers of untrusted input (every file format, every protocol) enforce depth/size limits and
-  never panic on malformed input. Add a fuzz target for every new parser.
-- Tests use only `std` and `crates/tp-testkit` (seeded PRNG, golden files, fakes). Property tests
-  print the failing seed.
-- Public items get doc comments. Keep modules small; prefer plain functions and data over traits
-  until a second implementation exists.
-- Prefer the smallest complete change. No unrelated refactors, renames, or reformatting.
-
-## How to work here
-
-1. Read the relevant part of `docs/PLAN.md` and the code you are about to change before editing.
-2. For non-trivial design choices, use the `architect` agent and record decisions with `/adr`.
-   Only the owner marks an ADR as Accepted.
-3. Implement with the agent that owns the area (see table below). Keep changes inside the
-   current milestone's scope.
-4. Use `security-reviewer` for any change touching `tp-sys`, subprocess spawning, signing,
-   secrets, parsers of untrusted input, workspace trust, or AI context assembly.
-5. Run `/verify`. Report exactly which commands ran and their results; say what was not run.
-6. Tick the checklist item in `docs/PLAN.md` only when its acceptance evidence exists.
-7. Finish with: summary, files changed, validation run, checks not run, assumptions, open
-   issues, residual risks, and a proposed commit message.
+**Subagents** (in `.claude/agents`):
 
 | Agent | Owns |
-| --- | --- |
-| `architect` | Design, ADRs, crate boundaries, protocol specs, dependency decisions (writes only in `docs/`) |
-| `editor-core` | `tp-base`, `tp-text`, `tp-formats`, `tp-workspace`, `tp-regex` |
-| `platform-ui` | `tp-sys`, `tp-ui`, `tp-tui`, `tp-term`, `tp-gfx`, `tp-gui` |
-| `language-support` | `tp-syntax`, `tp-markdown`, `tp-rpc`, language packs |
-| `mobile-toolchain` | `tp-proc` toolchain discovery, `tp-archive`, `tp-mobile` |
-| `ai-agents` | TAP, `tp-agent`, predictive text, `agents/` |
-| `test-engineer` | `tp-testkit`, test suites, fuzz/bench harnesses, `scripts/ci.sh` |
-| `security-reviewer` | Read-only security review |
+| :- | :- |
+| `architect` | Design, ADRs, crate boundaries, protocol and format specs (writes only in `docs/`) |
+| `editor-core` | `core`, `text`, `codec`, `regex`, `workspace`, `editor` (including vim mode), `vcs` |
+| `platform-ui` | `sys`, `platform`, `gfx`, `font`, `ui`, `gui`, `tui`, `term`, the jabbott.dev theme |
+| `language-support` | `syntax`, `markdown`, `rpc`, `lang`, language packs |
+| `mobile-toolchain` | `toolchain` (all managed tools), `mobile` |
+| `ai-agents` | `agent`, TAP, predictive text, `agents/` |
+| `test-engineer` | `testkit`, harnesses, `xtask`, `bench`, CI |
+| `security-reviewer` | Read-only review; mandatory for `sys`/`platform`, `toolchain`, `mobile`, `agent` and parser changes |
+
+**Path-scoped rules** in `.claude/rules` load automatically when you open
+matching files:
+
+| Rule file | Applies to |
+| :- | :- |
+| `dependencies.md` | Cargo manifests, `.cargo/`, `xtask`, `rust-toolchain.toml` |
+| `unsafe-and-ffi.md` | `sys`, `platform` |
+| `parsers.md` | `codec`, `font`, `markdown`, `syntax`, `rpc`, `term`, `vcs`, fuzz corpora |
+| `toolchains-and-secrets.md` | `toolchain`, `mobile`, `vcs`, `toolchains/` |
+| `ai-context.md` | `agent`, `agents/` |
+| `ui-style.md` | `ui`, `gui`, `tui`, `editor`, `themes/`, `assets/` |
+
+**Permissions and hooks:**
+
+- `.claude/settings.json` pre-approves routine `cargo` commands and read-only
+  `git` commands.
+- It denies Git operations that publish or finalize changes, `cargo
+  publish` and `cargo login`, and reading signing material and `.env` files.
+- It asks before `cargo add`, `cargo remove`, `cargo update` and
+  `cargo install`.
+- A `PostToolUse` hook runs the dependency check after edits that touch a
+  `Cargo.toml` or `Cargo.lock`.
+- These are guardrails, not a security boundary. The rules in `AGENTS.md`
+  still apply when a command slips past a pattern.
+
+**Working style:**
+
+- Use the task list for any roadmap task with more than two steps. Make the
+  last item "verify", and run the task's verification commands for it.
+- Most tasks touch one or two crates. If a change spreads across more than
+  three crates, stop and say so: the task is probably mis-scoped.
+- When an acceptance criterion needs an OS, tool or device this session
+  can't run (Claude Code sessions are usually Linux without the Android SDK
+  or Xcode), implement it and say plainly which checks still need it.

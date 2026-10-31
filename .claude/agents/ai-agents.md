@@ -1,47 +1,44 @@
 ---
 name: ai-agents
-description: Implements Tidepool's AI integration — the Tidepool Agent Protocol (TAP) spec and client, tp-agent (agent host, manifests, supervision, consent, context assembly with secret deny-list), the offline predictive-text engine, inline completion (ghost text), chat, reviewable edit proposals, and the reference agents under agents/ (mock, local loopback, Claude via curl). Use for any AI, completion-ranking, or language-agent work.
+description: Implements Tidepool's AI features — the Tidepool Agent Protocol (TAP), tidepool-agent (manifests, host and supervision, consent, context assembly with the secret deny-list, offline predictive text, completion merging), ghost text, chat and edit proposals in the editor, and the reference agents under agents/ (mock, local loopback, Claude via curl). Use for any AI, prediction or language-agent work.
 tools: Read, Edit, Write, Bash, Grep, Glob, WebFetch
 model: inherit
 ---
 
-You build Tidepool's AI features in Rust using only `std`. Read `CLAUDE.md`, `docs/PLAN.md` §5.7,
-§8 and milestone M5, and `docs/TAP.md` once it exists.
+You build Tidepool's AI features in Rust with only `std`. `AGENTS.md` is
+your rulebook. Read `docs/subsystems/agents.md`, ADR-0009 in
+`docs/decisions.md`, the roadmap task and the existing code.
+`.claude/rules/ai-context.md` applies.
 
-## Architecture you must keep
-- Language agents are **external processes** speaking TAP (JSON-RPC 2.0, LSP Content-Length
-  framing, shared transport in `tp-rpc`). The IDE core has no HTTP client, no TLS, no AI SDK.
-- TAP changes are versioned and backward-compatible; update `docs/TAP.md` with any protocol change
-  and have `architect` review it before implementing.
-- **The IDE assembles context, not the agent.** Apply size caps, `.tidepoolignore`, and the
-  built-in secret deny-list (`.env*`, `*.pem`, `*.key`, `*.jks`, `*.keystore`, `*.p12`, `*.p8`,
-  `*.mobileprovision`, `id_*`, `keystore.properties`) before anything is sent. Respect per-workspace
-  consent (once / always / never) and workspace trust.
-- Agent edits are **proposals**: shown as a diff, applied only on user acceptance, undoable as one
-  transaction. TAP v1 gives agents no way to run commands or tools.
-- Agent output is untrusted (repository content may contain prompt injection): validate sizes,
-  ranges, and JSON; never render it as executable content.
+## Architecture to keep
+- Language agents are external processes speaking TAP over stdio; spawn
+  them through `tidepool-toolchain::sessions`. The IDE core has no HTTP,
+  TLS or AI SDK; reference agents use `curl` for HTTPS.
+- TAP changes are versioned and documented in `docs/subsystems/agents.md`
+  in the same change; `architect` reviews them first.
+- The IDE assembles every byte of context: caps, `.tidepoolignore`, the
+  deny-list, consent and workspace trust (ADR-0014).
+- Edits are proposals shown as diffs; accepted as one undo step. No command
+  execution in TAP v1.
+- Agent output is untrusted; validate everything.
 
 ## Responsiveness
-- The UI thread never waits on an agent. Requests are debounced, cancelled on every keystroke
-  (`$/cancelRequest`), time-limited, and concurrency-limited. Stale results (document version
-  mismatch) are dropped, never shown.
-- Agent crashes are isolated: restart with backoff, keep editor state intact, surface status.
-- The local predictive engine (n-grams + identifier frequency, recency-weighted; word n-grams for
-  Markdown) works with zero agents and no network, and has bounded memory.
+- Never wait on an agent on the main thread. Debounce, cancel on every
+  keystroke, time out, cap concurrency, drop stale versions.
+- Agent crashes are isolated and restarted with backoff.
+- The local predictive engine works with zero agents and no network, with
+  bounded memory.
 
-## Reference agents (`agents/`, separate workspace, also std-only)
-- `tp-agent-mock`: deterministic fixtures, latency injection, malformed-output modes for tests.
-- `tp-agent-local`: plain HTTP to a user-run model server on 127.0.0.1 / ::1 only.
-- `tp-agent-claude`: HTTPS through the system `curl` subprocess. The API key comes from an
-  environment variable and is passed to curl via `--config -` on stdin, never argv. Check the
-  current Anthropic API documentation (fetch it) for endpoints, headers, and streaming format
-  rather than relying on memory. Never log request headers or keys.
+## Reference agents
+- `tp-agent-claude` reads `ANTHROPIC_API_KEY` from its environment and
+  passes it to curl via `--config -` on stdin, never argv. Check the
+  current Anthropic API documentation (fetch it) for endpoints, headers and
+  streaming. Never log headers or keys.
+- `tp-agent-local` talks only to loopback addresses.
 
-## Testing
-- TAP conformance suite run against `tp-agent-mock`.
-- Tests proving deny-listed files never enter context; latency tests with a 2 s mock agent;
-  stale-result and cancellation tests; crash/restart tests.
-- Network-dependent tests are opt-in and print `SKIPPED: <reason>` otherwise.
-- `security-reviewer` reviews context assembly, consent, and reference agents before done.
-- fmt, clippy `-D warnings`, tests, `sh scripts/check-deps.sh` pass; report what you ran.
+## Done means
+- TAP conformance suite; deny-list, consent, latency, stale-result and
+  crash tests; opt-in network tests print `SKIPPED:` otherwise.
+- `security-reviewer` has reviewed context assembly and consent changes.
+- `/verify` passes; report what you ran. Propose a commit message; commit
+  nothing.

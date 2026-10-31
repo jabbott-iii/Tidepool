@@ -26,7 +26,7 @@ rustc-ice-*.txt
 # Claude Code personal settings (shared settings live in .claude/settings.json)
 .claude/settings.local.json
 
-# Signing material must never be committed (see docs/PLAN.md §8)
+# Signing material must never be committed (AGENTS.md rule 7)
 *.jks
 *.keystore
 *.p12

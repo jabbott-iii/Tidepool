@@ -2,7 +2,7 @@
 # Claude Code PostToolUse hook (Edit|Write).
 # When an edit touches a Cargo manifest or lockfile, re-run the dependency-policy check and
 # feed any violation back to Claude (exit 2). Other edits exit 0 immediately.
-# Policy: docs/DEPENDENCIES.md
+# Policy: docs/02-dependency-policy.md
 input=$(cat)
 
 case "$input" in
@@ -19,7 +19,7 @@ fi
 
 if ! out=$(sh scripts/check-deps.sh 2>&1); then
   printf '%s\n' "$out" >&2
-  printf '%s\n' "Tidepool dependency policy violation (docs/DEPENDENCIES.md): only Rust std and in-repo path crates are allowed. Revert the dependency, or stop and propose an ADR for owner approval." >&2
+  printf '%s\n' "Tidepool dependency policy violation (docs/02-dependency-policy.md): only Rust std and in-repo path crates are allowed. Revert the dependency, or stop and run /evaluate-dependency for the user to decide." >&2
   exit 2
 fi
 exit 0

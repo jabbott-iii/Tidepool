@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tidepool dependency-policy check. See docs/DEPENDENCIES.md.
+# Tidepool dependency-policy check. See docs/02-dependency-policy.md.
 #
 # Fails if any Cargo workspace in the repository resolves a package that is not a local path
 # package (crates.io, git, or alternate-registry sources). Resolution runs offline and fails
