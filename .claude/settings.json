@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo build *)",
+      "Bash(cargo check *)",
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo doc *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(sh scripts/check-deps.sh)",
+      "Bash(sh scripts/ci.sh)"
+    ],
+    "ask": [
+      "Bash(cargo install *)",
+      "Bash(cargo run *)",
+      "Bash(git checkout *)",
+      "Bash(git restore *)",
+      "Bash(git switch *)",
+      "Bash(git stash *)"
+    ],
+    "deny": [
+      "Bash(cargo add *)",
+      "Bash(cargo publish *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git rebase *)",
+      "Bash(git reset *)",
+      "Bash(git merge *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git revert *)",
+      "Bash(git tag *)",
+      "Bash(git clean *)",
+      "Bash(git branch -D *)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.jks)",
+      "Read(**/*.keystore)",
+      "Read(**/*.p12)",
+      "Read(**/*.p8)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.mobileprovision)",
+      "Read(**/keystore.properties)",
+      "Edit(**/*.jks)",
+      "Edit(**/*.keystore)",
+      "Edit(**/*.p12)",
+      "Edit(**/*.p8)",
+      "Edit(**/*.mobileprovision)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/deps-guard.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
