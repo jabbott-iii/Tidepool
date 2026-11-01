@@ -54,10 +54,12 @@ assuming.
    you believe one is needed, stop, run `/evaluate-dependency`, and ask the
    user. `scripts/check-deps.sh` (then `cargo xtask deps`) enforces this.
 2. **Outside programs go through `toolchain`.** Only `tidepool-toolchain`
-   finds, installs, updates or spawns external programs. Spawn with an argv
-   vector, never through a shell. Installs ask first, verify downloads
-   against pinned SHA-256s, show licenses to the user, and never elevate
-   silently. Never bundle a tool's binary (ADR-0002).
+   finds, installs, updates or spawns external programs. The one exception
+   is the dev-only `xtask`, which runs `cargo` itself and nothing else
+   (ADR-0017). Spawn with an argv vector, never through a shell. Installs
+   ask first, verify downloads against pinned SHA-256s, show licenses to
+   the user, and never elevate silently. Never bundle a tool's binary
+   (ADR-0002).
 3. **Layering is one-way.** A crate may depend only on crates listed for it
    in `docs/01-architecture.md` → "Dependency matrix". `cargo xtask layers`
    enforces this.

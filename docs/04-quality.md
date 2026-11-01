@@ -149,8 +149,8 @@ network through its tool.
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
   are handled first. `ci` lists `tools` and `theme` as "not yet
   implemented". None is ever reported as a pass.
-- `xtask` runs `cargo` itself, not through `tidepool-toolchain` (an
-  exception to `AGENTS.md` rule 2, ADR-0017, Proposed): the cargo that
+- `xtask` runs `cargo` itself, not through `tidepool-toolchain` (the
+  exception named in `AGENTS.md` rule 2, ADR-0017): the cargo that
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
   children are `cargo metadata`, `cargo locate-project` and `ci`'s fmt,
   clippy and test steps. It runs no other program. Each child is an argv

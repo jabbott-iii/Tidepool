@@ -1,7 +1,8 @@
 # Subsystem: `tidepool-toolchain`, `tidepool-vcs` and `tidepool-term`
 
 `toolchain` is the only crate that finds, installs, updates, configures and
-launches outside programs (ADR-0002). `vcs` builds git features on the
+launches outside programs (ADR-0002), except the dev-only `xtask`, which
+runs `cargo` itself (ADR-0017). `vcs` builds git features on the
 managed `git`. `term` is the integrated terminal, which is also where
 installs that need admin rights run, in front of the user.
 

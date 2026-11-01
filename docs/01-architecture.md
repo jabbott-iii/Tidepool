@@ -10,8 +10,9 @@
 3. **Outside tools are processes, managed in one place.** rust-analyzer,
    git, the Android SDK, the JDK, Xcode, LSP servers, debug adapters and
    language agents run as child processes. Only `toolchain` finds, installs,
-   updates and launches them (ADR-0002). Other crates ask `toolchain` for a
-   ready tool and speak to it over pipes.
+   updates and launches them (ADR-0002); the dev-only `xtask` runs `cargo`
+   itself (ADR-0017). Other crates ask `toolchain` for a ready tool and
+   speak to it over pipes.
 4. **Frontends are thin.** `ui` builds frame-independent draw lists in
    logical units. `gui` rasterizes them into a window; `tui` maps them onto
    terminal cells. Every feature is written once, in `editor` (ADR-0003).

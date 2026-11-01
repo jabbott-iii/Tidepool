@@ -81,9 +81,8 @@ enforced by tooling from day one.
       falls back to `scripts/check-deps.sh`.
     - `check-deps.sh` now resolves with `--locked`, so it fails on an out
       of date or missing lockfile instead of writing one.
-    - Running cargo from `xtask` is ADR-0017 (Proposed).
-  - ⏳ needs user: accept or reject ADR-0017. If accepted, name the
-    exception in `AGENTS.md` rule 2.
+    - Running cargo from `xtask` is ADR-0017, accepted on 2026-11-01 and
+      named as the exception in `AGENTS.md` rule 2.
 
 - [x] **M0.4 — CI workflow**
   - Depends: M0.3

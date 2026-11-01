@@ -310,7 +310,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0017 — `xtask` runs `cargo` itself, as a narrow exception to rule 2
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-01
 - **Context:** `AGENTS.md` rule 2 says only `tidepool-toolchain` finds,
   installs, updates or spawns outside programs. `cargo xtask ci` (M0.3)
