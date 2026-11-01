@@ -2,8 +2,9 @@
 # Tidepool dependency-policy check. See docs/02-dependency-policy.md.
 #
 # Fails if any Cargo workspace in the repository resolves a package that is not a local path
-# package (crates.io, git, or alternate-registry sources). Resolution runs offline and fails
-# closed: if Cargo cannot resolve the graph, the check fails.
+# package (crates.io, git, or alternate-registry sources). Resolution runs offline from the
+# existing lockfile (--locked), so the check never writes a Cargo.lock, and fails closed: if Cargo
+# cannot resolve the graph, the check fails.
 #
 # Test fixtures for this script must be generated in a temporary directory at test time and
 # never committed, otherwise the repository itself would fail the check.
@@ -44,9 +45,9 @@ trap 'exit 1' HUP INT TERM
 status=0
 
 for m in $roots; do
-  if ! cargo metadata --format-version 1 --offline --manifest-path "$m" \
+  if ! cargo metadata --format-version 1 --offline --locked --manifest-path "$m" \
       >"$tmpdir/meta.json" 2>"$tmpdir/meta.err"; then
-    echo "check-deps: FAIL: could not resolve $m offline (an external dependency may have been added):" >&2
+    echo "check-deps: FAIL: could not resolve $m offline from its lockfile (an external dependency may have been added, or Cargo.lock is out of date or missing):" >&2
     sed 's/^/  /' "$tmpdir/meta.err" >&2
     status=1
   elif grep -q '"source":"' "$tmpdir/meta.json"; then

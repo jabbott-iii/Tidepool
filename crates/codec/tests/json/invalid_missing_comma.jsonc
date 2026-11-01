@@ -1,0 +1,5 @@
+{
+  // The comma after "theme" was deleted by accident.
+  "theme": "tidepool-dark"
+  "keymap": "vim"
+}

@@ -1,0 +1,8 @@
+[package]
+name = "tidepool-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

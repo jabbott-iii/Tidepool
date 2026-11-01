@@ -21,7 +21,7 @@ How to use this file:
 **Goal:** an empty but fully guarded workspace. The constraints are
 enforced by tooling from day one.
 
-- [ ] **M0.1 — Workspace skeleton**
+- [x] **M0.1 — Workspace skeleton**
   - Depends: —
   - Do:
     - Create every crate in the workspace map (`AGENTS.md`) as an empty
@@ -40,8 +40,10 @@ enforced by tooling from day one.
   - Verify: `cargo build --workspace`;
     `cargo clippy --workspace --all-targets -- -D warnings`;
     `sh scripts/check-deps.sh`
+  - Note: toolchain pinned to 1.99.0 (rustc 1.99.0 b940084d7 2026-09-28;
+    clippy 0.1.99; rustfmt 1.10.0-stable).
 
-- [ ] **M0.2 — core: errors, logging, test harness, hashing, CLI, time**
+- [x] **M0.2 — core: errors, logging, test harness, hashing, CLI, time**
   - Depends: M0.1
   - Do: `error`, `log` (with redaction), `testing::{check, check_sized}`,
     `rng::Pcg32`, `hash::{fnv1a64, crc32, sha256}`, `cli`, `civil`, `geom`,
@@ -54,7 +56,7 @@ enforced by tooling from day one.
     - A registered secret never appears in any log sink.
   - Verify: `cargo test -p tidepool-core`
 
-- [ ] **M0.3 — xtask: deps, layers, unsafe-audit, ci**
+- [x] **M0.3 — xtask: deps, layers, unsafe-audit, ci**
   - Depends: M0.2, M1.4
   - Do:
     - `cargo xtask deps` reads `cargo metadata` with `codec::json`; fails on
@@ -68,8 +70,22 @@ enforced by tooling from day one.
   - Accept: each check fails on a deliberately broken fixture workspace
     generated in a temp dir, and passes on the real workspace.
   - Verify: `cargo xtask ci`
+  - Note (2026-11-01): `cargo xtask ci` passes locally: 6 of 6 steps, 566
+    tests, 0 failed, 0 `SKIPPED:`. It also passes with the CI workflow's
+    environment (`CARGO_TERM_COLOR=always`). The xtask suite passes with
+    `CARGO_TARGET_DIR` outside the repository. Each check's fixtures are in
+    `xtask/tests/fixtures.rs`, generated under `CARGO_TARGET_TMPDIR`; the
+    rules are in `docs/04-quality.md` → "`xtask` checks".
+    - The hook runs `xtask deps` and then `xtask layers` (layers goes beyond
+      the task text). It builds `xtask` into `target/deps-guard/` and
+      falls back to `scripts/check-deps.sh`.
+    - `check-deps.sh` now resolves with `--locked`, so it fails on an out
+      of date or missing lockfile instead of writing one.
+    - Running cargo from `xtask` is ADR-0017 (Proposed).
+  - ⏳ needs user: accept or reject ADR-0017. If accepted, name the
+    exception in `AGENTS.md` rule 2.
 
-- [ ] **M0.4 — CI workflow**
+- [x] **M0.4 — CI workflow**
   - Depends: M0.3
   - Do: `.github/workflows/ci.yml` per `docs/04-quality.md`: matrix of
     3 OSes, `permissions: contents: read`, actions pinned by full SHA with
@@ -79,6 +95,15 @@ enforced by tooling from day one.
     this session, use `# TODO(pin): actions/checkout@vX` placeholders and
     list them for a human.
   - Verify: parse the YAML (state how)
+  - Note (2026-11-01): parsed with PyYAML 6.0.1 (`python3 -I`,
+    `yaml.safe_load`). Both actions are pinned by full SHA, checked with
+    `git ls-remote` on 2026-11-01: `actions/checkout` v7.0.1 =
+    `3d3c42e5aac5ba805825da76410c181273ba90b1`, `actions/cache` v6.1.0 =
+    `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`, both lightweight tags. The
+    Linux fuzz-smoke step waits for M1.6 (a `TODO(M1.6)` in `ci.yml`).
+  - ⏳ needs human: push, and confirm `cargo xtask ci` is green on
+    `ubuntu-latest`, `macos-latest` and `windows-latest` (the M0 exit
+    criterion). Nothing ran on macOS or Windows in this session.
 
 - [ ] **M0.5 — Budgets and reference machine**
   - Depends: M0.1
@@ -86,6 +111,8 @@ enforced by tooling from day one.
     adjust every budget in `docs/00-overview.md`.
   - Accept: the budgets table says "confirmed" with the machine named.
   - Verify: doc review (human)
+  - ⏳ needs human: review the reference machine and "Target (confirmed)"
+    edit in `docs/00-overview.md` → "Performance budgets".
 
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
 CI runners. `Cargo.lock` contains zero third-party packages.
@@ -121,12 +148,15 @@ CI runners. `Cargo.lock` contains zero third-party packages.
     leaves the original intact (simulated).
   - Verify: `cargo test -p tidepool-text`
 
-- [ ] **M1.4 — codec: JSON and JSONC**
+- [x] **M1.4 — codec: JSON and JSONC**
   - Depends: M0.2
   - Do: `codec::json` parser and writers with `Limits`. Port from Nadir's
     `nadir-codec::json`.
   - Accept: RFC 8259 cases; limits enforced; no panics on malformed input.
   - Verify: `cargo test -p tidepool-codec`
+  - Note: done ahead of M0.3, which needs it. The supported subset is in
+    `docs/subsystems/text-and-formats.md` → `json`. Its fuzz target and
+    seed corpus come with M1.6.
 
 - [ ] **M1.5 — codec: TOML with a preserving document model**
   - Depends: M1.4
@@ -141,6 +171,9 @@ CI runners. `Cargo.lock` contains zero third-party packages.
     and TOML with seed corpora in `fuzz/corpus/`.
   - Accept: 60 s per target with no crash; a planted panic is found.
   - Verify: `cargo xtask fuzz-smoke --secs 60`
+  - Note: also add the Linux fuzz-smoke step (30 s per target) that
+    `docs/04-quality.md` → "CI" requires to `.github/workflows/ci.yml`;
+    M0.4 left a `TODO(M1.6)` there.
 
 **Exit criteria (M1):** the text engine and JSON/TOML pass their property
 tests and fuzz smoke.
@@ -322,7 +355,7 @@ Tidepool, and every bug found is filed.
 
 - [ ] **M5.3 — toolchain: downloads and install plans**
   - Depends: M5.2, M0.2
-  - Do: `download` via `curl` (ask the user to accept ADR-0016 first);
+  - Do: `download` via `curl` (ADR-0016, accepted 2026-10-31);
     `install` plans with consent; licenses shown.
   - Accept: a checksum mismatch deletes the file and runs nothing; plans
     list every step before anything runs.

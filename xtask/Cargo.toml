@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+# Dev-only tooling: never published or shipped (docs/04-quality.md).
+publish = false
+
+# Exactly the row for `xtask` in the dependency matrix
+# (docs/01-architecture.md): `core` and `codec`.
+[dependencies]
+tidepool-core = { path = "../crates/core" }
+tidepool-codec = { path = "../crates/codec" }
+
+[lints]
+workspace = true

@@ -161,16 +161,24 @@ trigger** fires. It is not approved.
 
 ## Enforcement
 
-- **Now:** `sh scripts/check-deps.sh` resolves every workspace offline and
-  fails closed if any package has a non-path source. A Claude Code hook runs
-  it after edits to a `Cargo.toml` or `Cargo.lock`.
-- **From M0.3:** `cargo xtask deps` reads `cargo metadata --format-version 1`
-  with our own JSON parser and fails if any package has a non-null `source`
-  that is not in `xtask/deps-allowlist.txt`. The hook switches to it.
+- **`cargo xtask deps`** (M0.3) reads `cargo metadata --format-version 1`
+  with our own JSON parser. It fails if any package has a non-null `source`
+  that is not in `xtask/deps-allowlist.txt`, and on the other rules in
+  `docs/04-quality.md` → "`xtask` checks".
+- **Claude Code hook** `.claude/hooks/deps-guard.sh` runs `xtask deps`,
+  then `xtask layers`, after edits to a `Cargo.toml`, a `Cargo.lock` or a
+  cargo configuration file. If `xtask` cannot be built, it falls back to
+  `sh scripts/check-deps.sh`, which resolves every workspace offline from
+  its lockfile and fails closed if any package has a non-path source. The
+  hook still exits 2 then, because the fallback is incomplete. While the
+  root lockfile is out of date, it checks only what the root manifests
+  declare, says how to update the lockfile offline, and exits 2
+  (`docs/04-quality.md` → "Command line and rules").
 - **`cargo xtask layers`** checks the workspace graph against the matrix in
   `docs/01-architecture.md`.
-- **`cargo xtask tools`** checks every descriptor in `toolchains/` has a
-  pinned version, an official HTTPS source, a SHA-256 where a download is
+- **`cargo xtask tools`** (not yet implemented: roadmap M5.1; until then it
+  exits 1) will check that every descriptor in `toolchains/` has a pinned
+  version, an official HTTPS source, a SHA-256 where a download is
   involved, and a license entry.
 - **Path-scoped rule** `.claude/rules/dependencies.md` loads when an agent
   opens a Cargo manifest.

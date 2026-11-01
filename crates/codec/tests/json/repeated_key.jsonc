@@ -1,0 +1,8 @@
+{
+  "languages": {
+    "rust": { "server": "rust-analyzer" },
+    "toml": { "server": null },
+    /* Pasted twice. */
+    "rust": { "server": "rust-analyzer", "args": ["--log-file"] }
+  }
+}

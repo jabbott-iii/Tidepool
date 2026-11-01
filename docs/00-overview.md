@@ -50,10 +50,17 @@ until Tidepool's own development uses it.** Dogfooding starts at M4.
 
 ## Performance budgets
 
-These are the numbers we test against. Pick a concrete reference machine at
-M0 and record it here. All are targets until M0.5 confirms them.
+These are the numbers we test against. The user confirmed every budget as
+written on 2026-10-31 (M0.5).
 
-| Budget | Target |
+**Reference machine** (the main development machine): MSI Pulse GL66
+11UGKV laptop; Intel Core i7-11800H, 8 cores / 16 threads; 16 GB RAM
+(15.3 GiB usable); NVMe SSD; Pop!_OS 24.04 LTS, kernel
+`7.2.6-76070206-generic`; built-in 1920×1080 panel on Intel UHD Graphics
+(an NVIDIA GeForce RTX 3070 Mobile is also present); COSMIC Wayland
+session, so the GUI runs through XWayland (ADR-0010).
+
+| Budget | Target (confirmed) |
 | :- | :- |
 | Cold start to first frame (GUI) | ≤ 300 ms |
 | Cold start to first frame (TUI) | ≤ 150 ms |

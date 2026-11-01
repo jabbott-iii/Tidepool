@@ -295,7 +295,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0016 — SHA-256 in `core` for download integrity only
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** Managed installs download installers and jars (ADR-0002) and
   must verify them against pinned checksums.
@@ -307,3 +307,43 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Alternatives considered:** shelling out to `sha256sum`/`shasum`
   (inconsistent across OSes); the `sha2` crate.
 - **Revisit when:** a source publishes only signatures, not digests.
+
+## ADR-0017 — `xtask` runs `cargo` itself, as a narrow exception to rule 2
+
+- **Status:** Proposed
+- **Date:** 2026-11-01
+- **Context:** `AGENTS.md` rule 2 says only `tidepool-toolchain` finds,
+  installs, updates or spawns outside programs. `cargo xtask ci` (M0.3)
+  exists to run cargo: `cargo metadata` and `cargo locate-project` for
+  `deps`, `layers` and `unsafe-audit`, and `cargo fmt`, `cargo clippy` and
+  `cargo test` for the gate. The matrix lets `xtask` use only `core` and
+  `codec` (`docs/01-architecture.md`), and `toolchain` does not exist
+  before M5.1. The Claude Code hook also builds `xtask` before it runs, so
+  everything `xtask` links is compiled before any check
+  (`docs/04-quality.md` → "Command line and rules").
+- **Decision:**
+  - `xtask`, which is dev-only and never shipped, may spawn `cargo`
+    directly with `std::process::Command`. That is the cargo running it
+    (`CARGO`, if not empty), or else `cargo` on the `PATH`.
+  - Its only children are `cargo metadata`, `cargo locate-project`, and
+    `ci`'s fmt, clippy and test steps.
+  - Every child is an argv vector, never a shell. Each runs in the root,
+    with standard input closed and `CARGO_NET_OFFLINE=true`.
+  - The Tidepool binary and every library crate still follow rule 2.
+- **Consequences:**
+  - `xtask` stays at `core` and `codec`, and its build stays small and
+    fast for the hook.
+  - The exception must be named in `AGENTS.md` rule 2 once accepted. That
+    edit needs the user's approval, so it is not made here.
+  - Any other program `xtask` runs needs this ADR extended first:
+    `package`'s `lipo`, `iconutil` and `rc.exe` (`docs/05-release.md`,
+    M11.6, M12.4, M14.4), and any child process `fuzz-smoke` uses (M1.6).
+- **Alternatives considered:**
+  - `xtask` depends on `tidepool-toolchain`. It does not exist until M5.1,
+    it would need a matrix change, and it would put descriptors, detection
+    and installs into what the hook compiles before checking.
+  - A shell script for the gate. Rule 2 forbids a shell, and it would not
+    be portable to Windows.
+- **Revisit when:** `xtask` needs any program other than `cargo` (M1.6 or
+  M11.6, whichever comes first), or `tidepool-toolchain` gains a process
+  API that `xtask` could use within the matrix.

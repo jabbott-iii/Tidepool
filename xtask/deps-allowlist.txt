@@ -1,0 +1,24 @@
+# Third-party packages approved under docs/02-dependency-policy.md.
+#
+# `cargo xtask deps` fails for every package with a non-null `source` (a
+# registry or git) in `cargo metadata`, every registry or git dependency a
+# workspace member declares, and every `source = ` entry in a `Cargo.lock`,
+# unless the package is approved here. A path package fails whether it is
+# listed or not when it lies outside the repository, or is not a member of
+# the workspace whose graph it is in.
+#
+# Format: one package per line, three fields separated by spaces or tabs: the
+# package name, the exact version cargo resolves, and the ADR that approved it
+# (`ADR-` and four digits).
+#
+#     name version ADR-NNNN
+#
+# A line approves that name and version from crates.io only (not from git or
+# another registry), and a member must declare it with the exact requirement
+# `=version`.
+#
+# Blank lines and lines whose first non-blank character is `#` are ignored.
+# Any other line is an error, so a typo fails the check rather than approving
+# nothing.
+#
+# The approved set is empty (ADR-0001).

@@ -26,7 +26,7 @@ line and column. None of them panic on input.
 
 | Module | Supports | Used by |
 | :- | :- | :- |
-| `json` | RFC 8259; JSONC (comments, trailing commas) as an option; writer (compact, pretty) | LSP/DAP/TAP, cargo diagnostics, `cargo metadata`, `xtask` |
+| `json` | RFC 8259, strict by default; JSONC (comments, one trailing comma) as an option; writer (compact, pretty). Subset: see `json` below | LSP/DAP/TAP, cargo diagnostics, `cargo metadata`, `xtask` |
 | `toml` | TOML 1.0; a comment- and order-preserving document model for files Tidepool writes back | Settings, keymaps, themes, packs, descriptors, `Cargo.toml` |
 | `xml` | Well-formed XML 1.0 without DTDs or external entities (none are fetched or expanded) | `AndroidManifest.xml`, plist |
 | `plist` | XML property lists (read/write) | `Info.plist`, `ExportOptions.plist`, entitlements |
@@ -36,6 +36,112 @@ line and column. None of them panic on input.
 | `zip` | Read and write, stored and deflated entries, ZIP64 read, alignment for stored entries, path-traversal rejection | APK/AAB/IPA inspection and assembly |
 | `png` | Decode all color types and depths (port Nadir's decoder) | Image viewer, icons |
 | `qoi` | Encode and decode | Golden frames |
+
+### `json`
+
+`parse(&str, Dialect, Limits)` and `parse_bytes(&[u8], Dialect, Limits)`
+return a `Value`; `to_string_compact` and `to_string_pretty` write one. The
+module documentation in `crates/codec/src/json.rs` is authoritative; this is
+its summary.
+
+`Dialect::Json`, the default, is RFC 8259 with these choices where the RFC
+leaves room:
+
+- Exactly one value, of any kind, at the top level; anything but whitespace
+  after it is an error. Whitespace is space, tab, LF and CR only.
+- The input must be UTF-8 everywhere, strings included. `parse_bytes`
+  rejects anything else (`InvalidUtf8`, at the first bad byte) and never
+  repairs it.
+- Only a leading byte-order mark (U+FEFF) is skipped. Anywhere else outside
+  a string it is an error; inside a string it is an ordinary character.
+- Escapes are the RFC's: `\" \\ \/ \b \f \n \r \t` and `\uXXXX` (hex in
+  either case). A surrogate pair written as two `\u` escapes is one
+  character. A lone surrogate (a high one not followed by a `\u` low one, or
+  a low one alone) is rejected (`LoneSurrogate`), never replaced. Raw
+  U+0000 to U+001F in a string is rejected (`ControlCharacter`).
+- Repeated object names are kept: every member stays, in document order, in
+  `Value::Object(Vec<(String, Value)>)`, and `Value::get` returns the last,
+  as `JSON.parse` does. Names compare exactly: decoded, case-sensitive, no
+  Unicode normalization.
+- Numbers follow the RFC grammar (no leading zeros, `+`, `.5`, `5.`, hex,
+  `NaN` or `Infinity`) and are stored as a `Number`:
+  - no fraction or exponent: an exact `u64` (0 and up) or `i64` (below 0)
+  - a fraction or exponent, `-0`, or an integer outside both types: the
+    nearest `f64`; digits beyond what it holds are lost
+  - a magnitude too large for an `f64` (`1e400`) is an error
+    (`NumberOutOfRange`); one too small (`1e-400`) underflows to zero
+  - never NaN or infinite, so `Number` is `Eq` and the writers cannot fail;
+    `2` and `2.0` are different numbers, `0.0` and `-0.0` are equal, and
+    the integer accessors never convert a float
+
+`Dialect::Jsonc` accepts all of that and adds exactly two things:
+
+- Comments wherever whitespace may appear: `//` to the next LF or CR, and
+  `/* */`, which does not nest; an unterminated one is an error. Comments
+  are not kept in the `Value`.
+- One trailing comma after the last entry of a non-empty array or object
+  (`[1,]`, `{"a":1,}`); not `[,]`, not `[1,,]`, not after the top-level
+  value.
+
+Single quotes, unquoted keys and the other JSON5 extensions are errors in
+both dialects. In `Dialect::Json` a comment is `CommentNotAllowed` and a
+trailing comma is `TrailingCommaNotAllowed`.
+
+Errors: every failure is `CodecError::Json { offset, line, column, kind }`
+with a `json::ErrorKind`; the parser never panics.
+
+- `offset`: bytes into the input as given, counting a leading byte-order
+  mark.
+- `line`: from 1, counted at each LF (CR-LF counts once).
+- `column`: from 1, in Unicode scalar values, not bytes; a leading
+  byte-order mark is not counted.
+- `UnexpectedEnd` is at the end of the input, except when the input ends
+  inside a string, block comment or escape sequence: then it points at
+  where that construct starts, and `expected` says so. `InputTooLarge`
+  points at the character that holds the first byte past the limit.
+
+`Limits`, each checked before the memory it guards is allocated (override
+fields with `Limits { max_input_bytes: n, ..Limits::DEFAULT }`):
+
+| Field | Default | Bounds |
+| :- | :- | :- |
+| `max_input_bytes` | 64 MiB | Input length; checked first (in `parse_bytes`, before UTF-8 validation) |
+| `max_depth` | 128 | Array and object nesting (a scalar is depth 0, `[[1]]` is 2) |
+| `max_string_bytes` | 16 MiB | One string or key, in UTF-8 bytes after escapes are decoded |
+| `max_number_bytes` | 1,024 | One number's text (sign, digits, point, exponent) |
+| `max_entries` | 1,000,000 | Elements or members of one array or object, not of the whole document |
+
+Memory and stack:
+
+- The parser keeps its own stack on the heap and takes a failed tree apart
+  without recursing, so no depth limit can overflow the thread's stack
+  while parsing. Dropping, cloning, comparing, `Debug` and writing a `Value`
+  do recurse once per level, so keep `max_depth` in the hundreds.
+- A parsed tree takes at most 16 bytes of heap per byte of text, plus a
+  constant and a little working memory while parsing: a `Value` is 32 bytes
+  and needs at least 2 bytes of text (`0,`), and containers are allocated
+  at exactly their size. With glibc's per-allocation overhead, the worst
+  documents measured (`[[0]],` repeated) grow the process by about 23 times
+  their text; typical ones take 2 to 4 times (`cargo metadata` about 3). At
+  the default `max_input_bytes` the tree is capped at 1 GiB, about 1.5 GiB
+  with glibc.
+
+Writing:
+
+- Both writers emit strict JSON (no comments, no trailing commas) with
+  members in stored order, repeated names included, and escape only `"`,
+  `\` and U+0000 to U+001F. Integers are written as their digits; floats as
+  the shortest form that reads back as the same `f64`, always with a `.` or
+  an exponent (`1e3` is written `1000.0`).
+- Pretty output indents two spaces per level, writes `": "` after names,
+  keeps empty containers as `[]` and `{}`, and has no trailing newline.
+- Output reads back as an equal value if it fits the `Limits` it is read
+  with; it can be longer than the text it was parsed from.
+- Pretty output of a value nested `d` deep is at most `2d + 2` times its
+  compact size. Values shaped for it (`[[[0]]],` repeated) reach about 236
+  times at depth 128, so a 64 MiB document can pretty-print to about 15 GiB.
+  Bound the depth or compact size of an outside value before pretty-printing
+  it.
 
 ## `tidepool-regex`
 

@@ -57,7 +57,10 @@ as a pass.
 
 - `cargo xtask fuzz-smoke [--secs N] [--target T]` mutates each corpus in
   `fuzz/corpus/<target>/` (bit flips, splices, length edits, dictionary
-  tokens) and runs the parser in-process.
+  tokens) and runs the parser in-process. Provisional until M1.6: the
+  parsers after QOI live in crates outside `xtask`'s matrix row, and an
+  allocation cap needs a `GlobalAlloc`, which is `unsafe`
+  (`cargo xtask fuzz-smoke` in the table below).
 - Targets: JSON, TOML, XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, QOI,
   TrueType, Markdown, regex compile, VT parser, JSON-RPC framing, LSP
   messages, TAP messages, git porcelain v2, cargo JSON diagnostics, tool
@@ -83,18 +86,434 @@ as a pass.
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | Any of the checks below, `cargo fmt --check`, clippy `-D warnings`, or tests fail |
-| `cargo xtask deps` | `Cargo.lock` (any workspace) has a non-workspace package not in `xtask/deps-allowlist.txt` |
-| `cargo xtask layers` | A crate depends on a crate its matrix row doesn't allow |
-| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block without `// SAFETY:`, or `#![allow(unsafe_code)]` elsewhere |
-| `cargo xtask tools` | A `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
-| `cargo xtask theme` | A theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
-| `cargo xtask golden [--bless]` | A golden frame or TUI snapshot differs |
-| `cargo xtask fuzz-smoke` | A fuzz target crashes, hangs or exceeds its allocation cap |
-| `cargo xtask bench [filter]` | (Reports only) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers` or `unsafe-audit` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact or a file `deps` can't read, or cargo can't resolve a workspace offline |
+| `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
+| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
+| `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
+| `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
+| `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
+| `cargo xtask fuzz-smoke` | Not yet implemented (M1.6). Planned: a fuzz target crashes, hangs or exceeds its allocation cap. Provisional: the parsers of the targets after QOI live in crates outside `xtask`'s matrix row, and counting allocations needs a `GlobalAlloc`, which is `unsafe`. M1.6 must settle both |
+| `cargo xtask bench [filter]` | Not yet implemented (no task yet; first needed by M4.1). Planned: reports only |
 
-`xtask` never uploads, publishes, signs with real credentials, reads
-secrets or calls the network.
+`xtask` never uploads, publishes or signs with real credentials. `deps`
+never opens a file named like a secret (below); `unsafe-audit` reads every
+`.rs` file, whatever the rest of its name. It reads other files only
+as far as a check needs: the first 1 KiB, to compare with compiled-code
+signatures (none of it is kept or printed), or the whole of a file a check
+parses. It opens no sockets, and its cargo children run with
+`CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
+so with a `TIDEPOOL_IT_*` variable set, a real-tool test may still reach the
+network through its tool.
+
+### Command line and rules
+
+**Command line**
+
+- `cargo xtask <command> [--root DIR]`. `--root DIR` checks the repository
+  at `DIR` instead of the one `xtask` was built from; xtask's own tests use
+  it on generated fixtures. A relative `DIR` is made absolute against the
+  directory `xtask` started in, before any check runs
+  (`std::path::absolute`). Links are not resolved, and `..` is kept except
+  on Windows. `--help`, `-h` or `help` lists the commands.
+- Exit status: 0 if every check that ran passed; 1 if a check failed or
+  could not run; 2 if the command line was not understood (no or unknown
+  command, a stray argument, `--root` without a value or with an empty
+  one).
+- A check prints its notes, one `violation:` line per problem, then
+  `<check>: ok` or `<check>: FAILED (N violations)`. A check that cannot run
+  prints `<check>: FAILED: <reason>`. A violation or reason that quotes
+  cargo's error goes on over the following lines, without a prefix. So for a
+  check that ran, the verdict is always the last line; for one that could
+  not run, the `FAILED:` line may not be.
+- Secrets in messages (`AGENTS.md` rule 7): when `xtask` quotes the error
+  of a cargo child it reads (`cargo metadata`, `cargo locate-project`), it
+  leaves out the source lines cargo quotes (`  4 | token = "…"`). In those
+  errors, and wherever it shows a package source, every URL has its user
+  information replaced by `…` (`git+https://…@host/repo`). Not covered:
+  cargo's message text can still name a value that is not a URL, such as a
+  `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
+  stream cargo's output as cargo prints it. So keep secrets out of the
+  repository's cargo files; cargo reads credentials from `CARGO_HOME`.
+- When every violation `deps` found is an out-of-date lockfile (below), its
+  last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
+  (`1 violation` when there is one). That line is built from the count and
+  fixed text only, never from a violation's text, which may hold a path.
+  The Claude Code hook (`.claude/hooks/deps-guard.sh`) relies on it. In
+  `ci` the `deps` step line reads the same, but the summary does not
+  repeat it.
+- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `ucd`
+  (M1.1), `golden` (M2.4), `fuzz-smoke` (M1.6), `bench` (no task yet; first
+  needed by M4.1) and `package` (M11.6, M12.4, M14.4). Each exits 1 and
+  says it is not yet implemented, whatever other options it gets; only
+  `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
+  are handled first. `ci` lists `tools` and `theme` as "not yet
+  implemented". None is ever reported as a pass.
+- `xtask` runs `cargo` itself, not through `tidepool-toolchain` (an
+  exception to `AGENTS.md` rule 2, ADR-0017, Proposed): the cargo that
+  started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
+  children are `cargo metadata`, `cargo locate-project` and `ci`'s fmt,
+  clippy and test steps. It runs no other program. Each child is an argv
+  vector, never a shell, and runs in the root with standard input closed and
+  `CARGO_NET_OFFLINE=true`. `cargo metadata` and `cargo locate-project`,
+  whose output `xtask` reads, also get `CARGO_TERM_COLOR=never`, which
+  overrides the environment and `term.color`; the fmt, clippy and test steps
+  keep cargo's own colour setting. If `CARGO_TARGET_DIR` (or else
+  `CARGO_BUILD_TARGET_DIR`) is set and not empty, every child gets
+  `CARGO_TARGET_DIR` made absolute against the directory `xtask` started in.
+  This is provisional: `package` is specified to run `lipo`, `iconutil` and
+  `rc.exe` as well (`docs/05-release.md`), which this exception does not
+  cover.
+- The Claude Code hook (`.claude/hooks/deps-guard.sh`) runs after an edit
+  of a manifest, lockfile or cargo configuration file. It checks the
+  checkout holding the edited file: a linked worktree of this repository
+  inside the project, else the project. Its `PATH` keeps only absolute
+  entries, and rustup may not install a toolchain (`RUSTUP_AUTO_INSTALL=0`):
+  a toolchain that `rust-toolchain.toml` names but that is missing is
+  reported instead.
+  - Before it runs cargo, it reads the cargo configuration and the rustup
+    toolchain files (`rust-toolchain`, `rust-toolchain.toml`) in that
+    checkout and each directory above it, up to the project.
+    Configuration may hold only `[alias]` tables; the rules for alias
+    values are left to `deps`, which runs later. A toolchain file may hold
+    only `[toolchain]` with a plain `channel` and `profile`, `components`
+    and `targets`, or a legacy one-line toolchain name. A `path` there
+    would run another cargo.
+  - It never shows a value. A report gives the file and line, with the
+    first part of a table header (`[patch...]`) or a plain key
+    (`token = ...`). A line inside a multi-line string or array, including
+    one opened after a header, is shown as `...`. Source lines that cargo
+    quotes in its errors are left out, and the user information of every
+    URL in what it prints, its own lines and `xtask`'s, is replaced by
+    `...`.
+  - If the root workspace's lockfile is out of date, it checks only what
+    the root manifests declare (`cargo metadata --no-deps`) and whether
+    `Cargo.lock` names a package source. Then it says how to update the
+    lockfile offline and exits 2 without running `xtask`.
+  - It builds `xtask` only if `cargo tree` (normal and build edges) shows
+    every package it is built from to be a member of the root workspace.
+    Each must be in its own directory, reached without a symbolic link and
+    holding none (stricter than `deps`, on purpose). Every target's source
+    file must lie inside it, and it may have no build script and no
+    proc-macro target. So compiling runs no package's code.
+  - It builds into the checkout's `target/deps-guard/`, whatever
+    `CARGO_TARGET_DIR` or `build.target-dir` says, and refuses a symbolic
+    link inside it, so another checkout's build cannot supply the binary.
+    It removes the old binary before each build. It keeps a stamp of the
+    sources' contents and starts the build afresh when the stamp changes,
+    since cargo judges freshness by file times.
+  - `xtask` then runs `deps` and `layers`. If `xtask` cannot be built, the
+    hook runs `scripts/check-deps.sh` and exits 2 even when that passes,
+    because that check is incomplete. A report over 60 lines is cut to its
+    first 40 and last 5.
+  - Not covered: a file path with a JSON escape in it is not decoded, so
+    the project is checked rather than the worktree. On Windows every
+    path has one, which M12 must fix.
+
+**Files searched** (`deps` and `unsafe-audit`)
+
+- Everything under the root, including hidden directories, nested `.git`
+  directories and submodules. Skipped: `.git` directly under the root, the
+  `target` directory beside a `Cargo.toml` that `cargo locate-project
+  --workspace` reports as a workspace root, and linked worktrees of the
+  repository. A `target` beside any other manifest is searched.
+- That `target` must be a real directory: a symbolic link there is reported
+  like any other link. It is skipped only while cargo can load its
+  workspace. If cargo cannot (an invalid manifest, say), `target` is
+  searched like any other directory, and what cargo built there fails
+  `deps`.
+- Build output anywhere else in the repository is searched like source,
+  whether `CARGO_TARGET_DIR`, `CARGO_BUILD_TARGET_DIR` or `build.target-dir`
+  put it there, so the checks fail on what cargo built or the tests
+  generated there; a note says so when the environment named it. Keep the
+  build directory outside the repository or at `<root>/target`.
+- A worktree is skipped only if it is registered both ways: its `.git` is a
+  regular file (not a link) naming an entry in the repository's
+  `.git/worktrees/` (found through `commondir` when the root is itself a
+  worktree), and that entry's `gitdir` names it back. A note names each
+  skipped worktree; run `xtask` in it to check it. If this checkout builds
+  code from one, `cargo metadata` still shows a crate there. A root member
+  there fails the audit's crate-root rule, and `layers` too when it has no
+  row or an edge the matrix forbids. A non-member path package there fails
+  `deps`. A worktree inside a member's package directory fails the audit.
+- Symbolic links are never followed. A link to a directory is a violation,
+  and so is a link named like a file the check looks for: for `deps`, a
+  manifest, lockfile, cargo configuration file or compiled artifact; for the
+  audit, a `.rs` file or a manifest.
+- `Cargo.toml`, `Cargo.lock` and `.rs` match in any case, since macOS and
+  Windows ignore case. On Linux cargo cannot describe a workspace from a
+  `cargo.toml`, so that workspace fails closed.
+- Committed test data is checked as the real thing: a file named
+  `Cargo.toml` or `Cargo.lock`, `config` or `config.toml` in a `.cargo`
+  directory, a file ending in `.rs`, or one named or starting like a
+  compiled artifact (`deps`), in any case. Give samples another suffix
+  (`.rs.txt`), or generate them at test time under `<root>/target` or a
+  build directory outside the repository. xtask's fixtures use
+  `CARGO_TARGET_TMPDIR`, each in a case directory whose `Cargo.toml` is a
+  workspace with no members, so what lies above it never matters. Its unit
+  tests use `<root>/target/xtask-unit-tmp/`.
+- This covers planned test data too: TOML samples and fuzz seeds named
+  `Cargo.toml` or `Cargo.lock`, lexer inputs and fuzz seeds named `.rs`,
+  trust-test and cargo-task projects, and the Android and iOS sample apps.
+
+**`deps`**
+
+- Finds every `Cargo.toml` under the root and resolves the workspace each
+  belongs to once, offline and from its lockfile as it is: `cargo metadata
+  --format-version 1 --offline --locked`. It never rewrites a lockfile.
+  When cargo cannot list a workspace's members (an invalid root manifest
+  or configuration), each manifest is tried and reported on its own.
+- Only the root workspace and `agents/` (created by M9.2) may exist. The
+  members of `agents/` may be only `tp-agent-mock`, `tp-agent-local` and
+  `tp-agent-claude`, each in `agents/<name>/`. A manifest under the root
+  that belongs to any other workspace fails. This is provisional: approving
+  register item #30 (`cargo fuzz` in a `fuzz/` workspace,
+  `docs/02-dependency-policy.md`) would need this rule changed, and M9.2 may
+  need more members in `agents/` (shared TAP code, a conformance suite).
+- A resolved package with a `source` (registry or git) must be approved: an
+  allowlist line names it at its exact version, and the source is
+  crates.io.
+- A path package (`source` null) must lie in the repository (links and `..`
+  resolved) and be a member of the workspace whose graph it is in. Vendored
+  or copied code that is not a member fails, listed or not: in an
+  `exclude`d directory, in another workspace (even one of its own), or
+  outside the repository. Another workspace's crates fail too. As coded,
+  then, `agents/` cannot use `crates/`, and the root workspace cannot use
+  `agents/`. This is provisional: whether the reference agents may use root
+  crates such as `core` is an open question for M9.2.
+- In the root workspace, vendored code that cargo makes a member passes
+  `deps`. Cargo makes a path dependency inside the workspace directory a
+  member unless it is `exclude`d. `layers` fails on such a member when it
+  has no matrix row, as vendored third-party code has none, but `ci` runs
+  `layers` only after clippy and test (`ci`, below). In `agents/` such a
+  member fails `deps` unless it is a reference agent in its own directory.
+- Every registry or git dependency a member declares, in any table and for
+  any target, must be approved, from crates.io, with the exact requirement
+  `=version`. An unapproved one fails even when `[patch]`, `[replace]` or
+  `[source]` serves it from a directory.
+- Every `Cargo.lock` under the root is also read as text, whether a
+  workspace uses it or not. A `source = ` line fails unless it is in a
+  `[[package]]` entry from crates.io whose name and version are approved;
+  with the allowlist empty, any does. A quoted `"source"` or `'source'` key
+  counts as one. A `source` key in a dotted key or inline table, and any
+  quoted key with an escape, fail.
+- Fails closed: a workspace cargo can't resolve this way (a crates.io
+  package not available offline, a manifest in no workspace, a lockfile
+  that needs updating) is a violation, because its graph was not checked.
+  What its members declare is still checked (`--no-deps`): registry, git,
+  outside and non-member path dependencies, and members outside the
+  repository, are each reported. If those pass and cargo's error is that
+  the lockfile is out of date, the message says so and gives an offline
+  update that compiles nothing (`cargo metadata --offline --format-version
+  1 --manifest-path <manifest>`); run `deps` again after it. Only that
+  message counts as an out-of-date lockfile. If every violation `deps`
+  found is one, the last line reads `deps: FAILED (N violations; only
+  out-of-date lockfiles)`. Any other violation, anywhere, gives the plain
+  form.
+- A cargo configuration file (`config` or `config.toml` in a `.cargo`
+  directory, anywhere under the root, in any case) may hold only comments
+  and an `[alias]` table: bare names, each with a one-line `"..."` string
+  or array of them, without escapes or `--config`. Any other line fails,
+  since it could change what cargo builds or what the checks see. An
+  allowed alias can still change what `cargo xtask` runs (another
+  manifest, say), so alias changes need review. A value could be a secret
+  such as a registry token, so a violation never shows one. It shows the
+  first part of a table header when that is a bare name (`[registry]`,
+  `[patch.…]`, otherwise `[…]`), or a key when it is a bare or dotted one
+  (`token = …`). A line that continues a multi-line string, array or inline
+  table, including one opened after a header, is shown as `…`. One UTF-8
+  byte-order mark at the start of the file is skipped. Configuration outside the repository (parent
+  directories, `CARGO_HOME`, `--config`) is not checked.
+- A compiled artifact fails: a file named `.rlib`, `.rmeta`, `.a`, `.o`,
+  `.obj`, `.so`, `.dylib`, `.dll`, `.lib`, `.exe` or `.wasm` (in any case),
+  or one whose first bytes are ELF, Mach-O (thin, or a 32- or 64-bit
+  universal header; a Java class shares the 32-bit one), PE (when its PE
+  header lies in the first 1 KiB), an `ar` archive, rustc metadata,
+  WebAssembly, or LLVM bitcode, raw or wrapped. A bare COFF object is known
+  by name only. A file named like an artifact fails by name
+  and is not opened. Files named like secrets (`.env`, `.env.*`,
+  `keystore.properties`, `*.jks`, `*.keystore`, `*.p12`, `*.p8`, `*.pem`,
+  `*.key`, `*.mobileprovision`, `*.provisionprofile`, in any case) are
+  never opened. Of every other file it searches, `deps` reads the first
+  1 KiB.
+- A file it cannot open or read for that is a violation (it was not
+  checked), and the check goes on. A directory it cannot list, or a
+  lockfile, cargo configuration file or allowlist it cannot read (missing,
+  over 16 MiB or not UTF-8), stops the check: `deps: FAILED: <reason>`.
+- `xtask/deps-allowlist.txt` has one `name version ADR-NNNN` per line:
+  three fields separated by whitespace, the last `ADR-` and four digits.
+  Blank lines and `#` lines are ignored; any other line is a violation. One
+  UTF-8 byte-order mark at the start of the file is skipped. A line
+  approves that name at that version from crates.io only. The list is empty
+  (ADR-0001). A missing allowlist fails the check, and so does a tree with
+  no `Cargo.toml` anywhere under the root.
+
+**`layers`**
+
+- Reads the matrix from `docs/01-architecture.md` → "Dependency matrix" on
+  every run. A cell is `—` (or `-`), `all crates above`, `any workspace
+  crate`, or backticked names (`core` for `tidepool-core`, or an alias such
+  as `app`), optionally followed by "(used only as a dev-dependency)".
+  Anything else fails, naming the line.
+- The document is read close to how GFM renders it, by these rules. Where
+  they differ from a renderer, they mostly fail:
+  - HTML comments and fenced code blocks (fences indented at most three
+    columns) are not read as text. A line a comment touches is not read as
+    text either, so a comment on a table row ends the table there, and the
+    rows after it fail as a second table.
+  - Only fenced code blocks and code spans count as code. An indented code
+    block is read as text. A code span counts only if it closes on its
+    line.
+  - Outside code, the document may hold no raw HTML but comments, as a
+    block or inline. A line whose first character after any indentation is
+    `<` (other than a comment) counts as an HTML block and fails. So does
+    HTML-like text in an indented code block, such as `<root>` or
+    `Vec<u8>`.
+  - It has one header row of the matrix's shape, with or without outer
+    pipes, counting comments and code.
+  - The section runs to the next line read as text that starts with `# `
+    or `## ` (a setext or indented heading does not end it). Its table is
+    the run of lines starting with `|` (not indented) from the first such
+    line. The section has exactly one table, with a GFM delimiter row
+    (cells such as `:-`, `---` or `-:`), and no other line of it that is
+    read as text holds a `|`.
+  - Two gaps are known, and each needs crafted text. A line without `|`
+    directly under the table, which GFM renders as one more row, is not
+    read and does not fail. A backslash before a backtick is not read as
+    an escape, so `` \` `` still opens a code span here, and raw HTML after
+    it is missed.
+- Checks the root workspace only (`cargo metadata --offline --no-deps`); the
+  matrix has no rows for `agents/`. Every member needs a row, and every row
+  a member.
+- Every declared dependency counts: normal, dev and build, for every target
+  platform.
+- A path dependency is matched to a member by its resolved directory, not
+  its name. A path crate that is not a member fails, named by its resolved
+  directory relative to the resolved workspace root
+  (`vendor/tidepool-core`), or in full if it lies outside that root. A
+  registry or git dependency named like a member counts as an edge to it,
+  since a `[patch]` can serve the member under that name. Other registry
+  and git dependencies are left to `deps`.
+- A crate whose row says "(used only as a dev-dependency)" (today only
+  `tidepool-testkit`) may be used only from `[dev-dependencies]`. The note
+  grants no edge: a crate may use testkit only if its own row allows it.
+  Today only `tidepool-bench` ("any workspace crate") does. This is
+  provisional: the test plan has the tests of `toolchain`, `vcs`, `mobile`,
+  `rpc` and `lang`, among others, use testkit's fakes and transcripts,
+  which fails `layers` as the matrix stands. The matrix needs a decision
+  before M5.1.
+
+**`unsafe-audit`**
+
+- Reads every `.rs` file under the root with its own small lexer. The lexer
+  tells code from comments and from string, raw string, byte, C string and
+  character literals; it is not a parser. It never fails or panics: text
+  that isn't valid Rust still gets an answer, and the compiler reports it.
+  A raw identifier (`r#unsafe`) is a name, never a keyword. Because it reads
+  text, it covers every `cfg` branch and code in macros.
+- Violations:
+  - `unsafe` in any form (block, `fn`, `impl`, `trait`, `extern`,
+    `#[unsafe(...)]`) outside `crates/sys/` and `crates/platform/`.
+  - In those two, an `unsafe` block or `unsafe impl` with no `//` comment
+    starting `SAFETY:` between the end of the previous statement (`;`, `{`
+    or `}`) and the keyword. Doc comments and `/* */` don't count.
+  - `allow`, `expect` or `warn` of `unsafe_code` (also inside `cfg_attr`)
+    anywhere but `crates/sys/src/lib.rs` and `crates/platform/src/lib.rs`.
+    Only attributes in source are seen; no check reads a member's `[lints]`
+    table or `RUSTFLAGS`. So `unsafe` compiles only in the library targets
+    of `sys` and `platform` (their `#[cfg(test)]` modules included). Their
+    integration tests, benches, examples and binaries are crates of their
+    own, under the workspace's `deny`. This is provisional: M2.2's Xvfb test
+    reads pixels back with `XGetImage`, and where that FFI call may live is
+    an open question.
+  - A function written `pub` or `pub(...)` `unsafe fn` (also `const`,
+    `async`, with an `extern` ABI, or in an `extern` block) with no
+    `# Safety` line in its outer doc comments and no `# Safety` in its
+    `#[doc = "..."]` attributes. An unmarked `pub fn` in an `unsafe extern`
+    block is not checked.
+  - An `extern` block outside `tidepool-sys`, or one in it not written
+    `unsafe extern`.
+  - In those two crates, a `#[macro_export]` `macro_rules!` (also through
+    `cfg_attr`) with an `unsafe` block or `unsafe impl` that holds a
+    metavariable other than `$crate`: in a calling crate, the caller's
+    tokens would run as `unsafe` that neither its lint nor the audit sees.
+- Fails closed on these ways of bringing in code it did not read:
+  - `#[path = "..."]` or `include!(...)` (also in `cfg_attr`, as a raw
+    identifier, or through `std::`), unless the argument is one plain or raw
+    string literal without escapes, naming a relative `.rs` path inside the
+    file's directory. No `:` anywhere. Each `/`-separated component is
+    non-empty, doesn't start with `.`, doesn't end in `.` or a space, isn't
+    `target` in any case, and has no `\` or `~`.
+  - A crate root of a member of any workspace under the root (library,
+    binary, test, example, bench or build script, as `cargo metadata
+    --offline --no-deps` reports it) that is not a file the audit read, such
+    as `[lib] path = "src/lib.txt"`. A workspace cargo can't describe
+    offline is a violation.
+  - A crate root of such a member, of any kind (build scripts included),
+    that does not lie inside its package directory, both with links and
+    `..` resolved, such as `[lib] path = "../../lib.rs"`. From outside, a
+    plain `mod target;` could compile a directory the audit skips. The
+    violation names the target, the crate root and the package directory.
+  - A skipped linked worktree inside the package directory of a member of
+    any workspace, since a plain `mod` could compile files from it.
+  - A symbolic link (above), a file over 8 MiB, or a file that isn't UTF-8.
+    A `.rs` file it cannot read stops the audit:
+    `unsafe-audit: FAILED: <reason>`.
+  - `crates/sys/src/lib.rs` or `crates/platform/src/lib.rs` not found,
+    which means the root is wrong.
+- Not covered: a workspace root's `target/` inside a member's package
+  directory, as when one manifest holds both `[workspace]` and `[package]`.
+  A crate root placed directly in that directory (`[lib] path = "lib.rs"`,
+  or a `build.rs` beside the manifest) can reach `target/` through a plain
+  `mod target;`, and the audit does not see those files. Tidepool's root
+  manifest has no `[package]` today.
+- Also not covered: unsafe attributes (`#[no_mangle]`, `#[export_name]`,
+  `#[link_section]`) written without `unsafe`, as editions before 2024
+  allow. Only the `unsafe_code` lint catches those. Members are expected to
+  use edition 2024 and `[lints] workspace = true`, which no check verifies.
+- Notes list the `unsafe` uses per crate (review any growth), the files
+  scanned and the crate roots checked.
+- It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
+  No check does.
+
+**`ci`**
+
+- Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
+  `layers`, `unsafe-audit`. Each step starts with a `== <step>: ...`
+  heading; the cargo steps print cargo's own output.
+- It keeps going after a failure, so one run reports every problem, with
+  one exception. Once `deps` has failed or could not run, clippy and test
+  are not run, because they would build and run the code `deps` rejected
+  (build scripts, proc macros, tests). `fmt` only reads source, so it still
+  runs. `layers` and `unsafe-audit` are not gates, and run after clippy and
+  test. So code that `deps` accepts but they reject, such as a vendored
+  crate that cargo made a member, is still compiled, and its build scripts
+  and tests run, before they report it.
+- The cargo steps are cargo children like the others: offline, with
+  standard input closed. The test step's output passes through `xtask` as
+  it arrives, so by default cargo and libtest print it without colour, and
+  the two streams may interleave differently.
+- A line of the test step's output, on either stream, that starts with
+  `SKIPPED:` (after any indentation) is a skipped test. After the step each
+  reason is printed as `skipped: <reason>` (up to 1000; the rest are
+  counted), and the step line reads `test: ok (2 SKIPPED)` or `test:
+  FAILED (1 violation; 2 SKIPPED)`. A skip does not fail `ci`; it is listed
+  and counted, not passed. A test reports one by writing it straight to
+  `std::io::stderr()`: libtest captures `println!`/`eprintln!` from a
+  passing test, so `ci` never sees those. A write straight to
+  `std::io::stdout()` is seen too, but libtest writes its own lines there,
+  so such a write should start with a newline. Prefer standard error.
+- It ends with a summary: each step's result and time (the test row with
+  its `(N SKIPPED)`), "not run (deps failed)" where that applies, and
+  `tools` and `theme` as "not yet implemented". The last line is `ci: ok:
+  N of N steps passed` or `ci: FAILED: M of N steps failed: <steps>`, then
+  `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
+  while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
+  SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
+  SKIPPED): 6 of 6 steps passed; not yet implemented: tools, theme`.
+  Scripts should rely on the exit status, which is 0 only if every step
+  passed.
 
 ## CI (GitHub Actions)
 

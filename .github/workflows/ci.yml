@@ -1,0 +1,87 @@
+# CI gate: `cargo xtask ci` on Linux, macOS and Windows (docs/04-quality.md
+# -> "CI (GitHub Actions)"; runner OSes per docs/03-platforms.md -> "Targets").
+#
+# - Only first-party actions, each pinned by full commit SHA with its release
+#   tag in a comment. Re-pin with:
+#     git ls-remote --tags https://github.com/actions/<name> \
+#       'refs/tags/vX.Y.Z' 'refs/tags/vX.Y.Z^{}'
+#   using the peeled `^{}` SHA when the tag is annotated.
+# - No toolchain action: the hosted runners ship rustup, and
+#   `rust-toolchain.toml` selects the pinned toolchain and its components.
+# - TODO(M1.6): docs/04-quality.md also requires a Linux fuzz-smoke step
+#   (30 s per target). It is left out until `cargo xtask fuzz-smoke` exists
+#   (roadmap M1.6, whose entry notes this step). When it lands, add a step
+#   with `if: runner.os == 'Linux'` that runs
+#   `cargo xtask fuzz-smoke --secs 30`.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: xtask ci (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      # The workspace has zero third-party packages, so Cargo never needs the
+      # network; an accidental registry or git dependency fails closed.
+      CARGO_NET_OFFLINE: "true"
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Windows runners default to core.autocrlf=true; keep LF so fmt and the
+      # doc-table parsers see the same bytes on every OS.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          rustc --version --verbose
+          cargo --version --verbose
+          cargo fmt --version
+          cargo clippy --version
+
+      # Keyed on the toolchain and the lockfile. A fallback restore never
+      # crosses toolchains, so stale compiler artifacts are not reused.
+      # ~/.cargo/bin is left out: it holds the runner image's rustup proxies.
+      - name: Cache Cargo home and target
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
+
+      - name: cargo xtask ci
+        run: cargo xtask ci

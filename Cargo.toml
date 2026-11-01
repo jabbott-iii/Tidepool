@@ -1,0 +1,67 @@
+[workspace]
+resolver = "3"
+# Members in layer order (docs/01-architecture.md). `agents/` is a separate
+# workspace and is never a member.
+members = [
+    "crates/core",
+    "crates/sys",
+    "crates/platform",
+    "crates/codec",
+    "crates/text",
+    "crates/regex",
+    "crates/gfx",
+    "crates/font",
+    "crates/markdown",
+    "crates/rpc",
+    "crates/toolchain",
+    "crates/syntax",
+    "crates/term",
+    "crates/workspace",
+    "crates/ui",
+    "crates/lang",
+    "crates/vcs",
+    "crates/agent",
+    "crates/mobile",
+    "crates/editor",
+    "crates/gui",
+    "crates/tui",
+    "crates/app",
+    "crates/testkit",
+    "xtask",
+    "bench",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "Apache-2.0"
+
+# Workspace lints: docs/01-architecture.md. Every member uses
+# `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "deny"              # sys and platform override with #![allow(unsafe_code)]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+unwrap_used = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+# Profiles: docs/05-release.md.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"      # the panic hook writes a crash report and restores the terminal
+debug = "line-tables-only"
+strip = "debuginfo"   # full symbols archived separately per build
+
+[profile.xtask]
+inherits = "release"
+debug = false

@@ -1,0 +1,21 @@
+// Editor settings as a person would write them: comments, trailing commas,
+// and keys in an order that means something to them.
+{
+  "theme": "tidepool-dark",
+  "font": { "family": "Tidepool Mono", "size": 13.5, "ligatures": false, },
+
+  /* Members keep this order when the file is written back,
+     which is why objects are kept as lists. */
+  "editor": {
+    "rulers": [80, 100,],          // trailing comma on purpose
+    "tab_width": 4,
+    "scroll_speed": 2.5e-1,
+    "keymap": "vim",
+    "format_on_save": true,
+  },
+  "languages": {
+    "rust": { "server": "rust-analyzer", "args": [], "env": null },
+    "markdown": { "preview": { "sync_scroll": true, "zoom": -1.0 } },
+  },
+  "note": "50% → \"ok\"\t(tab), url: http://example.com/a//b /* not a comment */",
+}
