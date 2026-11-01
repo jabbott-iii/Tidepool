@@ -2,8 +2,9 @@
 //!
 //! Ported from nadir xtask `error.rs`. Adapted for Tidepool: errors for the
 //! dependency-matrix document and for commands that are not implemented
-//! yet; the fuzzing and file-writing variants stay in Nadir until their
-//! roadmap tasks.
+//! yet. Nadir's file-writing variant, [`Error::Write`], is ported for `ucd`
+//! (roadmap M1.1); its fuzzing variants stay in Nadir until their roadmap
+//! task.
 
 use std::fmt;
 use std::io;
@@ -69,6 +70,13 @@ pub(crate) enum Error {
     },
     /// Writing to standard output failed.
     Output(io::Error),
+    /// A file could not be written.
+    Write {
+        /// The file.
+        path: PathBuf,
+        /// What the OS reported.
+        source: io::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -103,6 +111,9 @@ impl fmt::Display for Error {
             } => write!(f, "{path}: {detail}"),
             Self::Doc { path, line, detail } => write!(f, "{path}:{line}: {detail}"),
             Self::Output(source) => write!(f, "cannot write to standard output: {source}"),
+            Self::Write { path, source } => {
+                write!(f, "cannot write `{}`: {source}", path.display())
+            }
         }
     }
 }
@@ -110,9 +121,10 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Read { source, .. } | Self::Spawn { source, .. } | Self::Output(source) => {
-                Some(source)
-            }
+            Self::Read { source, .. }
+            | Self::Spawn { source, .. }
+            | Self::Write { source, .. }
+            | Self::Output(source) => Some(source),
             Self::Usage(_)
             | Self::NotImplemented { .. }
             | Self::CommandFailed { .. }
@@ -163,6 +175,17 @@ mod tests {
             detail: "no matrix".to_string(),
         };
         assert_eq!(whole.to_string(), "docs/01-architecture.md: no matrix");
+
+        let write = Error::Write {
+            path: PathBuf::from("crates/text/src/pos/grapheme/tables.rs"),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        let message = write.to_string();
+        assert!(
+            message.starts_with("cannot write `crates/text/src/pos/grapheme/tables.rs`: "),
+            "{message}"
+        );
+        assert!(write.source().is_some());
 
         let later = Error::NotImplemented {
             command: "tools",

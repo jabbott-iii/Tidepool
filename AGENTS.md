@@ -130,8 +130,9 @@ assuming.
 | Command | What it does |
 | :- | :- |
 | `sh scripts/check-deps.sh` | Fails if any workspace resolves a non-path package (exists now) |
-| `cargo xtask ci` | fmt check, clippy (`-D warnings`), tests, `deps`, `layers`, `unsafe-audit`, `tools`, `theme`: the full gate |
+| `cargo xtask ci` | fmt check, clippy (`-D warnings`), tests, `deps`, `layers`, `unsafe-audit`, `ucd`, `tools`, `theme`: the full gate |
 | `cargo xtask deps` / `layers` / `unsafe-audit` / `tools` / `theme` | Individual checks (`docs/04-quality.md`) |
+| `cargo xtask ucd [--check]` | Regenerate the grapheme tables from the pinned Unicode data, or with `--check` verify them (ADR-0018) |
 | `cargo xtask golden [--bless]` | Golden frames and TUI snapshots |
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Dependency-free mutation fuzzer |
 | `cargo xtask bench [filter]` | Benchmarks in release mode |

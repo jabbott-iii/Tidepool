@@ -257,7 +257,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0013 — Settings, keymaps, themes, language packs and tool descriptors are TOML
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** Tidepool must parse TOML anyway (`Cargo.toml`). One
   human-edited format keeps the codec surface small.
@@ -347,3 +347,97 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** `xtask` needs any program other than `cargo` (M1.6 or
   M11.6, whichever comes first), or `tidepool-toolchain` gains a process
   API that `xtask` could use within the matrix.
+
+## ADR-0018 — Unicode data: the official UCD files are kept in the repository, and `xtask ucd` generates the tables
+
+- **Status:** Accepted
+- **Date:** 2026-11-01
+- **Context:** `pos` finds extended grapheme cluster boundaries (UAX #29,
+  roadmap M1.1). Those need three Unicode properties that `std` does not
+  expose: `Grapheme_Cluster_Break`, `Extended_Pictographic` and
+  `Indic_Conjunct_Break`. Rust 1.99's `std` uses Unicode 17.0.0
+  (`char::UNICODE_VERSION`). Build scripts may not download anything
+  (`docs/02-dependency-policy.md`), and `xtask` never calls the network
+  (`docs/04-quality.md`). The user approved the download and this record
+  on 2026-11-01.
+- **Decision:**
+  - The official Unicode 17.0.0 files are kept, unchanged, in
+    `crates/text/ucd/17.0.0/`. They were downloaded once, on 2026-11-01,
+    from `https://www.unicode.org/Public/17.0.0/`:
+    - `ucd/auxiliary/GraphemeBreakProperty.txt`, `ucd/emoji/emoji-data.txt`
+      and `ucd/DerivedCoreProperties.txt` are the property sources;
+    - `ucd/auxiliary/GraphemeBreakTest.txt` is the conformance test, used
+      only by tests;
+    - `license.txt`, from `https://www.unicode.org/license.txt`, is the
+      Unicode License v3.
+  - `xtask` pins each file's SHA-256 and checks it before reading the
+    file. `cargo xtask ucd` writes the generated tables into
+    `tidepool-text`. `cargo xtask ucd --check`, a `ci` step, fails when the
+    committed tables differ from what the files produce.
+  - The files are an asset with a compatible license, listed in
+    `docs/02-dependency-policy.md` → "Assets". They are data, not code, so
+    they are not a dependency.
+  - The generated tables ship in the binary, so `LICENSES.txt` carries the
+    Unicode license next to the fonts' licenses.
+  - The Unicode version follows `std`. A test fails when the tables'
+    version differs from `char::UNICODE_VERSION`. A Rust upgrade that
+    changes it adds the new version's files, moves the pins and regenerates
+    the tables, as a change of its own.
+- **Consequences:**
+  - About 1.47 MB of text per Unicode version in the repository
+    (`DerivedCoreProperties.txt` is 1.13 MB of it).
+  - Segmentation is tested against every case in `GraphemeBreakTest.txt`.
+  - The tables and `std`'s character properties always agree on the
+    Unicode version.
+- **Alternatives considered:**
+  - Downloading the files at build time: build scripts may not download.
+  - Hand-written tables: no reproducible link to the source data.
+  - Keeping only the `Indic_Conjunct_Break` lines of
+    `DerivedCoreProperties.txt` (tens of KB): the kept file could no longer
+    be checked against the official one.
+  - The user downloading the files on each machine: slower, and nothing
+    gained.
+- **Revisit when:** Rust's `char::UNICODE_VERSION` changes, or another
+  crate needs Unicode data: general categories and scripts for `regex`
+  (M4.4), or display width for the editor and terminal. Those add their
+  files to this directory under the same rules.
+
+## ADR-0019 — Text positions: byte offsets are canonical; lines end at LF, CR LF or CR; bad positions are errors
+
+- **Status:** Accepted
+- **Date:** 2026-11-01
+- **Context:** M1.1 fixes the position model that `editor`, vim mode,
+  `lang` (LSP), `syntax`, `regex` and `agent` all build on. LSP 3.17 says
+  lines end at `\n`, `\r\n` or `\r`, lets client and server agree on
+  `utf-8`, `utf-16` or `utf-32` columns, and forbids a position between `\r`
+  and `\n`. rustc, rust-analyzer and git treat a lone CR as an ordinary
+  character. Positions arrive from outside: LSP servers, agents, cargo's
+  JSON and session files. The user accepted this record on 2026-11-01.
+- **Decision:**
+  - A position in a `Rope` is a byte offset; ranges are byte ranges. Char
+    and UTF-16 offsets, and columns in bytes, UTF-16 units or chars
+    (`Unit::{Byte, Utf16, Char}`, LSP's three encodings), are conversions,
+    always given the unit explicitly.
+  - Lines end at LF, CR LF or a lone CR. VT, FF, NEL, LS and PS are
+    ordinary characters. A text has one more line than it has line breaks.
+  - The offset between a CR and its LF is a valid position. It is on the
+    line that CR LF ends, one column past the line's content.
+  - Rope chunks never split a CR LF pair.
+  - Edits, slices, iterator constructors and conversions return
+    `Result<_, TextError>` and change nothing on error. Boundary and
+    grapheme queries are total. Nothing panics on a bad position.
+- **Consequences:**
+  - A file with a lone CR shows a line break where rustc and rust-analyzer
+    see none. `lang` maps positions between the two (M6.3, M6.4).
+  - A malformed position from outside cannot crash the IDE.
+  - LSP cannot express the CR|LF offset; `lang` moves it before sending.
+- **Alternatives considered:**
+  - LF-only lines (rustc, git): differs from LSP clients such as VS Code.
+  - Char offsets as the canonical unit (as ropey does): every LSP and
+    file-offset use would pay a conversion.
+  - Panicking on bad positions, as `std` does for strings: an outside
+    position could crash the IDE.
+  - An `InsideCrlf` error for the CR|LF offset: byte to line/column would
+    then fail on an offset that edits accept.
+- **Revisit when:** a supported language server disagrees in practice, or
+  vim mode needs another view of lines.

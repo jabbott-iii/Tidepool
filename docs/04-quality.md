@@ -86,10 +86,11 @@ as a pass.
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers` or `unsafe-audit` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
+| `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
@@ -101,7 +102,9 @@ never opens a file named like a secret (below); `unsafe-audit` reads every
 `.rs` file, whatever the rest of its name. It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
-parses. It opens no sockets, and its cargo children run with
+parses. The one file it writes in the repository is the generated Unicode
+tables, with `cargo xtask ucd` without `--check` (below). It opens no
+sockets, and its cargo children run with
 `CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
 so with a `TIDEPOOL_IT_*` variable set, a real-tool test may still reach the
 network through its tool.
@@ -110,7 +113,9 @@ network through its tool.
 
 **Command line**
 
-- `cargo xtask <command> [--root DIR]`. `--root DIR` checks the repository
+- `cargo xtask <command> [--root DIR]`. Every command takes no other
+  argument, except `ucd`, which also accepts `--check` (once).
+  `--root DIR` checks the repository
   at `DIR` instead of the one `xtask` was built from; xtask's own tests use
   it on generated fixtures. A relative `DIR` is made absolute against the
   directory `xtask` started in, before any check runs
@@ -142,9 +147,9 @@ network through its tool.
   The Claude Code hook (`.claude/hooks/deps-guard.sh`) relies on it. In
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
-- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `ucd`
-  (M1.1), `golden` (M2.4), `fuzz-smoke` (M1.6), `bench` (no task yet; first
-  needed by M4.1) and `package` (M11.6, M12.4, M14.4). Each exits 1 and
+- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
+  (M2.4), `fuzz-smoke` (M1.6), `bench` (no task yet; first needed by M4.1)
+  and `package` (M11.6, M12.4, M14.4). Each exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
   are handled first. `ci` lists `tools` and `theme` as "not yet
@@ -476,18 +481,73 @@ network through its tool.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
   No check does.
 
+**`ucd`**
+
+- Inputs: the five files in `crates/text/ucd/17.0.0/` (ADR-0018). They are
+  `GraphemeBreakProperty.txt`, `emoji-data.txt`,
+  `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (read only by
+  `tidepool-text`'s tests) and `license.txt`, each pinned by its SHA-256 in
+  `xtask/src/ucd.rs`. Before anything is parsed, each must be a regular
+  file (a symbolic link is never followed), at most 4 MiB, UTF-8, and match
+  its pin. Otherwise it is a violation, and nothing is parsed or written.
+  `.gitattributes` keeps git from converting their line endings, which
+  would break the pins.
+- It packs three properties into one byte per code point, using the
+  constants of `class` in `crates/text/src/pos/grapheme.rs`:
+  - `Grapheme_Cluster_Break` in bits 0–3;
+  - `Indic_Conjunct_Break`, from the `InCB` lines, in bits 4–5;
+  - `Extended_Pictographic` in bit 6.
+- Each file's first line and its `@missing` default (for `emoji-data.txt`,
+  its `# Version:` line) must be the expected ones, and every data line
+  must parse. No code point may get one property twice. Each
+  `# Total code points: N` line must count the code points kept since the
+  previous one, unless none were. Two more things are errors, because the
+  grapheme engine relies on them: a code point that is both ZWJ and
+  Extended_Pictographic, and a U+000A or U+000D that is not exactly LF or
+  CR.
+- Output: `crates/text/src/pos/grapheme/tables.rs`. It holds a header
+  naming the three sources, their SHA-256s and the Unicode license, then
+  `UNICODE_VERSION`, then the sorted ranges of code points whose
+  properties are not all defaults, one per line. It has LF line endings
+  and the same bytes on every run and OS.
+- Without `--check`, it writes the file only when it differs: to a new
+  `tables.rs.tmp` beside it (a leftover one is removed first), which is
+  then renamed over it. A linked or non-regular output is a violation and is
+  not replaced. With `--check` (the `ci` step), a missing, linked or
+  different output is a violation that names the first different line.
+- Directories: each directory below the repository root on the way to the
+  inputs or the output must be a real directory. That is `crates`,
+  `crates/text`, `crates/text/ucd`, `crates/text/ucd/17.0.0`,
+  `crates/text/src`, `crates/text/src/pos` and
+  `crates/text/src/pos/grapheme`. They are checked shallowest first,
+  before anything is read.
+  - A link is the violation `<dir> is a symbolic link, which ucd does not
+    follow`; anything else that is not a directory is `<dir> is not a
+    directory`. Either is reported once and stops the run.
+  - Without `--check`, the output's directories are checked again just
+    before writing. A missing one is made one level at a time, and each is
+    checked again once made.
+- It opens no sockets and starts no process. Its parser is not a fuzz
+  target, because its inputs are pinned (ADR-0018).
+- Not covered:
+  - Races. std has no `openat`, so a directory swapped for a link between
+    the check and the open is followed. A link committed to the repository
+    cannot race.
+  - Hard links are not detected.
+
 **`ci`**
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `unsafe-audit`. Each step starts with a `== <step>: ...`
+  `layers`, `unsafe-audit`, `ucd` (as `ucd --check`). Each step starts with
+  a `== <step>: ...`
   heading; the cargo steps print cargo's own output.
 - It keeps going after a failure, so one run reports every problem, with
   one exception. Once `deps` has failed or could not run, clippy and test
   are not run, because they would build and run the code `deps` rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
-  runs. `layers` and `unsafe-audit` are not gates, and run after clippy and
-  test. So code that `deps` accepts but they reject, such as a vendored
+  runs. `layers`, `unsafe-audit` and `ucd` are not gates, and run after
+  clippy and test. So code that `deps` accepts but they reject, such as a vendored
   crate that cargo made a member, is still compiled, and its build scripts
   and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
@@ -511,7 +571,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 6 of 6 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 7 of 7 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 

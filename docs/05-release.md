@@ -35,7 +35,8 @@ CI release jobs.
 ### Linux
 
 - `tidepool-<version>-x86_64-linux.tar.gz`: the binary, `tidepool.desktop`,
-  icons (PNG sizes 16–512), `LICENSE`, `LICENSES.txt` (fonts: SIL OFL 1.1).
+  icons (PNG sizes 16–512), `LICENSE`, `LICENSES.txt` (fonts: SIL OFL 1.1;
+  Unicode data: Unicode License v3, ADR-0018).
 - AppImage is backlog.
 
 ### macOS
@@ -87,5 +88,6 @@ CI release jobs.
       Toolchains panel installs rust-analyzer and detects git.
 - [ ] An Android app builds, signs and installs from the packaged build;
       an iOS app on macOS.
-- [ ] Font license files are included and unchanged.
+- [ ] Font license files and the Unicode license (ADR-0018) are included
+      and unchanged.
 - [ ] `git diff` of the release reviewed for secret material.

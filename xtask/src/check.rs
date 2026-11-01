@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::Skips;
 use crate::error::Error;
-use crate::{cargo, deps, layers, unsafe_audit};
+use crate::{cargo, deps, layers, ucd, unsafe_audit};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -116,6 +116,27 @@ pub(crate) const UNSAFE_AUDIT: Check = Check {
     role: Role::Independent,
 };
 
+/// What `ucd` does, with and without `--check`.
+const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
+                         generates (without --check: write it)";
+
+/// `cargo xtask ucd --check`, the step of `ci`.
+pub(crate) const UCD: Check = Check {
+    name: "ucd",
+    about: UCD_ABOUT,
+    step: Step::Own(ucd::check),
+    role: Role::Independent,
+};
+
+/// `cargo xtask ucd`, which writes the tables. Not a step of `ci`, and not
+/// in [`COMMANDS`]: `main` runs it for `ucd` without `--check`.
+pub(crate) const UCD_WRITE: Check = Check {
+    name: "ucd",
+    about: UCD_ABOUT,
+    step: Step::Own(ucd::write),
+    role: Role::Independent,
+};
+
 const FMT: &[&str] = &["fmt", "--all", "--", "--check"];
 const CLIPPY: &[&str] = &[
     "clippy",
@@ -127,8 +148,9 @@ const CLIPPY: &[&str] = &[
 ];
 const TEST: &[&str] = &["test", "--workspace"];
 
-/// The checks that are subcommands of their own.
-pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT];
+/// The checks that are subcommands of their own. `ucd` is listed as its
+/// `--check` form; without `--check` it runs [`UCD_WRITE`].
+pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, UCD];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
 /// dependency problem is reported, and nothing is compiled, before
@@ -155,6 +177,7 @@ pub(crate) const CI: &[Check] = &[
     },
     LAYERS,
     UNSAFE_AUDIT,
+    UCD,
 ];
 
 /// A command that `AGENTS.md` names but a later roadmap task implements.
@@ -179,11 +202,6 @@ pub(crate) const LATER: &[Later] = &[
         name: "theme",
         task: "roadmap M3.2",
         in_ci: true,
-    },
-    Later {
-        name: "ucd",
-        task: "roadmap M1.1",
-        in_ci: false,
     },
     Later {
         name: "golden",
@@ -976,6 +994,7 @@ mod tests {
                 ("test", Role::Compiles),
                 ("layers", Role::Independent),
                 ("unsafe-audit", Role::Independent),
+                ("ucd", Role::Independent),
             ]
         );
         // Only the test step's output is read for `SKIPPED:` lines.
@@ -1005,6 +1024,7 @@ mod tests {
             ("test", Some("cargo test --workspace")),
             ("layers", None),
             ("unsafe-audit", None),
+            ("ucd", None),
         ];
         assert_eq!(CI.len(), expected.len());
         for (check, (name, command)) in CI.iter().zip(expected) {
@@ -1035,9 +1055,20 @@ mod tests {
         let deps_run: fn(&Path) -> Result<Report, Error> = deps::run;
         let layers_run: fn(&Path) -> Result<Report, Error> = layers::run;
         let audit_run: fn(&Path) -> Result<Report, Error> = unsafe_audit::run;
+        let ucd_check: fn(&Path) -> Result<Report, Error> = ucd::check;
+        let ucd_write: fn(&Path) -> Result<Report, Error> = ucd::write;
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
+        // `ucd` as a command and as the step of `ci` only checks; the
+        // writing form has the same name and heading.
+        assert!(std::ptr::fn_addr_eq(own("ucd"), ucd_check));
+        assert!(matches!(UCD_WRITE.step, Step::Own(run) if std::ptr::fn_addr_eq(run, ucd_write)));
+        assert_eq!((UCD_WRITE.name, UCD_WRITE.about), (UCD.name, UCD.about));
+        assert!(!COMMANDS.iter().chain(CI).any(|check| matches!(
+            check.step,
+            Step::Own(run) if std::ptr::fn_addr_eq(run, ucd_write)
+        )));
     }
 
     #[test]

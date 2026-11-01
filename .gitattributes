@@ -1,0 +1,4 @@
+# The Unicode data is pinned by SHA-256 (ADR-0018): never convert its line
+# endings. The tables generated from it are compared byte for byte.
+crates/text/ucd/** -text
+crates/text/src/pos/grapheme/tables.rs text eol=lf

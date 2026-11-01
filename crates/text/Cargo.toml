@@ -4,5 +4,10 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+# The library has no dependencies. Its tests use `tidepool-core`'s property
+# harness; the dependency matrix allows `text` → `core`.
+[dev-dependencies]
+tidepool-core = { path = "../core" }
+
 [lints]
 workspace = true

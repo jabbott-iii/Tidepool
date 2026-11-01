@@ -12,7 +12,9 @@
 //!
 //! `xtask` is dev-only tooling (layer 6 in `docs/01-architecture.md`): it
 //! is never shipped in Tidepool, and it never uploads, publishes, signs,
-//! reads secrets or calls the network (`docs/04-quality.md`).
+//! reads secrets or calls the network (`docs/04-quality.md`). The one file
+//! it writes in the repository is the generated Unicode tables, with `cargo
+//! xtask ucd` (without `--check`).
 //!
 //! The one outside program it starts is `cargo`, which `cargo xtask ci`
 //! exists to run (`cargo fmt`, clippy, the tests, `cargo metadata`, `cargo
@@ -43,6 +45,7 @@ mod layers;
 mod lexer;
 mod matrix;
 mod metadata;
+mod ucd;
 mod unsafe_audit;
 mod walk;
 
@@ -112,6 +115,9 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
             task: later.task,
         });
     }
+    // Only `ucd` takes an option of its own; for any other command
+    // `--check` is left for `finish` to reject.
+    let check_only = command == "ucd" && args.flag("--check");
     let extra = args.finish().map_err(usage_error)?;
     if let Some(argument) = extra.first() {
         return Err(Error::Usage(format!(
@@ -121,6 +127,8 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
     let root = absolute_root(&root)?;
     let passed = if command == "ci" {
         check::run_ci(CI, LATER, &root, out)
+    } else if command == "ucd" && !check_only {
+        check::run_one(&check::UCD_WRITE, &root, out)
     } else if let Some(check) = COMMANDS.iter().find(|check| check.name == command) {
         check::run_one(check, &root, out)
     } else {
@@ -185,6 +193,7 @@ fn usage() -> String {
     text.push_str(
         "\nOptions:\n  \
          --root DIR    Check the repository at DIR instead of this one (for xtask's own tests)\n  \
+         --check       ucd only: compare the tables instead of writing them\n  \
          --help        Show this text\n\
          \n\
          Exit status: 0 if every check passed, 1 if a check failed or could not run,\n\
@@ -239,8 +248,24 @@ mod tests {
             );
         }
         assert!(text.contains(
-            "  ci            Run deps, fmt, clippy, test, layers, unsafe-audit in that order"
+            "  ci            Run deps, fmt, clippy, test, layers, unsafe-audit, ucd in that order"
         ));
+        assert!(text.contains(
+            "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
+             generates (without --check: write it)\n"
+        ));
+        assert!(
+            text.contains(
+                "\n  --check       ucd only: compare the tables instead of writing them\n"
+            )
+        );
+        // `ucd` is implemented: it is not listed as not yet implemented.
+        let later = text
+            .split("\nNot yet implemented:\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\nOptions:\n").next())
+            .unwrap();
+        assert!(!later.contains("ucd"), "{later}");
         assert!(text.contains("  tools         roadmap M5.1\n"));
     }
 
@@ -260,6 +285,31 @@ mod tests {
         assert_eq!(
             usage_error(&["deps", "extra"]),
             "`deps` takes no arguments, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["ucd", "extra"]),
+            "`ucd` takes no arguments, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["ucd", "--check", "extra"]),
+            "`ucd` takes no arguments, but got `extra`"
+        );
+        // `--check` belongs to `ucd` alone, and is taken once.
+        assert_eq!(
+            usage_error(&["deps", "--check"]),
+            "unexpected argument `--check` (argument 2)"
+        );
+        assert_eq!(
+            usage_error(&["ci", "--check"]),
+            "unexpected argument `--check` (argument 2)"
+        );
+        assert_eq!(
+            usage_error(&["ucd", "--check", "--check"]),
+            "unexpected argument `--check` (argument 3)"
+        );
+        assert_eq!(
+            usage_error(&["ucd", "--fix"]),
+            "unexpected argument `--fix` (argument 2)"
         );
         assert_eq!(
             usage_error(&["ci", "--fast"]),
@@ -288,7 +338,6 @@ mod tests {
         for (args, command, task) in [
             (&["tools"][..], "tools", "roadmap M5.1"),
             (&["theme"], "theme", "roadmap M3.2"),
-            (&["ucd"], "ucd", "roadmap M1.1"),
             (&["golden", "--bless", "scene"], "golden", "roadmap M2.4"),
             (
                 &["fuzz-smoke", "--secs", "60"],
@@ -372,6 +421,71 @@ mod tests {
         );
         assert!(
             text.ends_with("unsafe-audit: FAILED (2 violations)\n"),
+            "{text}"
+        );
+    }
+
+    /// Runs `args` on the repository at `root`; returns whether it passed
+    /// and what it printed.
+    fn run_on(args: &[&str], root: &Path) -> (bool, String) {
+        let mut args: Vec<String> = args.iter().map(ToString::to_string).collect();
+        args.extend(["--root".to_string(), root.to_string_lossy().into_owned()]);
+        let mut out = Vec::new();
+        let passed = run(
+            Args::new(args).unwrap(),
+            Path::new("/nonexistent"),
+            &mut out,
+        )
+        .unwrap();
+        (passed, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn ucd_checks_with_check_and_writes_without() {
+        let tree = ucd::testing::tree_with_inputs("main-ucd");
+        let output = tree.path().join(ucd::OUTPUT);
+
+        let (passed, text) = run_on(&["ucd", "--check"], tree.path());
+        assert!(!passed, "{text}");
+        assert!(
+            text.ends_with(&format!(
+                "violation: {} is missing; run cargo xtask ucd\nucd: FAILED (1 violation)\n",
+                ucd::OUTPUT
+            )),
+            "{text}"
+        );
+        assert!(!output.exists(), "--check wrote the tables");
+
+        let (passed, text) = run_on(&["ucd"], tree.path());
+        assert!(passed, "{text}");
+        assert!(
+            text.ends_with(&format!("wrote {}\nucd: ok\n", ucd::OUTPUT)),
+            "{text}"
+        );
+        assert!(output.is_file());
+
+        // The option may come after `--root` too.
+        let mut out = Vec::new();
+        let root = tree.path().to_string_lossy().into_owned();
+        let args = Args::new(["ucd", "--root", &root, "--check"]).unwrap();
+        assert!(run(args, Path::new("/nonexistent"), &mut out).unwrap());
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.starts_with(&format!(
+                "checked 5 files in {} against their SHA-256 pins\n",
+                ucd::DIR
+            )),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("ranges (Unicode 17.0.0)\nucd: ok\n"),
+            "{text}"
+        );
+
+        let (passed, text) = run_on(&["ucd"], tree.path());
+        assert!(passed, "{text}");
+        assert!(
+            text.ends_with(&format!("{} is up to date\nucd: ok\n", ucd::OUTPUT)),
             "{text}"
         );
     }

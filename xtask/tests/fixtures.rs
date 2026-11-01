@@ -51,6 +51,18 @@ const MATRIX: &str = "# 01 — Architecture (fixture)\n\
     \n\
     ## Workspace layout\n";
 
+/// The files `ci`'s `ucd` step checks: the pinned Unicode data and the
+/// tables generated from it, copied from the real repository by
+/// [`Fixture::with_ucd`].
+const UCD_FILES: [&str; 6] = [
+    "crates/text/ucd/17.0.0/GraphemeBreakProperty.txt",
+    "crates/text/ucd/17.0.0/emoji-data.txt",
+    "crates/text/ucd/17.0.0/DerivedCoreProperties.txt",
+    "crates/text/ucd/17.0.0/GraphemeBreakTest.txt",
+    "crates/text/ucd/17.0.0/license.txt",
+    "crates/text/src/pos/grapheme/tables.rs",
+];
+
 /// The manifest of every case directory, outside the repository: a
 /// workspace root with no members, which encloses the repository and
 /// anything "outside" it ([`Fixture::empty`]).
@@ -207,9 +219,10 @@ impl Fixture {
         Self { case, root }
     }
 
-    /// A small repository shaped like Tidepool's that passes every check:
-    /// four crates that follow [`MATRIX`], the two unsafe crate roots, the
-    /// real allowlist and a lockfile.
+    /// A small repository shaped like Tidepool's that passes every check
+    /// but `ucd` (for which see [`Fixture::with_ucd`]): four crates that
+    /// follow [`MATRIX`], the two unsafe crate roots, the real allowlist
+    /// and a lockfile.
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
         fixture.write(
@@ -234,6 +247,21 @@ impl Fixture {
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
         fixture.lock();
         fixture
+    }
+
+    /// The fixture with the real repository's [`UCD_FILES`] as well, so
+    /// that `ucd` passes too. The tables are not part of the fixture's
+    /// `tidepool-text`, so nothing compiles or formats them.
+    fn with_ucd(self) -> Self {
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for path in UCD_FILES {
+            let target = self.root.join(path);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).expect("create the parent directory");
+            }
+            fs::copy(real.join(path), &target).expect("copy the repository's Unicode data");
+        }
+        self
     }
 
     /// Writes the package `tidepool-<dir>` in `crates/<dir>`.
@@ -2294,7 +2322,7 @@ fn unsafe_audit_fails_on_a_crate_root_outside_its_package() {
 
 #[test]
 fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
-    let fixture = Fixture::passing("ci-fmt");
+    let fixture = Fixture::passing("ci-fmt").with_ucd();
     // Valid Rust that `cargo fmt --check` rejects, and nothing else does.
     fixture.write(
         "crates/text/src/lib.rs",
@@ -2318,6 +2346,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "test",
             "layers",
             "unsafe-audit",
+            "ucd",
             "summary"
         ],
         "{}",
@@ -2337,6 +2366,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("test", "ok"),
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
+            ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
             ("ci:", "FAILED:"),
@@ -2346,7 +2376,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     );
     assert!(
         summary
-            .ends_with("ci: FAILED: 1 of 6 steps failed: fmt; not yet implemented: tools, theme\n"),
+            .ends_with("ci: FAILED: 1 of 7 steps failed: fmt; not yet implemented: tools, theme\n"),
         "{summary}"
     );
     assert!(
@@ -2360,7 +2390,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     // `deps` passes, so every other step runs, and each fails for the
     // reason planted for it: a step that ran nothing, or the wrong command,
     // would pass instead.
-    let fixture = Fixture::passing("ci-all");
+    let fixture = Fixture::passing("ci-all").with_ucd();
     // fmt: badly formatted, and nothing else is wrong with it.
     fixture.write(
         "crates/text/src/lib.rs",
@@ -2384,6 +2414,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "[dev-dependencies]\ntidepool-core = { path = \"../core\" }\n",
     );
     fixture.lock();
+    // ucd: tables that are not what the Unicode data generates.
+    fixture.write("crates/text/src/pos/grapheme/tables.rs", "// stale\n");
 
     let run = fixture.run("ci");
     run.expect_code(1);
@@ -2396,6 +2428,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("test", "FAILED"),
             ("layers", "FAILED"),
             ("unsafe-audit", "FAILED"),
+            ("ucd", "FAILED"),
             ("tools", "not"),
             ("theme", "not"),
             ("ci:", "FAILED:"),
@@ -2405,7 +2438,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 5 of 6 steps failed: fmt, clippy, test, layers, unsafe-audit; not yet \
+        "ci: FAILED: 6 of 7 steps failed: fmt, clippy, test, layers, unsafe-audit, ucd; not yet \
          implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
@@ -2415,6 +2448,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "planted failure",
         "violation: tidepool-sys -> tidepool-core not allowed (dev-dependency)",
         "violation: crates/core/src/lib.rs:2: `allow(unsafe_code)` is only allowed",
+        "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/17.0.0 \
+         generates (first difference at line 1); run cargo xtask ucd",
     ] {
         assert!(output.contains(reason), "`{reason}` missing:\n{output}");
     }
@@ -2424,7 +2459,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
 fn ci_compiles_nothing_after_deps_fails() {
     // A path dependency outside the repository whose build script leaves a
     // marker: deps rejects it, so clippy and test must not build it.
-    let fixture = Fixture::passing("ci-gate");
+    let fixture = Fixture::passing("ci-gate").with_ucd();
     fixture.write_outside(
         "outside/evil/Cargo.toml",
         &manifest("evil", "0.1.0", "[workspace]\n"),
@@ -2454,6 +2489,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("test", "not"),
             ("layers", "FAILED"),
             ("unsafe-audit", "ok"),
+            ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
             ("ci:", "FAILED:"),
@@ -2463,7 +2499,7 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 6 steps failed: deps, layers; not run: clippy, test; not yet \
+        "ci: FAILED: 2 of 7 steps failed: deps, layers; not run: clippy, test; not yet \
          implemented: tools, theme"
     );
     assert!(
@@ -2552,7 +2588,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     // Three tests print `SKIPPED:` (a real-tool test without its tool), two
     // on standard error and one on standard output, one runs, and a line
     // that only mentions the word does not count.
-    let fixture = Fixture::passing("ci-skipped");
+    let fixture = Fixture::passing("ci-skipped").with_ucd();
     fixture.write("crates/text/src/lib.rs", SKIPPING_TESTS);
     let run = fixture.run("ci");
     run.expect_code(0);
@@ -2565,6 +2601,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("test", "ok"),
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
+            ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
             ("ci:", "ok"),
@@ -2588,7 +2625,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 6 of 6 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 7 of 7 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -2617,7 +2654,7 @@ fn a_relative_build_directory_is_passed_on_absolute() {
     // is where `xtask` starts; its cargo children run in the repository, so
     // they must get it absolute, or they build in `<repo>/reltarget`.
     for variable in ["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"] {
-        let fixture = Fixture::passing("ci-reltarget");
+        let fixture = Fixture::passing("ci-reltarget").with_ucd();
         let root = fixture.root.to_string_lossy().into_owned();
         let run = xtask_in(
             &fixture.case,
@@ -2704,7 +2741,7 @@ fn usage_errors_exit_2_and_later_commands_exit_1() {
     );
     assert_eq!(run.stdout, "");
 
-    for (command, task) in [("tools", "roadmap M5.1"), ("ucd", "roadmap M1.1")] {
+    for (command, task) in [("tools", "roadmap M5.1"), ("theme", "roadmap M3.2")] {
         let run = xtask(&[command], None);
         run.expect_code(1);
         assert_eq!(

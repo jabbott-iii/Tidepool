@@ -73,6 +73,7 @@ license) and a row in the Toolchains panel. Details:
 | Saira (static Regular, Medium, SemiBold, Bold `.ttf`) | SIL OFL 1.1 (verify the file's license on import) | Google Fonts / the Saira project | UI chrome, matching jabbott.dev (ADR-0004) |
 | JetBrains Mono (Regular, Italic, SemiBold `.ttf`) | SIL OFL 1.1 (verify on import) | JetBrains Mono releases | Code and terminal (ADR-0004) |
 | CommonMark spec examples | CC-BY-SA 4.0 (verify) | commonmark.org | Test-only fixtures, never in release binaries (M6.5) |
+| Unicode Character Database 17.0.0: `GraphemeBreakProperty.txt`, `emoji-data.txt`, `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (unchanged, in `crates/text/ucd/17.0.0/` with `license.txt`) | Unicode License v3 | unicode.org/Public/17.0.0 | Input to `cargo xtask ucd`, which generates `tidepool-text`'s segmentation tables; the tables ship, the files do not; the test file is test-only (ADR-0018) |
 
 ## The exception test
 
