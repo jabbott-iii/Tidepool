@@ -1043,11 +1043,142 @@ fn ropes_are_send_and_sync() {
     assert_send_sync::<super::CharIndices<'_>>();
 }
 
+/// The leaves under `node`, in order.
+fn leaves_of(node: &Arc<Node>, out: &mut Vec<Arc<Node>>) {
+    match &**node {
+        Node::Leaf(_) => out.push(Arc::clone(node)),
+        Node::Internal { children, .. } => {
+            for child in children {
+                leaves_of(&child.node, out);
+            }
+        }
+    }
+}
+
+/// How many leaves of `whole` are leaves of `part` too (the same
+/// allocations, not copies), and how many leaves `part` has.
+pub(crate) fn shared_leaves(part: &Rope, whole: &Rope) -> (usize, usize) {
+    let (mut parts, mut wholes) = (Vec::new(), Vec::new());
+    leaves_of(&part.root, &mut parts);
+    leaves_of(&whole.root, &mut wholes);
+    let shared = wholes
+        .iter()
+        .filter(|leaf| parts.iter().any(|other| Arc::ptr_eq(leaf, other)))
+        .count();
+    (shared, parts.len())
+}
+
+/// The crate-private helpers that change sets use: `check_bytes` agrees
+/// with checking each position in turn, in any order; `piece` gives the
+/// range's text, as one fresh leaf when it is small; `replace_with` agrees
+/// with `replace`, takes the fast path for a small text and shares a large
+/// one; `same_tree` tells a clone from an equal copy.
+#[test]
+fn the_helpers_for_change_sets() {
+    check(
+        "the helpers for change sets agree with the checked operations",
+        300,
+        |rng| (u64::from(rng.next_u32()), u64::from(rng.next_u32())),
+        |&(seed, stream)| {
+            let mut rng = Pcg32::new(seed, stream);
+            let mut text = String::new();
+            let units = rng.range(0..120u32);
+            push_text(&mut rng, &mut text, units);
+            let rope = Rope::from(text.as_str());
+            let mut positions: Vec<usize> = (0..rng.range(0..12u32))
+                .map(|_| rng.range(0..text.len() as u32 + 3) as usize)
+                .collect();
+            if rng.range(0..2u32) == 0 {
+                positions.sort_unstable();
+            }
+            let want = positions
+                .iter()
+                .try_for_each(|&byte| byte_error(&text, byte));
+            let got = rope.check_bytes(positions.iter().copied());
+            expect(|| format!("check_bytes({positions:?})"), got, want)?;
+            let bounds: Vec<usize> = (0..=text.len())
+                .filter(|&at| text.is_char_boundary(at))
+                .collect();
+            for _ in 0..8 {
+                let a = rng.choose(&bounds).copied().unwrap_or(0);
+                let b = rng.choose(&bounds).copied().unwrap_or(0);
+                let (start, end) = (a.min(b), a.max(b));
+                let piece = rope.piece(start..end);
+                holds(&piece, &text[start..end], "the piece")?;
+                let small = end - start <= MAX_LEAF;
+                if small != matches!(&*piece.root, Node::Leaf(_)) {
+                    return Err(format!(
+                        "the piece of {start}..{end} is one leaf: {}",
+                        !small
+                    ));
+                }
+                let mut new = String::new();
+                let units = rng.range(0..40u32);
+                push_text(&mut rng, &mut new, units);
+                let new_rope = Rope::from(new.as_str());
+                let mut model = text.clone();
+                model.replace_range(start..end, &new);
+                let mut edited = rope.clone();
+                let given = (!new.is_empty() || rng.range(0..2u32) == 0).then_some(&new_rope);
+                edited.replace_with(start, end, given);
+                holds(&edited, &model, "replace_with")?;
+                holds(&rope, &text, "the original")?;
+            }
+            Ok(())
+        },
+    );
+
+    let text = "0123456789".repeat(30);
+    let rope = Rope::from(text.as_str());
+    assert!(rope.same_tree(&rope.clone()));
+    assert!(!rope.same_tree(&Rope::from(text.as_str())));
+    let whole = rope.piece(0..text.len());
+    assert!(
+        whole.same_tree(&rope),
+        "the piece of a large whole text is the tree"
+    );
+
+    // A one-leaf text that fits goes in place.
+    let mut edited = rope.clone();
+    let [fast, ..] = counters::read();
+    edited.replace_with(150, 151, Some(&Rope::from("x")));
+    assert_eq!(counters::read()[0], fast + 1);
+    let mut model = text.clone();
+    model.replace_range(150..151, "x");
+    holds(&edited, &model, "in place").unwrap_or_else(|e| panic!("{e}"));
+
+    // A large text is shared, not copied.
+    let mut edited = Rope::from("abcdef");
+    edited.replace_with(2, 4, Some(&rope));
+    holds(&edited, &format!("ab{text}ef"), "shared").unwrap_or_else(|e| panic!("{e}"));
+    let (mut inserted, mut result) = (Vec::new(), Vec::new());
+    leaves_of(&rope.root, &mut inserted);
+    leaves_of(&edited.root, &mut result);
+    let shared = result
+        .iter()
+        .filter(|leaf| inserted.iter().any(|other| Arc::ptr_eq(leaf, other)))
+        .count();
+    assert!(
+        shared + 2 >= inserted.len(),
+        "{shared} of {} leaves shared",
+        inserted.len()
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The invariant checker catches broken trees, without showing their text.
 
 fn leaf(text: &str) -> Child {
     Child::leaf(text)
+}
+
+/// A rope of `text` with a wrong line count in its summary, which
+/// `__check_invariants` refuses; for the checkers of the types that hold
+/// ropes.
+pub(crate) fn broken_rope(text: &str) -> Rope {
+    let mut rope = Rope::from(text);
+    rope.summary.breaks += 1;
+    rope
 }
 
 fn broken(rope: &Rope, what: &str) {
@@ -1076,6 +1207,7 @@ fn the_checker_finds_every_kind_of_broken_tree() {
     let mut wrong_rope = rope_of(good.clone());
     wrong_rope.summary.breaks += 1;
     broken(&wrong_rope, "a wrong rope summary");
+    broken(&broken_rope("SECRETab"), "the helper's wrong line count");
 
     let seam = Child::internal(1, vec![leaf("SECRET\r"), leaf("\nSECRET")]);
     broken(&rope_of(seam), "a CR LF split between leaves");

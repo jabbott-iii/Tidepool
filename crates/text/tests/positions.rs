@@ -546,11 +546,20 @@ fn every_position_of_a_text_in_small_leaves_round_trips() {
             let mut rng = Pcg32::new(seed, stream);
             let text = text(&mut rng, 5 * 1024);
             // Appends of about 1 KiB keep leaves near the minimum, so each
-            // scan is short and there are several seams.
+            // scan is short and there are several seams. Appending keeps
+            // both leaves only if each has at least 1,024 bytes and the
+            // seam is not CR|LF, so no piece ends between a CR and its LF,
+            // and the last piece takes a shorter tail: one leaf per piece.
             let mut rope = Rope::new();
             let mut from = 0;
             while from < text.len() {
-                let to = text.ceil_char_boundary(from + rng.range(1024..1300u32) as usize);
+                let mut to = text.ceil_char_boundary(from + rng.range(1024..1300u32) as usize);
+                if text[..to].ends_with('\r') && text[to..].starts_with('\n') {
+                    to += 1;
+                }
+                if text.len() - to < 1024 {
+                    to = text.len();
+                }
                 rope.append(Rope::from(&text[from..to]));
                 from = to;
             }

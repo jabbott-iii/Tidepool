@@ -441,3 +441,103 @@ decides; the roadmap task that first depends on one asks for the decision.
     then fail on an offset that edits accept.
 - **Revisit when:** a supported language server disagrees in practice, or
   vim mode needs another view of lines.
+
+## ADR-0020 — Edits are canonical change sets of byte-range replacements holding rope text; undo is a revision tree that applies every step to the buffer's rope
+
+- **Status:** Accepted
+- **Date:** 2026-11-01
+- **Context:** M1.2 fixes the edit and undo model that these build on:
+  - `editor`: multi-cursor, clipboard, buffers;
+  - vim mode: one undo step per typed command, Insert session or macro
+    replay;
+  - `lang`: LSP `TextEdit`s and incremental sync;
+  - `syntax`: changed ranges;
+  - `agent`: a proposal is one undo step.
+
+  Untrusted LSP servers and agents send edits. Positions are byte offsets
+  (ADR-0019). The main thread never waits (ADR-0012), so typing, 10,000
+  cursors, long macros and 100 MB edits must stay cheap, and saves finish
+  on workers. The user accepted this record on 2026-11-01.
+- **Decision:**
+  - **`ChangeSet`:** a sorted list of replacements in old-text byte offsets,
+    each holding its new text as a `Rope`. Touching edits merge and no-ops
+    vanish, so equality is structural.
+    - Built from the text and edits in any order, with a stable sort.
+    - Overlapping edits are an error.
+    - Inserts at one offset keep their order.
+    - A result over `isize::MAX` bytes is an error.
+    - `invert` takes the text before.
+  - **Mapping a position:**
+    - kept text shifts;
+    - the edges of a replaced range stick to the kept text beside them;
+    - at a pure insert, or strictly inside a replaced range,
+      `Assoc::Before`/`After` decides.
+  - **`Selection`:** one or more `Cursor { anchor, head }`, sorted and
+    merged. The primary survives.
+    - Ranges merge when they share a byte.
+    - A caret joins a range it is inside or at the edge of (the earlier
+      one, where two touch).
+    - Equal carets become one.
+    - Touching ranges stay apart.
+  - **`Transaction::change_each`** (multi-cursor):
+    - merges overlapping deletions and identical edits from different
+      cursors;
+    - rejects other overlaps;
+    - maps cursors through the unmerged edits, so seams are kept.
+  - **`History`:** an arena tree.
+    - It applies every commit, undo, redo and jump to the caller's rope,
+      after checking by pointer identity that it is the tree the history
+      last produced.
+    - Each returns the text before and one change set per hop.
+    - Grouping is `New`, `Command(GroupId)` (ids unique in the process) or
+      `Coalesce { kind, window }` with an `Instant` the caller supplies.
+    - An open revision keeps its change as a few pieces, merged like a
+      binary counter.
+    - Saves use `checkpoint()` (a sealed revision and its text), then
+      `mark_saved(&Checkpoint)`.
+    - Redo takes the child created or visited last; older branches stay
+      reachable through `jump_to`.
+    - No pruning in v1. Revision ids are opaque and the root is a method.
+- **Consequences:**
+  - Inverting and undoing a huge delete costs O(1) to O(log n) and shares
+    memory.
+  - An Insert session stays one replacement.
+  - A group of K scattered edits costs O(K log K).
+  - Every buffer edit must go through its history. After an outside edit,
+    every call that takes the rope (`commit`, `undo`, `redo`, `jump_to`)
+    is `HistoryMismatch` until the buffer restores `history.text()`.
+  - `lang` sends changes last first, on `Step.before`.
+  - Mapping through a composed set is exact only away from its
+    replacements, so the history returns each hop separately.
+  - Mapping through a built change set forgets the seams between touching
+    edits.
+  - An asynchronous edit in the middle of an Insert session splits it into
+    two undo steps.
+  - History memory grows with the session, deleted secrets included, until
+    pruning is designed.
+- **Alternatives considered:**
+  - Retain/delete/insert lists as the stored form: mapping is O(k), and LSP
+    needs a conversion. They are kept only as compose's internal view.
+  - Keeping touching edits apart: no canonical form and no structural
+    equality. `change_each` keeps seams instead.
+  - Change sets that carry their deleted text and are checked by content:
+    O(deleted) per check.
+  - Checks by length or by size fingerprint: they miss outside edits that
+    keep the size.
+  - The caller applies edits and the history only records them: the text
+    and the history can diverge.
+  - Begin/end groups, or a bare `Join`: state can be left unbalanced, and
+    unrelated asynchronous edits join a session.
+  - Re-composing a whole group on every join: O(K²) for macros.
+  - `mark_saved` by revision id: a snapshot of a still-open revision could
+    be marked saved after more typing.
+  - `String` texts: invert copies 100 MB.
+  - A rope snapshot per revision: no mapping and no incremental sync.
+  - Pruning now: no consumer needs it yet.
+- **Revisit when:**
+  - undo must persist across restarts (`Instant` cannot);
+  - history memory shows up in profiles or in large-file editing;
+  - a multi-cursor edit in M4.2's command tests or benchmarks takes more
+    than one 16 ms frame;
+  - collaborative editing, or rebasing agent proposals, needs transforms;
+  - vim conformance needs Vim's line-based mark rules (M7.3).

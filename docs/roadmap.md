@@ -138,13 +138,30 @@ CI runners. `Cargo.lock` contains zero third-party packages.
     100 MB cluster, or a long run of marks or regional indicators), so M4
     must bound cursor motion or run it off the main thread.
 
-- [ ] **M1.2 — text: selections, transactions, undo tree**
+- [x] **M1.2 — text: selections, transactions, undo tree**
   - Depends: M1.1
   - Do: `selection`, `transaction`, `history` per
     `docs/subsystems/text-and-formats.md`.
   - Accept: undo after any random transaction sequence restores the text
     exactly; redo branches are kept.
   - Verify: `cargo test -p tidepool-text`
+  - Note: the edit and undo model follows ADR-0020.
+    - **Acceptance tests:** a model that keeps every revision's text runs
+      2,000 random sequences in tiny leaves, plus 40 at real sizes.
+      - Each sequence mixes commits with every grouping, undo, redo,
+        `jump_to`, saved markers and refused operations, with the apply
+        path forced at random.
+      - Every step's text is checked, hop by hop.
+      - At the end, undo must give the first text, and every revision must
+        be reachable with its exact text.
+    - **Measured** (release; 10,000 lines of about 400 KB):
+      - a 10,000-caret keystroke commits in about 1–2 ms, undo and redo
+        about the same;
+      - typing into 100 MB takes about 12–14 µs per character.
+    - **Residual risk:** 10,000 carets on a 100 MB file take about 120 ms,
+      over one frame. Each M1.1 in-leaf edit costs about 11 µs, because it
+      recounts the leaf. M4.2 should batch such edits or make that edit
+      cheaper.
 
 - [ ] **M1.3 — text: encodings and files**
   - Depends: M1.1

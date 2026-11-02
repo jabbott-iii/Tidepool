@@ -26,9 +26,9 @@ mod tree;
 pub(crate) mod tests;
 
 pub use iter::{CharIndices, Chars, Chunks};
-pub(crate) use node::{Hit, Metric, Summary, breaks_before};
+pub(crate) use node::{Hit, MAX_LEAF, Metric, Summary, breaks_before};
 
-use node::{Child, FILL_LEAF, MAX_LEAF, MIN_LEAF, Node};
+use node::{Child, FILL_LEAF, MIN_LEAF, Node};
 
 /// UTF-8 text as a persistent B-tree of chunks.
 ///
@@ -187,9 +187,7 @@ impl Rope {
     /// As for [`remove`](Rope::remove).
     pub fn slice(&self, range: Range<usize>) -> Result<Rope, TextError> {
         counted(self.check_range(&range))?;
-        let (head, _) = tree::split(&self.as_child(), range.end);
-        let middle = head.and_then(|head| tree::split(&head, range.start).1);
-        Ok(middle.map_or_else(Rope::new, Rope::from_child))
+        Ok(self.slice_unchecked(range))
     }
 
     /// Whether `byte` is a char boundary: `0..=len`, not inside a
@@ -320,6 +318,88 @@ impl Rope {
         node::find(&self.root, self.summary, metric, value)
     }
 
+    /// Whether both ropes are the same tree (`Arc::ptr_eq` on the roots),
+    /// not just the same text. O(1).
+    pub(crate) fn same_tree(&self, other: &Rope) -> bool {
+        Arc::ptr_eq(&self.root, &other.root)
+    }
+
+    /// Checks positions in the order given: the first past `len` is
+    /// [`ByteOutOfBounds`](TextError::ByteOutOfBounds), the first inside a
+    /// char is [`NotCharBoundary`](TextError::NotCharBoundary).
+    ///
+    /// Correct for any order. When the positions do not decrease it
+    /// descends once per leaf touched: O(k + leaves touched × log n).
+    pub(crate) fn check_bytes(
+        &self,
+        positions: impl IntoIterator<Item = usize>,
+    ) -> Result<(), TextError> {
+        let len = self.len();
+        // The last leaf a descent found, and its offset.
+        let mut leaf: Option<(usize, &str)> = None;
+        for byte in positions {
+            if byte > len {
+                return Err(TextError::ByteOutOfBounds { byte, len });
+            }
+            if byte == len {
+                continue;
+            }
+            let (start, text) = match leaf {
+                // A leaf's end is a boundary too: leaves hold whole chars.
+                Some((start, text)) if byte >= start && byte - start <= text.len() => (start, text),
+                _ => {
+                    let hit = self.find(Metric::Bytes, byte);
+                    leaf = Some((hit.start, hit.leaf));
+                    (hit.start, hit.leaf)
+                }
+            };
+            if !text.is_char_boundary(byte - start) {
+                return Err(TextError::NotCharBoundary { byte });
+            }
+        }
+        Ok(())
+    }
+
+    /// The text of a validated range: one fresh leaf if it has at most
+    /// `MAX_LEAF` bytes, otherwise a slice that shares nodes with this rope.
+    /// O(log n + 4 KiB).
+    pub(crate) fn piece(&self, range: Range<usize>) -> Rope {
+        let len = range.end.saturating_sub(range.start);
+        if len > MAX_LEAF {
+            return self.slice_unchecked(range);
+        }
+        let mut text = String::with_capacity(len);
+        for chunk in Chunks::new(&self.root, range.start, range.end) {
+            text.push_str(chunk);
+        }
+        Self::from_child(Child::from_string(text))
+    }
+
+    /// Replaces the validated range `start..end` with `text`, or removes it
+    /// for `None`.
+    ///
+    /// No text, or a one-leaf text of at most `MAX_LEAF` bytes, goes the way
+    /// of [`replace`](Rope::replace), with its in-leaf fast path. A larger
+    /// text is shared, never copied: split, drop the middle, append the
+    /// text, append the rest. O(log n + 4 KiB).
+    pub(crate) fn replace_with(&mut self, start: usize, end: usize, text: Option<&Rope>) {
+        let Some(text) = text else {
+            self.replace_unchecked(start, end, "");
+            return;
+        };
+        if let Node::Leaf(leaf) = &*text.root
+            && leaf.len() <= MAX_LEAF
+        {
+            self.replace_unchecked(start, end, leaf);
+            return;
+        }
+        count(EditPath::General);
+        let right = self.split_unchecked(end);
+        let _removed = self.split_unchecked(start);
+        self.append(text.clone());
+        self.append(right);
+    }
+
     /// `replace` after validation.
     fn replace_unchecked(&mut self, start: usize, end: usize, text: &str) {
         if start == end && text.is_empty() {
@@ -336,6 +416,13 @@ impl Rope {
             self.append(Rope::from(text));
         }
         self.append(right);
+    }
+
+    /// `slice` after validation.
+    fn slice_unchecked(&self, range: Range<usize>) -> Rope {
+        let (head, _) = tree::split(&self.as_child(), range.end);
+        let middle = head.and_then(|head| tree::split(&head, range.start).1);
+        middle.map_or_else(Rope::new, Rope::from_child)
     }
 
     /// `split_off` after validation.
