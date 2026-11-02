@@ -205,6 +205,10 @@ enforced by tooling from day one.
       in `docs/04-quality.md`.
     - Nothing ran on macOS or Windows (CR LF checkouts, case-insensitive
       file systems, links on Windows).
+  - Note (2026-11-02, after the commit): of the walk's gaps named above,
+    control characters in file names and links resolved to tell a
+    directory are taken up by M0.10, which also changes the link rule:
+    every symbolic link now fails, and none is resolved by `xtask`.
 
 - [ ] **M0.8 — CI supply chain: CodeQL pinned, Dependabot for actions, `cargo xtask workflows`**
   - Depends: M0.4
@@ -252,6 +256,61 @@ enforced by tooling from day one.
       name only task IDs this file has.
   - Accept: fixtures fail for each rule; the real workspace passes.
   - Verify: `cargo xtask crates`; `cargo xtask ci`
+
+- [x] **M0.10 — xtask: paths shown escaped; symbolic links never resolved**
+  - Depends: M0.3, M0.7
+  - Do:
+    - Show every path with its control characters, line separators and
+      bidirectional controls escaped (`walk::relative`, `walk::shown`,
+      cargo's command lines in `cargo::display`).
+    - Escape the same in every line a check prints and every error, but
+      for the newlines and tabs of a message quoting cargo, and start each
+      continued line with `  | ` (`check::printable`).
+    - Report every symbolic link under the root, in `deps`, `unsafe-audit`
+      and `headers`, without resolving it: no `fs::metadata` on a link, a
+      linked `Cargo.toml` included.
+    - Refuse to open the files a check reads by a fixed name (the
+      allowlist, the dependency matrix) through a link
+      (`walk::read_unlinked`).
+    - Update `docs/04-quality.md` → "Command line and rules" and "Files
+      searched", and remove the two "Not covered" bullets M0.7 added there
+      for these gaps.
+  - Accept:
+    - A file whose name holds a newline, ESC or CR is shown escaped on one
+      line, and no line of output starts with `::` (after leading
+      whitespace) or repeats a verdict: unit tests, and end-to-end
+      fixtures of `headers` on a forged file name and of `deps` and
+      `unsafe-audit` on a forged directory name, which cargo's messages
+      quote; skipped where the OS allows no such name.
+    - A dangling link, a link to a directory and a link to a file of any
+      name are each reported, by the walk and by `headers`; a linked
+      `Cargo.toml` is not a manifest to the walk.
+    - A linked allowlist or matrix fails `deps` or `layers`, naming the
+      link, and nothing it leads to is printed.
+    - The real repository passes every check.
+  - Verify: `cargo test -p xtask`; `cargo xtask ci`
+  - Note (2026-11-02): from the security review of M0.7, whose Low
+    findings 1 and 3 these are. The user chose to report every link, since
+    portable `std` cannot tell a link to a directory without resolving it,
+    and to make this a task. A review of the first version found more
+    routes: a linked `Cargo.toml` still resolved, a linked allowlist read
+    and quoted, newlines through cargo's command lines, cargo target names
+    and cargo's quoted errors, and the Unicode line separators and
+    bidirectional controls; the `Do` lines above cover them.
+    - **Verified:** `cargo test -p xtask` passes (216 unit tests, 59
+      end-to-end), and `cargo xtask ci` passes: 8 of 8 steps, 755 tests,
+      0 failed, 0 `SKIPPED:`. The new fixtures, which ran here on Linux,
+      are `a_file_name_cannot_add_lines_to_the_output`,
+      `a_directory_name_cannot_add_lines_through_cargo_s_messages` and
+      `deps_and_layers_refuse_a_linked_input_without_reading_it` in
+      `xtask/tests/fixtures.rs`.
+    - **Not covered** (`docs/04-quality.md`): cargo follows links itself;
+      the streamed fmt, clippy and test steps; and GitHub's older
+      `##[command]` syntax, not checked against the runner.
+      `::stop-commands::` in the workflow would cover the last two, as a
+      CI change.
+    - Nothing ran on macOS or Windows, where control characters cannot be
+      in a file name and links need Developer Mode.
 
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
 CI runners, with `headers`, `workflows` and `crates` among its steps.

@@ -76,14 +76,13 @@
 //!   `.pem`, `.p12`, a keystore...) is judged by its name only and never
 //!   opened, since `xtask` never reads secrets. Any other file that cannot
 //!   be read is a violation too, since it was not checked;
-//! - a file named like a `Cargo.toml` or `Cargo.lock` (in any case: macOS
-//!   and Windows ignore it), like a cargo configuration file (`config` or
-//!   `config.toml`, in any directory) or like a compiled artifact is a
-//!   symbolic link, or a directory is reached through one: the check does
-//!   not follow links;
-//! - the allowlist has a malformed line, or the repository has no
-//!   `Cargo.toml` at all. A cargo configuration file or the allowlist may
-//!   start with one byte-order mark, which cargo skips too.
+//! - anything under the root is a symbolic link: the check neither follows
+//!   nor resolves links ([`walk::Tree::links`]), so what one leads to, a
+//!   manifest, a lockfile or a directory of them, was not checked;
+//! - the allowlist has a malformed line, is a symbolic link or lies behind
+//!   one (then it is not read: [`walk::read_unlinked`]), or the repository
+//!   has no `Cargo.toml` at all. A cargo configuration file or the
+//!   allowlist may start with one byte-order mark, which cargo skips too.
 //!
 //! Only the repository's `.git`, workspace roots' build output and linked
 //! worktrees of the repository are skipped ([`walk::scan`]): a workspace in
@@ -142,7 +141,7 @@ pub(crate) struct Pin {
 /// and any other file that cannot be read for the compiled-artifact check,
 /// is a violation, not an error.
 pub(crate) fn run(root: &Path) -> Result<Report, Error> {
-    let allowlist = walk::read_required(&root.join(ALLOWLIST), MAX_TEXT_BYTES)?;
+    let allowlist = walk::read_unlinked(root, ALLOWLIST, MAX_TEXT_BYTES)?;
     let mut report = Report::default();
     let pins = parse_allowlist(&allowlist, &mut report.violations);
     let repository = fs::canonicalize(root).map_err(|source| Error::Read {
@@ -150,12 +149,7 @@ pub(crate) fn run(root: &Path) -> Result<Report, Error> {
         source,
     })?;
 
-    let tree = walk::scan_every_file(root, |name| {
-        metadata::is_manifest_name(name)
-            || metadata::is_lockfile_name(name)
-            || is_config_name(name)
-            || artifact_extension(name).is_some()
-    })?;
+    let tree = walk::scan_every_file(root)?;
     for link in &tree.links {
         report.violations.push(format!(
             "{} is a symbolic link, which this check does not follow: what it leads to was not \
@@ -367,7 +361,7 @@ fn check_workspace(
     let root = (repository.locate)(&metadata.workspace_root);
     let shown_root = match &root {
         Ok(root) => walk::relative(repository.root, root),
-        Err(_) => metadata.workspace_root.display().to_string(),
+        Err(_) => walk::shown(&metadata.workspace_root),
     };
     let is_agents = match root {
         Ok(root) if root == repository.root => return,
@@ -399,7 +393,7 @@ fn check_workspace(
                 member.name,
                 member.version,
                 located.as_deref().map_or_else(
-                    || member.manifest_path.display().to_string(),
+                    || walk::shown(&member.manifest_path),
                     |manifest| walk::relative(repository.root, manifest)
                 ),
                 REFERENCE_AGENTS.join(", ")
@@ -434,7 +428,7 @@ fn check_declared(
                  cross-repository code counts as a dependency",
                 package.name,
                 package.version,
-                manifest.display()
+                walk::shown(&manifest)
             )),
             Ok(_) => {}
             Err(error) => violations.push(format!(
@@ -464,7 +458,7 @@ fn check_declared(
                 Some(Ok(dir)) if !dir.starts_with(repository.root) => format!(
                     "from {}, outside the repository: vendored or cross-repository code counts \
                      as a dependency",
-                    dir.display()
+                    walk::shown(&dir)
                 ),
                 Some(Ok(dir)) if !member_dirs.contains(&dir) => format!(
                     "from {}, a path package in the repository that is not a member of this \
@@ -901,7 +895,7 @@ fn check_graph(
                     Some(format!(
                         "is a path package outside the repository ({}): vendored or \
                          cross-repository code counts as a dependency",
-                        manifest.display()
+                        walk::shown(&manifest)
                     ))
                 }
                 Ok(_) if package.is_member => {
@@ -921,7 +915,7 @@ fn check_graph(
                     counts.external += 1;
                     Some(format!(
                         "is a path package whose manifest {} cannot be resolved: {error}",
-                        package.manifest_path.display()
+                        walk::shown(&package.manifest_path)
                     ))
                 }
             },

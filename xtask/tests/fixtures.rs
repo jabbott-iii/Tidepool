@@ -2441,6 +2441,125 @@ fn headers_fails_on_each_kind_of_violation() {
     );
 }
 
+#[test]
+fn a_file_name_cannot_add_lines_to_the_output() {
+    // A committed script without the header, named so that, printed as it
+    // is, it would forge a GitHub Actions annotation and a passing verdict.
+    let fixture = Fixture::passing("headers-forged-name");
+    let name = "scripts/a\n::warning file=x::forged\nheaders: ok\n\u{1b}[2Kb.sh";
+    let path = fixture.root.join(name);
+    fs::create_dir_all(path.parent().expect("a parent")).expect("create scripts/");
+    if let Err(error) = fs::write(&path, "#!/bin/sh\necho\n") {
+        // Windows allows no control character in a file name.
+        skipped(
+            "a_file_name_cannot_add_lines_to_the_output",
+            &format!("cannot name a file so here: {error}"),
+        );
+        return;
+    }
+    let run = fixture.run("headers");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "scripts/a\\n::warning file=x::forged\\nheaders: ok\\n\\u{1b}[2Kb.sh:2: expected \
+          `# Copyright 2026 Joseph Anthony Abbott III`, line 1 of the Apache-2.0 header in \
+          `LICENSE`'s appendix"
+        ]
+    );
+    assert_forges_nothing(&run, "headers");
+    assert!(
+        run.stdout.ends_with("headers: FAILED (1 violation)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Asserts that no line `run` printed starts with `::`, once GitHub Actions
+/// has trimmed its leading whitespace, holds a control character, or reads
+/// `<check>: ok`.
+fn assert_forges_nothing(run: &Run, check: &str) {
+    let verdict = format!("{check}: ok");
+    for line in run.stdout.lines().chain(run.stderr.lines()) {
+        assert!(
+            !line.trim_start().starts_with("::")
+                && line != verdict
+                && !line.chars().any(char::is_control),
+            "`{line}` in:\n{}\n{}",
+            run.stdout,
+            run.stderr
+        );
+    }
+}
+
+// --- output and links (M0.10) ---
+
+#[test]
+fn a_directory_name_cannot_add_lines_through_cargo_s_messages() {
+    // A package in a directory named to forge an annotation and a verdict.
+    // `deps` and `unsafe-audit` ask cargo about it and quote its command
+    // line and its error, which name the path.
+    let fixture = Fixture::passing("forged-directory");
+    let dir = "a\n::error file=README.md::forged by a directory name\nunsafe-audit: ok\n\
+               deps: ok\nx";
+    if let Err(error) = fs::create_dir_all(fixture.root.join(dir)) {
+        // Windows allows no control character in a file name.
+        skipped(
+            "a_directory_name_cannot_add_lines_through_cargo_s_messages",
+            &format!("cannot name a directory so here: {error}"),
+        );
+        return;
+    }
+    fixture.write(
+        &format!("{dir}/Cargo.toml"),
+        &manifest("stray", "0.1.0", ""),
+    );
+    fixture.source(&format!("{dir}/src/lib.rs"), "//! Stray.\n");
+    for check in ["deps", "unsafe-audit"] {
+        let run = fixture.run(check);
+        run.expect_code(1);
+        assert_forges_nothing(&run, check);
+        assert!(
+            run.stdout.contains("a\\n::error file=README.md::forged"),
+            "{check}: the name is not shown escaped:\n{}",
+            run.stdout
+        );
+    }
+}
+
+#[test]
+fn deps_and_layers_refuse_a_linked_input_without_reading_it() {
+    for (check, input) in [
+        ("deps", "xtask/deps-allowlist.txt"),
+        ("layers", "docs/01-architecture.md"),
+    ] {
+        let fixture = Fixture::passing("linked-input");
+        fixture.write_outside("elsewhere.txt", "this line must never be printed\n");
+        let link = fixture.root.join(input);
+        fs::remove_file(&link).expect("the input exists");
+        if let Err(reason) = symlink(&fixture.real("elsewhere.txt"), &link) {
+            skipped(
+                "deps_and_layers_refuse_a_linked_input_without_reading_it",
+                &reason,
+            );
+            return;
+        }
+        let run = fixture.run(check);
+        run.expect_code(1);
+        let output = format!("{}{}", run.stdout, run.stderr);
+        assert!(
+            output.contains(&format!(
+                "{input} is a symbolic link, which xtask does not follow"
+            )),
+            "{check}:\n{output}"
+        );
+        assert!(
+            !output.contains("must never be printed"),
+            "{check}:\n{output}"
+        );
+    }
+}
+
 // --- ci ---
 
 #[test]

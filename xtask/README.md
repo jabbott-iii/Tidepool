@@ -17,6 +17,8 @@ Built, with the roadmap task that built it:
   runs it — M0.3.
 - `ucd [--check]`, which generates `tidepool-text`'s grapheme tables — M1.1.
 - `headers`, which checks the license header of the source files — M0.7.
+- Paths shown with their control characters escaped, and symbolic links
+  reported without being resolved, in every check — M0.10.
 
 Not yet, with the roadmap task that adds it:
 

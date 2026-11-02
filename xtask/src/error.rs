@@ -25,6 +25,8 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
+use crate::walk;
+
 /// Why a command could not do its job.
 ///
 /// A check that ran and found problems is not an error: it returns a
@@ -101,7 +103,7 @@ impl fmt::Display for Error {
                 write!(f, "`{command}` is not yet implemented ({task})")
             }
             Self::Read { path, source } => {
-                write!(f, "cannot read `{}`: {source}", path.display())
+                write!(f, "cannot read `{}`: {source}", walk::shown(path))
             }
             Self::Spawn { command, source } => write!(f, "cannot run `{command}`: {source}"),
             Self::CommandFailed {
@@ -126,7 +128,7 @@ impl fmt::Display for Error {
             Self::Doc { path, line, detail } => write!(f, "{path}:{line}: {detail}"),
             Self::Output(source) => write!(f, "cannot write to standard output: {source}"),
             Self::Write { path, source } => {
-                write!(f, "cannot write `{}`: {source}", path.display())
+                write!(f, "cannot write `{}`: {source}", walk::shown(path))
             }
         }
     }

@@ -342,7 +342,9 @@ pub(crate) fn display(args: &[&str]) -> String {
     let mut line = String::from("cargo");
     for arg in args {
         line.push(' ');
-        line.push_str(arg);
+        // A `--manifest-path` is a path from the walk, shown escaped like
+        // any other ([`walk::escape_controls`]).
+        line.push_str(&walk::escape_controls(arg, |_| false));
     }
     line
 }
@@ -401,6 +403,11 @@ mod tests {
             "cargo fmt --all -- --check"
         );
         assert_eq!(display(&[]), "cargo");
+        // A path argument is shown escaped, like any path.
+        assert_eq!(
+            display(&["metadata", "--manifest-path", "a\n::error::x/Cargo.toml"]),
+            "cargo metadata --manifest-path a\\n::error::x/Cargo.toml"
+        );
     }
 
     #[test]

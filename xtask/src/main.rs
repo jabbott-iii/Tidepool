@@ -93,11 +93,12 @@ fn exit(result: Result<bool, Error>, err: &mut dyn Write) -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error @ Error::Usage(_)) => {
-            let _ = writeln!(err, "xtask: {error}\n\n{}", usage());
+            let message = error.to_string();
+            let _ = writeln!(err, "xtask: {}\n\n{}", check::printable(&message), usage());
             ExitCode::from(EXIT_USAGE)
         }
         Err(error) => {
-            let _ = writeln!(err, "xtask: {error}");
+            let _ = writeln!(err, "xtask: {}", check::printable(&error.to_string()));
             ExitCode::FAILURE
         }
     }
@@ -417,8 +418,16 @@ mod tests {
             ExitCode::FAILURE
         );
         assert_eq!(
-            String::from_utf8(err).unwrap(),
+            String::from_utf8(std::mem::take(&mut err)).unwrap(),
             "xtask: `tools` is not yet implemented (roadmap M5.1)\n"
+        );
+        // A command line, like a path, reaches the terminal escaped.
+        let forged = Error::Usage("unknown command `a\u{1b}[2K\rb`".to_string());
+        assert_eq!(exit(Err(forged), &mut err), ExitCode::from(2));
+        let text = String::from_utf8(err).unwrap();
+        assert!(
+            text.starts_with("xtask: unknown command `a\\u{1b}[2K\\rb`\n\nUsage:"),
+            "{text}"
         );
     }
 

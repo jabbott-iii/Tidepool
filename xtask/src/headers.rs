@@ -35,10 +35,8 @@
 //!   is.
 //! - **No blank line after the header.**
 //! - **A file larger than the size bound, or not UTF-8.**
-//! - **A symbolic link** that the walk reports: one named `.rs`, `.sh`,
-//!   `.yml` or `.yaml`, wherever it is, or one leading to a directory.
-//!   Links are not followed, so what it leads to was not checked, and this
-//!   check does not resolve them again.
+//! - **A symbolic link**, any: links are neither followed nor resolved
+//!   ([`walk::Tree::links`]), so what one leads to was not checked.
 //!
 //! [`EXEMPT`] lists, by path, the source files the check skips.
 
@@ -118,8 +116,6 @@ fn check_tree(root: &Path, limit: u64) -> Result<Report, Error> {
         .notes
         .extend(walk::worktrees_note(root, &tree.worktrees));
     report.notes.extend(walk::build_dir_note(root, &tree));
-    // Each is named like a source file or leads to a directory: the walk
-    // resolved it once to tell, and it is not resolved again here.
     for link in &tree.links {
         report.violations.push(format!(
             "{}: a symbolic link, which `headers` does not follow: what it leads to was not \
@@ -536,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn a_symbolic_link_named_like_source_or_to_a_directory_fails() {
+    fn every_symbolic_link_fails() {
         let tree = TempTree::new("headers-links");
         let outside = TempTree::new("headers-links-outside");
         tree.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -551,8 +547,7 @@ mod tests {
         if let Err(reason) = symlink(&tree, "src/linked.rs", &outside.path().join("evil.rs")) {
             let _ = writeln!(
                 std::io::stderr(),
-                "SKIPPED: a_symbolic_link_named_like_source_or_to_a_directory_fails: cannot \
-                 make a link here: {reason}"
+                "SKIPPED: every_symbolic_link_fails: cannot make a link here: {reason}"
             );
             return;
         }
@@ -563,9 +558,9 @@ mod tests {
             .expect("a fifth link");
 
         let report = run(tree.path()).unwrap();
-        // The link named like a text file is not one the walk reports. Every
-        // one it does report fails, even a YAML file outside the workflows:
-        // telling which is which would mean resolving it again.
+        // Every link fails, whatever its name and wherever it leads, a
+        // text file or a YAML file outside the workflows included: telling
+        // which is which would mean resolving it.
         assert_eq!(
             report.violations,
             [
@@ -577,6 +572,8 @@ mod tests {
                  to was not checked",
                 "src/m: a symbolic link, which `headers` does not follow: what it leads to was \
                  not checked",
+                "src/notes.txt: a symbolic link, which `headers` does not follow: what it leads \
+                 to was not checked",
             ]
         );
         assert_eq!(report.notes, ["source files checked: 1"]);

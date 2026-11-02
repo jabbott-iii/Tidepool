@@ -56,8 +56,8 @@
 //! also fails, closed, on whatever could bring code in that it did not
 //! read:
 //!
-//! - **A symbolic link** to a directory, or named `*.rs` or `Cargo.toml`
-//!   (in any case), anywhere under the root: links are not followed.
+//! - **A symbolic link**, any, anywhere under the root: links are neither
+//!   followed nor resolved ([`walk::Tree::links`]).
 //! - **`#[path = "..."]` or `include!("...")`** (in any spelling: inside
 //!   `cfg_attr`, as a raw identifier, through `std::`) whose argument is not
 //!   a relative `.rs` path that stays in the file's own directory: no `..`,

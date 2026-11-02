@@ -65,7 +65,7 @@ const MAX_DOC_BYTES: u64 = 4 * 1024 * 1024;
 /// [`Error::Read`] or [`Error::Doc`] if the document cannot be read or
 /// parsed, and the errors of [`metadata::load`].
 pub(crate) fn run(root: &Path) -> Result<Report, Error> {
-    let text = walk::read_required(&root.join(matrix::DOC), MAX_DOC_BYTES)?;
+    let text = walk::read_unlinked(root, matrix::DOC, MAX_DOC_BYTES)?;
     let matrix = matrix::parse(&text)?;
     let metadata = metadata::load(root, &root.join("Cargo.toml"), Resolve::No)?;
     Ok(check(&metadata, &matrix, metadata::canonical))

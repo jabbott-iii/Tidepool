@@ -21,8 +21,9 @@
 //! `scripts/check-deps.sh` does); the `target` directory of every workspace
 //! root is skipped, not only the top-level one (so `agents/target` is
 //! skipped too), and no other; a linked worktree of the same repository is
-//! skipped and reported; and symbolic links are reported instead of
-//! silently ignored.
+//! skipped and reported; every symbolic link is reported, never resolved,
+//! instead of silently ignored; and paths are shown with their control
+//! characters escaped ([`escape_controls`]).
 //!
 //! Nothing the repository holds decides by itself what is skipped: cargo
 //! says which directories are workspace roots, git's own records which
@@ -31,6 +32,7 @@
 //! searched like any other directory unless it is a workspace root's
 //! `target`.
 
+use std::borrow::Cow;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -46,9 +48,10 @@ use crate::error::Error;
 pub(crate) struct Tree {
     /// The regular files whose name the predicate accepts.
     pub(crate) files: Vec<PathBuf>,
-    /// The symbolic links that a check cannot see through: those whose name
-    /// the predicate accepts, and those that lead to a directory. A link is
-    /// never followed, so what it leads to was not checked.
+    /// Every symbolic link, whatever its name. A link is never followed, so
+    /// what it leads to was not checked; nor is it resolved to see what it
+    /// leads to, which would touch its target (on Windows, a link to a UNC
+    /// path would make the OS contact that host).
     pub(crate) links: Vec<PathBuf>,
     /// The linked worktrees of this repository that were skipped (see
     /// [`scan`]), for a note: each is checked when `xtask` runs in it.
@@ -63,8 +66,8 @@ pub(crate) struct Tree {
 /// writes one line holding a path.
 const GIT_FILE_BYTES: u64 = 64 * 1024;
 
-/// Collects the files under `root` whose name `wanted` accepts, and the
-/// symbolic links that matter (see [`Tree::links`]).
+/// Collects the files under `root` whose name `wanted` accepts, and every
+/// symbolic link ([`Tree::links`]).
 ///
 /// Skipped: the directory `.git` directly under `root` (the repository's
 /// own history), the directory named `target` next to the `Cargo.toml` of
@@ -86,14 +89,13 @@ pub(crate) fn scan(root: &Path, wanted: fn(&str) -> bool) -> Result<Tree, Error>
     scan_with(root, wanted, false)
 }
 
-/// [`scan`], but every regular file is collected, whatever its name;
-/// `wanted` still decides which symbolic links matter.
+/// [`scan`], but every regular file is collected, whatever its name.
 ///
 /// # Errors
 ///
 /// [`Error::Read`] if a directory cannot be listed.
-pub(crate) fn scan_every_file(root: &Path, wanted: fn(&str) -> bool) -> Result<Tree, Error> {
-    scan_with(root, wanted, true)
+pub(crate) fn scan_every_file(root: &Path) -> Result<Tree, Error> {
+    scan_with(root, |_| true, true)
 }
 
 fn scan_with(root: &Path, wanted: fn(&str) -> bool, every_file: bool) -> Result<Tree, Error> {
@@ -296,7 +298,11 @@ fn collect(
         path: dir.to_path_buf(),
         source,
     };
-    let has_manifest = dir.join("Cargo.toml").is_file();
+    // `symlink_metadata`, not `is_file`, which would follow a linked
+    // manifest to its target; such a link is not a manifest here, so a
+    // `target` beside it is searched.
+    let has_manifest =
+        fs::symlink_metadata(dir.join("Cargo.toml")).is_ok_and(|meta| meta.file_type().is_file());
     // Asked only if `dir` has a `target` directory, and then once.
     let mut workspace_root = None;
     for entry in fs::read_dir(dir).map_err(read_error)? {
@@ -330,10 +336,8 @@ fn collect(
             }
             collect(root, &path, false, wanted, skip, tree)?;
         } else if file_type.is_symlink() {
-            // `fs::metadata` follows the link; a dangling link is neither.
-            if wanted(&name) || fs::metadata(&path).is_ok_and(|target| target.is_dir()) {
-                tree.links.push(path);
-            }
+            // Not resolved: `fs::metadata` would follow it to its target.
+            tree.links.push(path);
         } else if file_type.is_file() && (skip.every_file || wanted(&name)) {
             tree.files.push(path);
         }
@@ -353,16 +357,74 @@ fn is_build_dir(dir: &Path, build: Option<&Path>) -> bool {
 
 /// `path` relative to `root`, with `/` between components on every OS, for
 /// messages and for matching crate directories. A path outside `root` is
-/// shown whole, as the OS writes it.
+/// shown whole, as the OS writes it. Either way its control characters are
+/// escaped ([`escape_controls`]): a file name is the repository's to
+/// choose, and printed as it is, a newline in one would add a line of its
+/// own to the output.
 pub(crate) fn relative(root: &Path, path: &Path) -> String {
-    let Ok(inside) = path.strip_prefix(root) else {
-        return path.display().to_string();
+    let shown = match path.strip_prefix(root) {
+        Ok(inside) => {
+            let components: Vec<_> = inside
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect();
+            components.join("/")
+        }
+        Err(_) => path.display().to_string(),
     };
-    let components: Vec<_> = inside
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect();
-    components.join("/")
+    match escape_controls(&shown, |_| false) {
+        Cow::Borrowed(_) => shown,
+        Cow::Owned(escaped) => escaped,
+    }
+}
+
+/// `path` whole, as the OS writes it, with its control characters escaped
+/// ([`escape_controls`]): for a path that is not shown relative to a root.
+pub(crate) fn shown(path: &Path) -> String {
+    let whole = path.display().to_string();
+    match escape_controls(&whole, |_| false) {
+        Cow::Borrowed(_) => whole,
+        Cow::Owned(escaped) => escaped,
+    }
+}
+
+/// Whether `c` is one [`escape_controls`] escapes: a control character
+/// ([`char::is_control`]: C0, DEL and C1), the line or paragraph separator,
+/// which a browser or terminal may draw as a line break, or a
+/// bidirectional control, which reorders what follows it on the line.
+fn is_escaped(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}'
+                | '\u{2029}'
+                | '\u{061c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+        )
+}
+
+/// `text` with each character [`is_escaped`] accepts and `keep` does not
+/// written as its Rust escape (`\n`, `\r`, `\u{1b}`, `\u{202e}`), so that it
+/// can neither start a line of output, which GitHub Actions would read as a
+/// workflow command such as `::warning::`, nor send an escape sequence to a
+/// terminal, nor change how the rest of the line is drawn. Any other
+/// character, including a backslash, is kept as it is.
+pub(crate) fn escape_controls(text: &str, keep: fn(char) -> bool) -> Cow<'_, str> {
+    if !text.chars().any(|c| is_escaped(c) && !keep(c)) {
+        return Cow::Borrowed(text);
+    }
+    let mut escaped = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if is_escaped(c) && !keep(c) {
+            escaped.extend(c.escape_default());
+        } else {
+            escaped.push(c);
+        }
+    }
+    Cow::Owned(escaped)
 }
 
 /// The note that names the linked worktrees a [`scan`] of `root` skipped,
@@ -420,6 +482,33 @@ pub(crate) fn read_bounded(path: &Path, limit: u64) -> Result<String, ReadError>
         return Err(ReadError::TooLarge { limit });
     }
     String::from_utf8(bytes).map_err(|_| ReadError::NotUtf8)
+}
+
+/// [`read_required`] for the file at `path`, relative to `root` with `/`
+/// between components, which a check reads by its fixed name (the
+/// allowlist, the dependency matrix): each component on the way, the file
+/// included, must not be a symbolic link. The walk reports links without
+/// opening them; this keeps a linked input from being read, and quoted,
+/// before that.
+///
+/// # Errors
+///
+/// [`Error::Read`] if a component is a link, or the file cannot be read.
+pub(crate) fn read_unlinked(root: &Path, path: &str, limit: u64) -> Result<String, Error> {
+    let mut at = root.to_path_buf();
+    for component in path.split('/') {
+        at.push(component);
+        if fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(Error::Read {
+                path: root.join(path),
+                source: io::Error::other(format!(
+                    "{} is a symbolic link, which xtask does not follow",
+                    relative(root, &at)
+                )),
+            });
+        }
+    }
+    read_required(&root.join(path), limit)
 }
 
 /// [`read_bounded`] for a file a check cannot do without: every way it can
@@ -622,6 +711,83 @@ mod tests {
         false
     }
 
+    /// A workspace-root question that must not be asked.
+    fn not_asked(_: &Path, dir: &Path) -> bool {
+        panic!("asked whether {} is a workspace root", dir.display())
+    }
+
+    #[test]
+    fn a_linked_manifest_is_not_resolved_and_the_target_beside_it_is_searched() {
+        let tree = TempTree::new("walk-linked-manifest");
+        let outside = TempTree::new("walk-linked-manifest-outside");
+        outside.write("Cargo.toml", "[workspace]\n");
+        tree.write("sub/target/debug/out.rs", "");
+        let target = outside.path().join("Cargo.toml");
+        if let Err(reason) = symlink(&tree, "sub/Cargo.toml", &target) {
+            let _ = writeln!(
+                io::stderr(),
+                "SKIPPED: a_linked_manifest_is_not_resolved_and_the_target_beside_it_is_searched: \
+                 cannot make a link here: {reason}"
+            );
+            return;
+        }
+        // Followed, the link would be a manifest, and cargo would be asked
+        // about the directory: `not_asked` panics if it is.
+        let skip = Skip {
+            build_dir: None,
+            worktrees: None,
+            is_workspace_root: not_asked,
+            every_file: false,
+        };
+        let mut found = Tree::default();
+        collect(tree.path(), tree.path(), true, is_rust, &skip, &mut found).unwrap();
+        let shown = |paths: &[PathBuf]| -> Vec<String> {
+            paths
+                .iter()
+                .map(|path| relative(tree.path(), path))
+                .collect()
+        };
+        assert_eq!(shown(&found.files), ["sub/target/debug/out.rs"]);
+        assert_eq!(shown(&found.links), ["sub/Cargo.toml"]);
+    }
+
+    #[test]
+    fn a_file_read_by_its_fixed_name_is_refused_through_a_link() {
+        let tree = TempTree::new("walk-unlinked");
+        let outside = TempTree::new("walk-unlinked-outside");
+        tree.write("xtask/list.txt", "real\n");
+        outside.write("list.txt", "linked\n");
+        outside.write("dir/list.txt", "linked\n");
+        assert_eq!(
+            read_unlinked(tree.path(), "xtask/list.txt", 64).unwrap(),
+            "real\n"
+        );
+        let file = outside.path().join("list.txt");
+        if let Err(reason) = symlink(&tree, "docs/list.txt", &file) {
+            let _ = writeln!(
+                io::stderr(),
+                "SKIPPED: a_file_read_by_its_fixed_name_is_refused_through_a_link: cannot make a \
+                 link here: {reason}"
+            );
+            return;
+        }
+        symlink(&tree, "linked", &outside.path().join("dir")).expect("a second link");
+        for (path, link) in [
+            ("docs/list.txt", "docs/list.txt"),
+            ("linked/list.txt", "linked"),
+        ] {
+            let error = read_unlinked(tree.path(), path, 64).expect_err("a link on the way");
+            let message = error.to_string();
+            assert!(
+                message.ends_with(&format!(
+                    ": {link} is a symbolic link, which xtask does not follow"
+                )),
+                "{message}"
+            );
+            assert!(matches!(error, Error::Read { .. }), "{error:?}");
+        }
+    }
+
     /// The files [`collect`] finds under `tree` with `skip`, and the build
     /// directory it noted as searched.
     fn collected(tree: &TempTree, skip: &Skip) -> (Vec<String>, Option<String>) {
@@ -691,12 +857,12 @@ mod tests {
     }
 
     #[test]
-    fn every_file_can_be_collected_while_links_still_follow_the_name() {
+    fn every_file_can_be_collected_whatever_its_name() {
         let tree = TempTree::new("walk-every-file");
         tree.write("a.rs", "");
         tree.write("third_party/libpad.rlib", "");
         tree.write("notes.md", "");
-        let scanned = scan_every_file(tree.path(), is_rust).unwrap();
+        let scanned = scan_every_file(tree.path()).unwrap();
         let files: Vec<String> = scanned
             .files
             .iter()
@@ -732,9 +898,87 @@ mod tests {
                 .collect()
         };
         assert_eq!(shown(&scanned.files), ["src/lib.rs"]);
-        // A link to a directory, or with a wanted name, matters; a dangling
-        // link or one to an unwanted file does not.
-        assert_eq!(shown(&scanned.links), ["src/m", "src/s.rs"]);
+        // Every link is reported, whatever its name and wherever it leads:
+        // telling a link to a directory from one to a file would mean
+        // resolving it, which touches its target.
+        assert_eq!(
+            shown(&scanned.links),
+            ["src/dangling", "src/m", "src/notes.md", "src/s.rs"]
+        );
+        let every = scan_every_file(tree.path()).unwrap();
+        assert_eq!(shown(&every.links), shown(&scanned.links));
+    }
+
+    #[test]
+    fn paths_are_shown_with_their_control_characters_escaped() {
+        let root = Path::new("repo");
+        // A newline, a carriage return, ESC (an escape sequence), DEL and
+        // C1's CSI each become an escape; other text stays.
+        let name = "a\n::warning::x\r\u{1b}[2K\u{7f}\u{9b}é.rs";
+        assert_eq!(
+            relative(root, &root.join("src").join(name)),
+            "src/a\\n::warning::x\\r\\u{1b}[2K\\u{7f}\\u{9b}é.rs"
+        );
+        assert!(
+            !relative(root, &root.join(name))
+                .chars()
+                .any(char::is_control)
+        );
+        // Outside the root too.
+        assert_eq!(
+            relative(root, Path::new("elsewhere\ttab")),
+            "elsewhere\\ttab"
+        );
+        // An ordinary path is unchanged, and not copied.
+        assert_eq!(relative(root, &root.join("src/lib.rs")), "src/lib.rs");
+        assert!(matches!(
+            escape_controls("src/lib.rs", |_| false),
+            Cow::Borrowed("src/lib.rs")
+        ));
+        // A backslash is not a control character (nor, on Windows, a part
+        // of a name), so it is kept.
+        assert!(matches!(
+            escape_controls("a\\b", |_| false),
+            Cow::Borrowed("a\\b")
+        ));
+        // The line and paragraph separators and the bidirectional controls
+        // too, which a browser or terminal may draw as a break or use to
+        // reorder the line; other format characters stay.
+        assert_eq!(
+            escape_controls(
+                "a\u{2028}b\u{2029}c\u{202e}d\u{2066}e\u{200f}f\u{200b}g",
+                |_| false
+            ),
+            "a\\u{2028}b\\u{2029}c\\u{202e}d\\u{2066}e\\u{200f}f\u{200b}g"
+        );
+        assert_eq!(shown(Path::new("x\ny")), "x\\ny");
+        // `keep` spares what it accepts.
+        assert_eq!(
+            escape_controls("a\nb\tc\u{1b}", |c| c == '\n'),
+            "a\nb\\tc\\u{1b}"
+        );
+    }
+
+    #[test]
+    fn a_file_named_with_control_characters_is_found_and_shown_escaped() {
+        let tree = TempTree::new("walk-control-names");
+        let name = "a\nb\u{1b}c.rs";
+        if let Err(error) = fs::write(tree.path().join(name), "") {
+            // Windows allows no control character in a file name.
+            let _ = writeln!(
+                io::stderr(),
+                "SKIPPED: a_file_named_with_control_characters_is_found_and_shown_escaped: \
+                 cannot name a file so here: {error}"
+            );
+            return;
+        }
+        let scanned = scan(tree.path(), is_rust).unwrap();
+        let files: Vec<String> = scanned
+            .files
+            .iter()
+            .map(|path| relative(tree.path(), path))
+            .collect();
+        assert_eq!(files, ["a\\nb\\u{1b}c.rs"]);
     }
 
     #[test]
@@ -951,8 +1195,8 @@ mod tests {
     fn a_root_git_link_finds_no_worktrees() {
         // The root's `.git` is a link to the real git directory, or to a
         // `gitdir:` file naming it, whose `worktrees/x` records `wt` both
-        // ways. A link is not followed, so `wt` is searched; a link to a
-        // directory is also reported.
+        // ways. A link is not followed, so `wt` is searched; and like every
+        // link, it is reported.
         for to_directory in [true, false] {
             let tree = TempTree::new("walk-root-git-link");
             let git = TempTree::new("walk-root-git-link-gitdir");
@@ -989,11 +1233,7 @@ mod tests {
                 "{to_directory}"
             );
             assert!(scanned.worktrees.is_empty(), "{to_directory}");
-            assert_eq!(
-                scanned.links.len(),
-                usize::from(to_directory),
-                "{to_directory}"
-            );
+            assert_eq!(scanned.links, [tree.path().join(".git")], "{to_directory}");
         }
     }
 

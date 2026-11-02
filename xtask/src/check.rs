@@ -27,6 +27,7 @@
 //! found is an out-of-date lockfile, its last line says so in fixed words
 //! ([`ONLY_STALE_LOCKFILES`]).
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::path::Path;
@@ -34,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::Skips;
 use crate::error::Error;
-use crate::{cargo, deps, headers, layers, ucd, unsafe_audit};
+use crate::{cargo, deps, headers, layers, ucd, unsafe_audit, walk};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -334,14 +335,14 @@ fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<(
     match run_step(check.step, root) {
         Ok(report) => {
             for note in &report.notes {
-                writeln!(out, "{note}")?;
+                writeln!(out, "{}", printable(note))?;
             }
             for violation in &report.violations {
-                writeln!(out, "violation: {violation}")?;
+                writeln!(out, "violation: {}", printable(violation))?;
             }
             let skips = &report.skips;
             for reason in &skips.reasons {
-                writeln!(out, "skipped: {reason}")?;
+                writeln!(out, "skipped: {}", printable(reason))?;
             }
             if let Some(more) = skips.count.checked_sub(skips.reasons.len())
                 && more > 0
@@ -361,10 +362,31 @@ fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<(
             Ok((report.violations.is_empty(), skips.count))
         }
         Err(error) => {
-            writeln!(out, "{name}: FAILED: {error}")?;
+            writeln!(out, "{name}: FAILED: {}", printable(&error.to_string()))?;
             Ok((false, 0))
         }
     }
+}
+
+/// What starts each line after the first of a message that goes on over
+/// several lines, such as one that quotes cargo's error: fixed text that is
+/// not whitespace, so that no line of output starts with text a check read
+/// (GitHub Actions trims leading whitespace before it looks for `::`).
+pub(crate) const CONTINUED: &str = "  | ";
+
+/// `text` as `xtask` prints it: its control characters escaped
+/// ([`walk::escape_controls`]), but for the newlines and tabs of a message
+/// over several lines, each line after the first starting with
+/// [`CONTINUED`]. What a check read from the repository then reaches a
+/// terminal or CI's log as text: never as an escape sequence, nor at the
+/// start of a line. Paths are escaped whole, newlines too, where they are
+/// shown ([`walk::relative`]).
+pub(crate) fn printable(text: &str) -> Cow<'_, str> {
+    let escaped = walk::escape_controls(text, |c| matches!(c, '\n' | '\t'));
+    if !escaped.contains('\n') {
+        return escaped;
+    }
+    Cow::Owned(escaped.replace('\n', &format!("\n{CONTINUED}")))
 }
 
 /// How a step of `ci` ended.
@@ -624,6 +646,31 @@ mod tests {
         })
     }
 
+    /// Text as a check might find it in the repository or in cargo's
+    /// output: ESC, CR and C1 controls, and a quoted error over two lines.
+    fn with_controls(_: &Path) -> Result<Report, Error> {
+        Ok(Report {
+            notes: vec!["title\u{1b}]0;owned\u{7}".to_string()],
+            violations: vec![
+                "a\r::warning::forged\u{9b}2K".to_string(),
+                "cargo said:\n\terror: \u{1b}[31mred".to_string(),
+                "cargo quoted:\n::error::forged\ndemo: ok".to_string(),
+            ],
+            skips: Skips {
+                reasons: vec!["needs\u{1b}[2Kgit".to_string()],
+                count: 1,
+            },
+            ..Report::default()
+        })
+    }
+
+    fn erroring_with_controls(_: &Path) -> Result<Report, Error> {
+        Err(Error::Read {
+            path: "a\nb\u{1b}c".into(),
+            source: io::Error::from(io::ErrorKind::NotFound),
+        })
+    }
+
     fn check(name: &'static str, run: fn(&Path) -> Result<Report, Error>) -> Check {
         with_role(name, run, Role::Independent)
     }
@@ -760,6 +807,36 @@ mod tests {
              layers  ok ? s\n\
              ci: FAILED: 1 of 3 steps failed: deps; not run: clippy"
         );
+    }
+
+    #[test]
+    fn control_characters_are_escaped_and_continued_lines_marked() {
+        let (passed, text) = output_of_one(with_controls);
+        assert!(!passed);
+        assert_eq!(
+            text,
+            "title\\u{1b}]0;owned\\u{7}\n\
+             violation: a\\r::warning::forged\\u{9b}2K\n\
+             violation: cargo said:\n  | \terror: \\u{1b}[31mred\n\
+             violation: cargo quoted:\n  | ::error::forged\n  | demo: ok\n\
+             skipped: needs\\u{1b}[2Kgit\n\
+             demo: FAILED (3 violations; 1 SKIPPED)\n"
+        );
+        // No line starts with text the check read, even once GitHub Actions
+        // has trimmed its leading whitespace, and none repeats a verdict.
+        assert!(
+            text.lines()
+                .all(|line| !line.trim_start().starts_with("::") && line != "demo: ok"),
+            "{text}"
+        );
+        // A path, newlines and all, is escaped where it is shown.
+        let (_, text) = output_of_one(erroring_with_controls);
+        assert!(
+            text.starts_with("demo: FAILED: cannot read `a\\nb\\u{1b}c`: "),
+            "{text}"
+        );
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(!text.chars().any(|c| c.is_control() && c != '\n'));
     }
 
     #[test]

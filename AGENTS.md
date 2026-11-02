@@ -4,8 +4,8 @@
 opens a window yet. `docs/roadmap.md` ticks each task once it is done and
 verified.
 
-- **Built:** the guarded workspace and its checks (M0.1–M0.4), license
-  headers on the source files and their check (M0.7), the
+- **Built:** the guarded workspace and its checks (M0.1–M0.4, M0.10),
+  license headers on the source files and their check (M0.7), the
   foundations in `tidepool-core` (M0.2), JSON and JSONC in `tidepool-codec`
   (M1.4), and in `tidepool-text` the rope, positions and grapheme
   boundaries (M1.1) and selections, change sets and the undo tree (M1.2).

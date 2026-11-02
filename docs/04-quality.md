@@ -87,10 +87,10 @@ as a pass.
 | Command | Fails when |
 | :- | :- |
 | `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit`, `headers` or `ucd` fails (`tools` and `theme` join once implemented, and `workflows` and `crates` with M0.8 and M0.9) |
-| `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact or a file `deps` can't read, or cargo can't resolve a workspace offline |
+| `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
-| `cargo xtask headers` | A source file (Rust, shell script, workflow) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line), unless it is exempt by path; or a source file is a symbolic link, over 8 MiB or not UTF-8 (ADR-0021) |
+| `cargo xtask headers` | A source file (Rust, shell script, workflow) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
@@ -132,9 +132,9 @@ network through its tool.
 - A check prints its notes, one `violation:` line per problem, then
   `<check>: ok` or `<check>: FAILED (N violations)`. A check that cannot run
   prints `<check>: FAILED: <reason>`. A violation or reason that quotes
-  cargo's error goes on over the following lines, without a prefix. So for a
-  check that ran, the verdict is always the last line; for one that could
-  not run, the `FAILED:` line may not be.
+  cargo's error goes on over the following lines, each starting with
+  `  | ` (M0.10, below). So for a check that ran, the verdict is always the
+  last line; for one that could not run, the `FAILED:` line may not be.
 - Secrets in messages (`AGENTS.md` rule 7): when `xtask` quotes the error
   of a cargo child it reads (`cargo metadata`, `cargo locate-project`), it
   leaves out the source lines cargo quotes (`  4 | token = "…"`). In those
@@ -144,6 +144,29 @@ network through its tool.
   `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
   stream cargo's output as cargo prints it. So keep secrets out of the
   repository's cargo files; cargo reads credentials from `CARGO_HOME`.
+- Control characters in output (M0.10): nothing a check reads, a file
+  name, a cargo target's name or a line cargo quotes, can start a line of
+  its output, which GitHub Actions would read as a workflow command such
+  as `::warning::`, or send an escape sequence to a terminal.
+  - The characters escaped are the control characters (C0, DEL and C1),
+    the line and paragraph separators (U+2028, U+2029) and the
+    bidirectional controls (U+061C, U+200E, U+200F, U+202A–U+202E,
+    U+2066–U+2069). Each is written as its Rust escape: `\n`, `\r`,
+    `\u{1b}`, `\u{202e}`. A backslash and every other character are kept.
+  - Wherever a path is shown, cargo's command lines included, all of them
+    are escaped.
+  - Every note, violation, `skipped:` reason and error a check prints gets
+    the same, except newlines and tabs, which a message quoting cargo's
+    error over several lines needs. Each line after the first starts with
+    `  | `, which is not whitespace once GitHub Actions has trimmed the
+    leading spaces it ignores. So every line starts with text `xtask`
+    wrote.
+  - Not covered: `ci`'s fmt, clippy and test steps stream cargo's output as
+    cargo prints it, and the code they build and test can print anything.
+    GitHub's older `##[command]` syntax may also be matched anywhere in a
+    line, not only at its start; this was not checked against the runner.
+    Pausing command processing with `::stop-commands::` around the gate,
+    in the workflow, would cover both.
 - When every violation `deps` found is an out-of-date lockfile (below), its
   last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
   (`1 violation` when there is one). That line is built from the count and
@@ -247,10 +270,26 @@ network through its tool.
   there fails the audit's crate-root rule, and `layers` too when it has no
   row or an edge the matrix forbids. A non-member path package there fails
   `deps`. A worktree inside a member's package directory fails the audit.
-- Symbolic links are never followed. A link to a directory is a violation,
-  and so is a link named like a file the check looks for: for `deps`, a
-  manifest, lockfile, cargo configuration file or compiled artifact; for the
-  audit, a `.rs` file or a manifest; for `headers`, a source file.
+- Symbolic links are never followed, and `xtask` itself never resolves
+  one (M0.10): every link under the root is a violation in each check,
+  whatever its name and wherever it leads, a dangling one included.
+  Telling a link to a directory from one to a file would mean resolving it,
+  which touches its target. On Windows, a link to a UNC path would make the
+  OS contact that host.
+  - A linked `Cargo.toml` is not a manifest to the walk, so the `target`
+    beside it is searched, and cargo is not asked about its directory.
+  - The files a check reads by a fixed name, `xtask/deps-allowlist.txt`
+    for `deps` and `docs/01-architecture.md` for `layers`, are not opened
+    when they, or a directory on the way to them, are links: the check
+    fails, naming the link.
+  - Not covered: cargo follows links. `deps`, `layers` and `unsafe-audit`
+    run `cargo metadata`, which loads every workspace they find, and
+    `cargo xtask` itself loads the root one before `xtask` starts. A linked
+    member, path dependency, crate root or configuration file is resolved
+    by cargo, and the paths cargo reports are resolved again by `xtask`.
+    The link is still a violation.
+  - The repository holds no links. Git for Windows checks them out as text
+    files unless symbolic links are turned on (`core.symlinks`).
 - `Cargo.toml`, `Cargo.lock` and `.rs` match in any case, since macOS and
   Windows ignore case. On Linux cargo cannot describe a workspace from a
   `cargo.toml`, so that workspace fails closed.
@@ -266,19 +305,9 @@ network through its tool.
 - This covers planned test data too: TOML samples and fuzz seeds named
   `Cargo.toml` or `Cargo.lock`, lexer inputs and fuzz seeds named `.rs`,
   trust-test and cargo-task projects, and the Android and iOS sample apps.
-- Not covered, in every check that uses this walk:
-  - Races. A file swapped for a link or a FIFO between the walk and its
-    open is followed, or blocks the open. A link committed to the
-    repository cannot race.
-  - Control characters in file names. Paths are printed as they are, so a
-    committed file whose name holds a newline or an escape sequence can
-    add lines to the output, such as a GitHub Actions workflow command or
-    a fake verdict line, or send escape sequences to a terminal. The exit
-    status and the real verdict line stay right.
-  - To tell whether a link leads to a directory, the walk resolves it
-    (`fs::metadata`), which touches its target. On Windows a link to a UNC
-    path would make the OS contact that host. A link's contents are never
-    read.
+- Not covered, in every check that uses this walk: races. A file swapped
+  for a link or a FIFO between the walk and its open is followed, or
+  blocks the open. A link committed to the repository cannot race.
 
 **`deps`**
 
@@ -522,11 +551,9 @@ network through its tool.
   never what it holds: `<file>:<line>: expected `<text>`, line N of the
   Apache-2.0 header in `LICENSE`'s appendix`, or `<file>:<line>: expected
   a blank line after the Apache-2.0 header`. A file over 8 MiB and a file
-  that isn't UTF-8 are violations too. So is every symbolic link the walk
-  reports (above): one named `.rs`, `.sh`, `.yml` or `.yaml`, wherever it
-  is, or one to a directory. The check does not resolve a link again to
-  tell a YAML file outside the workflows from a workflow. A file it cannot
-  read stops the check: `headers: FAILED: <reason>`.
+  that isn't UTF-8 are violations too, and so is every symbolic link
+  (above). A file it cannot read stops the check: `headers: FAILED:
+  <reason>`.
 - Exempt by path (`EXEMPT` in `xtask/src/headers.rs`, ADR-0021):
   - `crates/text/src/pos/grapheme/tables.rs`, which `ucd` generates and
     which keeps the Unicode data's notice instead (ADR-0018);
