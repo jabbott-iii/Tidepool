@@ -1,3 +1,17 @@
+// Copyright 2026 Joseph Anthony Abbott III
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! End-to-end tests of the `xtask` binary on fixture repositories that are
 //! generated in a temporary directory at test time (never committed, so the
 //! real repository never contains a broken workspace).
@@ -69,6 +83,33 @@ const UCD_FILES: [&str; 6] = [
 const ENCLOSING: &str = "# Encloses the fixture, so that what lies above it never matters.\n\
     [workspace]\n\
     resolver = \"3\"\n";
+
+/// The Apache-2.0 header a Rust source file starts with (ADR-0021), and the
+/// blank line after it: `LICENSE`'s appendix as `//` comments, written out
+/// here rather than taken from `xtask`, so that a change to either shows.
+const RUST_HEADER: &str = "// Copyright 2026 Joseph Anthony Abbott III\n\
+    //\n\
+    // Licensed under the Apache License, Version 2.0 (the \"License\");\n\
+    // you may not use this file except in compliance with the License.\n\
+    // You may obtain a copy of the License at\n\
+    //\n\
+    //     http://www.apache.org/licenses/LICENSE-2.0\n\
+    //\n\
+    // Unless required by applicable law or agreed to in writing, software\n\
+    // distributed under the License is distributed on an \"AS IS\" BASIS,\n\
+    // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n\
+    // See the License for the specific language governing permissions and\n\
+    // limitations under the License.\n\
+    \n";
+
+/// [`RUST_HEADER`] as a shell script or a workflow writes it, with `#` for
+/// the `//` that starts each line (not the one in the URL).
+fn hash_header() -> String {
+    RUST_HEADER
+        .lines()
+        .map(|line| format!("{}\n", line.replacen("//", "#", 1)))
+        .collect()
+}
 
 /// What one run of the binary did.
 struct Run {
@@ -273,7 +314,14 @@ impl Fixture {
                  publish = false\n\n{tables}"
             ),
         );
-        self.write(&format!("crates/{dir}/src/lib.rs"), lib);
+        self.source(&format!("crates/{dir}/src/lib.rs"), lib);
+    }
+
+    /// Writes the Rust source `body` to `path`, relative to the repository
+    /// root, after [`RUST_HEADER`], as every source file in the repository
+    /// starts.
+    fn source(&self, path: &str, body: &str) {
+        self.write(path, &format!("{RUST_HEADER}{body}"));
     }
 
     /// Writes `contents` to `path`, relative to the repository root.
@@ -2215,7 +2263,7 @@ fn unsafe_audit_fails_on_an_exported_macro_that_wraps_caller_code_in_unsafe() {
     assert_eq!(
         run.violations(),
         [
-            "crates/platform/src/lib.rs:9: `unsafe` block in the exported macro `in_unsafe` wraps \
+            "crates/platform/src/lib.rs:23: `unsafe` block in the exported macro `in_unsafe` wraps \
              tokens its caller passes in (`$...`): they would run as `unsafe` in the caller's \
              crate, where neither its `unsafe_code` lint nor this audit sees them, and no `// \
              SAFETY:` comment here can cover them. Make it a function, or leave the `unsafe` to \
@@ -2318,13 +2366,88 @@ fn unsafe_audit_fails_on_a_crate_root_outside_its_package() {
     );
 }
 
+// --- headers ---
+
+#[test]
+fn headers_passes_on_the_unbroken_fixture_and_after_a_shebang() {
+    let fixture = Fixture::passing("headers-pass");
+    fixture.write(
+        "scripts/tool.sh",
+        &format!("#!/bin/sh\n{}echo tool\n", hash_header()),
+    );
+    fixture.write(
+        ".github/workflows/ci.yml",
+        &format!("{}name: CI\n", hash_header()),
+    );
+    // Configuration and data carry none.
+    fixture.write(".github/dependabot.yml", "version: 2\n");
+    let run = fixture.run("headers");
+    run.expect_code(0);
+    assert!(
+        run.stdout
+            .ends_with("source files checked: 6\nheaders: ok\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn headers_fails_on_each_kind_of_violation() {
+    let fixture = Fixture::passing("headers-fail");
+    // No header at all.
+    fixture.write("crates/text/src/missing.rs", "//! Missing.\n");
+    // A line of it altered.
+    fixture.write(
+        "crates/text/src/altered.rs",
+        &format!("{RUST_HEADER}//! Altered.\n").replace("AS IS", "AS-IS"),
+    );
+    // Below other text.
+    fixture.write(
+        "crates/core/src/below.rs",
+        &format!("//! Below.\n\n{RUST_HEADER}"),
+    );
+    // No blank line after it.
+    fixture.write(
+        "crates/sys/src/crowded.rs",
+        &format!("{}\n//! Crowded.\n", RUST_HEADER.trim_end_matches('\n')),
+    );
+    // A script without it after its `#!` line, and a workflow without it.
+    fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
+    fixture.write(".github/workflows/ci.yml", "name: CI\n");
+
+    let run = fixture.run("headers");
+    run.expect_code(1);
+    let first = "Copyright 2026 Joseph Anthony Abbott III";
+    let appendix = "line 1 of the Apache-2.0 header in `LICENSE`'s appendix";
+    assert_eq!(
+        run.violations(),
+        [
+            format!(".github/workflows/ci.yml:1: expected `# {first}`, {appendix}"),
+            format!("crates/core/src/below.rs:1: expected `// {first}`, {appendix}"),
+            "crates/sys/src/crowded.rs:14: expected a blank line after the Apache-2.0 header"
+                .to_string(),
+            "crates/text/src/altered.rs:10: expected `// distributed under the License is \
+             distributed on an \"AS IS\" BASIS,`, line 10 of the Apache-2.0 header in \
+             `LICENSE`'s appendix"
+                .to_string(),
+            format!("crates/text/src/missing.rs:1: expected `// {first}`, {appendix}"),
+            format!("scripts/tool.sh:2: expected `# {first}`, {appendix}"),
+        ]
+    );
+    assert!(
+        run.stdout.ends_with("headers: FAILED (6 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
 // --- ci ---
 
 #[test]
 fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     let fixture = Fixture::passing("ci-fmt").with_ucd();
     // Valid Rust that `cargo fmt --check` rejects, and nothing else does.
-    fixture.write(
+    fixture.source(
         "crates/text/src/lib.rs",
         "//! Text.\n\n/// Says hello.\npub fn hello( )->&'static str{\"hello\"}\n",
     );
@@ -2346,6 +2469,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "test",
             "layers",
             "unsafe-audit",
+            "headers",
             "ucd",
             "summary"
         ],
@@ -2366,6 +2490,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("test", "ok"),
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
+            ("headers", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2376,7 +2501,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     );
     assert!(
         summary
-            .ends_with("ci: FAILED: 1 of 7 steps failed: fmt; not yet implemented: tools, theme\n"),
+            .ends_with("ci: FAILED: 1 of 8 steps failed: fmt; not yet implemented: tools, theme\n"),
         "{summary}"
     );
     assert!(
@@ -2392,18 +2517,18 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     // would pass instead.
     let fixture = Fixture::passing("ci-all").with_ucd();
     // fmt: badly formatted, and nothing else is wrong with it.
-    fixture.write(
+    fixture.source(
         "crates/text/src/lib.rs",
         "//! Text.\n\n/// Says hello.\npub fn hello( )->&'static str{\"hello\"}\n",
     );
     // clippy: `needless_return`, a warning that `-D warnings` denies. And
     // unsafe-audit: the lint relaxed outside the two crate roots.
-    fixture.write(
+    fixture.source(
         "crates/core/src/lib.rs",
         "//! Core.\n#![allow(unsafe_code)]\n\n/// One.\npub fn one() -> i32 {\n    return 1;\n}\n",
     );
     // test: a test that fails.
-    fixture.write(
+    fixture.source(
         "crates/sys/src/lib.rs",
         "//! Sys.\n#![allow(unsafe_code)]\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    \
          fn planted_failure() {\n        panic!(\"planted failure\");\n    }\n}\n",
@@ -2414,6 +2539,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "[dev-dependencies]\ntidepool-core = { path = \"../core\" }\n",
     );
     fixture.lock();
+    // headers: a script without one.
+    fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
     // ucd: tables that are not what the Unicode data generates.
     fixture.write("crates/text/src/pos/grapheme/tables.rs", "// stale\n");
 
@@ -2428,6 +2555,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("test", "FAILED"),
             ("layers", "FAILED"),
             ("unsafe-audit", "FAILED"),
+            ("headers", "FAILED"),
             ("ucd", "FAILED"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2438,8 +2566,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 6 of 7 steps failed: fmt, clippy, test, layers, unsafe-audit, ucd; not yet \
-         implemented: tools, theme"
+        "ci: FAILED: 7 of 8 steps failed: fmt, clippy, test, layers, unsafe-audit, headers, ucd; \
+         not yet implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -2447,7 +2575,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "clippy::needless_return",
         "planted failure",
         "violation: tidepool-sys -> tidepool-core not allowed (dev-dependency)",
-        "violation: crates/core/src/lib.rs:2: `allow(unsafe_code)` is only allowed",
+        "violation: crates/core/src/lib.rs:16: `allow(unsafe_code)` is only allowed",
+        "violation: scripts/tool.sh:2: expected `# Copyright 2026 Joseph Anthony Abbott III`",
         "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/17.0.0 \
          generates (first difference at line 1); run cargo xtask ucd",
     ] {
@@ -2489,6 +2618,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("test", "not"),
             ("layers", "FAILED"),
             ("unsafe-audit", "ok"),
+            ("headers", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2499,7 +2629,7 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 7 steps failed: deps, layers; not run: clippy, test; not yet \
+        "ci: FAILED: 2 of 8 steps failed: deps, layers; not run: clippy, test; not yet \
          implemented: tools, theme"
     );
     assert!(
@@ -2589,7 +2719,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     // on standard error and one on standard output, one runs, and a line
     // that only mentions the word does not count.
     let fixture = Fixture::passing("ci-skipped").with_ucd();
-    fixture.write("crates/text/src/lib.rs", SKIPPING_TESTS);
+    fixture.source("crates/text/src/lib.rs", SKIPPING_TESTS);
     let run = fixture.run("ci");
     run.expect_code(0);
     assert_eq!(
@@ -2601,6 +2731,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("test", "ok"),
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
+            ("headers", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2625,7 +2756,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 7 of 7 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 8 of 8 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -2712,13 +2843,13 @@ fn a_relative_root_is_made_absolute() {
 // --- the real repository and the command line ---
 
 #[test]
-fn the_real_repository_passes_deps_layers_and_unsafe_audit() {
+fn the_real_repository_passes_deps_layers_unsafe_audit_and_headers() {
     // Not `ci`: its `cargo test` would run this test again, without end.
     // No build directory of its own is given: the checks only read
     // metadata, and must skip the one these tests run in when it is
     // `<root>/target` or outside the repository. Anywhere else in the
     // repository it is searched, and this test fails (docs/04-quality.md).
-    for command in ["deps", "layers", "unsafe-audit"] {
+    for command in ["deps", "layers", "unsafe-audit", "headers"] {
         let run = xtask(&[command], None);
         run.expect_code(0);
         assert!(

@@ -86,23 +86,24 @@ as a pass.
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit` or `ucd` fails (`tools` and `theme` join once implemented, and `headers`, `workflows` and `crates` with M0.7–M0.9) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit`, `headers` or `ucd` fails (`tools` and `theme` join once implemented, and `workflows` and `crates` with M0.8 and M0.9) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
+| `cargo xtask headers` | A source file (Rust, shell script, workflow) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line), unless it is exempt by path; or a source file is a symbolic link, over 8 MiB or not UTF-8 (ADR-0021) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
 | `cargo xtask fuzz-smoke` | Not yet implemented (M1.6). Planned: a fuzz target crashes, hangs or exceeds its allocation cap. Provisional: the parsers of the targets after QOI live in crates outside `xtask`'s matrix row, and counting allocations needs a `GlobalAlloc`, which is `unsafe`. M1.6 must settle both |
 | `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
-| `cargo xtask headers` | Not a command yet (M0.7). Planned: a source file whose Apache-2.0 header from `LICENSE`'s appendix is missing, altered or out of place (ADR-0021) |
 | `cargo xtask workflows` | Not a command yet (M0.8). Planned: a workflow in `.github/workflows/` that uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022) |
 | `cargo xtask crates` | Not a command yet (M0.9). Planned: a member that does not inherit `edition`, `version` and `license`, lacks `publish = false` or `[lints] workspace = true`, or whose `README.md` is missing or not in the shape of ADR-0023 |
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
-`.rs` file, whatever the rest of its name. It reads other files only
+`.rs` file, whatever the rest of its name, and `headers` every source file
+it checks, though it never prints a line of one. It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
 parses. The one file it writes in the repository is the generated Unicode
@@ -153,8 +154,8 @@ network through its tool.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
   (M2.4), `fuzz-smoke` (M1.6), `bench` (M1.9; its message still says it
   has no task, which M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
-  `headers`, `workflows` and `crates` (M0.7–M0.9) are not named yet, so
-  they exit 2 as unknown commands. Each named one exits 1 and
+  `workflows` and `crates` (M0.8, M0.9) are not named yet, so they exit
+  2 as unknown commands. Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
   are handled first. `ci` lists `tools` and `theme` as "not yet
@@ -220,7 +221,7 @@ network through its tool.
     the project is checked rather than the worktree. On Windows every
     path has one, which M12 must fix.
 
-**Files searched** (`deps` and `unsafe-audit`)
+**Files searched** (`deps`, `unsafe-audit` and `headers`)
 
 - Everything under the root, including hidden directories, nested `.git`
   directories and submodules. Skipped: `.git` directly under the root, the
@@ -249,14 +250,14 @@ network through its tool.
 - Symbolic links are never followed. A link to a directory is a violation,
   and so is a link named like a file the check looks for: for `deps`, a
   manifest, lockfile, cargo configuration file or compiled artifact; for the
-  audit, a `.rs` file or a manifest.
+  audit, a `.rs` file or a manifest; for `headers`, a source file.
 - `Cargo.toml`, `Cargo.lock` and `.rs` match in any case, since macOS and
   Windows ignore case. On Linux cargo cannot describe a workspace from a
   `cargo.toml`, so that workspace fails closed.
 - Committed test data is checked as the real thing: a file named
   `Cargo.toml` or `Cargo.lock`, `config` or `config.toml` in a `.cargo`
-  directory, a file ending in `.rs`, or one named or starting like a
-  compiled artifact (`deps`), in any case. Give samples another suffix
+  directory, a file ending in `.rs` (or, for `headers`, `.sh`), or one
+  named or starting like a compiled artifact (`deps`), in any case. Give samples another suffix
   (`.rs.txt`), or generate them at test time under `<root>/target` or a
   build directory outside the repository. xtask's fixtures use
   `CARGO_TARGET_TMPDIR`, each in a case directory whose `Cargo.toml` is a
@@ -265,6 +266,19 @@ network through its tool.
 - This covers planned test data too: TOML samples and fuzz seeds named
   `Cargo.toml` or `Cargo.lock`, lexer inputs and fuzz seeds named `.rs`,
   trust-test and cargo-task projects, and the Android and iOS sample apps.
+- Not covered, in every check that uses this walk:
+  - Races. A file swapped for a link or a FIFO between the walk and its
+    open is followed, or blocks the open. A link committed to the
+    repository cannot race.
+  - Control characters in file names. Paths are printed as they are, so a
+    committed file whose name holds a newline or an escape sequence can
+    add lines to the output, such as a GitHub Actions workflow command or
+    a fake verdict line, or send escape sequences to a terminal. The exit
+    status and the real verdict line stay right.
+  - To tell whether a link leads to a directory, the walk resolves it
+    (`fs::metadata`), which touches its target. On Windows a link to a UNC
+    path would make the OS contact that host. A link's contents are never
+    read.
 
 **`deps`**
 
@@ -487,6 +501,47 @@ network through its tool.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
   No check does.
 
+**`headers`**
+
+- Source files, found as "Files searched" says: a Rust file (`.rs`), a
+  shell script (`.sh`) and a workflow (`.yml` or `.yaml` directly in
+  `.github/workflows/`, where GitHub reads them), the extension in any
+  case. Configuration and data carry no header (ADR-0021): TOML, Markdown,
+  JSON and JSONC, other YAML (`dependabot.yml`, the issue forms, YAML in a
+  folder below `.github/workflows/`), test vectors, the Unicode data,
+  `LICENSE` and `NOTICE`.
+- Each starts with the 13 lines of `LICENSE`'s appendix from its copyright
+  line, word for word: `// ` before each in Rust, `# ` in scripts and
+  workflows, and `//` or `#` alone on an empty one. A blank line follows,
+  unless the file ends there. The header starts on line 1, or in a script
+  on line 2 after a `#!` line. One leading UTF-8 byte-order mark is
+  skipped, as `deps` skips one. CR LF line endings, as a Windows checkout
+  may have, are accepted; lone CR ones are not. Only those first lines of
+  a file are read as lines.
+- A violation names the first line that is wrong and what it should be,
+  never what it holds: `<file>:<line>: expected `<text>`, line N of the
+  Apache-2.0 header in `LICENSE`'s appendix`, or `<file>:<line>: expected
+  a blank line after the Apache-2.0 header`. A file over 8 MiB and a file
+  that isn't UTF-8 are violations too. So is every symbolic link the walk
+  reports (above): one named `.rs`, `.sh`, `.yml` or `.yaml`, wherever it
+  is, or one to a directory. The check does not resolve a link again to
+  tell a YAML file outside the workflows from a workflow. A file it cannot
+  read stops the check: `headers: FAILED: <reason>`.
+- Exempt by path (`EXEMPT` in `xtask/src/headers.rs`, ADR-0021):
+  - `crates/text/src/pos/grapheme/tables.rs`, which `ucd` generates and
+    which keeps the Unicode data's notice instead (ADR-0018);
+  - `.github/workflows/codeql.yml`, GitHub's starter workflow, which
+    carries no notice. It is exempt, at the user's choice, until M0.8
+    rewrites it as the project's own.
+- Notes give the number of files whose header was checked (not those too
+  large or not UTF-8) and the exempt files found, each with its reason.
+- A unit test compares its header with `LICENSE`'s appendix, so a change
+  to either fails until the other matches.
+- Not covered: a new kind of source file (another extension) is unchecked
+  until `kind` in `xtask/src/headers.rs` knows it. The third-party notices
+  kept beside other material, such as the IETF Trust's for the RFC 8259
+  examples in `crates/codec/tests/json.rs`, are not checked.
+
 **`ucd`**
 
 - Inputs: the five files in `crates/text/ucd/17.0.0/` (ADR-0018). They are
@@ -545,17 +600,17 @@ network through its tool.
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `unsafe-audit`, `ucd` (as `ucd --check`). Each step starts with
-  a `== <step>: ...`
-  heading; the cargo steps print cargo's own output.
+  `layers`, `unsafe-audit`, `headers`, `ucd` (as `ucd --check`). Each step
+  starts with a `== <step>: ...` heading; the cargo steps print cargo's own
+  output.
 - It keeps going after a failure, so one run reports every problem, with
   one exception. Once `deps` has failed or could not run, clippy and test
   are not run, because they would build and run the code `deps` rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
-  runs. `layers`, `unsafe-audit` and `ucd` are not gates, and run after
-  clippy and test. So code that `deps` accepts but they reject, such as a vendored
-  crate that cargo made a member, is still compiled, and its build scripts
-  and tests run, before they report it.
+  runs. `layers`, `unsafe-audit`, `headers` and `ucd` are not gates, and
+  run after clippy and test. So code that `deps` accepts but they reject,
+  such as a vendored crate that cargo made a member, is still compiled, and
+  its build scripts and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
   standard input closed. The test step's output passes through `xtask` as
   it arrives, so by default cargo and libtest print it without colour, and
@@ -577,7 +632,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 7 of 7 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 8 of 8 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 

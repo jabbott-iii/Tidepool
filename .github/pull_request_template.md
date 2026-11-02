@@ -36,7 +36,7 @@ Closes #
 you could not run, and why: a check that needs macOS or Windows, a real
 tool (rust-analyzer, the Android SDK, Xcode), or a display, for example. -->
 
-- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, layers, unsafe-audit, ucd)
+- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, layers, unsafe-audit, headers, ucd)
 - [ ] `cargo xtask fuzz-smoke --target <target>`, for a parser change (from M1.6)
 - [ ] `cargo xtask golden`, for a change to what `gfx`, `font`, `ui`, `gui` or `tui` draw (from M2.4)
 - [ ] `cargo xtask bench <filter>`, for performance work (paste the numbers before and after; from M1.9)

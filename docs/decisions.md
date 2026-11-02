@@ -544,7 +544,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0021 — Every source file starts with the Apache-2.0 header of `LICENSE`'s appendix; `cargo xtask headers` checks it; the RFC 8259 examples keep the IETF Trust's notice
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Context:**
   - On 2026-11-01, asked which of Nadir's conventions Tidepool should
@@ -566,6 +566,15 @@ decides; the roadmap task that first depends on one asks for the decision.
     whose notice must go with them (Nadir's ADR-0037). Nadir keeps that
     notice in its `tests/json.rs`; Tidepool's port does not have it: no
     file under `crates/` mentions the IETF.
+  - The user accepted this record on 2026-11-02 (M0.7) with two answers:
+    - The open question below: Tidepool gets a root `NOTICE`, as Nadir
+      has, holding the project's name and copyright line and nothing else,
+      which ships beside `LICENSE` in each package (`docs/05-release.md`).
+    - An exception to "Files that carry it" below:
+      `.github/workflows/codeql.yml`, still GitHub's starter workflow word
+      for word and with no notice of its own, is exempt by path, beside
+      the grapheme tables, until M0.8 rewrites it as the project's own and
+      gives it the header.
 - **Decision:**
   - **The header** is the appendix's notice, word for word, in the file's
     comment syntax, followed by one blank line. It goes on line 1, or

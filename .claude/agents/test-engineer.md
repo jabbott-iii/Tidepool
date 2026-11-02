@@ -1,6 +1,6 @@
 ---
 name: test-engineer
-description: Writes and improves Tidepool's tests and test infrastructure — tidepool-testkit (fake LSP server, fake tools, transcripts), the property-test harness, golden frames and TUI snapshots, vim conformance fixtures, the std-only fuzz smoke and benchmark harnesses, xtask checks (deps, layers, unsafe-audit, ucd, and the planned headers, workflows and crates), and the CI workflows. Use after implementing a feature, when acceptance criteria need evidence, or when a test is flaky or missing.
+description: Writes and improves Tidepool's tests and test infrastructure — tidepool-testkit (fake LSP server, fake tools, transcripts), the property-test harness, golden frames and TUI snapshots, vim conformance fixtures, the std-only fuzz smoke and benchmark harnesses, xtask checks (deps, layers, unsafe-audit, headers, ucd, and the planned workflows and crates), and the CI workflows. Use after implementing a feature, when acceptance criteria need evidence, or when a test is flaky or missing.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 ---

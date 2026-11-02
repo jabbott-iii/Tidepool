@@ -128,17 +128,17 @@ Windows, and the same commands CI runs:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `unsafe-audit`, `ucd --check` |
+| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `unsafe-audit`, `headers`, `ucd --check` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
+| `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
 On the way, each with its roadmap task: `fuzz-smoke` (M1.6), `bench`
 (M1.9), `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6,
-M12.4, M14.4), and the checks `headers` (M0.7), `workflows` (M0.8) and
-`crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
+M12.4, M14.4), and the checks `workflows` (M0.8) and `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
 
@@ -270,10 +270,12 @@ what is in scope.
 By contributing, you agree that your contributions are licensed under the
 Apache License 2.0 (see [`LICENSE`](LICENSE), section 5).
 
-Every new source file (Rust, shell scripts, workflows) starts with the
+Every source file (Rust, shell scripts, workflows) starts with the
 license notice from the appendix of `LICENSE`, in that file's comment
 syntax, followed by a blank line; in a script it goes after the `#!` line
-(ADR-0021). Most existing files get it in roadmap task M0.7, which also adds
-`cargo xtask headers` to check it. Material that is not the project's own
-keeps its own license and notice beside it, as the Unicode data does in
-`crates/text/ucd/17.0.0/license.txt`.
+(ADR-0021), and `cargo xtask headers` checks it. Material that is not the
+project's own keeps its own license and notice beside it, as the Unicode
+data does in `crates/text/ucd/17.0.0/license.txt` and the RFC 8259 examples
+do in `crates/codec/tests/json.rs`. The few files the check exempts are
+listed by path in it, each with its reason (`docs/04-quality.md` →
+"`headers`").

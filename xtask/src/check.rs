@@ -1,3 +1,17 @@
+// Copyright 2026 Joseph Anthony Abbott III
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The checks behind `cargo xtask ci`, and the code that runs and reports
 //! them.
 //!
@@ -20,7 +34,7 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::Skips;
 use crate::error::Error;
-use crate::{cargo, deps, layers, ucd, unsafe_audit};
+use crate::{cargo, deps, headers, layers, ucd, unsafe_audit};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -116,6 +130,14 @@ pub(crate) const UNSAFE_AUDIT: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask headers`.
+pub(crate) const HEADERS: Check = Check {
+    name: "headers",
+    about: "Every source file starts with the Apache-2.0 header of LICENSE's appendix",
+    step: Step::Own(headers::run),
+    role: Role::Independent,
+};
+
 /// What `ucd` does, with and without `--check`.
 const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
                          generates (without --check: write it)";
@@ -150,7 +172,7 @@ const TEST: &[&str] = &["test", "--workspace"];
 
 /// The checks that are subcommands of their own. `ucd` is listed as its
 /// `--check` form; without `--check` it runs [`UCD_WRITE`].
-pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, UCD];
+pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, HEADERS, UCD];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
 /// dependency problem is reported, and nothing is compiled, before
@@ -177,6 +199,7 @@ pub(crate) const CI: &[Check] = &[
     },
     LAYERS,
     UNSAFE_AUDIT,
+    HEADERS,
     UCD,
 ];
 
@@ -994,6 +1017,7 @@ mod tests {
                 ("test", Role::Compiles),
                 ("layers", Role::Independent),
                 ("unsafe-audit", Role::Independent),
+                ("headers", Role::Independent),
                 ("ucd", Role::Independent),
             ]
         );
@@ -1024,6 +1048,7 @@ mod tests {
             ("test", Some("cargo test --workspace")),
             ("layers", None),
             ("unsafe-audit", None),
+            ("headers", None),
             ("ucd", None),
         ];
         assert_eq!(CI.len(), expected.len());
@@ -1055,11 +1080,13 @@ mod tests {
         let deps_run: fn(&Path) -> Result<Report, Error> = deps::run;
         let layers_run: fn(&Path) -> Result<Report, Error> = layers::run;
         let audit_run: fn(&Path) -> Result<Report, Error> = unsafe_audit::run;
+        let headers_run: fn(&Path) -> Result<Report, Error> = headers::run;
         let ucd_check: fn(&Path) -> Result<Report, Error> = ucd::check;
         let ucd_write: fn(&Path) -> Result<Report, Error> = ucd::write;
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
+        assert!(std::ptr::fn_addr_eq(own("headers"), headers_run));
         // `ucd` as a command and as the step of `ci` only checks; the
         // writing form has the same name and heading.
         assert!(std::ptr::fn_addr_eq(own("ucd"), ucd_check));

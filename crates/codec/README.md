@@ -34,7 +34,7 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 - [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0013
   (TOML for Tidepool's own files); ADR-0021 (the RFC 8259 examples in
-  `tests/json/` keep the IETF Trust's notice, from M0.7).
+  `tests/json/` keep the IETF Trust's notice, in `tests/json.rs`).
 
 ## Rules
 

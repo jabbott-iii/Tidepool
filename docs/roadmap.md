@@ -152,7 +152,7 @@ enforced by tooling from day one.
     vulnerability reporting for `jabbott-iii/Tidepool`, which `SECURITY.md`
     and the issue form link to.
 
-- [ ] **M0.7 — License headers: `cargo xtask headers`; the RFC 8259 notice**
+- [x] **M0.7 — License headers: `cargo xtask headers`; the RFC 8259 notice**
   - Depends: M0.3
   - Decide first:
     - accept ADR-0021 (license headers), which is `Proposed`;
@@ -180,6 +180,31 @@ enforced by tooling from day one.
     - The real repository passes, and `cargo xtask ucd --check` still
       passes.
   - Verify: `cargo xtask headers`; `cargo xtask ci`
+  - Note (2026-11-02): both `Decide first` questions are answered. The user
+    accepted ADR-0021, and chose a root `NOTICE` (the project's name and
+    copyright line), which ships beside `LICENSE` in each package
+    (`docs/05-release.md`).
+    - **One workflow, not two:** `.github/workflows/codeql.yml` is still
+      GitHub's starter workflow word for word, so the user chose to exempt
+      it by path until M0.8 rewrites it, rather than give it the header
+      now (ADR-0021's Context; M0.8 has the step that ends the exemption).
+      91 files got the header: the Rust files, both scripts and `ci.yml`.
+    - **Verified:** `cargo xtask headers` passes (92 files checked, with
+      `headers.rs` itself; the two exempt files noted), and `cargo xtask
+      ci` passes: 8 of 8 steps, 747 tests, 0 failed, 0 `SKIPPED:`, with
+      `ucd` (`--check`) ok. The fixtures are
+      `headers_fails_on_each_kind_of_violation` and
+      `headers_passes_on_the_unbroken_fixture_and_after_a_shebang` in
+      `xtask/tests/fixtures.rs`; the real repository is checked by
+      `the_real_repository_passes_deps_layers_unsafe_audit_and_headers`.
+    - **Beyond the task text:** a leading byte-order mark is skipped; only
+      files directly in `.github/workflows/` are workflows; and every
+      symbolic link the walk reports fails, without resolving it again.
+      The walk's own gaps (races, control characters in file names, a
+      link resolved to tell a directory) are listed under "Files searched"
+      in `docs/04-quality.md`.
+    - Nothing ran on macOS or Windows (CR LF checkouts, case-insensitive
+      file systems, links on Windows).
 
 - [ ] **M0.8 — CI supply chain: CodeQL pinned, Dependabot for actions, `cargo xtask workflows`**
   - Depends: M0.4
@@ -197,6 +222,10 @@ enforced by tooling from day one.
     - `cargo xtask workflows`, run by `ci`, per `docs/04-quality.md` and
       its table of the actions each workflow may use.
     - Look up each SHA with `git ls-remote` and record it in a task note.
+    - Give the rewritten `codeql.yml` ADR-0021's header, and remove its
+      entry from `EXEMPT` in `xtask/src/headers.rs` and from the docs that
+      name the exemption (`docs/04-quality.md` → "`headers`", `AGENTS.md` →
+      "License header"). M0.7 exempted it while it was GitHub's template.
   - Accept:
     - Against a fixture copy of the `codeql.yml` committed on 2026-11-01
       (GitHub's template), the check reports each of its five problems:

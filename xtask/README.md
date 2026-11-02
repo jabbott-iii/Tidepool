@@ -16,10 +16,10 @@ Built, with the roadmap task that built it:
 - `deps`, `layers`, `unsafe-audit` and `ci`; the Claude Code hook builds and
   runs it — M0.3.
 - `ucd [--check]`, which generates `tidepool-text`'s grapheme tables — M1.1.
+- `headers`, which checks the license header of the source files — M0.7.
 
 Not yet, with the roadmap task that adds it:
 
-- `headers` — M0.7.
 - `workflows` — M0.8.
 - `crates` — M0.9.
 - `fuzz-smoke` — M1.6.
@@ -35,7 +35,8 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 
 - [`docs/04-quality.md`](../docs/04-quality.md) ("`xtask` checks")
 - Decisions in [`docs/decisions.md`](../docs/decisions.md): ADR-0017 (it
-  runs `cargo` itself); ADR-0018 (the Unicode data).
+  runs `cargo` itself); ADR-0018 (the Unicode data); ADR-0021 (license
+  headers).
 
 ## Rules
 

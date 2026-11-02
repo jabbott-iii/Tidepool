@@ -1,13 +1,28 @@
+// Copyright 2026 Joseph Anthony Abbott III
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Finding the files a check reads, and reading them within a size bound.
 //!
 //! Ported from nadir xtask `unsafe_audit.rs` (`rust_files` and
-//! `relative`). Adapted for Tidepool: shared by `deps` and `unsafe-audit`,
-//! with a predicate on the file name; hidden directories are searched (only
-//! the repository's own `.git` is skipped, as `scripts/check-deps.sh`
-//! does); the `target` directory of every workspace root is skipped, not
-//! only the top-level one (so `agents/target` is skipped too), and no other;
-//! a linked worktree of the same repository is skipped and reported; and
-//! symbolic links are reported instead of silently ignored.
+//! `relative`). Adapted for Tidepool: shared by `deps`, `unsafe-audit` and
+//! `headers`, with a predicate on the file name; hidden directories are
+//! searched (only the repository's own `.git` is skipped, as
+//! `scripts/check-deps.sh` does); the `target` directory of every workspace
+//! root is skipped, not only the top-level one (so `agents/target` is
+//! skipped too), and no other; a linked worktree of the same repository is
+//! skipped and reported; and symbolic links are reported instead of
+//! silently ignored.
 //!
 //! Nothing the repository holds decides by itself what is skipped: cargo
 //! says which directories are workspace roots, git's own records which

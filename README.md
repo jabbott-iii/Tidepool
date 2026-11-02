@@ -7,9 +7,9 @@ support. It will also build and sign Android and iOS apps, and offer AI
 features through plugged-in language agents.
 
 **Status:** in development, at version 0.1, and still headless. The guarded
-workspace and its checks, the core library, JSON, and the text engine's
-rope, positions, selections and undo tree are built; nothing opens a window
-yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
+workspace and its checks, license headers, the core library, JSON, and the
+text engine's rope, positions, selections and undo tree are built; nothing
+opens a window yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
 and each crate's `README.md` says what it has.
 
 ## Build and check
@@ -20,7 +20,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, unsafe-audit, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, unsafe-audit, headers, ucd
 cargo test -p tidepool-text
 ```
 
@@ -70,6 +70,6 @@ command, and what to run for each kind of change.
 
 ## License
 
-Apache-2.0: see [`LICENSE`](LICENSE). Bundled fonts (from M2.8) are
+Apache-2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Bundled fonts (from M2.8) are
 licensed under the SIL Open Font License 1.1, and the Unicode data under the
 Unicode License v3 (`crates/text/ucd/17.0.0/license.txt`).

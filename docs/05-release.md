@@ -32,11 +32,13 @@ debug = false
 `xtask package` never signs with real credentials; signing happens only in
 CI release jobs.
 
+Every package carries `LICENSE` and `NOTICE` (ADR-0021) beside the binary.
+
 ### Linux
 
 - `tidepool-<version>-x86_64-linux.tar.gz`: the binary, `tidepool.desktop`,
-  icons (PNG sizes 16–512), `LICENSE`, `LICENSES.txt` (fonts: SIL OFL 1.1;
-  Unicode data: Unicode License v3, ADR-0018).
+  icons (PNG sizes 16–512), `LICENSE`, `NOTICE`, `LICENSES.txt` (fonts:
+  SIL OFL 1.1; Unicode data: Unicode License v3, ADR-0018).
 - AppImage is backlog.
 
 ### macOS
@@ -88,6 +90,6 @@ CI release jobs.
       Toolchains panel installs rust-analyzer and detects git.
 - [ ] An Android app builds, signs and installs from the packaged build;
       an iOS app on macOS.
-- [ ] Font license files and the Unicode license (ADR-0018) are included
-      and unchanged.
+- [ ] `LICENSE` and `NOTICE` (ADR-0021), the font license files and the
+      Unicode license (ADR-0018) are included and unchanged.
 - [ ] `git diff` of the release reviewed for secret material.
