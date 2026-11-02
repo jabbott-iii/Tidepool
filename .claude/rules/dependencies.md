@@ -28,7 +28,12 @@ paths:
 - **Toolchain:** don't change `rust-toolchain.toml` as a side effect of
   another task.
 - **Lockfile:** `Cargo.lock` must stay free of `source = ` entries. Check
-  with `sh scripts/check-deps.sh` (or `cargo xtask deps` once it exists).
+  with `cargo xtask deps`; the hook runs it after every manifest edit, and
+  falls back to `sh scripts/check-deps.sh` when `xtask` does not build.
+- **Members:** every member inherits `edition`, `version` and `license`
+  from the workspace and sets `[lints] workspace = true`; a new member
+  also gets a `README.md` (ADR-0023), a row in the dependency matrix, and a
+  line in `AGENTS.md`'s workspace map.
 - **Build scripts:** `build.rs` may only emit `cargo:` directives. No
   network access, no running external tools, no compiling C.
 - **xtask** never uploads, publishes, signs with real credentials, reads

@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Read-only security review for Tidepool. Use proactively after any change to tidepool-sys or tidepool-platform (unsafe/FFI), tidepool-toolchain (installs, downloads, processes, secrets), tidepool-mobile (signing, keys), tidepool-vcs, tidepool-agent or agents/ (context, consent), any parser of untrusted input, or workspace trust. Mandatory before those changes are reported done. Also checks the dependency policy and layer matrix.
+description: Read-only security review for Tidepool. Use proactively after any change to tidepool-sys or tidepool-platform (unsafe/FFI), tidepool-toolchain (installs, downloads, processes, secrets), tidepool-mobile (signing, keys), tidepool-vcs, tidepool-agent or agents/ (context, consent), any parser of untrusted input, workspace trust, or the CI workflows in .github/. Mandatory before those changes are reported done. Also checks the dependency policy and layer matrix.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -49,6 +49,12 @@ the code it touches.
 9. **Network:** the core binary opens no sockets.
 10. **Weakened controls:** no disabled lints, ignored tests, raised
     tolerances or skipped checks added to make things pass.
+11. **CI workflows:** only the actions each workflow's row allows, each
+    pinned by a full commit SHA with its tag in a comment; top-level
+    permissions `{}` or `contents: read`, and `write` only where the row
+    allows it; no `pull_request_target`; `persist-credentials: false` on
+    every checkout; no untrusted expression (`github.event.*`) expanded
+    inside a `run:` script (ADR-0022).
 
 ## Report format
 For each finding: severity (Critical / High / Medium / Low), `file:line`,

@@ -91,6 +91,8 @@ policy approves it.
 ├── .cargo/config.toml        # aliases: xtask, tp
 ├── crates/{core,sys,platform,codec,text,regex,gfx,font,markdown,rpc,toolchain,
 │           syntax,term,workspace,ui,lang,vcs,agent,mobile,editor,gui,tui,app,testkit}/
+│                             # each with a README.md: what it is, status, spec (ADR-0023)
+├── crates/text/ucd/17.0.0/   # the official Unicode data files `cargo xtask ucd` reads (ADR-0018)
 ├── xtask/
 ├── bench/
 ├── agents/                   # separate workspace: tp-agent-mock, tp-agent-local, tp-agent-claude
@@ -101,7 +103,11 @@ policy approves it.
 ├── themes/                   # tidepool-dark.toml (jabbott.dev tokens)
 ├── tests/golden/             # golden frames (.qoi) and TUI cell snapshots (.txt)
 ├── fuzz/corpus/              # seed inputs per parser
-├── scripts/check-deps.sh     # interim dependency check until `cargo xtask deps` (M0.3)
+├── scripts/check-deps.sh     # the hook's fallback dependency check when xtask cannot be built
+├── .claude/                  # Claude Code settings, hook, subagents, path-scoped rules, skills
+├── .github/                  # CI and CodeQL workflows, Dependabot, PR template, issue form
+├── AGENTS.md, CLAUDE.md      # rules for coding agents; Claude Code specifics
+├── CONTRIBUTING.md, SECURITY.md
 └── docs/
 ```
 

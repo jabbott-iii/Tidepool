@@ -27,6 +27,8 @@ are first-class first (ADR-0005). `AGENTS.md` is your rulebook. Read
   `.prose` styles in `docs/subsystems/ui-and-theme.md`.
 
 ## Testing
+- The `README.md` of each crate you changed says what it has now
+  (ADR-0023); new source files start with the license header (ADR-0021).
 - Golden token streams; incremental vs full re-lex property tests;
   CommonMark spec examples; fake-server transcripts.
 - Real rust-analyzer tests gated by `TIDEPOOL_IT_RA=1`, printing

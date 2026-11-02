@@ -32,6 +32,6 @@ These two crates are the only ones allowed to contain `unsafe`.
   (`O_CLOEXEC`); reap every child.
 - **Terminal state:** the raw-mode guard restores the terminal on drop,
   panic and signals.
-- **Before reporting done,** run `cargo xtask unsafe-audit` (once it
-  exists) and ask `security-reviewer` to review. If layout assertions can
+- **Before reporting done,** run `cargo xtask unsafe-audit` and ask
+  `security-reviewer` to review. If layout assertions can
   only compile on another OS, say which OS must verify them.

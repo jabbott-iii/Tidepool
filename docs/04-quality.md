@@ -86,7 +86,7 @@ as a pass.
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit` or `ucd` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit` or `ucd` fails (`tools` and `theme` join once implemented, and `headers`, `workflows` and `crates` with M0.7–M0.9) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
@@ -95,7 +95,10 @@ as a pass.
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
 | `cargo xtask fuzz-smoke` | Not yet implemented (M1.6). Planned: a fuzz target crashes, hangs or exceeds its allocation cap. Provisional: the parsers of the targets after QOI live in crates outside `xtask`'s matrix row, and counting allocations needs a `GlobalAlloc`, which is `unsafe`. M1.6 must settle both |
-| `cargo xtask bench [filter]` | Not yet implemented (no task yet; first needed by M4.1). Planned: reports only |
+| `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
+| `cargo xtask headers` | Not a command yet (M0.7). Planned: a source file whose Apache-2.0 header from `LICENSE`'s appendix is missing, altered or out of place (ADR-0021) |
+| `cargo xtask workflows` | Not a command yet (M0.8). Planned: a workflow in `.github/workflows/` that uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022) |
+| `cargo xtask crates` | Not a command yet (M0.9). Planned: a member that does not inherit `edition`, `version` and `license`, lacks `publish = false` or `[lints] workspace = true`, or whose `README.md` is missing or not in the shape of ADR-0023 |
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
@@ -148,8 +151,10 @@ network through its tool.
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
-  (M2.4), `fuzz-smoke` (M1.6), `bench` (no task yet; first needed by M4.1)
-  and `package` (M11.6, M12.4, M14.4). Each exits 1 and
+  (M2.4), `fuzz-smoke` (M1.6), `bench` (M1.9; its message still says it
+  has no task, which M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
+  `headers`, `workflows` and `crates` (M0.7–M0.9) are not named yet, so
+  they exit 2 as unknown commands. Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
   are handled first. `ci` lists `tools` and `theme` as "not yet
@@ -475,7 +480,8 @@ network through its tool.
 - Also not covered: unsafe attributes (`#[no_mangle]`, `#[export_name]`,
   `#[link_section]`) written without `unsafe`, as editions before 2024
   allow. Only the `unsafe_code` lint catches those. Members are expected to
-  use edition 2024 and `[lints] workspace = true`, which no check verifies.
+  use edition 2024 and `[lints] workspace = true`, which no check verifies
+  until `cargo xtask crates` (M0.9, ADR-0023).
 - Notes list the `unsafe` uses per crate (review any growth), the files
   scanned and the crate roots checked.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
@@ -580,7 +586,30 @@ network through its tool.
 - `.github/workflows/ci.yml`: matrix Linux, macOS, Windows; `permissions:
   contents: read`; actions pinned by full commit SHA with the tag in a
   comment; cache keyed on the lockfile and toolchain; runs `cargo xtask ci`
-  plus a Linux fuzz-smoke step (30 s per target).
+  plus, from M1.6, a Linux fuzz-smoke step (30 s per target).
+- **Supply chain of CI itself** (ADR-0022): each workflow uses only the
+  actions its row allows (`ci.yml`: `actions/checkout`, `actions/cache`;
+  `codeql.yml`: `actions/checkout`, `github/codeql-action/init` and
+  `analyze`), each pinned by full commit SHA with its tag in a comment;
+  top-level permissions are `{}` or `contents: read`, and only CodeQL's
+  analysis job may write, to `security-events`; no `pull_request_target`;
+  every checkout sets `persist-credentials: false`. `cargo xtask workflows`
+  checks this from M0.8.
+- **Code scanning** (`.github/workflows/codeql.yml`): the file committed on
+  2026-11-01 is GitHub's template. Today it scans `rust` and `actions` with
+  no build, on pushes to `main`, pull requests to `main` and weekly, with the
+  default queries. It falls short of these rules: its three actions are
+  pinned by tag, it has no top-level `permissions`, its job also gets
+  `packages: read` and `actions: read`, and its checkout keeps its
+  credentials. ADR-0022 sets the target that M0.8 brings it to: actions
+  pinned by SHA, `permissions: {}` with the job's `contents: read` and
+  `security-events: write`, `persist-credentials: false`, the
+  `security-extended` queries, a run by hand, and `ci.yml`'s concurrency
+  rule.
+- **Dependabot** (`.github/dependabot.yml`) is to update the actions' pins
+  weekly (ADR-0022). The file committed on 2026-11-01 is GitHub's starter
+  file with an empty `package-ecosystem`, which updates nothing; M0.8
+  replaces it.
 - Goldens run on Linux CI only until M11/M12 add per-OS references for
   platform-specific scenes (the CPU rasterizer is deterministic, so shared
   scenes share references).

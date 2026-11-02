@@ -7,8 +7,9 @@
 > approved it, and it is recorded in the register in this document.
 
 The approved set of third-party crates is **empty** (ADR-0001). `Cargo.lock`
-must contain only workspace packages. `scripts/check-deps.sh` fails
-otherwise, and `cargo xtask deps` replaces it in M0.3.
+must contain only workspace packages. `cargo xtask deps` fails otherwise
+(M0.3); `scripts/check-deps.sh` is the narrower check the Claude Code hook
+falls back to when `xtask` cannot be built.
 
 Outside programs are a separate category: they are **managed tools**
 (ADR-0002). Tidepool installs, updates, configures and runs them as child
@@ -22,7 +23,7 @@ processes. They are never linked, bundled or reimplemented.
 | Vendored or copied third-party source code, including "just one file" | OS libraries and frameworks we call through FFI (listed below) |
 | A build script that downloads anything or runs third-party code | Managed tools run as child processes (listed below) |
 | A git submodule containing code | Fonts and other assets with a compatible license (listed below) |
-| A `cargo install`-ed tool that CI depends on | GitHub Actions used by CI, pinned by commit SHA (`docs/04-quality.md`) |
+| A `cargo install`-ed tool that CI depends on | GitHub Actions used by CI, pinned by commit SHA (`docs/04-quality.md`; checked by `cargo xtask workflows` from M0.8, ADR-0022) |
 | Bundling an outside program's binary in Tidepool's download (ADR-0002) | Code the owner wrote in another repository (such as Nadir), ported in with a note in the change |
 
 Reading a public specification (LSP, DAP, CommonMark, TrueType, ZIP,
@@ -73,6 +74,7 @@ license) and a row in the Toolchains panel. Details:
 | Saira (static Regular, Medium, SemiBold, Bold `.ttf`) | SIL OFL 1.1 (verify the file's license on import) | Google Fonts / the Saira project | UI chrome, matching jabbott.dev (ADR-0004) |
 | JetBrains Mono (Regular, Italic, SemiBold `.ttf`) | SIL OFL 1.1 (verify on import) | JetBrains Mono releases | Code and terminal (ADR-0004) |
 | CommonMark spec examples | CC-BY-SA 4.0 (verify) | commonmark.org | Test-only fixtures, never in release binaries (M6.5) |
+| RFC 8259 examples (`crates/codec/tests/json/rfc8259_image.json`, `rfc8259_locations.json`, ported from Nadir) | Revised BSD License, as IETF Code Components; the IETF Trust's legend goes beside them in `crates/codec/tests/json.rs` (M0.7, ADR-0021) | IETF RFC 8259, section 13 | Test-only fixtures, never in release binaries |
 | Unicode Character Database 17.0.0: `GraphemeBreakProperty.txt`, `emoji-data.txt`, `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (unchanged, in `crates/text/ucd/17.0.0/` with `license.txt`) | Unicode License v3 | unicode.org/Public/17.0.0 | Input to `cargo xtask ucd`, which generates `tidepool-text`'s segmentation tables; the tables ship, the files do not; the test file is test-only (ADR-0018) |
 
 ## The exception test
@@ -181,6 +183,9 @@ trigger** fires. It is not approved.
   exits 1) will check that every descriptor in `toolchains/` has a pinned
   version, an official HTTPS source, a SHA-256 where a download is
   involved, and a license entry.
+- **`cargo xtask workflows`** (not a command yet: roadmap M0.8,
+  ADR-0022) will check that every GitHub Action is allowed for its
+  workflow and pinned by commit SHA.
 - **Path-scoped rule** `.claude/rules/dependencies.md` loads when an agent
   opens a Cargo manifest.
 - **Claude Code permissions** ask before `cargo add`, `cargo remove`,

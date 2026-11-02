@@ -33,6 +33,8 @@ existing code.
   stdin.
 
 ## Done means
+- The `README.md` of each crate you changed says what it has now
+  (ADR-0023); new source files start with the license header (ADR-0021).
 - Unit and property tests (print seeds), conformance fixtures for vim mode,
   goldens for views.
 - `/verify` passes; report the commands you actually ran and their results,

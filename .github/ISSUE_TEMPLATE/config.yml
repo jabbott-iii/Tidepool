@@ -1,0 +1,10 @@
+# Every issue uses the one form, issue.yml, so a maintainer can confirm a
+# change before a pull request (CONTRIBUTING.md, "Contribution workflow").
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/jabbott-iii/Tidepool/security/advisories/new
+    about: Report it privately through GitHub's private vulnerability reporting (see SECURITY.md), never in a public issue.
+  - name: Read the roadmap
+    url: https://github.com/jabbott-iii/Tidepool/blob/main/docs/roadmap.md
+    about: Every planned task, with what is done; check it before proposing a feature.

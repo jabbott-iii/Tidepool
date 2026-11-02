@@ -63,7 +63,7 @@ whether it already declares what you need and port it with a note.
 - Unit tests for wrapper logic that doesn't need the OS (key mapping
   tables, string conversion).
 - Behavior tests under Xvfb on Linux where a display is needed.
-- Run `cargo xtask unsafe-audit` (once it exists) and
+- Run `cargo xtask unsafe-audit` and
   `cargo clippy -p <crate> --all-targets -- -D warnings`.
 - Ask `security-reviewer` to review.
 

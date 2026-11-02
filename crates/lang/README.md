@@ -1,0 +1,53 @@
+# tidepool-lang
+
+Language features: language sessions over LSP (rust-analyzer first), cargo
+tasks and their problems, Markdown services such as link checks, and
+debugging over DAP.
+
+Layer 3, language and tool features. It may use `core`, `codec`, `text`,
+`markdown`, `rpc`, `toolchain`, `syntax` and `workspace`, as its row of the
+dependency matrix in
+[`docs/01-architecture.md`](../../docs/01-architecture.md) says.
+
+## Status
+
+Nothing yet: the crate is only its doc comment, which names its spec.
+
+Not yet, with the roadmap task that adds it:
+
+- sessions and diagnostics — M6.7.
+- navigation and hover — M6.8.
+- completion, rename, formatting, code actions and the rest — M6.3.
+- cargo tasks and test discovery — M6.4.
+- the Markdown outline and link checks — M6.6.
+- `dap` — M13.1.
+
+Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
+
+## Design
+
+- [`docs/subsystems/languages.md`](../../docs/subsystems/languages.md)
+- Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0005
+  (Rust and Markdown first); ADR-0014 (trust, Proposed); ADR-0019
+  (positions, and the lone CR).
+
+## Rules
+
+- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
+  checks.
+- Path-scoped rules in `.claude/rules/`:
+  [`dependencies.md`](../../.claude/rules/dependencies.md) for its
+  `Cargo.toml`.
+
+## Checks
+
+```bash
+cargo test -p tidepool-lang
+TIDEPOOL_IT_RA=1 cargo test -p tidepool-lang    # real rust-analyzer, from M6.7
+```
+
+`cargo xtask ci` runs the whole gate.
+
+## License
+
+Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).

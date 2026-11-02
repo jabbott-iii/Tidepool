@@ -32,6 +32,8 @@ Read `docs/subsystems/sys-and-platform.md`, `docs/03-platforms.md`,
   htop correctly.
 
 ## Done means
+- The `README.md` of each crate you changed says what it has now
+  (ADR-0023); new source files start with the license header (ADR-0021).
 - Golden frames or TUI snapshots for every visual change (bless only after
   the user reviews diffs); layout/contrast checks.
 - `/verify` passes; report what you ran and which platforms you could and

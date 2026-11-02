@@ -40,7 +40,7 @@ Positions follow ADR-0019; the Unicode data follows ADR-0018.
   including, the next line's start (on the last line, up to the end),
   counted in `Unit::Byte`, `Utf16` or `Char` (LSP `utf-8`, `utf-16`,
   `utf-32`). So the offset between CR and LF is one column past the
-  content. LSP cannot express it, and `lang` handles that (M6.3).
+  content. LSP cannot express it, and `lang` handles that (M6.7).
 - **Errors.** Edits, slices, iterator constructors and conversions return
   `Result<_, TextError>` and change nothing on error; nothing panics on
   input. Total functions: `is_char_boundary`, `floor_char_boundary`,

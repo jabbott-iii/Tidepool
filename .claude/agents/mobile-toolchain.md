@@ -40,6 +40,8 @@ existing code. `.claude/rules/toolchains-and-secrets.md` applies.
   contains a secret.
 
 ## Done means
+- The `README.md` of each crate you changed says what it has now
+  (ADR-0023); new source files start with the license header (ADR-0021).
 - Fake-tool tests; gated real-tool tests (`TIDEPOOL_IT_ANDROID`,
   `TIDEPOOL_IT_IOS`, `TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`) printing
   `SKIPPED: <reason>` when not run. Never claim an artifact verified unless

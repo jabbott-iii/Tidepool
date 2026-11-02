@@ -33,7 +33,8 @@ servers, agents and tools.
   column), and what was expected.
 - **Every new parser:**
   1. registers an `xtask fuzz-smoke` target with a seed corpus in
-     `fuzz/corpus/<target>/`
+     `fuzz/corpus/<target>/` (from M1.6; a parser that lands before it
+     says in its task note which target M1.6 must add)
   2. has hand-made test vectors committed beside its tests
   3. documents its supported subset in its subsystem doc
 - **Formats Tidepool writes** (settings, keymaps, themes, packs,

@@ -1,9 +1,25 @@
 # Tidepool — zero-dependency IDE (Rust; Linux, macOS, Windows)
 
-**Status:** design complete, no code yet. Work starts at milestone M0 in
-`docs/roadmap.md`. Any command, crate or file this document mentions does
-not exist until the roadmap task that creates it is done. Check before
-assuming.
+**Status:** in development, at version 0.1, and still headless: nothing
+opens a window yet. `docs/roadmap.md` ticks each task once it is done and
+verified.
+
+- **Built:** the guarded workspace and its checks (M0.1–M0.4), the
+  foundations in `tidepool-core` (M0.2), JSON and JSONC in `tidepool-codec`
+  (M1.4), and in `tidepool-text` the rope, positions and grapheme
+  boundaries (M1.1) and selections, change sets and the undo tree (M1.2).
+- **Not built:** everything else. 22 of the 26 workspace members are empty
+  crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
+  does nothing. Each crate's `README.md` says what it has and which tasks
+  add the rest.
+- **Next:** the first unticked task whose dependencies are all ticked,
+  skipping one whose remaining work needs an OS, tool or person this
+  session does not have (`/next-task` picks it). A task's `Decide first`
+  line is asked before its code.
+
+This document also describes what is not built yet. Some of what it
+mentions does not exist, so check before assuming a crate, module, command
+or file is there.
 
 ## What we are building
 
@@ -28,7 +44,7 @@ assuming.
 
 | If you are touching… | Read first |
 | :- | :- |
-| Anything | `docs/00-overview.md`, then `docs/01-architecture.md` |
+| Anything | `docs/00-overview.md`, then `docs/01-architecture.md`, then the crate's `README.md` |
 | `Cargo.toml`, `Cargo.lock`, a new crate | `docs/02-dependency-policy.md` |
 | `crates/core` | `docs/subsystems/core.md` |
 | `crates/sys`, `crates/platform` | `docs/subsystems/sys-and-platform.md`, `docs/03-platforms.md` |
@@ -43,7 +59,11 @@ assuming.
 | `crates/mobile` | `docs/subsystems/mobile.md` |
 | `crates/agent`, `agents/` | `docs/subsystems/agents.md` |
 | Tests, CI, `xtask` | `docs/04-quality.md` |
+| `.github/` (workflows, Dependabot, templates) | `docs/04-quality.md` ("CI"), ADR-0022 |
+| A crate's `README.md` | ADR-0023 |
+| `CONTRIBUTING.md`, `SECURITY.md` | This file; they summarize it for people |
 | Packaging Tidepool itself | `docs/05-release.md` |
+| `docs/roadmap.md` | Its "How to use this file", ADR-0024 |
 | Why something is the way it is | `docs/decisions.md` |
 
 ## Non-negotiable rules
@@ -52,7 +72,8 @@ assuming.
    any `[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`
    table, unless `docs/02-dependency-policy.md` lists it as `Approved`. If
    you believe one is needed, stop, run `/evaluate-dependency`, and ask the
-   user. `scripts/check-deps.sh` (then `cargo xtask deps`) enforces this.
+   user. `cargo xtask deps` enforces this, and the Claude Code hook runs it
+   after every manifest edit.
 2. **Outside programs go through `toolchain`.** Only `tidepool-toolchain`
    finds, installs, updates or spawns external programs. The one exception
    is the dev-only `xtask`, which runs `cargo` itself and nothing else
@@ -62,15 +83,16 @@ assuming.
    (ADR-0002).
 3. **Layering is one-way.** A crate may depend only on crates listed for it
    in `docs/01-architecture.md` → "Dependency matrix". `cargo xtask layers`
-   enforces this.
+   enforces this, reading the matrix from that document.
 4. **`unsafe` lives in two crates only:** `tidepool-sys` and
    `tidepool-platform`. Every other crate inherits `unsafe_code = "deny"`.
    - Every `unsafe` block carries a `// SAFETY:` comment.
    - Every `pub unsafe fn` has a `# Safety` doc section.
    - Raw OS declarations live only in `tidepool-sys`.
-5. **Platform `cfg` lives in few places:** `#[cfg(target_os = ...)]` appears
-   only in `sys`, `platform`, `toolchain` install plans and `xtask`
-   packaging.
+   - `cargo xtask unsafe-audit` enforces this.
+5. **Platform `cfg` lives in few places:** `#[cfg(target_os = ...)]`
+   appears only in `sys`, `platform`, `toolchain` install plans and `xtask`
+   packaging. No check enforces this yet; review does.
 6. **The main thread never waits** on I/O, a child process, an LSP server or
    an agent. Results carry buffer versions; stale ones are dropped.
 7. **Secrets never leak.** Keystore passwords, signing identities and API
@@ -97,9 +119,9 @@ assuming.
 
 | Path | Package | Purpose | `unsafe` |
 | :- | :- | :- | :- |
-| `crates/core` | `tidepool-core` | Errors, logging, test harness, RNG, hashing (incl. SHA-256 for downloads), CLI, time, geometry, color, input types | deny |
+| `crates/core` | `tidepool-core` | Errors, logging, test harness, RNG, hashing (incl. SHA-256 for downloads), CLI, time, geometry, color, input types, paths | deny |
 | `crates/sys` | `tidepool-sys` | Hand-written raw FFI declarations (libc, X11, objc/AppKit, Win32, ConPTY) | allowed |
-| `crates/platform` | `tidepool-platform` | Windows, events, waker, present, clipboard, terminal raw mode, PTY, file watching, paths | allowed |
+| `crates/platform` | `tidepool-platform` | Windows, events, waker, present, clipboard, terminal raw mode, PTY, processes, file watching, paths | allowed |
 | `crates/codec` | `tidepool-codec` | JSON(C), TOML, XML, plist, YAML subset, CSV, INI, DEFLATE, ZIP, PNG, QOI | deny |
 | `crates/text` | `tidepool-text` | Rope, positions (UTF-16 too), selections, transactions, undo tree, encodings, atomic save | deny |
 | `crates/regex` | `tidepool-regex` | Linear-time regex | deny |
@@ -121,50 +143,88 @@ assuming.
 | `crates/tui` | `tidepool-tui` | Terminal frontend | deny |
 | `crates/app` | `tidepool` | The binary: main loop, wiring, startup, crash handling | deny |
 | `crates/testkit` | `tidepool-testkit` | Fake LSP server, fake tools, transcripts (dev-only) | deny |
-| `xtask` | `xtask` | CI checks, goldens, fuzz smoke, theme contrast, packaging | deny |
+| `xtask` | `xtask` | CI checks, Unicode tables; later goldens, fuzz smoke, theme contrast, packaging | deny |
 | `bench` | `tidepool-bench` | Own benchmark harness and suites | deny |
-| `agents/` | (separate workspace) | Reference language agents: mock, local, Claude | deny |
+| `agents/` | (separate workspace, from M9.2) | Reference language agents: mock, local, Claude | deny |
 
-## Commands (created in M0 and later; verify they exist before relying on them)
+## Commands
+
+These exist now:
 
 | Command | What it does |
 | :- | :- |
-| `sh scripts/check-deps.sh` | Fails if any workspace resolves a non-path package (exists now) |
-| `cargo xtask ci` | fmt check, clippy (`-D warnings`), tests, `deps`, `layers`, `unsafe-audit`, `ucd`, `tools`, `theme`: the full gate |
-| `cargo xtask deps` / `layers` / `unsafe-audit` / `tools` / `theme` | Individual checks (`docs/04-quality.md`) |
-| `cargo xtask ucd [--check]` | Regenerate the grapheme tables from the pinned Unicode data, or with `--check` verify them (ADR-0018) |
-| `cargo xtask golden [--bless]` | Golden frames and TUI snapshots |
-| `cargo xtask fuzz-smoke [--secs N] [--target T]` | Dependency-free mutation fuzzer |
-| `cargo xtask bench [filter]` | Benchmarks in release mode |
-| `cargo xtask package <os>` | Package Tidepool (no real signing locally) |
-| `cargo tp` / `cargo tp -- --tui` | Run Tidepool (GUI / TUI) |
+| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `unsafe-audit`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
+| `cargo xtask deps` / `layers` / `unsafe-audit` | One check each (`docs/04-quality.md` → "`xtask` checks") |
+| `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
+| `cargo xtask --help` | Lists the commands |
+| `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
+| `cargo tp` | Builds and runs the `tidepool` binary, which does nothing until M2.6 |
+
+Planned. Until its task lands, each of the first six exits 1 with "not
+yet implemented" (`bench`'s message still says it has no task; M1.9
+corrects it), and the last three are not commands yet and exit 2:
+
+| Command | Task |
+| :- | :- |
+| `cargo xtask fuzz-smoke [--secs N] [--target T]` | M1.6 |
+| `cargo xtask bench [filter]` | M1.9 |
+| `cargo xtask golden [--bless]` | M2.4 |
+| `cargo xtask theme` | M3.2 |
+| `cargo xtask tools` | M5.1 |
+| `cargo xtask package <os>` | M11.6, M12.4, M14.4 |
+| `cargo xtask headers` | M0.7 (ADR-0021) |
+| `cargo xtask workflows` | M0.8 (ADR-0022) |
+| `cargo xtask crates` | M0.9 (ADR-0023) |
+
+`cargo tp -- --tui` starts the terminal UI from M7.1; until then the binary
+ignores its arguments and exits 0.
+
+`xtask` never uploads, publishes, signs with real credentials, reads
+secrets or opens a socket (`docs/04-quality.md`).
 
 ## Conventions
 
 - **Toolchain and edition:** Rust edition 2024, stable pinned in
-  `rust-toolchain.toml`. `extern` blocks are `unsafe extern "C" { ... }`.
+  `rust-toolchain.toml` (1.99.0). `extern` blocks are
+  `unsafe extern "C" { ... }`.
 - **Errors:** each crate has its own error enum implementing `Display` and
   `std::error::Error`. No `unwrap()` in library code; `expect("why")` only
   for real invariants.
 - **Logging:** `tidepool_core::log` macros; `print!`/`eprint!` are denied in
   library crates. Log command lines through the redacting helper.
 - **Parsers:** every parser takes `Limits`, never panics on input, and has a
-  fuzz target.
+  fuzz target (from M1.6).
+- **Text positions** are byte offsets; lines end at LF, CR LF or a lone CR;
+  a bad position is an error, never a panic (ADR-0019). Every buffer edit
+  goes through its `History` (ADR-0020).
 - **UI:** widgets use theme tokens, never literal colors; chrome labels are
   uppercase, user content never is.
 - **Docs:** every `pub` item has a doc comment.
+- **License header:** every source file (Rust, shell scripts, workflows)
+  starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its
+  comment syntax, then a blank line; after a `#!` line in a script
+  (ADR-0021). Most files predate it and get it in M0.7, with
+  `cargo xtask headers`; a new file gets it now.
+- **Crate READMEs:** every member has a `README.md` saying what it is, its
+  status, its spec and its rules (ADR-0023). A change to what a crate has
+  built updates its README.
 - **Tests:** unit tests beside the code; integration tests in each crate's
   `tests/`; goldens in `tests/golden/`; real-tool tests gated by
-  `TIDEPOOL_IT_*` and printing `SKIPPED: <reason>` otherwise.
+  `TIDEPOOL_IT_*` and printing `SKIPPED: <reason>` otherwise. Committed
+  test data never carries a name the checks read as real (`Cargo.toml`,
+  `.rs`; `docs/04-quality.md` → "Files searched").
 
 ## Definition of done for a roadmap task
 
-1. Every acceptance criterion for the task in `docs/roadmap.md` is met.
+1. Every acceptance criterion for the task in `docs/roadmap.md` is met, and
+   its `Decide first` questions were answered by the user and recorded.
 2. The task's verification commands were run. Report each command and its
    real result.
 3. The checkbox is ticked only after steps 1 and 2.
-4. Docs are updated if behavior or design changed. If a decision changed,
-   add an ADR in `docs/decisions.md` (`/record-decision`).
+4. Docs are updated where behavior or design changed: the subsystem spec,
+   the crate's `README.md` status, and this file for a new command, crate or
+   rule. If a decision changed, add an ADR in `docs/decisions.md`
+   (`/record-decision`).
 5. The final message summarizes:
    - changes and files affected
    - validation performed

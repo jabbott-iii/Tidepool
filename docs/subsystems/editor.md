@@ -27,7 +27,7 @@ knows which frontend is drawing. `workspace` is the project model under it.
 - Multi-cursor and rectangular selection.
 - Large-file mode above 16 MB: read-only by default, no highlighting or
   LSP, chunked loading.
-- Images (PNG) and binary files (hex view) open in viewers instead.
+- Images (PNG) and binary files (hex view) open in viewers instead (M13.4).
 
 ### Commands and keymaps
 

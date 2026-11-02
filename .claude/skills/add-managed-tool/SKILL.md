@@ -34,7 +34,8 @@ bundles or reimplements them. Read `docs/subsystems/toolchains.md` and the
 - `id`, purpose, platforms, minimum and recommended versions, detection
   rules, install/update steps per OS, download URL + SHA-256 (pinned; never
   fetched at runtime), license entry, and the features it unlocks.
-- Run `cargo xtask tools` (once it exists).
+- Run `cargo xtask tools`. Until M5.1 lands it exits 1 as not yet
+  implemented; say so rather than report a pass.
 
 ## 3. Code in `tidepool-toolchain`
 

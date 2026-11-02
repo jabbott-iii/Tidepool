@@ -8,16 +8,17 @@ allowed-tools:
   - Bash(cargo build *)
   - Bash(cargo xtask *)
   - Bash(sh scripts/check-deps.sh)
+  - Bash(rustc -V)
 ---
 
 Run Tidepool's verification suite from the repository root and report
 exactly what happened.
 
-1. If `Cargo.toml` does not exist yet (before M0.1), run only
-   `sh scripts/check-deps.sh`, report that there is no workspace to build,
-   and stop.
-2. If `xtask` exists (M0.3 and later), run `cargo xtask ci`. Otherwise run,
-   in order, continuing after failures so every result is known:
+1. Say which toolchain runs: `rustc -V`. `rust-toolchain.toml` pins
+   1.99.0; if rustup cannot install it here, report that, and that every
+   result below is from another toolchain.
+2. Run `cargo xtask ci`. If `xtask` does not build, report its error and
+   run, in order, continuing after failures so every result is known:
    - `cargo fmt --all -- --check`
    - `cargo clippy --workspace --all-targets -- -D warnings`
    - `cargo test --workspace`

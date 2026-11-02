@@ -25,6 +25,9 @@ Title: `$ARGUMENTS`
    ADR at the end of `docs/decisions.md`.
 5. Update every doc that states the decision: `AGENTS.md`, the overview,
    architecture, dependency policy, platform and subsystem docs, the
-   roadmap. Reference the ADR number in each place you change.
+   roadmap, the READMEs of the crates it shapes, and `CONTRIBUTING.md` or
+   `SECURITY.md` when it changes how people work or report. Reference the
+   ADR number in each place you change. If it answers a task's
+   `Decide first` line, say so in a note under that task.
 6. Report the ADR number and title, its status, and the docs updated. If
    it's `Proposed`, say what the user needs to decide.

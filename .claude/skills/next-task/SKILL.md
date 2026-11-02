@@ -18,10 +18,16 @@ Requested task: `$ARGUMENTS` (empty means "pick the next unblocked task").
    checked.
    - Skip a task whose remaining work is marked `⏳ needs <OS/tool>` when
      this session can't provide it. Mention any task you skipped and why.
-4. If the task says "ask the user to accept ADR-NNNN first" and that ADR is
-   still `Proposed` in `docs/decisions.md`, present the ADR's decision and
-   alternatives in a few sentences and ask. Record the answer with
-   `/record-decision` (supersede or accept) before writing code.
+4. If the task has a `Decide first` line, ask each question in it before
+   writing code, unless `docs/decisions.md` already records the answer:
+   - for a `Proposed` ADR, present its decision and alternatives in a few
+     sentences and ask whether to accept it;
+   - for any other question, lay out the options the line names, with
+     their costs, and recommend one.
+
+   Record each answer with `/record-decision` (accept, supersede, or a new
+   or extended ADR) before writing code. If the user is not there to
+   answer, stop after the preparatory reading and say what is waiting.
 5. Tell the user in one or two sentences which task you're starting and how
    you plan to approach it. Create a task list whose last item is
    "Verify and report".
@@ -31,7 +37,7 @@ Requested task: `$ARGUMENTS` (empty means "pick the next unblocked task").
 - `AGENTS.md` is already loaded. Re-read its "Non-negotiable rules" if
   unsure.
 - Read the docs that `AGENTS.md` → "Read before working" lists for the
-  crates the task touches.
+  crates the task touches, starting with each crate's `README.md`.
 - Read the existing code in those crates before writing new code. Follow
   established patterns and naming. Where the task says to port from Nadir,
   read the matching Nadir code first and port it with a note.
@@ -49,6 +55,7 @@ Requested task: `$ARGUMENTS` (empty means "pick the next unblocked task").
 - **A design decision changed?** Run `/record-decision` and update the
   affected docs.
 - Write the tests the acceptance criteria call for, beside the code.
+- Start every new source file with the license header (ADR-0021).
 - Ask `security-reviewer` to review when the change touches `sys`,
   `platform`, `toolchain`, `mobile`, `agent`, or any parser.
 - If the change spreads beyond three crates, pause and tell the user the
@@ -57,7 +64,7 @@ Requested task: `$ARGUMENTS` (empty means "pick the next unblocked task").
 ## 4. Verify honestly
 
 - Run every command in the task's `Verify` line.
-- Then run `/verify` (which runs `cargo xtask ci` once it exists).
+- Then run `/verify` (`cargo xtask ci`).
 - Fix failures by fixing the code. **Never** weaken a lint, delete or
   `#[ignore]` a test, raise a tolerance, or re-bless goldens to make a check
   pass, unless the user explicitly agrees.
@@ -74,6 +81,8 @@ Requested task: `$ARGUMENTS` (empty means "pick the next unblocked task").
   verification command ran and passed in this session.
 - Add brief indented `Note:` lines under the task where useful: pinned
   versions, measured numbers, tool facts checked and their sources.
+- Update the `README.md` of every crate whose built state changed: its
+  `## Status` names the task (ADR-0023).
 - Update docs only where behavior or design actually changed.
 
 ## 6. Do not commit
@@ -88,5 +97,8 @@ Leave all changes uncommitted. Do not commit, amend, rebase, tag or push.
 - **Not run:** checks that weren't run, and why. Include `⏳` items.
 - **Assumptions** you made.
 - **Unresolved issues and residual risks.**
-- **Commit message:** a proposed Conventional Commits message.
+- **Commit message:** a proposed message in the repository's style: the
+  area first, then the summary and the task ID, as in
+  `text: encodings and atomic save (M1.3)` (`CONTRIBUTING.md` →
+  "Commits and pull requests").
 - **Next:** the next unblocked task ID.

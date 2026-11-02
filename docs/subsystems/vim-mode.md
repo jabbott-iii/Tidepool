@@ -8,7 +8,7 @@ launch asks whether to turn it on.
 
 ## Design
 
-- The keymap engine (M4.2) is modal from the start. The default keymap is a
+- The keymap engine (M4.6) is modal from the start. The default keymap is a
   single `Insert`-like mode; vim mode adds the others. Both resolve keys
   into the same `editor` commands, so undo, multi-cursor, LSP actions and
   agents behave the same.

@@ -1,0 +1,123 @@
+name: Issue
+description: Report a bug, propose a feature or change, take a roadmap task, or ask about Tidepool. One form for every kind of issue.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please search the [existing issues](https://github.com/jabbott-iii/Tidepool/issues?q=is%3Aissue) and the [roadmap](https://github.com/jabbott-iii/Tidepool/blob/main/docs/roadmap.md) first: if one covers this, comment there instead.
+
+        **Do not report a security vulnerability here.** Report it privately, as [SECURITY.md](https://github.com/jabbott-iii/Tidepool/blob/main/SECURITY.md) describes.
+
+        Tidepool is an IDE written in Rust with no third-party crates, in development and still headless: nothing opens a window yet. Its goals and non-goals are in [docs/00-overview.md](https://github.com/jabbott-iii/Tidepool/blob/main/docs/00-overview.md).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Bug or crash
+        - Feature or change proposal
+        - A roadmap task I would like to take
+        - Performance
+        - Documentation
+        - Build, CI or tooling (xtask, the Claude Code setup)
+        - Question
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: areas
+    attributes:
+      label: Areas
+      description: The crates or parts it concerns. Pick "Not sure" if you do not know.
+      multiple: true
+      options:
+        - Not sure
+        - core (errors, logging, hashing, CLI, test harness)
+        - sys or platform (OS bindings, windows, events, clipboard, PTY, file watching)
+        - codec (JSON, TOML, XML, archives, images)
+        - text (rope, positions, selections, undo, files)
+        - regex or search
+        - gfx or font (rasterizer, fonts, glyphs)
+        - ui, gui or tui (toolkit, theme, frontends)
+        - editor or workspace (editor view, commands, panels, settings, trust)
+        - vim mode
+        - syntax, markdown, rpc or lang (highlighting, Markdown, LSP, DAP, cargo tasks)
+        - toolchain (managed tools, installs, processes, secrets)
+        - term (integrated terminal)
+        - vcs (git)
+        - agent or agents/ (TAP, AI context, predictive text)
+        - mobile (Android, iOS)
+        - app (the binary, startup, crash handling)
+        - xtask, CI or the Claude Code setup
+        - benchmarks
+        - docs or roadmap
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: In a sentence or two, what happens, or what you propose.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: |
+        For a bug: the steps to reproduce it, what you expected and what happened instead.
+        For a proposal: the problem it solves, what you propose, and the alternatives you considered. A proposal that needs a third-party crate needs the evaluation in docs/02-dependency-policy.md.
+        For a roadmap task: its ID (such as M1.3), and how you would approach it.
+        For performance: what you measured and how, and the numbers.
+        For a question: what you are trying to do, and what you tried.
+      placeholder: |
+        1. Run `cargo xtask ci`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you built (`git rev-parse --short HEAD`).
+      placeholder: 3c2ccd0
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Platforms
+      multiple: true
+      options:
+        - Not platform-specific
+        - Linux (X11)
+        - Linux (Wayland, through XWayland)
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - A terminal (the TUI), locally or over SSH
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: The OS and its version, the CPU, `rustc -V`, and for tool problems the tool's version (`rust-analyzer --version`, `git --version`, the SDK or Xcode version).
+      placeholder: Pop!_OS 24.04, x86_64, rustc 1.99.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and output
+      description: |
+        Command output, a panic message, or Tidepool's log (`tidepool.log` in the user data directory; `docs/03-platforms.md` says where).
+        Remove user names, paths, keys, passwords and anything else you do not want to share.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Related tasks, decisions and context
+      description: A roadmap task or ADR this touches (such as M1.3 or ADR-0019), screenshots, and anything else that helps.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and the roadmap.
+          required: true
+        - label: This is not a security vulnerability, and it holds no secrets, credentials, keys or private data.
+          required: true
+        - label: I would like to work on this once a maintainer confirms it.
