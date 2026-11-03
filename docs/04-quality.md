@@ -86,7 +86,7 @@ as a pass.
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit`, `headers` or `ucd` fails (`tools` and `theme` join once implemented, and `workflows` and `crates` with M0.8 and M0.9) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented, and `crates` with M0.9) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
@@ -97,13 +97,15 @@ as a pass.
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
 | `cargo xtask fuzz-smoke` | Not yet implemented (M1.6). Planned: a fuzz target crashes, hangs or exceeds its allocation cap. Provisional: the parsers of the targets after QOI live in crates outside `xtask`'s matrix row, and counting allocations needs a `GlobalAlloc`, which is `unsafe`. M1.6 must settle both |
 | `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
-| `cargo xtask workflows` | Not a command yet (M0.8). Planned: a workflow in `.github/workflows/` that uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022) |
+| `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
 | `cargo xtask crates` | Not a command yet (M0.9). Planned: a member that does not inherit `edition`, `version` and `license`, lacks `publish = false` or `[lints] workspace = true`, or whose `README.md` is missing or not in the shape of ADR-0023 |
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
 `.rs` file, whatever the rest of its name, and `headers` every source file
-it checks, though it never prints a line of one. It reads other files only
+it checks, though it never prints a line of one. `workflows` reads each
+workflow, and quotes only the part of a line it rejects, such as an action's
+reference or a permission. It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
 parses. The one file it writes in the repository is the generated Unicode
@@ -182,8 +184,8 @@ network through its tool.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
   (M2.4), `fuzz-smoke` (M1.6), `bench` (M1.9; its message still says it
   has no task, which M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
-  `workflows` and `crates` (M0.8, M0.9) are not named yet, so they exit
-  2 as unknown commands. Each named one exits 1 and
+  `crates` (M0.9) is not named yet, so it exits 2 as an unknown command.
+  Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
   are handled first. `ci` lists `tools` and `theme` as "not yet
@@ -560,11 +562,8 @@ network through its tool.
   (above). A file it cannot read stops the check: `headers: FAILED:
   <reason>`.
 - Exempt by path (`EXEMPT` in `xtask/src/headers.rs`, ADR-0021):
-  - `crates/text/src/pos/grapheme/tables.rs`, which `ucd` generates and
-    which keeps the Unicode data's notice instead (ADR-0018);
-  - `.github/workflows/codeql.yml`, GitHub's starter workflow, which
-    carries no notice. It is exempt, at the user's choice, until M0.8
-    rewrites it as the project's own.
+  `crates/text/src/pos/grapheme/tables.rs`, which `ucd` generates and
+  which keeps the Unicode data's notice instead (ADR-0018).
 - Notes give the number of files whose header was checked (not those too
   large or not UTF-8) and the exempt files found, each with its reason.
 - A unit test compares its header with `LICENSE`'s appendix, so a change
@@ -573,6 +572,110 @@ network through its tool.
   until `kind` in `xtask/src/headers.rs` knows it. The third-party notices
   kept beside other material, such as the IETF Trust's for the RFC 8259
   examples in `crates/codec/tests/json.rs`, are not checked.
+
+**`workflows`**
+
+- Ported from Nadir's check (Nadir's ADR-0032). The rules are ADR-0022's,
+  against the table `WORKFLOWS` in `xtask/src/workflows.rs`, whose rows
+  "CI (GitHub Actions)" below lists. A workflow is matched to its row by
+  its exact file name, so `CI.yml` has none. The release workflow adds its
+  row with M14.4.
+- The workflows are the `.yml` and `.yaml` files directly in
+  `.github/workflows/`, the extension in any case, as `headers` finds them.
+  A folder there, and a file with another extension, is not one: GitHub
+  reads neither. The check reads only that directory; the links elsewhere
+  are reported by `deps`, `unsafe-audit` and `headers`.
+- Symbolic links are neither followed nor resolved, as in "Files searched"
+  above. `.github` and `.github/workflows` must each be a real directory,
+  checked shallowest first; and every link directly in `.github/workflows/`,
+  whatever its name and wherever it leads, is a violation and is not read.
+  So is an entry named like a workflow that is neither a file, a folder
+  nor a link (a FIFO, say), which is not opened.
+- Nothing to check fails, as `deps` fails on a tree with no `Cargo.toml`.
+  `.github/workflows` missing (the violation asks whether the root is
+  right), not a directory, reached through a link, or holding no workflow
+  is a violation. So a check of the wrong directory never passes, and
+  `xtask`'s own fixture repositories carry a `ci.yml` and a `codeql.yml`
+  that keep the rules.
+- Each workflow is read whole, within 1 MiB, and must be UTF-8; otherwise
+  it is a violation and is not checked. A leading byte-order mark is
+  skipped. Lines end at LF or CR LF. Any other line break, which a YAML
+  reader also ends a line at (a lone CR, at the end of the file too; and,
+  as GitHub's YAML 1.1 reader does, NEL, U+2028 and U+2029), is a
+  violation naming its line, and the file is checked no further. A
+  workflow it cannot read stops the check: `workflows: FAILED: <reason>`.
+- It reads lines, not YAML (ADR-0022). A comment, from a `#` at a line's
+  start or after a space or a tab, is left out. A key is found by its
+  column, after a list item's dash, and read as YAML ends a plain implicit
+  key: the text before the first `:` followed by a space, a tab or the
+  line's end (or, for a quoted key, the `:` after its closing quote),
+  trimmed, without one pair of matching quotes. So `uses :`, `uses\t:`,
+  `"uses":` and `'permissions':` are the keys `uses` and `permissions`.
+  The keys it reads by name are `on`, `jobs`, `permissions`, `uses`,
+  `with` and `persist-credentials`.
+- Where the lines would not say what YAML says, it fails closed. Beyond
+  ADR-0022's words:
+  - a local action (`./…`) fails like any other its row does not name,
+    since the check does not read its steps (Nadir's check passes one);
+  - a `uses:` with no action on its line fails;
+  - in a job's `permissions:`, a level that is not `read`, `write` or
+    `none` once unquoted fails, and so does a `write` in a `permissions:`
+    block that is in no job; an empty top-level block fails;
+  - a job is found at whatever indentation the file gives its jobs;
+  - `persist-credentials: false` counts only as an input of the checkout
+    step's `with:`, not in its `env:` or inside another input's value. A
+    step starts at the nearest line above its `uses:` that is indented less
+    than its keys (not a blank or comment line), so a step whose dash is
+    alone on its line (`-`, `- # note`) is not given the step before's
+    input; a `uses: actions/checkout` in no step fails. The step must have
+    one `with:` and one `persist-credentials` input, reading `false` with
+    no more-indented line going on with it: a YAML reader keeps the last of
+    two equal keys, and GitHub rejects a workflow that has two;
+  - the text `pull_request_target` fails wherever it is on a line before
+    its comment, even in a string. A top-level key that is quoted or holds
+    a `\` fails, since it could be `on`. In the top-level `on:` section, up
+    to the next top-level key, a line whose text (its comment left out, as
+    YAML reads one) holds a `\` fails, since an escape could spell the
+    event, and so does a line on which a ` #` falls inside a quoted value,
+    which this check would read as the start of a comment. A comment that
+    names the event, there or elsewhere, is only words;
+  - a quoted value, single or double, that does not end on its own line
+    fails, since its next lines would be read as keys (`''` and `\"` are
+    escapes, and the quote is looked for in the raw line, ` #` included).
+    So does a flow collection (`[…]`, `{…}`) that does not end on its line;
+  - a mapping written in flow style fails: `{…}` other than `{}`, and
+    `key: value` (or `"key":value`) inside `[…]`. A flow sequence of
+    scalars, such as `[main]`, is read;
+  - an alias or anchor as a value fails: `key: *name`, `key: &name`,
+    `- *name`, `<<: *name`, a value on the line after its key, and one
+    inside `[…]`. YAML would copy a job, say, without the check crediting
+    its permissions to it;
+  - a tag (`!…`) or an anchor before one of the keys it reads, an explicit
+    key (`? `), and a double-quoted key with an escape (`"u\x73es":`)
+    fail;
+  - a YAML document marker or directive fails (`---` after the document
+    has started, `...`, `%YAML`); one `---` before the document starts it.
+  These look at a node's start only, so the text of a `run:` script
+  (`exec 2>&1`, `>&2`, `*[!0-9a-f]*`, `tr -d ' \n'`) passes. A script line
+  that looks like one of them where a node starts, such as `key: *name`,
+  fails.
+- A violation names the file, and the line where it has one. What it
+  quotes from the workflow is escaped like every line `xtask` prints
+  ("Control characters in output" above). Notes give the number of
+  workflows checked.
+- Not read, but failed: a `uses:` or a `permissions:` key in a flow
+  mapping (`- { uses: … }`, `job: { permissions: write-all }`), a value of
+  either written as a block scalar (`uses: >-`, `permissions: |`), and the
+  forms above. Text that looks like a key inside a block scalar, such as
+  `uses:` in a `run:` script, is read as one, so it fails rather than
+  passes.
+- Not covered: the check is not a YAML parser, and a form that a YAML
+  reader accepts beyond those above, and that this check reads otherwise,
+  would not be seen; ADR-0022 accepts that cost of reading lines
+  (`.claude/rules/ci-workflows.md` → "One key a line"). Nor are the steps
+  of a local or composite action; whether each row's workflow exists,
+  which a unit test checks for the real repository; and races, as in
+  "Files searched".
 
 **`ucd`**
 
@@ -632,15 +735,16 @@ network through its tool.
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `unsafe-audit`, `headers`, `ucd` (as `ucd --check`). Each step
+  `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd` (as `ucd
+  --check`). Each step
   starts with a `== <step>: ...` heading; the cargo steps print cargo's own
   output.
 - It keeps going after a failure, so one run reports every problem, with
   one exception. Once `deps` has failed or could not run, clippy and test
   are not run, because they would build and run the code `deps` rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
-  runs. `layers`, `unsafe-audit`, `headers` and `ucd` are not gates, and
-  run after clippy and test. So code that `deps` accepts but they reject,
+  runs. `layers`, `unsafe-audit`, `headers`, `workflows` and `ucd` are not
+  gates, and run after clippy and test. So code that `deps` accepts but they reject,
   such as a vendored crate that cargo made a member, is still compiled, and
   its build scripts and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
@@ -664,7 +768,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 8 of 8 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 9 of 9 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 
@@ -727,22 +831,46 @@ network through its tool.
   top-level permissions are `{}` or `contents: read`, and only CodeQL's
   analysis job may write, to `security-events`; no `pull_request_target`;
   every checkout sets `persist-credentials: false`. `cargo xtask workflows`
-  checks this from M0.8.
-- **Code scanning** (`.github/workflows/codeql.yml`): the file committed on
-  2026-11-01 is GitHub's template. Today it scans `rust` and `actions` with
-  no build, on pushes to `main`, pull requests to `main` and weekly, with the
-  default queries. It falls short of these rules: its three actions are
-  pinned by tag, it has no top-level `permissions`, its job also gets
-  `packages: read` and `actions: read`, and its checkout keeps its
-  credentials. ADR-0022 sets the target that M0.8 brings it to: actions
-  pinned by SHA, `permissions: {}` with the job's `contents: read` and
-  `security-events: write`, `persist-credentials: false`, the
-  `security-extended` queries, a run by hand, and `ci.yml`'s concurrency
-  rule.
-- **Dependabot** (`.github/dependabot.yml`) is to update the actions' pins
-  weekly (ADR-0022). The file committed on 2026-11-01 is GitHub's starter
-  file with an empty `package-ecosystem`, which updates nothing; M0.8
-  replaces it.
+  checks this in `ci` ("`workflows`" above). `codeql.yml`'s pins, and how
+  they were looked up, are in roadmap M0.8's note; `ci.yml`'s
+  (`actions/checkout`, `actions/cache`) are in M0.4's.
+- **Code scanning** (`.github/workflows/codeql.yml`, ADR-0022): CodeQL
+  scans `rust` and `actions` (the workflows) with `build-mode: none` and the
+  `security-extended` queries, on pushes to `main`, on pull requests,
+  weekly (Saturday, 09:35 UTC) and by hand. The token's top-level
+  permissions are `{}`; its job, `analyze`, gets `contents: read` and
+  `security-events: write`, to upload its results. The checkout sets
+  `persist-credentials: false`, and there are no `run:` steps.
+  - `build-mode: none` means no build step, not no cargo. In the analyze
+    step, which holds that token, the Rust extractor of CodeQL CLI 2.27.3
+    (the one codeql-action v4.39.1 pins) loads the workspace through
+    rust-analyzer's project model (`ra_ap_*` 0.0.357): `cargo metadata`,
+    with `--no-deps` and then in full, and, with no build-script command
+    configured, `cargo check --workspace --keep-going` with
+    `--compile-time-deps --all-targets` on cargo 1.89 and later, which
+    compiles and runs build scripts and compiles proc macros (with their
+    dependencies). Tidepool has no build script, proc macro or
+    dependency, so that compiles nothing today. The job sets
+    `CARGO_NET_OFFLINE`, as `ci.yml` does, so a registry or git
+    dependency fails there instead of being fetched and built. Established
+    from codeql's `rust/extractor/src/config.rs` at `codeql-cli/v2.27.3`,
+    `ra_ap_project_model` 0.0.357 (`build_dependencies.rs`,
+    `cargo_workspace.rs`), cargo's documentation of `--compile-time-deps`,
+    and the 2026-11-02 run's log, which shows no build-script command, the
+    toolchain `rust-toolchain.toml` pins, and 89 of 89 files extracted. That
+    log does not show the cargo command lines.
+  - CodeQL's `actions` queries catch, among others, injection, untrusted
+    checkouts, cache and artifact poisoning, unpinned actions of owners
+    other than `actions`, `github` and `advanced-security`, and a job with
+    no `permissions:` block. GitHub's own actions pinned by tag, and
+    `write` grants, are caught only by `cargo xtask workflows`.
+  - It has `ci.yml`'s concurrency rule: a newer run for the same pull
+    request, or the same branch, cancels the older one, so on `main` the
+    pushes and the weekly run share a group.
+- **Dependabot** (`.github/dependabot.yml`, ADR-0022) updates the actions'
+  pins and tag comments: `github-actions` only, weekly, for releases at
+  least 7 days old (`cooldown`), with the week's updates in one pull
+  request whose commits start `ci`. It has no `cargo` entry.
 - Goldens run on Linux CI only until M11/M12 add per-OS references for
   platform-specific scenes (the CPU rasterizer is deterministic, so shared
   scenes share references).

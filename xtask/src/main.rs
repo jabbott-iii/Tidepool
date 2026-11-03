@@ -63,6 +63,7 @@ mod metadata;
 mod ucd;
 mod unsafe_audit;
 mod walk;
+mod workflows;
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
@@ -250,6 +251,7 @@ mod tests {
             "layers",
             "unsafe-audit",
             "headers",
+            "workflows",
             "tools",
             "theme",
             "ucd",
@@ -265,8 +267,8 @@ mod tests {
             );
         }
         assert!(text.contains(
-            "  ci            Run deps, fmt, clippy, test, layers, unsafe-audit, headers, ucd in that \
-             order"
+            "  ci            Run deps, fmt, clippy, test, layers, unsafe-audit, headers, \
+             workflows, ucd in that order"
         ));
         assert!(text.contains(
             "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
@@ -296,6 +298,8 @@ mod tests {
         assert_eq!(usage_error(&["CI"]), "unknown command `CI`");
         // The `fmt`, `clippy` and `test` steps of `ci` are not commands.
         assert_eq!(usage_error(&["fmt"]), "unknown command `fmt`");
+        // `crates` is not one until roadmap M0.9.
+        assert_eq!(usage_error(&["crates"]), "unknown command `crates`");
     }
 
     #[test]

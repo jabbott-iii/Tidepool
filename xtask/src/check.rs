@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::Skips;
 use crate::error::Error;
-use crate::{cargo, deps, headers, layers, ucd, unsafe_audit, walk};
+use crate::{cargo, deps, headers, layers, ucd, unsafe_audit, walk, workflows};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -139,6 +139,15 @@ pub(crate) const HEADERS: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask workflows`.
+pub(crate) const WORKFLOWS: Check = Check {
+    name: "workflows",
+    about: "Workflows use only the actions their row allows, pinned by SHA, and write only where \
+            it allows",
+    step: Step::Own(workflows::run),
+    role: Role::Independent,
+};
+
 /// What `ucd` does, with and without `--check`.
 const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
                          generates (without --check: write it)";
@@ -173,7 +182,7 @@ const TEST: &[&str] = &["test", "--workspace"];
 
 /// The checks that are subcommands of their own. `ucd` is listed as its
 /// `--check` form; without `--check` it runs [`UCD_WRITE`].
-pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, HEADERS, UCD];
+pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, HEADERS, WORKFLOWS, UCD];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
 /// dependency problem is reported, and nothing is compiled, before
@@ -201,6 +210,7 @@ pub(crate) const CI: &[Check] = &[
     LAYERS,
     UNSAFE_AUDIT,
     HEADERS,
+    WORKFLOWS,
     UCD,
 ];
 
@@ -1095,6 +1105,7 @@ mod tests {
                 ("layers", Role::Independent),
                 ("unsafe-audit", Role::Independent),
                 ("headers", Role::Independent),
+                ("workflows", Role::Independent),
                 ("ucd", Role::Independent),
             ]
         );
@@ -1126,6 +1137,7 @@ mod tests {
             ("layers", None),
             ("unsafe-audit", None),
             ("headers", None),
+            ("workflows", None),
             ("ucd", None),
         ];
         assert_eq!(CI.len(), expected.len());
@@ -1158,12 +1170,14 @@ mod tests {
         let layers_run: fn(&Path) -> Result<Report, Error> = layers::run;
         let audit_run: fn(&Path) -> Result<Report, Error> = unsafe_audit::run;
         let headers_run: fn(&Path) -> Result<Report, Error> = headers::run;
+        let workflows_run: fn(&Path) -> Result<Report, Error> = workflows::run;
         let ucd_check: fn(&Path) -> Result<Report, Error> = ucd::check;
         let ucd_write: fn(&Path) -> Result<Report, Error> = ucd::write;
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
         assert!(std::ptr::fn_addr_eq(own("headers"), headers_run));
+        assert!(std::ptr::fn_addr_eq(own("workflows"), workflows_run));
         // `ucd` as a command and as the step of `ci` only checks; the
         // writing form has the same name and heading.
         assert!(std::ptr::fn_addr_eq(own("ucd"), ucd_check));

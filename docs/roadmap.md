@@ -210,7 +210,7 @@ enforced by tooling from day one.
     directory are taken up by M0.10, which also changes the link rule:
     every symbolic link now fails, and none is resolved by `xtask`.
 
-- [ ] **M0.8 — CI supply chain: CodeQL pinned, Dependabot for actions, `cargo xtask workflows`**
+- [x] **M0.8 — CI supply chain: CodeQL pinned, Dependabot for actions, `cargo xtask workflows`**
   - Depends: M0.4
   - Decide first: accept ADR-0022 (CodeQL, Dependabot and the workflow
     check), which is `Proposed`.
@@ -238,8 +238,50 @@ enforced by tooling from day one.
     - The rewritten workflows pass, and `dependabot.yml` parses.
   - Verify: `cargo xtask workflows`; `cargo xtask ci`; parse the YAML
     (state how)
+  - Note (2026-11-03): the user accepted ADR-0022 as written, which
+    answers the `Decide first` line.
+  - Note (2026-11-03): the pins in `codeql.yml`, each looked up that day
+    with `git ls-remote --tags https://github.com/<owner>/<repo>
+    'refs/tags/<tag>' 'refs/tags/<tag>^{}'`:
+    - `actions/checkout` v7.0.1: `3d3c42e5aac5ba805825da76410c181273ba90b1`,
+      a lightweight tag (no `^{}` line), the same pin as `ci.yml`'s.
+    - `github/codeql-action/init` and `analyze` v4.39.1:
+      `9b3254085494b55a0f7c4c2b3d2d52cc712ce370`, the peeled `^{}` commit of
+      an annotated tag whose tag object is
+      `8498dc4c2b27cdd99baf0f87955b29ebbf30c78d`.
+    - Not v4.39.2 (peeled `1fc58d04a4d4374f921bdac573c3811c240f9c26`): it
+      was published on 2026-11-03, inside ADR-0022's 7-day cooldown, so
+      Dependabot would not propose it yet either. v4.39.1 was published on
+      2026-10-21. The dates are GitHub's release dates (`gh api
+      repos/github/codeql-action/releases/tags/<tag>`, `published_at`).
+  - Note (2026-11-03): `cargo xtask workflows` is ported from Nadir's
+    check, and fails closed on more than ADR-0022 lists: on YAML it cannot
+    read line by line, flow mappings included (`docs/04-quality.md` →
+    "`workflows`"). The template fixture is GitHub's MIT-licensed text; its
+    notice is in `xtask/tests/data/NOTICE.md`, and it has a row in
+    `docs/02-dependency-policy.md` → "Assets".
+    - **Verified** on Linux (toolchain 1.99.0): `cargo xtask workflows`
+      passes (2 workflows), and `cargo xtask ci` passes: 9 of 9 steps, 791
+      tests, 0 failed, 0 `SKIPPED:`. PyYAML 6.0.1 (`python3 -I`,
+      `yaml.safe_load`) parses `codeql.yml`, `ci.yml` and
+      `dependabot.yml`. The template's five problems are asserted by
+      `workflows::tests::github_s_codeql_template_has_exactly_its_five_problems`
+      and the end-to-end
+      `workflows_reports_each_of_the_five_problems_of_github_s_codeql_template`.
+    - A security review and a four-lens review, each finding checked by a
+      skeptic, found YAML that led the line reader past a rule: a lone CR
+      or a Unicode line break, `uses :`, a quoted value over several
+      lines, aliases, escapes in `on:`, a repeated `persist-credentials`.
+      Each now fails. Of the 116 variants the reviewers built, the 100 that
+      break a rule or cannot be read fail and the 16 that keep the rules
+      pass. 6,000 random mutations of the real workflows caused no panic
+      or hang. 8,000 more, read again with PyYAML, found no workflow that
+      passes while breaking a rule, except ones GitHub rejects as invalid
+      (`jobs` not a mapping, a job-level `uses:` that names an action).
   - ⏳ needs human after the change: push, and confirm CodeQL's first run
-    on `main` succeeds.
+    on `main` succeeds, and that its Rust leg, now with `CARGO_NET_OFFLINE`,
+    still reports 0 Rust files extracted with errors (89 of 89 on
+    2026-11-02, before the rewrite).
 
 - [ ] **M0.9 — `cargo xtask crates`: the members' manifests and READMEs**
   - Depends: M0.3, M0.6

@@ -20,7 +20,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, unsafe-audit, headers, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, unsafe-audit, headers, workflows, ucd
 cargo test -p tidepool-text
 ```
 

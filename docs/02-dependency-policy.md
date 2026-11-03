@@ -23,7 +23,7 @@ processes. They are never linked, bundled or reimplemented.
 | Vendored or copied third-party source code, including "just one file" | OS libraries and frameworks we call through FFI (listed below) |
 | A build script that downloads anything or runs third-party code | Managed tools run as child processes (listed below) |
 | A git submodule containing code | Fonts and other assets with a compatible license (listed below) |
-| A `cargo install`-ed tool that CI depends on | GitHub Actions used by CI, pinned by commit SHA (`docs/04-quality.md`; checked by `cargo xtask workflows` from M0.8, ADR-0022) |
+| A `cargo install`-ed tool that CI depends on | GitHub Actions used by CI, pinned by commit SHA (`docs/04-quality.md`; checked by `cargo xtask workflows`, ADR-0022) |
 | Bundling an outside program's binary in Tidepool's download (ADR-0002) | Code the owner wrote in another repository (such as Nadir), ported in with a note in the change |
 
 Reading a public specification (LSP, DAP, CommonMark, TrueType, ZIP,
@@ -75,6 +75,7 @@ license) and a row in the Toolchains panel. Details:
 | JetBrains Mono (Regular, Italic, SemiBold `.ttf`) | SIL OFL 1.1 (verify on import) | JetBrains Mono releases | Code and terminal (ADR-0004) |
 | CommonMark spec examples | CC-BY-SA 4.0 (verify) | commonmark.org | Test-only fixtures, never in release binaries (M6.5) |
 | RFC 8259 examples (`crates/codec/tests/json/rfc8259_image.json`, `rfc8259_locations.json`, ported from Nadir) | Revised BSD License, as IETF Code Components; the IETF Trust's legend is beside them, in `crates/codec/tests/json.rs` (ADR-0021) | IETF RFC 8259, section 13 | Test-only fixtures, never in release binaries |
+| GitHub's "CodeQL Advanced" starter workflow, as committed in `ed8edf4` (`xtask/tests/data/codeql-template.yml.txt`) | MIT, Copyright (c) 2020 GitHub; the notice is beside it, in `xtask/tests/data/NOTICE.md` | actions/starter-workflows, `code-scanning/codeql.yml`, as filled in by GitHub | Test-only fixture for `cargo xtask workflows` (M0.8), never in release binaries |
 | Unicode Character Database 17.0.0: `GraphemeBreakProperty.txt`, `emoji-data.txt`, `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (unchanged, in `crates/text/ucd/17.0.0/` with `license.txt`) | Unicode License v3 | unicode.org/Public/17.0.0 | Input to `cargo xtask ucd`, which generates `tidepool-text`'s segmentation tables; the tables ship, the files do not; the test file is test-only (ADR-0018) |
 
 ## The exception test
@@ -183,9 +184,10 @@ trigger** fires. It is not approved.
   exits 1) will check that every descriptor in `toolchains/` has a pinned
   version, an official HTTPS source, a SHA-256 where a download is
   involved, and a license entry.
-- **`cargo xtask workflows`** (not a command yet: roadmap M0.8,
-  ADR-0022) will check that every GitHub Action is allowed for its
-  workflow and pinned by commit SHA.
+- **`cargo xtask workflows`** checks that every GitHub Action is one its
+  workflow may use, pinned by commit SHA, and that no workflow's token gets
+  more than its row allows (ADR-0022; `docs/04-quality.md` →
+  "`workflows`").
 - **Path-scoped rule** `.claude/rules/dependencies.md` loads when an agent
   opens a Cargo manifest.
 - **Claude Code permissions** ask before `cargo add`, `cargo remove`,

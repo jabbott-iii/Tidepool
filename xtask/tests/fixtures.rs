@@ -111,6 +111,68 @@ fn hash_header() -> String {
         .collect()
 }
 
+/// The body of the fixture's `ci.yml`, after its header ([`hash_header`]):
+/// a workflow that keeps every rule of `workflows` (ADR-0022), with
+/// `ci.yml`'s actions pinned as in the real one.
+const CI_WORKFLOW: &str = r#"name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo
+      - run: cargo xtask ci
+"#;
+
+/// The body of the fixture's `codeql.yml`, after its header: as
+/// [`CI_WORKFLOW`], for CodeQL's row, whose analysis job may write
+/// `security-events`.
+const CODEQL_WORKFLOW: &str = r#"name: CodeQL
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: rust
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+"#;
+
+/// GitHub's "CodeQL Advanced" starter workflow, as the user committed it on
+/// 2026-11-01 (`git show ed8edf4:.github/workflows/codeql.yml`), byte for
+/// byte. Its file name is one no check reads as a workflow. It is GitHub's,
+/// under the MIT license in `data/NOTICE.md`.
+const CODEQL_TEMPLATE: &str = include_str!("data/codeql-template.yml.txt");
+
 /// What one run of the binary did.
 struct Run {
     code: Option<i32>,
@@ -262,8 +324,9 @@ impl Fixture {
 
     /// A small repository shaped like Tidepool's that passes every check
     /// but `ucd` (for which see [`Fixture::with_ucd`]): four crates that
-    /// follow [`MATRIX`], the two unsafe crate roots, the real allowlist
-    /// and a lockfile.
+    /// follow [`MATRIX`], the two unsafe crate roots, the real allowlist, a
+    /// lockfile, and the two workflows ([`CI_WORKFLOW`],
+    /// [`CODEQL_WORKFLOW`]).
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
         fixture.write(
@@ -286,6 +349,8 @@ impl Fixture {
         );
         fixture.write("docs/01-architecture.md", MATRIX);
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
+        fixture.workflow("ci.yml", CI_WORKFLOW);
+        fixture.workflow("codeql.yml", CODEQL_WORKFLOW);
         fixture.lock();
         fixture
     }
@@ -322,6 +387,15 @@ impl Fixture {
     /// starts.
     fn source(&self, path: &str, body: &str) {
         self.write(path, &format!("{RUST_HEADER}{body}"));
+    }
+
+    /// Writes the workflow `body` to `.github/workflows/<name>`, after its
+    /// header ([`hash_header`]), as every workflow in the repository starts.
+    fn workflow(&self, name: &str, body: &str) {
+        self.write(
+            &format!(".github/workflows/{name}"),
+            &format!("{}{body}", hash_header()),
+        );
     }
 
     /// Writes `contents` to `path`, relative to the repository root.
@@ -2385,7 +2459,7 @@ fn headers_passes_on_the_unbroken_fixture_and_after_a_shebang() {
     run.expect_code(0);
     assert!(
         run.stdout
-            .ends_with("source files checked: 6\nheaders: ok\n"),
+            .ends_with("source files checked: 7\nheaders: ok\n"),
         "{}",
         run.stdout
     );
@@ -2492,6 +2566,271 @@ fn assert_forges_nothing(run: &Run, check: &str) {
     }
 }
 
+// --- workflows ---
+
+#[test]
+fn workflows_passes_on_the_unbroken_fixture() {
+    let fixture = Fixture::passing("workflows-pass");
+    let run = fixture.run("workflows");
+    run.expect_code(0);
+    assert_eq!(run.stdout, "workflows checked: 2\nworkflows: ok\n");
+}
+
+#[test]
+fn workflows_reports_each_of_the_five_problems_of_github_s_codeql_template() {
+    let fixture = Fixture::passing("workflows-template");
+    fixture.write(".github/workflows/codeql.yml", CODEQL_TEMPLATE);
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    // Three actions pinned by tag, a checkout that keeps its credentials,
+    // and no top-level `permissions`; nothing else.
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows/codeql.yml:60: `actions/checkout@v7` is not pinned by a full \
+             commit SHA",
+            ".github/workflows/codeql.yml:60: `actions/checkout` does not set \
+             `persist-credentials: false`",
+            ".github/workflows/codeql.yml:70: `github/codeql-action/init@v4` is not pinned by a \
+             full commit SHA",
+            ".github/workflows/codeql.yml:99: `github/codeql-action/analyze@v4` is not pinned by \
+             a full commit SHA",
+            ".github/workflows/codeql.yml: no `permissions:` at the top, so the token gets the \
+             repository's default permissions",
+        ]
+    );
+    assert!(
+        run.stdout.starts_with("workflows checked: 2\n")
+            && run.stdout.ends_with("workflows: FAILED (5 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn workflows_fails_on_each_kind_of_violation() {
+    let fixture = Fixture::passing("workflows-fail");
+    fixture.workflow(
+        "ci.yml",
+        "name: CI\n\
+         on:\n  pull_request_target:\n\
+         permissions: write-all\n\
+         jobs:\n  ci:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n\
+         \x20   steps:\n\
+         \x20     - uses: actions/checkout@v7\n\
+         \x20     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9\n\
+         \x20     - uses: some/action@3d3c42e5aac5ba805825da76410c181273ba90b1 # v1.0.0\n",
+    );
+    // A workflow with no row in the table.
+    fixture.workflow("deploy.yml", CI_WORKFLOW);
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows/ci.yml:17: `pull_request_target` runs with the base repository's \
+             token: use `pull_request`",
+            ".github/workflows/ci.yml:18: the default permissions are `write-all`: make them `{}` \
+             or `contents: read`",
+            ".github/workflows/ci.yml:23: the job `ci` may not grant `contents: write`",
+            ".github/workflows/ci.yml:25: `actions/checkout@v7` is not pinned by a full commit SHA",
+            ".github/workflows/ci.yml:25: `actions/checkout` does not set \
+             `persist-credentials: false`",
+            ".github/workflows/ci.yml:26: `actions/cache` has no comment naming its tag, such as \
+             `# v1.2.3`",
+            ".github/workflows/ci.yml:27: `some/action` is not an action this workflow may use \
+             (ADR-0022)",
+            ".github/workflows/deploy.yml: no row in the table of what each workflow may use \
+             (`WORKFLOWS` in xtask/src/workflows.rs, ADR-0022)",
+        ]
+    );
+    assert!(
+        run.stdout.starts_with("workflows checked: 3\n")
+            && run.stdout.ends_with("workflows: FAILED (8 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn workflows_fails_closed_without_a_workflow_to_check() {
+    // A check of the wrong directory must not pass by finding nothing.
+    let fixture = Fixture::passing("workflows-missing");
+    let dir = fixture.root.join(".github/workflows");
+    fs::remove_dir_all(&dir).expect("the fixture has workflows");
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.stdout,
+        "workflows checked: 0\n\
+         violation: .github/workflows was not found, so no workflow was checked: is this the \
+         repository root?\n\
+         workflows: FAILED (1 violation)\n"
+    );
+    // A directory with no workflow in it.
+    fixture.write(".github/workflows/README.md", "No workflows.\n");
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows holds no workflow (a `.yml` or `.yaml` file), so nothing was \
+             checked"
+        ]
+    );
+}
+
+#[test]
+fn workflows_reports_a_linked_workflow_without_reading_it() {
+    let fixture = Fixture::passing("workflows-linked");
+    // What the link leads to breaks every rule, and says so.
+    let evil = format!(
+        "{}# this line must never be printed\npermissions: write-all\njobs:\n  x:\n    \
+         steps:\n      - uses: some/action@v1\n",
+        hash_header()
+    );
+    fixture.write_outside("elsewhere/ci.yml", &evil);
+    fixture.write_outside("elsewhere/codeql.yml", &evil);
+    let link = fixture.root.join(".github/workflows/linked.yml");
+    if let Err(reason) = symlink(&fixture.real("elsewhere/ci.yml"), &link) {
+        skipped(
+            "workflows_reports_a_linked_workflow_without_reading_it",
+            &reason,
+        );
+        return;
+    }
+    let unread = |run: &Run| {
+        let output = format!("{}{}", run.stdout, run.stderr);
+        assert!(
+            !output.contains("must never be printed")
+                && !output.contains("some/action")
+                && !output.contains("write-all"),
+            "{output}"
+        );
+    };
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows/linked.yml: a symbolic link, which `workflows` does not follow, \
+             so it was not read"
+        ]
+    );
+    assert!(
+        run.stdout.starts_with("workflows checked: 2\n"),
+        "{}",
+        run.stdout
+    );
+    unread(&run);
+
+    // The directory itself a link: nothing in it is listed or read.
+    let dir = fixture.root.join(".github/workflows");
+    fs::remove_dir_all(&dir).expect("the fixture has workflows");
+    symlink(&fixture.real("elsewhere"), &dir).expect("a link to a directory");
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.stdout,
+        "workflows checked: 0\n\
+         violation: .github/workflows is a symbolic link, which `workflows` does not follow, so \
+         no workflow was checked\n\
+         workflows: FAILED (1 violation)\n"
+    );
+    unread(&run);
+}
+
+#[test]
+fn workflows_fails_closed_on_yaml_it_cannot_read_line_by_line() {
+    // Two workflows that GitHub reads as granting writes and running an
+    // unapproved action, and that a check matching lines as written would
+    // pass: a lone CR puts a job's `write-all` on the line before, as far as
+    // `str::lines` sees, and a space before a colon hides a job's
+    // `permissions` and a step's `uses`.
+    let fixture = Fixture::passing("workflows-unreadable");
+    fixture.workflow(
+        "ci.yml",
+        &CI_WORKFLOW.replace(
+            "    runs-on: ubuntu-latest\n",
+            "    runs-on: ubuntu-latest\r    permissions: write-all\n",
+        ),
+    );
+    fixture.workflow(
+        "codeql.yml",
+        &(CODEQL_WORKFLOW
+            .replace("    permissions:\n", "    permissions :\n")
+            .replace(
+                "      security-events: write\n",
+                "      security-events: write\n      id-token: write\n",
+            )
+            + "      - uses : evil/action@main\n"),
+    );
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows/ci.yml:27: a line break other than LF or CR LF, which a YAML \
+             reader reads as a new line and this check does not",
+            ".github/workflows/codeql.yml:29: the job `analyze` may not grant `id-token: write`",
+            ".github/workflows/codeql.yml:38: `evil/action` is not an action this workflow may \
+             use (ADR-0022)",
+            ".github/workflows/codeql.yml:38: `evil/action@main` is not pinned by a full commit \
+             SHA",
+        ]
+    );
+    assert!(
+        run.stdout.starts_with("workflows checked: 2\n")
+            && run.stdout.ends_with("workflows: FAILED (4 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_workflow_s_name_or_text_cannot_add_lines_to_the_output() {
+    // A workflow named to forge a GitHub Actions annotation and a passing
+    // verdict, and an action reference that holds a C1 control (CSI), a
+    // forged command and an escape sequence, which the violation quotes. (A
+    // lone carriage return there is a line break, which fails without
+    // quoting anything.)
+    let fixture = Fixture::passing("workflows-forged");
+    let name = ".github/workflows/a\n::warning file=x::forged\nworkflows: ok\n\u{1b}[2Kb.yml";
+    if let Err(error) = fs::write(fixture.root.join(name), "name: x\n") {
+        // Windows allows no control character in a file name.
+        skipped(
+            "a_workflow_s_name_or_text_cannot_add_lines_to_the_output",
+            &format!("cannot name a file so here: {error}"),
+        );
+        return;
+    }
+    fixture.workflow(
+        "ci.yml",
+        &CI_WORKFLOW.replace(
+            "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0",
+            "actions/cache@v6\u{9b}::error::forged\u{1b}[2K",
+        ),
+    );
+    let run = fixture.run("workflows");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            ".github/workflows/a\\n::warning file=x::forged\\nworkflows: ok\\n\\u{1b}[2Kb.yml: no \
+             row in the table of what each workflow may use (`WORKFLOWS` in \
+             xtask/src/workflows.rs, ADR-0022)",
+            ".github/workflows/ci.yml:34: `actions/cache@v6\\u{9b}::error::forged\\u{1b}[2K` is \
+             not pinned by a full commit SHA",
+        ]
+    );
+    assert_forges_nothing(&run, "workflows");
+    assert!(
+        run.stdout.ends_with("workflows: FAILED (2 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
 // --- output and links (M0.10) ---
 
 #[test]
@@ -2589,6 +2928,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "layers",
             "unsafe-audit",
             "headers",
+            "workflows",
             "ucd",
             "summary"
         ],
@@ -2610,6 +2950,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
+            ("workflows", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2620,7 +2961,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     );
     assert!(
         summary
-            .ends_with("ci: FAILED: 1 of 8 steps failed: fmt; not yet implemented: tools, theme\n"),
+            .ends_with("ci: FAILED: 1 of 9 steps failed: fmt; not yet implemented: tools, theme\n"),
         "{summary}"
     );
     assert!(
@@ -2660,6 +3001,14 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     fixture.lock();
     // headers: a script without one.
     fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
+    // workflows: an action pinned by its tag.
+    fixture.workflow(
+        "ci.yml",
+        &CI_WORKFLOW.replace(
+            "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0",
+            "actions/cache@v6",
+        ),
+    );
     // ucd: tables that are not what the Unicode data generates.
     fixture.write("crates/text/src/pos/grapheme/tables.rs", "// stale\n");
 
@@ -2675,6 +3024,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("layers", "FAILED"),
             ("unsafe-audit", "FAILED"),
             ("headers", "FAILED"),
+            ("workflows", "FAILED"),
             ("ucd", "FAILED"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2685,8 +3035,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 7 of 8 steps failed: fmt, clippy, test, layers, unsafe-audit, headers, ucd; \
-         not yet implemented: tools, theme"
+        "ci: FAILED: 8 of 9 steps failed: fmt, clippy, test, layers, unsafe-audit, headers, \
+         workflows, ucd; not yet implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -2696,6 +3046,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "violation: tidepool-sys -> tidepool-core not allowed (dev-dependency)",
         "violation: crates/core/src/lib.rs:16: `allow(unsafe_code)` is only allowed",
         "violation: scripts/tool.sh:2: expected `# Copyright 2026 Joseph Anthony Abbott III`",
+        "violation: .github/workflows/ci.yml:34: `actions/cache@v6` is not pinned by a full commit \
+         SHA",
         "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/17.0.0 \
          generates (first difference at line 1); run cargo xtask ucd",
     ] {
@@ -2738,6 +3090,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("layers", "FAILED"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
+            ("workflows", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2748,7 +3101,7 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 8 steps failed: deps, layers; not run: clippy, test; not yet \
+        "ci: FAILED: 2 of 9 steps failed: deps, layers; not run: clippy, test; not yet \
          implemented: tools, theme"
     );
     assert!(
@@ -2851,6 +3204,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("layers", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
+            ("workflows", "ok"),
             ("ucd", "ok"),
             ("tools", "not"),
             ("theme", "not"),
@@ -2875,7 +3229,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 8 of 8 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 9 of 9 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -2980,16 +3334,28 @@ fn the_real_repository_passes_deps_layers_unsafe_audit_and_headers() {
 }
 
 #[test]
+fn the_real_repository_s_workflows_pass() {
+    // Both of them: `ci.yml` and `codeql.yml`, each with its row.
+    let run = xtask(&["workflows"], None);
+    run.expect_code(0);
+    assert_eq!(run.stdout, "workflows checked: 2\nworkflows: ok\n");
+}
+
+#[test]
 fn usage_errors_exit_2_and_later_commands_exit_1() {
-    let run = xtask(&["frobnicate"], None);
-    run.expect_code(2);
-    assert!(
-        run.stderr
-            .starts_with("xtask: unknown command `frobnicate`\n\nUsage: cargo xtask"),
-        "{}",
-        run.stderr
-    );
-    assert_eq!(run.stdout, "");
+    // `crates` is not a command until roadmap M0.9.
+    for command in ["frobnicate", "crates"] {
+        let run = xtask(&[command], None);
+        run.expect_code(2);
+        assert!(
+            run.stderr.starts_with(&format!(
+                "xtask: unknown command `{command}`\n\nUsage: cargo xtask"
+            )),
+            "{}",
+            run.stderr
+        );
+        assert_eq!(run.stdout, "");
+    }
 
     for (command, task) in [("tools", "roadmap M5.1"), ("theme", "roadmap M3.2")] {
         let run = xtask(&[command], None);

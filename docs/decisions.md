@@ -626,7 +626,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0022 — CodeQL scans the Rust code and the workflows with pinned actions; Dependabot updates the pins; `cargo xtask workflows` enforces the CI supply-chain rules
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Context:**
   - `docs/04-quality.md` → "CI" says every action is pinned by its full

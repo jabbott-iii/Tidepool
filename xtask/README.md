@@ -19,10 +19,11 @@ Built, with the roadmap task that built it:
 - `headers`, which checks the license header of the source files — M0.7.
 - Paths shown with their control characters escaped, and symbolic links
   reported without being resolved, in every check — M0.10.
+- `workflows`, which checks the actions, pins and token permissions of the
+  CI workflows, ported from Nadir — M0.8.
 
 Not yet, with the roadmap task that adds it:
 
-- `workflows` — M0.8.
 - `crates` — M0.9.
 - `fuzz-smoke` — M1.6.
 - `bench` — M1.9.
@@ -38,7 +39,8 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 - [`docs/04-quality.md`](../docs/04-quality.md) ("`xtask` checks")
 - Decisions in [`docs/decisions.md`](../docs/decisions.md): ADR-0017 (it
   runs `cargo` itself); ADR-0018 (the Unicode data); ADR-0021 (license
-  headers).
+  headers); ADR-0022 (the CI workflows' supply chain, and the table of
+  what each workflow may use, `WORKFLOWS` in `src/workflows.rs`).
 
 ## Rules
 

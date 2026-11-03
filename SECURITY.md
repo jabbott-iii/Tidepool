@@ -128,10 +128,12 @@ are no dependency advisories to track beyond Rust's standard library.
   manifest edit.
 - Every parser takes `Limits`, and gets a fuzz target with
   `cargo xtask fuzz-smoke` (roadmap M1.6).
-- CI's workflow pins each action by its full commit SHA, and its token
-  reads the repository only. Roadmap task M0.8 brings the CodeQL workflow
-  and Dependabot in line and adds `cargo xtask workflows` to check this on
-  every push (ADR-0022).
+- CI's workflows pin each action by its full commit SHA, and their
+  tokens read the repository only, but for CodeQL's upload of its results
+  to code scanning. `cargo xtask workflows` checks the pins, and that no
+  job writes beyond its workflow's row, on every push; CodeQL scans the
+  Rust code and the workflows; and Dependabot proposes new pins once a
+  release is a week old (ADR-0022).
 
 ## Known issues
 

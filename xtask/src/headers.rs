@@ -65,18 +65,11 @@ const HEADER: [&str; 13] = [
 
 /// The source files the check skips, each with the reason, relative to the
 /// root with `/` between components (ADR-0021): the generated tables keep
-/// the Unicode data's notice instead, and GitHub's CodeQL template, which
-/// carries no notice, waits for its rewrite.
-const EXEMPT: [(&str, &str); 2] = [
-    (
-        ucd::OUTPUT,
-        "generated from the Unicode data, and keeps its notice (ADR-0018)",
-    ),
-    (
-        ".github/workflows/codeql.yml",
-        "GitHub's starter workflow, until roadmap M0.8 rewrites it",
-    ),
-];
+/// the Unicode data's notice instead.
+const EXEMPT: [(&str, &str); 1] = [(
+    ucd::OUTPUT,
+    "generated from the Unicode data, and keeps its notice (ADR-0018)",
+)];
 
 /// The largest file read, in bytes, as for `unsafe-audit`.
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -496,8 +489,9 @@ mod tests {
         tree.write(".git/hooks/pre-commit.sh", "echo\n");
         // A workspace root's build output is skipped.
         tree.write("target/debug/build/out.rs", "fn f() {}\n");
-        // Exempt by path: they keep their own notice.
+        // Exempt by path: it keeps its own notice.
         tree.write(ucd::OUTPUT, "// Generated from the Unicode data.\n");
+        // No longer exempt: roadmap M0.8 rewrote GitHub's CodeQL template.
         tree.write(".github/workflows/codeql.yml", "name: CodeQL\n");
 
         let report = check_tree(tree.path(), 4096).unwrap();
@@ -508,6 +502,8 @@ mod tests {
                  line 1 of the Apache-2.0 header in `LICENSE`'s appendix",
                 ".github/workflows/ci.yml:1: expected `# Copyright 2026 Joseph Anthony Abbott \
                  III`, line 1 of the Apache-2.0 header in `LICENSE`'s appendix",
+                ".github/workflows/codeql.yml:1: expected `# Copyright 2026 Joseph Anthony \
+                 Abbott III`, line 1 of the Apache-2.0 header in `LICENSE`'s appendix",
                 "src/LOUD.RS:1: expected `// Copyright 2026 Joseph Anthony Abbott III`, line 1 \
                  of the Apache-2.0 header in `LICENSE`'s appendix",
                 "src/bad.rs:1: expected `// Copyright 2026 Joseph Anthony Abbott III`, line 1 of \
@@ -520,11 +516,10 @@ mod tests {
         assert_eq!(
             report.notes,
             [
-                "source files checked: 7".to_string(),
+                "source files checked: 8".to_string(),
                 format!(
-                    "exempt by path: .github/workflows/codeql.yml, GitHub's starter workflow, \
-                     until roadmap M0.8 rewrites it; {}, generated from the Unicode data, and \
-                     keeps its notice (ADR-0018)",
+                    "exempt by path: {}, generated from the Unicode data, and keeps its notice \
+                     (ADR-0018)",
                     ucd::OUTPUT
                 ),
             ]

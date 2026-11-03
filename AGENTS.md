@@ -5,10 +5,11 @@ opens a window yet. `docs/roadmap.md` ticks each task once it is done and
 verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4, M0.10,
-  M0.11), license headers on the source files and their check (M0.7), the
-  foundations in `tidepool-core` (M0.2), JSON and JSONC in `tidepool-codec`
-  (M1.4), and in `tidepool-text` the rope, positions and grapheme
-  boundaries (M1.1) and selections, change sets and the undo tree (M1.2).
+  M0.11), the CI supply chain and its check (M0.8), license headers on the
+  source files and their check (M0.7), the foundations in `tidepool-core`
+  (M0.2), JSON and JSONC in `tidepool-codec` (M1.4), and in `tidepool-text`
+  the rope, positions and grapheme boundaries (M1.1) and selections,
+  change sets and the undo tree (M1.2).
 - **Not built:** everything else. 22 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
@@ -154,8 +155,8 @@ These exist now:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `unsafe-audit`, `headers`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
-| `cargo xtask deps` / `layers` / `unsafe-audit` / `headers` | One check each (`docs/04-quality.md` → "`xtask` checks") |
+| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
+| `cargo xtask deps` / `layers` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
@@ -163,7 +164,7 @@ These exist now:
 
 Planned. Until its task lands, each of the first six exits 1 with "not
 yet implemented" (`bench`'s message still says it has no task; M1.9
-corrects it), and the last two are not commands yet and exit 2:
+corrects it), and the last is not a command yet and exits 2:
 
 | Command | Task |
 | :- | :- |
@@ -173,7 +174,6 @@ corrects it), and the last two are not commands yet and exit 2:
 | `cargo xtask theme` | M3.2 |
 | `cargo xtask tools` | M5.1 |
 | `cargo xtask package <os>` | M11.6, M12.4, M14.4 |
-| `cargo xtask workflows` | M0.8 (ADR-0022) |
 | `cargo xtask crates` | M0.9 (ADR-0023) |
 
 `cargo tp -- --tui` starts the terminal UI from M7.1; until then the binary
@@ -203,10 +203,10 @@ secrets or opens a socket (`docs/04-quality.md`).
 - **License header:** every source file (Rust, shell scripts, workflows)
   starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its
   comment syntax, then a blank line; after a `#!` line in a script
-  (ADR-0021). `cargo xtask headers` checks it, and lists the files it
+  (ADR-0021). `cargo xtask headers` checks it, and lists the file it
   exempts by path: the generated grapheme tables, which keep the Unicode
-  data's notice instead, and GitHub's CodeQL template until M0.8 rewrites
-  it. The root `NOTICE` holds the project's name and copyright line.
+  data's notice instead. The root `NOTICE` holds the project's name and
+  copyright line.
 - **Crate READMEs:** every member has a `README.md` saying what it is, its
   status, its spec and its rules (ADR-0023). A change to what a crate has
   built updates its README.

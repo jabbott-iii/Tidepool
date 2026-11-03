@@ -128,17 +128,18 @@ Windows, and the same commands CI runs:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `unsafe-audit`, `headers`, `ucd --check` |
+| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
+| `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
 On the way, each with its roadmap task: `fuzz-smoke` (M1.6), `bench`
 (M1.9), `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6,
-M12.4, M14.4), and the checks `workflows` (M0.8) and `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
+M12.4, M14.4), and the check `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
 
@@ -276,6 +277,6 @@ syntax, followed by a blank line; in a script it goes after the `#!` line
 (ADR-0021), and `cargo xtask headers` checks it. Material that is not the
 project's own keeps its own license and notice beside it, as the Unicode
 data does in `crates/text/ucd/17.0.0/license.txt` and the RFC 8259 examples
-do in `crates/codec/tests/json.rs`. The few files the check exempts are
+do in `crates/codec/tests/json.rs`. The files the check exempts are
 listed by path in it, each with its reason (`docs/04-quality.md` →
 "`headers`").

@@ -10,7 +10,8 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
 - **Allowed actions only.** `ci.yml` may use `actions/checkout` and
   `actions/cache`; `codeql.yml` may use `actions/checkout` and
   `github/codeql-action/init` and `analyze`. Another action, or a new
-  workflow, needs ADR-0022's table extended first: ask the user.
+  workflow, needs ADR-0022's table extended first (and its row in
+  `WORKFLOWS`, `xtask/src/workflows.rs`): ask the user.
 - **Pin by commit SHA.** Every `uses:` names a full 40-hex commit SHA, with
   the release tag in a comment on the same line:
   `uses: actions/checkout@<sha> # v7.0.1`. Look it up with
@@ -33,8 +34,13 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
   fresh, in a variable it unsets first and never exports, and fails
   before running anything unless it is 32 lowercase hex digits. Keep that
   when editing those steps, and do the same in a new one.
-- **One key a line.** `cargo xtask workflows` (M0.8) reads lines, not
-  YAML, so no flow-style `{ uses: … }` and no `uses:` in a block scalar.
+- **One key a line.** `cargo xtask workflows` reads lines, not
+  YAML, so it fails what it cannot read that way: a flow mapping other
+  than `{}`, a quoted value or flow collection over several lines, an
+  alias or anchor as a value, a tag or anchor before a key it reads, an
+  explicit `? ` key, a line break other than LF or CR LF, and a second
+  YAML document (`docs/04-quality.md` → "`workflows`"). Write block style,
+  one key a line.
 - **Offline cargo.** Cargo steps run with `CARGO_NET_OFFLINE: "true"`; the
   workspace has no third-party crates to fetch.
 - **Secrets** live only in GitHub's secret storage. Docs name them, never
@@ -43,5 +49,5 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
   (ADR-0022).
 - **Templates:** keep `pull_request_template.md` and `ISSUE_TEMPLATE/` in
   line with `CONTRIBUTING.md` and `SECURITY.md`.
-- **After editing,** parse the YAML (and say how), and from M0.8 run
+- **After editing,** parse the YAML (and say how), and run
   `cargo xtask workflows`.
