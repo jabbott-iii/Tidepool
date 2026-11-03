@@ -311,6 +311,79 @@ enforced by tooling from day one.
       CI change.
     - Nothing ran on macOS or Windows, where control characters cannot be
       in a file name and links need Developer Mode.
+  - Note (2026-11-02, after the commit): of the gaps named above, the
+    streamed steps and the `##[command]` syntax are taken up by M0.11,
+    which reads in the runner's source how it finds workflow commands and
+    pauses them in CI.
+
+- [x] **M0.11 — CI: workflow commands paused in the toolchain and gate steps**
+  - Depends: M0.4, M0.10
+  - Do:
+    - In `.github/workflows/ci.yml`, run the toolchain step's commands and
+      `cargo xtask ci` each between GitHub's `::stop-commands::<token>` and
+      `::<token>::`, after `exec 2>&1`. Each step makes its token from 16
+      random bytes, in a variable it unsets first and never exports, and
+      fails before running anything if the token is not 32 lowercase hex
+      digits.
+    - Settle from the runner's source how it reads workflow commands, and
+      record it in `docs/04-quality.md` → "Command line and rules" and "CI
+      (GitHub Actions)", where M0.10 left it unchecked.
+    - Add the rule that keeps the pause to `.claude/rules/ci-workflows.md`.
+  - Accept:
+    - Each step's script, run by hand with bash against stand-ins for the
+      programs it runs, prints the stop line first on stdout. When its
+      commands pass, it prints the resume line last with the same 32-hex
+      token and exits 0; when one fails, it exits with that status. A line
+      a stand-in writes to stderr just before it exits comes out on stdout,
+      before the resume line, and the step writes nothing to stderr, even
+      when a stand-in is killed by a signal.
+    - Two runs get different tokens. The token is not in the commands'
+      environment, even when `token` is already exported. If `od` prints
+      nothing, a short value, CR LF, or 32 characters that are not
+      lowercase hex, or `/dev/urandom` is missing, the step fails and runs
+      nothing.
+    - `ci.yml` parses and keeps ADR-0021's header, its two pinned actions,
+      `permissions: contents: read` and `persist-credentials: false`.
+    - `cargo xtask ci` passes.
+  - Verify: parse the YAML (state how); run each step's script with bash
+    (state how); `cargo xtask ci`
+  - Note (2026-11-02): from M0.10's "Not covered". The user chose a task of
+    its own rather than a step in M0.8, and a rule in
+    `.claude/rules/ci-workflows.md` rather than a check in M0.8's
+    `cargo xtask workflows`, so ADR-0022 is unchanged. A security review and
+    a three-lens review then found that the runner reads stdout and stderr
+    apart, and that rustup quotes `rust-toolchain.toml`. The user chose to
+    pause the toolchain step too.
+    - Read in actions/runner v2.338.2:
+      - The runner trims leading whitespace before it looks for `::`, and
+        finds the older `##[command]` anywhere in a line
+        (`src/Runner.Common/ActionCommand.cs`).
+      - It reads stdout and stderr on separate tasks and handles each
+        batch's stderr first (`src/Runner.Sdk/ProcessInvoker.cs`).
+      - Each step gets its own command manager, so a pause ends with its
+        step (`src/Runner.Worker/ActionRunner.cs`,
+        `Handlers/Handler.cs`, `HostContext.CreateService`).
+    - `actions/checkout` at the pinned commit adds its problem matcher and
+      removes it in the same step (`src/main.ts`), so no matcher reads the
+      paused output.
+    - **Verified** on Linux (bash 5.2, toolchain 1.99.0): `ci.yml` parses
+      with PyYAML 6.0.1 (`python3 -I`, `yaml.safe_load`), and both steps'
+      scripts were taken from the parsed file and run with
+      `bash --noprofile --norc -eo pipefail`, as GitHub runs them.
+      - Against stand-ins for rustup, rustc and cargo: every Accept case
+        above, a SIGSEGV included (exit 139, bash's report on stdout).
+      - The gate step's script, running the real `cargo xtask ci`, passes:
+        8 of 8 steps, 755 tests, 0 failed, 0 `SKIPPED:`, nothing on
+        stderr, and the resume line last with the stop line's token.
+      - The toolchain step ran only against stand-ins:
+        `rustup set profile minimal` would change this machine's rustup
+        settings.
+  - ⏳ needs human: push, and confirm on `ubuntu-latest`, `macos-latest`
+    and `windows-latest` that both steps pass, and that after the runner's
+    `Run` group each step's output begins `::stop-commands::***` and ends
+    `::***::` (the runner masks the token). `od`, `tr` and `/dev/urandom`
+    ran only in Linux bash in this session, not in macOS's bash or Git
+    Bash on Windows.
 
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
 CI runners, with `headers`, `workflows` and `crates` among its steps.

@@ -26,7 +26,7 @@
 #   (30 s per target). It is left out until `cargo xtask fuzz-smoke` exists
 #   (roadmap M1.6, whose entry notes this step). When it lands, add a step
 #   with `if: runner.os == 'Linux'` that runs
-#   `cargo xtask fuzz-smoke --secs 30`.
+#   `cargo xtask fuzz-smoke --secs 30`, paused like the steps below.
 
 name: CI
 
@@ -72,8 +72,25 @@ jobs:
         with:
           persist-credentials: false
 
+      # Workflow commands are paused in this step and the gate's, so nothing
+      # they print is read as one: not rustup quoting rust-toolchain.toml, a
+      # file name in a check's message, or a test's output
+      # (docs/04-quality.md -> "CI (GitHub Actions)").
+      # - Each step makes its own token, never exported; only it resumes them.
+      # - From the stop line on, stderr joins stdout (bash's own messages
+      #   too): the runner reads the two pipes apart and does not keep them
+      #   in order.
+      # - A pause ends with its step, so a step that fails needs no resume.
       - name: Install the pinned toolchain
         run: |
+          unset token
+          token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          if [ "${#token}" -ne 32 ] || [[ "$token" == *[!0-9a-f]* ]]; then
+            echo "no token to pause workflow commands with" >&2
+            exit 1
+          fi
+          exec 2>&1
+          echo "::stop-commands::${token}"
           rustup set profile minimal
           rustup toolchain install --no-self-update
           rustup show active-toolchain
@@ -81,6 +98,7 @@ jobs:
           cargo --version --verbose
           cargo fmt --version
           cargo clippy --version
+          echo "::${token}::"
 
       # Keyed on the toolchain and the lockfile. A fallback restore never
       # crosses toolchains, so stale compiler artifacts are not reused.
@@ -97,5 +115,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
 
+      # Paused as the toolchain step is (above).
       - name: cargo xtask ci
-        run: cargo xtask ci
+        run: |
+          unset token
+          token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          if [ "${#token}" -ne 32 ] || [[ "$token" == *[!0-9a-f]* ]]; then
+            echo "no token to pause workflow commands with" >&2
+            exit 1
+          fi
+          exec 2>&1
+          echo "::stop-commands::${token}"
+          cargo xtask ci
+          echo "::${token}::"

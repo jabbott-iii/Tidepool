@@ -25,6 +25,14 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
 - **No untrusted input in scripts.** Never expand `${{ github.event.* }}`,
   a branch name or a pull request's title inside a `run:` script; pass it
   through `env:` and quote it.
+- **Commands stay paused.** Every `run:` step that reads or prints
+  anything from the checkout (files, history, names) or runs the
+  repository's code (today the toolchain step and the gate's) runs its
+  commands between `::stop-commands::<token>` and `::<token>::`, after
+  `exec 2>&1` (`docs/04-quality.md` → "CI"). The step makes the token
+  fresh, in a variable it unsets first and never exports, and fails
+  before running anything unless it is 32 lowercase hex digits. Keep that
+  when editing those steps, and do the same in a new one.
 - **One key a line.** `cargo xtask workflows` (M0.8) reads lines, not
   YAML, so no flow-style `{ uses: … }` and no `uses:` in a block scalar.
 - **Offline cargo.** Cargo steps run with `CARGO_NET_OFFLINE: "true"`; the

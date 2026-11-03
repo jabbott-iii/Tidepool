@@ -161,12 +161,17 @@ network through its tool.
     `  | `, which is not whitespace once GitHub Actions has trimmed the
     leading spaces it ignores. So every line starts with text `xtask`
     wrote.
-  - Not covered: `ci`'s fmt, clippy and test steps stream cargo's output as
-    cargo prints it, and the code they build and test can print anything.
-    GitHub's older `##[command]` syntax may also be matched anywhere in a
-    line, not only at its start; this was not checked against the runner.
-    Pausing command processing with `::stop-commands::` around the gate,
-    in the workflow, would cover both.
+  - Not covered by `xtask`: `ci`'s fmt, clippy and test steps stream
+    cargo's output as cargo prints it, and the code they build and test
+    can print anything. And the runner also reads the older `##[command]`
+    form anywhere in a line, so a path in a check's message can still hold
+    one (actions/runner v2.338.2, `src/Runner.Common/ActionCommand.cs`:
+    `TryParseV2` trims leading whitespace and needs `::` at the start;
+    `TryParse` looks for `##[` anywhere). In CI the gate's step pauses
+    workflow commands, so neither acts as one, though a paused line still
+    shows in the log as printed (M0.11, "CI (GitHub Actions)"). Run
+    locally, the streamed steps can still send escape sequences to the
+    terminal.
 - When every violation `deps` found is an out-of-date lockfile (below), its
   last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
   (`1 violation` when there is one). That line is built from the count and
@@ -667,8 +672,54 @@ network through its tool.
 
 - `.github/workflows/ci.yml`: matrix Linux, macOS, Windows; `permissions:
   contents: read`; actions pinned by full commit SHA with the tag in a
-  comment; cache keyed on the lockfile and toolchain; runs `cargo xtask ci`
-  plus, from M1.6, a Linux fuzz-smoke step (30 s per target).
+  comment; cache keyed on the lockfile and toolchain; installs the
+  toolchain and runs `cargo xtask ci`, both with workflow commands paused
+  (below), plus, from M1.6, a Linux fuzz-smoke step (30 s per target).
+- **Workflow commands are paused** (M0.11) in the toolchain step, whose
+  rustup reads `rust-toolchain.toml` and can quote it, and in the gate's
+  step. Each step makes a token from 16 random bytes, and fails before
+  running anything if that is not 32 lowercase hex digits. It joins its
+  stderr to stdout (`exec 2>&1`), prints `::stop-commands::<token>`, runs
+  its commands, then prints `::<token>::`. In between, the runner acts on
+  no workflow command they print, whether `::warning::`, `::add-mask::` or
+  `##[error]` (actions/runner v2.338.2,
+  `ActionCommandManager.TryProcessCommand`).
+  - Stderr joins stdout, bash's own messages included, because the runner
+    reads the two pipes on separate tasks and handles each batch's stderr
+    lines first (`src/Runner.Sdk/ProcessInvoker.cs`). Apart, a line on
+    stderr could be handled before the stop line or after the resume.
+  - Only the token resumes them: `::<token>::` at a line's start, after
+    any whitespace, or `##[<token>]` at a line's first `##[`, in any case.
+    So each step makes its own, in a shell variable it unsets first and
+    never exports, and the workflow's text never holds it. The runner masks
+    it in the log, as it does any token over 6 characters.
+  - A pause ends with its step, so a step that fails needs no resume. Each
+    step gets its own handler (`src/Runner.Worker/ActionRunner.cs`), and
+    each handler its own command manager (`Handlers/Handler.cs`, through
+    `HostContext.CreateService`, which makes a new one on every call).
+  - Not covered:
+    - A paused line still goes to the log as printed, and the runner
+      writes its own groups and messages as lines with the same prefixes.
+      So in GitHub's log view a line starting `##[group]` or `##[endgroup]`
+      may fold the lines after it, and one starting `##[error]` or
+      `##[warning]` may look like the runner's (not checked against the
+      viewer), though no annotation, mask or other command follows. The
+      runner escapes only `##[start-action` and `##[end-action`
+      (`Handlers/OutputManager.cs`).
+    - Output from a process that outlives its step's commands can arrive
+      after the resume, and is not paused.
+    - The pause keeps text from acting as a command. It does not contain
+      the code the gate builds and tests, or a `path` toolchain that
+      `rust-toolchain.toml` names, which run as the job. That code can
+      write the files the runner reads after a step, even one that failed
+      (`ActionRunner.cs`, in a `finally`): `$GITHUB_ENV` and `$GITHUB_PATH`
+      reach the later steps, the actions' post steps among them, and
+      `$GITHUB_OUTPUT` and `$GITHUB_STEP_SUMMARY` the step's outputs and
+      the job's summary. And it can
+      read the token from its parent shell: GitHub's hosted runners give
+      the job passwordless `sudo` on Linux and macOS, and run it as an
+      administrator on Windows (GitHub's docs, "GitHub-hosted runners" →
+      "Administrative privileges").
 - **Supply chain of CI itself** (ADR-0022): each workflow uses only the
   actions its row allows (`ci.yml`: `actions/checkout`, `actions/cache`;
   `codeql.yml`: `actions/checkout`, `github/codeql-action/init` and
