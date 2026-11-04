@@ -479,7 +479,7 @@ with pinned actions.
       recounts the leaf. M4.2 should batch such edits or make that edit
       cheaper.
 
-- [ ] **M1.3 — text: encodings and files**
+- [x] **M1.3 — text: encodings and files**
   - Depends: M1.1
   - Do: `encoding` (UTF-8, UTF-16 LE/BE with BOM; invalid UTF-8 opens
     read-only and lossless) and `file` (load with the 16 MB large-file
@@ -491,6 +491,46 @@ with pinned actions.
     leaves the original intact (simulated); a file that is not valid UTF-8
     is never written back.
   - Verify: `cargo test -p tidepool-text`
+  - Note (2026-11-04): saving follows ADR-0025, from the user's answers
+    of 2026-11-03 and 2026-11-04. A save follows links to their target;
+    the temp file of an existing file starts 0600 and loses setuid and
+    setgid, through the one `cfg(unix)` in `text`'s library; what a
+    rename changes is documented, and M4.3 checks it.
+    - **Lossless and read-only:** each replaced run keeps its bytes, so
+      `Decoded::original_bytes` rebuilds any input. A text with a
+      replacement has no save format (`format()` is `None`). The large
+      threshold is 16 MiB.
+    - **Verified:** `cargo test -p tidepool-text` passes: 105 unit
+      tests, and 23 in `tests/files.rs`, 9 of them Unix-only. The
+      encoding properties run 11,150 cases against `from_utf8_lossy` and
+      `decode_utf16`: lossless, the same however the input is split, and
+      valid input re-encodes to itself. `cargo xtask ci` passes 9 of 9
+      steps.
+    - **Mutation checks:** without the setuid mask, the setuid test
+      fails. The implementing agent disabled the split carry, and the
+      split property failed.
+    - **Review:** a security review, a decoder review and a review of the
+      file semantics, tests and docs. A skeptic checked each finding, then
+      a completeness critic looked for gaps. Fixed from it:
+      - setuid and setgid survived a save, so root's save of a 4755 file
+        was setuid-root;
+      - a file system that cannot sync a directory (`EINVAL`, `ENOTSUP`)
+        failed every save after the rename;
+      - the unit tests' scratch directories now live at a path no one
+        else can have made first;
+      - the docs were wrong on a run's memory, on BOM-less formats, and
+        on what a rename changes (the group, a Linux default ACL).
+    - **Measured** (release, this machine, a scratch binary rather than
+      the bench harness): decoding 99 MB of UTF-8 takes 0.30 s; loading
+      99 MB takes 0.41 s, and saving it 0.17 s.
+    - **Not run here:** macOS and Windows. CI runs these tests there on
+      the next push (M0.4's ⏳). That includes renaming over a file that
+      Windows has open, its read-only attribute, and macOS's
+      `F_FULLFSYNC` on a directory.
+    - **For later tasks:** M1.6 adds a fuzz target for
+      `text::encoding::Decoder`. M4.3 checks the link count, owner and
+      group before a save. M4.9 may clean the `.tidepool-save-*` files a
+      crash leaves behind.
 
 - [x] **M1.4 — codec: JSON and JSONC**
   - Depends: M0.2
@@ -802,12 +842,15 @@ jabbott.dev, reads as the same design (human review).
   - Depends: M4.7, M4.2
   - Do: `buffers` (keyed by canonical path; loaded and saved on workers
     through `text::file`, saves through `History::checkpoint` and
-    `mark_saved`; large-file mode above 16 MB), `session`, and the file tree
-    model of `files`; explorer, open editors, tabs, splits and the trust
-    prompt.
+    `mark_saved`; large-file mode above 16 MB; before a save, the file's
+    link count, owner and group through `platform`, warning or writing in
+    place when the rename would split a hard link or change the owner or
+    group, per ADR-0025), `session`, and the file tree model of `files`;
+    explorer, open editors, tabs, splits and the trust prompt.
   - Accept: opening, editing and saving files round-trips; untrusted state
     is the default; session restores; a 100 MB file opens in large-file
-    mode within the budget.
+    mode within the budget; saving a file with a second hard link, or one
+    whose owner or group a save would change, warns first.
   - Verify: `cargo test -p tidepool-workspace -p tidepool-editor`
 
 - [ ] **M4.8 — regex: the engine and Unicode classes**

@@ -9,8 +9,8 @@
 | `selection` | Multi-cursor `Selection`: one or more `Cursor { anchor, head }` (byte offsets), sorted and merged by one rule, with a primary; validated against a rope; mapped through change sets |
 | `transaction` | `ChangeSet`: canonical byte-range replacements in the old text, each holding its new text as a `Rope`; apply, map positions, compose, invert. `Transaction`: a change set and the selection after it; `change_each` for multi-cursor commands |
 | `history` | Undo tree that applies every step to the buffer's rope: branches kept, grouping by command (`GroupId`) and by time (coalescing kinds), saved-state markers through checkpoints |
-| `encoding` | UTF-8, UTF-16 LE/BE with BOM; invalid UTF-8 opens read-only and lossless |
-| `file` | Load (with size threshold for large-file mode), atomic save (temp file in the same directory, fsync, rename, keep permissions), line-ending and trailing-newline preservation |
+| `encoding` | UTF-8, UTF-16 LE/BE with BOM, detected by BOM only; invalid UTF-8 or UTF-16 opens read-only and lossless |
+| `file` | Load (with size threshold for large-file mode), atomic save (temp file in the same directory, fsync, rename, keep permissions, links followed), line-ending and trailing-newline preservation |
 
 Invariants:
 
@@ -209,6 +209,98 @@ Edits follow ADR-0020; positions follow ADR-0019.
   history is not detected while its number is in range.
 - **Time** is a `std::time::Instant` from the caller.
 
+### `encoding`
+
+Line breaks are text (ADR-0019): nothing here changes them.
+
+- **Formats.** An `Encoding` is UTF-8, UTF-16 LE or UTF-16 BE; a `Format`
+  is an encoding and whether its BOM comes first. New files are UTF-8
+  without a BOM (`Format::UTF8`, the default).
+- **Detection** is by BOM only: `EF BB BF`, `FF FE` or `FE FF`, and
+  anything else is UTF-8 without one. No heuristics: no Latin-1, no UTF-16
+  without a BOM (it reads as UTF-8), no UTF-32 (`FF FE 00 00` reads as
+  UTF-16 LE and U+0000). The BOM is not part of the text.
+- **Decoding never fails.**
+  - UTF-8: one U+FFFD per maximal subpart of an ill-formed sequence
+    (Unicode §3.9), as `String::from_utf8_lossy`.
+  - UTF-16: one U+FFFD per unpaired surrogate, and one for an odd last
+    byte.
+- **Lossless.** `Decoded` keeps each run of replaced bytes, its range in
+  the text and its original bytes, and touching runs merge. So
+  `original_bytes` rebuilds the input exactly, BOM included, for every
+  input. A run costs its bytes (at most three for each U+FFFD) and a head
+  of about three more (LEB128), so a binary file's runs take at most about
+  twice what its U+FFFDs take in the rope; a long run costs one head.
+- **Read-only.** A text with any replacement has no save format:
+  `Decoded::format` is `None`.
+- **Streaming.** `Decoder::push` takes pieces of any size, and builds the
+  rope with a `RopeBuilder`. A BOM, a UTF-8 sequence or a surrogate pair may
+  be split across pieces: the result is the same however the input is
+  split. `decode` is one push.
+- **Encoding** writes a rope to any `io::Write` one chunk at a time, BOM
+  first if the format has one. Text decoded without a replacement
+  re-encodes in its detected format to the input, byte for byte. Without a
+  BOM, a text whose first character is written as a BOM (U+FEFF, or U+FFFE
+  in UTF-16, the other byte order's) reads back in that BOM's format,
+  without the character.
+
+### `file`
+
+Saving follows ADR-0025.
+
+- **Loading** (`load`):
+  - follows links, as `std` does;
+  - only a regular file loads. A directory, FIFO, socket or device is
+    `NotRegularFile`, checked from metadata before opening, so a FIFO never
+    blocks;
+  - reads 64 KiB blocks into a `Decoder`.
+
+  `Loaded` has the text, the format (`None` exactly when bytes were
+  replaced: then it is read-only), the detected format, the decoding with
+  its replaced runs, the line endings, the trailing break, the bytes read
+  and `is_large`.
+- **Line endings and the trailing newline** are reported, never changed:
+  the rope holds the text as it was, so an unchanged file saves byte for
+  byte. `LineEndings` counts LF, CR LF and CR breaks. `dominant` is the
+  most common; LF wins ties, then CR LF, so no breaks gives LF.
+- **Large** means more than `LARGE_FILE_BYTES` (16 MiB) read. Large-file
+  mode is the editor's (`docs/subsystems/editor.md`): a large file is not
+  read-only here.
+- **Saving** (`save(path, &Rope, Format)`) is atomic:
+  1. follows the chain of symbolic links at the path, at most 40 (else
+     `TooManyLinks`), a relative link from its own directory. A missing
+     target is created;
+  2. an existing target must be a regular file that the user may write,
+     tested by opening it for writing without creating or truncating it.
+     Otherwise `NotRegularFile` or `NotWritable`, and nothing changes;
+  3. creates a temp file in the target's directory with `create_new`,
+     retrying another name: `.tidepool-save-<pid>-<count>-<time>.tmp`
+     (`TEMP_PREFIX`), of fixed length. For an existing target it starts
+     with mode 0600 on Unix, through the one `cfg(unix)` in `text`'s
+     library; for a new file, `std`'s default mode;
+  4. writes through a buffer, gives the temp file the target's permissions
+     (on Unix without setuid and setgid, as a write in place would lose
+     them, through the same `cfg(unix)`), and syncs it;
+  5. renames it over the target, so links stay links;
+  6. syncs the directory. Where the directory cannot be opened (always on
+     Windows, where `std` cannot open one), or the file system refuses to
+     sync one (`EINVAL` or `ENOTSUP`, as VirtualBox shared folders do), this
+     is skipped. If the sync fails otherwise, the error is `Io` at
+     `SyncDirectory` and the new text is already in place.
+
+  An error before the rename removes the temp file and leaves the target
+  untouched. A crash leaves the temp file behind.
+- **A rename makes a new file:** it splits a hard link, gives the file the
+  saver's owner and group on Unix (even when only the group differs) and
+  the access list its directory passes on (a default POSIX ACL on Linux,
+  the inherited ACL on Windows), and drops extended attributes.
+  `workspace::buffers` checks the link count, owner and group first (M4.3).
+- **Errors** name the step that failed (`FileStep`) and carry the
+  operating system's error as their source. Messages hold no path and no
+  text.
+- **Callers** load and save on workers, and serialize the saves of one
+  file (`History::checkpoint` and `mark_saved`).
+
 ## `tidepool-codec`
 
 All parsers take a `Limits` struct (depth, string bytes, entries,
@@ -363,7 +455,15 @@ Writing:
     - every refused operation changes nothing;
   - change-set laws and mapping against a `String` model, and selection
     invariants after every operation;
-  - file round-trips with BOM, CRLF and no trailing newline.
+  - decoding random bytes biased toward near-valid UTF-8 and UTF-16, against
+    `String::from_utf8_lossy` and `char::decode_utf16`: lossless for every
+    input, the same however it is split, and valid input re-encodes to
+    itself;
+  - file round-trips byte for byte: UTF-8 with and without a BOM, UTF-16 LE
+    and BE, LF, CR LF, lone CR, mixed endings, no trailing newline, the
+    empty file; invalid files load read-only; a simulated crash between
+    write and rename and a failed write leave the original; refused saves
+    change nothing; the large-file threshold; on Unix, modes and links.
 - `codec`: RFC 8259 JSON cases, TOML 1.0 compliance cases, ZIP files
   produced by the `zip` command-line tool and by Android and Apple tools,
   hand-made vectors for inflate edge cases (stored, fixed and dynamic

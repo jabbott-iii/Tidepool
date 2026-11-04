@@ -8,8 +8,9 @@ verified.
   M0.11), the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
   (M0.2), JSON and JSONC in `tidepool-codec` (M1.4), and in `tidepool-text`
-  the rope, positions and grapheme boundaries (M1.1) and selections,
-  change sets and the undo tree (M1.2).
+  the rope, positions and grapheme boundaries (M1.1), selections, change
+  sets and the undo tree (M1.2), and encodings, loading and the atomic
+  save (M1.3).
 - **Not built:** everything else. 22 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
@@ -94,7 +95,10 @@ or file is there.
    - `cargo xtask unsafe-audit` enforces this.
 5. **Platform `cfg` lives in few places:** `#[cfg(target_os = ...)]`
    appears only in `sys`, `platform`, `toolchain` install plans and `xtask`
-   packaging. No check enforces this yet; review does.
+   packaging. The one exception is a `#[cfg(unix)]` in `text::file` that
+   creates the save's temp file private and clears setuid and setgid, plus
+   `cfg(unix)` in `text`'s tests of modes and links (ADR-0025). No check
+   enforces this yet; review does.
 6. **The main thread never waits** on I/O, a child process, an LSP server or
    an agent. Results carry buffer versions; stale ones are dropped.
 7. **Secrets never leak.** Keystore passwords, signing identities and API

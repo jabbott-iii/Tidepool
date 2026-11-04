@@ -14,20 +14,23 @@
 
 //! The error type for `tidepool-text`.
 
-use std::fmt;
+use std::{fmt, io};
 
+use crate::file::FileStep;
 use crate::pos::{LineCol, Unit};
 
 /// Errors produced by `tidepool-text`: a byte offset, range, offset in
 /// another unit, line or column that the text does not have; a change set
 /// that does not fit a text or another change set, or would make a text too
 /// long; a revision the history does not have, or a text it did not
-/// produce.
+/// produce; a file that cannot be loaded or saved.
 ///
-/// Every function that returns one changes nothing. Messages hold numbers
-/// only, never any of the text.
+/// Every function that returns one changes nothing, with one exception: a
+/// save that fails at [`FileStep::SyncDirectory`] has already replaced the
+/// file. Messages hold numbers and the operating system's errors, never any
+/// of the text or a path: the caller knows the path.
 ///
-/// Non-exhaustive: loading and saving files (roadmap M1.3) add variants.
+/// Non-exhaustive: later versions may add variants.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TextError {
@@ -126,6 +129,33 @@ pub enum TextError {
         /// The length in bytes of the text the history last produced.
         expected: usize,
     },
+    /// A file system operation failed while loading or saving a file.
+    Io {
+        /// What the load or save was doing.
+        step: FileStep,
+        /// The operating system's error.
+        error: io::Error,
+    },
+    /// A path names a directory or a special file (a FIFO, socket or
+    /// device), not a regular file. Checked before the file is opened, so
+    /// that a FIFO never blocks.
+    NotRegularFile {
+        /// Whether it is a directory.
+        directory: bool,
+    },
+    /// A file exists but the user may not write it, or it is on a read-only
+    /// file system, even if its directory is writable. The save changed
+    /// nothing.
+    NotWritable {
+        /// The error from opening the file for writing.
+        error: io::Error,
+    },
+    /// A path goes through a chain of more symbolic links than a save
+    /// follows, or through a loop of them.
+    TooManyLinks {
+        /// The most links a save follows: 40.
+        max: usize,
+    },
 }
 
 /// The name of one `unit`, as in "UTF-16 offset 4".
@@ -134,6 +164,24 @@ fn unit_name(unit: Unit) -> &'static str {
         Unit::Byte => "byte",
         Unit::Utf16 => "UTF-16",
         Unit::Char => "char",
+    }
+}
+
+/// What a load or save was doing at `step`, as in "could not read the
+/// file".
+fn step_name(step: FileStep) -> &'static str {
+    match step {
+        FileStep::Metadata => "read the metadata of the path",
+        FileStep::Open => "open the file",
+        FileStep::Read => "read the file",
+        FileStep::ReadLink => "read a symbolic link",
+        FileStep::CheckWritable => "open the file for writing",
+        FileStep::CreateTemp => "create the temporary file",
+        FileStep::Write => "write the temporary file",
+        FileStep::SetPermissions => "give the temporary file the file's permissions",
+        FileStep::Sync => "sync the temporary file",
+        FileStep::Rename => "rename the temporary file over the file",
+        FileStep::SyncDirectory => "sync the directory (the file already holds the new text)",
     }
 }
 
@@ -207,11 +255,37 @@ impl fmt::Display for TextError {
                 f,
                 "the text ({len} bytes) is not the one the history last produced ({expected} bytes)"
             ),
+            Self::Io { step, ref error } => {
+                write!(f, "could not {}: {error}", step_name(step))
+            }
+            Self::NotRegularFile { directory: true } => {
+                write!(f, "the path names a directory, not a regular file")
+            }
+            Self::NotRegularFile { directory: false } => write!(
+                f,
+                "the path names a special file (a FIFO, socket or device), not a regular file"
+            ),
+            Self::NotWritable { ref error } => {
+                write!(f, "the file is not writable: {error}")
+            }
+            Self::TooManyLinks { max } => write!(
+                f,
+                "the path goes through more than {max} symbolic links, or a loop of them"
+            ),
         }
     }
 }
 
-impl std::error::Error for TextError {}
+impl std::error::Error for TextError {
+    /// The operating system's error, for [`Io`](TextError::Io) and
+    /// [`NotWritable`](TextError::NotWritable).
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { error, .. } | Self::NotWritable { error } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -311,6 +385,91 @@ mod tests {
         for (error, message) in cases {
             assert_eq!(error.to_string(), message);
         }
+    }
+
+    #[test]
+    fn every_file_message_names_its_step_and_no_path() {
+        let denied = || io::Error::from(io::ErrorKind::PermissionDenied);
+        let os = denied().to_string();
+        let steps = [
+            (
+                FileStep::Metadata,
+                "could not read the metadata of the path",
+            ),
+            (FileStep::Open, "could not open the file"),
+            (FileStep::Read, "could not read the file"),
+            (FileStep::ReadLink, "could not read a symbolic link"),
+            (
+                FileStep::CheckWritable,
+                "could not open the file for writing",
+            ),
+            (FileStep::CreateTemp, "could not create the temporary file"),
+            (FileStep::Write, "could not write the temporary file"),
+            (
+                FileStep::SetPermissions,
+                "could not give the temporary file the file's permissions",
+            ),
+            (FileStep::Sync, "could not sync the temporary file"),
+            (
+                FileStep::Rename,
+                "could not rename the temporary file over the file",
+            ),
+            (
+                FileStep::SyncDirectory,
+                "could not sync the directory (the file already holds the new text)",
+            ),
+        ];
+        for (step, message) in steps {
+            let error = TextError::Io {
+                step,
+                error: denied(),
+            };
+            assert_eq!(error.to_string(), format!("{message}: {os}"));
+        }
+        let cases = [
+            (
+                TextError::NotRegularFile { directory: true },
+                "the path names a directory, not a regular file".to_string(),
+            ),
+            (
+                TextError::NotRegularFile { directory: false },
+                "the path names a special file (a FIFO, socket or device), not a regular file"
+                    .to_string(),
+            ),
+            (
+                TextError::NotWritable { error: denied() },
+                format!("the file is not writable: {os}"),
+            ),
+            (
+                TextError::TooManyLinks { max: 40 },
+                "the path goes through more than 40 symbolic links, or a loop of them".to_string(),
+            ),
+        ];
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
+    }
+
+    #[test]
+    fn file_errors_give_the_os_error_as_their_source() {
+        use std::error::Error as _;
+        let io = TextError::Io {
+            step: FileStep::Rename,
+            error: io::Error::other("disk on fire"),
+        };
+        let source = io.source().map(ToString::to_string);
+        assert_eq!(source.as_deref(), Some("disk on fire"));
+        let not_writable = TextError::NotWritable {
+            error: io::Error::other("read-only"),
+        };
+        let source = not_writable.source().map(ToString::to_string);
+        assert_eq!(source.as_deref(), Some("read-only"));
+        assert!(TextError::TooManyLinks { max: 40 }.source().is_none());
+        assert!(
+            TextError::NotRegularFile { directory: true }
+                .source()
+                .is_none()
+        );
     }
 
     #[test]

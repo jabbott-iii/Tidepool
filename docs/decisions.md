@@ -862,3 +862,91 @@ decides; the roadmap task that first depends on one asks for the decision.
     tasks and their notes.
 - **Revisit when:** a milestone's tasks no longer fit a session each, or
   the plan needs another re-plan; record that as an ADR like this one.
+
+## ADR-0025 — Saving follows symbolic links to their target; the temp file starts private and loses setuid and setgid through one `cfg(unix)` in `text::file`; what a rename changes is documented, and `buffers` checks it
+
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Context:**
+  - M1.3 builds `text::file`'s atomic save: a temp file in the same
+    directory, fsync, rename, permissions kept. `text` may use only `core`
+    (dependency matrix), so it has `std` and nothing of `platform`.
+  - A rename replaces whatever the path names. A path that is a symbolic
+    link becomes a regular file and the link's target keeps its old
+    content. The renamed file is a new file, so a hard link to the old one
+    keeps the old content, and on Unix the owner and group become the
+    saver's. `std` shows a link count or an owner only through
+    `std::os::unix`.
+  - `std` creates a file with mode 0666 minus the umask (usually 0644).
+    Only `std::os::unix::fs::OpenOptionsExt::mode` sets the mode when the
+    file is created. A temp file chmod'ed after it is created can be
+    opened in that gap by another local user who can read the directory,
+    and that descriptor reads whatever is written later: for a 0600 file,
+    a leak of the text that rule 7 forbids.
+  - `AGENTS.md` rule 5 keeps `#[cfg(target_os = ...)]` in `sys`,
+    `platform`, `toolchain`'s install plans and `xtask`'s packaging.
+  - The user answered three questions on 2026-11-03: save to the link's
+    target (recommended); document what a rename changes and let
+    `workspace::buffers` (M4.3) check it (recommended); one `cfg(unix)`
+    for the temp file's mode (recommended).
+  - M1.3's security review then showed that copying the target's whole
+    mode keeps setuid and setgid on a file whose owner and group the
+    rename changed: root saving a user's 4755 file made a setuid-root file
+    of that user's bytes. A write in place would have cleared both bits,
+    as the kernel does on an unprivileged write, and as `cp` does when it
+    does not keep the owner. The review also found that a save changes the
+    group even when the owner stays, and that on Linux the new file takes
+    its directory's default POSIX ACL. On 2026-11-04 the user chose to
+    clear the two bits in the same `cfg(unix)` (recommended), and to
+    record that here before this ADR's first commit (recommended).
+- **Decision:**
+  - **Links are followed.** `file::save` follows the chain of symbolic
+    links at the path, at most 40, to the file they name, and saves there:
+    the temp file goes in the target's directory and is renamed over the
+    target, so the links stay links. A link to nothing creates its target.
+    A chain longer than 40 is an error.
+  - **The temp file starts private.** When the target exists, `text::file`
+    creates the temp file with mode 0600 on Unix, through `std`'s
+    `OpenOptionsExt::mode` behind one `#[cfg(unix)]`, and gives it the
+    target's permissions before the rename. A new file's temp file gets
+    `std`'s default mode, which the new file would have anyway. Rule 5
+    allows this one use, and `cfg(unix)` in `text`'s tests that check
+    modes and links.
+  - **Setuid and setgid are cleared.** The same `cfg(unix)` masks them out
+    of the mode the temp file is given (`PermissionsExt`), so a save never
+    carries them over to the saver's owner and group.
+  - **A rename's other changes are documented, not detected.**
+    `text::file`'s docs say that a save splits a hard link, gives the file
+    the saver's owner and group on Unix (even when only the group differs)
+    and the access list its directory passes on (a default POSIX ACL on
+    Linux, the inherited ACL on Windows), and drops extended attributes.
+    M4.3's `buffers`, which may use `platform`, checks the link count,
+    owner and group before a save, and warns or writes in place.
+- **Consequences:**
+  - Dotfiles kept as links save as users expect. An untrusted workspace
+    can hold a link to a file outside it: saving it writes there, as vim
+    and VS Code do. The editor shows the path it opened, so what it
+    writes is the file it showed.
+  - No other process can open a temp file of an existing file before its
+    mode is final.
+  - A setuid or setgid file loses the bit when saved, as it would when
+    written in place; it must be set again by hand.
+  - Until M4.3, a save through `text::file` alone splits hard links and
+    changes owners and groups without a word. Access lists are documented
+    only: no task checks them.
+  - Rule 5 has an exception outside the crates it names, in `AGENTS.md`
+    and `CONTRIBUTING.md`.
+- **Alternatives considered:**
+  - Refusing to save through a link: safest, but surprising for dotfiles.
+  - Renaming over the link: quietly turns it into a regular file.
+  - `cfg(unix)` in `text` for the link count and owner, writing in place
+    when a rename would change them: more OS code in `text`, which the
+    user declined for now.
+  - Always writing in place: keeps the file's identity, but a crash in
+    the middle of a write corrupts the file.
+  - Taking the temp-file creator from the caller, `platform`'s through
+    `buffers`: no `cfg` in `text`, but the gap stays open until M4.3.
+  - A chmod right after the file is created: the gap stays.
+- **Revisit when:** `platform` grows file metadata that `text` could be
+  given instead of the `cfg`; or users report a save that changed a file's
+  owner, links or access list.
