@@ -72,6 +72,7 @@ fn err_in(text: &str, dialect: Dialect, limits: Limits) -> Position {
             assert_eq!(column, line_text.chars().count() + 1, "column of {text:?}");
             (line, column, kind)
         }
+        Err(other) => panic!("{text:?}: not a JSON error: {other}"),
         Ok(value) => panic!("{text:?} should not parse as {dialect:?}, but gave {value:?}"),
     }
 }
@@ -745,6 +746,7 @@ fn a_failed_parse_does_not_overflow_the_stack_however_deep() {
                 None
             }
             Err(CodecError::Json { kind, .. }) => Some(kind),
+            Err(other) => panic!("not a JSON error: {other}"),
         })
     };
     let kinds = std::thread::Builder::new()
@@ -1092,6 +1094,7 @@ fn bytes_err(bytes: &[u8]) -> (usize, usize, usize, ErrorKind) {
             column,
             kind,
         }) => (offset, line, column, kind),
+        Err(other) => panic!("{bytes:?}: not a JSON error: {other}"),
         Ok(value) => panic!("{bytes:?} should not parse, but gave {value:?}"),
     }
 }

@@ -310,7 +310,7 @@ line and column. None of them panic on input.
 | Module | Supports | Used by |
 | :- | :- | :- |
 | `json` | RFC 8259, strict by default; JSONC (comments, one trailing comma) as an option; writer (compact, pretty). Subset: see `json` below | LSP/DAP/TAP, cargo diagnostics, `cargo metadata`, `xtask` |
-| `toml` | TOML 1.0; a comment- and order-preserving document model for files Tidepool writes back | Settings, keymaps, themes, packs, descriptors, `Cargo.toml` |
+| `toml` | TOML 1.1 (ADR-0026), read into a value tree with spans. Subset: see `toml` below. The comment- and order-preserving document model for files Tidepool writes back lands in M1.5 | Settings, keymaps, themes, packs, descriptors, `Cargo.toml` |
 | `xml` | Well-formed XML 1.0 without DTDs or external entities (none are fetched or expanded) | `AndroidManifest.xml`, plist |
 | `plist` | XML property lists (read/write) | `Info.plist`, `ExportOptions.plist`, entitlements |
 | `yaml` | A documented YAML 1.2 subset for highlighting and validation (aliases with an expansion limit; no custom tags) | Viewing YAML files |
@@ -426,6 +426,135 @@ Writing:
   Bound the depth or compact size of an outside value before pretty-printing
   it.
 
+### `toml`
+
+`parse(&str, Limits)` and `parse_bytes(&[u8], Limits)` return the root
+`Table` of a TOML 1.1 document (ADR-0026). The module documentation in
+`crates/codec/src/toml.rs` is authoritative; this is its summary. There is
+no writer and comments are not kept: the document model of ADR-0013 builds
+on this parser in M1.5. The compliance cases are toml-test v2.2.0's 1.1
+list, vendored in `crates/codec/tests/toml-test/` (see "Tests" below).
+
+All of TOML 1.1.0 is accepted: everything 1.0.0 has, which 1.1 only
+relaxes, plus line breaks, comments and a trailing comma in inline tables,
+the `\xHH` and `\e` escapes, and times without seconds. There is no strict
+1.0 mode. Where the specification leaves room:
+
+- **Encoding:** the input must be UTF-8. `parse_bytes` rejects anything
+  else (`InvalidUtf8`, at the first bad byte) and never repairs it.
+- **Byte-order mark:** a leading U+FEFF is skipped. Anywhere else outside a
+  string it is an error; inside a string or comment it is an ordinary
+  character.
+- **Lines** end at LF or CR LF; a CR alone is an error wherever it is
+  (`BareCarriageReturn`), strings and comments included. Whitespace is space
+  and tab.
+- **Multi-line strings** turn each CR LF into LF, so a file's values do not
+  depend on its line endings; an escaped `\r\n` stays. Raw control
+  characters other than tab and line breaks are rejected in strings and
+  comments (`ControlCharacter`). A line break ends a comment, is part of a
+  multi-line string, and in a single-line string is an
+  `UnexpectedCharacter`, since that string must close on its line. Escapes
+  must be Unicode scalar values (`InvalidUnicodeEscape`).
+- **Integers** are `i64`; one out of range is an error in any base
+  (`IntegerOutOfRange`).
+- **Floats** are `f64`, read correctly rounded with `str::parse` once the
+  underscores are removed. Too large (`1e400`) is `FloatOutOfRange`, not
+  infinity, which is written `inf`; too small becomes zero. Signed zeros keep
+  their sign, and `-nan` keeps its sign bit.
+- **Date-times** are a `Datetime` of TOML's four kinds (offset date-time,
+  local date-time, local date, local time), with every field checked: days
+  per month with Gregorian leap years, hours 00 to 23, minutes 00 to 59,
+  seconds 00 to 60 (a leap second in any minute), offsets of 00:00 to 23:59
+  either way. A fraction of a second keeps nine digits, as nanoseconds; the
+  rest are dropped, not rounded. Left-out seconds are zero. Not recorded:
+  whether seconds were written, `Z` or `z`, and `T`, `t` or a space between
+  date and time (the span has the text). `Z` and `+00:00` stay apart.
+- **Keys** compare exactly (decoded, case-sensitive, no normalization).
+  Bare keys are ASCII letters, digits, `-` and `_`, and are strings even
+  when they look like numbers.
+- **Definitions:** no key or table is defined twice; dotted keys cannot add
+  to a table a header defined, and a header cannot define a table that dotted
+  keys or an inline table defined; inline tables and arrays written as
+  values are complete as written; `[[header]]` adds only to an array of
+  tables, and `[header]` cannot name one.
+
+The value tree:
+
+- A `Table` keeps its entries, each a `Key` and a `Value`, in document order
+  (for a table defined in pieces, the order its keys first appear in), and
+  finds a key in constant time: past 8 entries it keeps an index of their
+  positions by the hash of their names (`std`'s randomly keyed SipHash),
+  which takes 8 to 16 bytes an entry and holds no copy of the names.
+  `Table::kind` says how it was defined: `Root`, `Header`, `ArrayHeader` (an
+  element of an array of tables), `Implicit` (only ever a header's prefix),
+  `Dotted` or `Inline`.
+- A `Value` is a `ValueKind` (`String`, `Integer(i64)`, `Float(f64)`,
+  `Boolean`, `Datetime`, `Array`, `Table`) and a `Span`. An `Array` is
+  written as a value or is an array of tables (`is_array_of_tables`).
+- Spans are byte ranges in the input as given, a leading byte-order mark
+  counted. A key spans its text, quotes included; a scalar its literal; an
+  array `[` to `]` and an inline table `{` to `}`; a header's table its
+  header; an element of an array of tables its own `[[...]]` and the array
+  the first one. A table created implicitly spans what created it, the
+  whole header or dotted key; one defined later takes the span of what
+  defined it, and its key the name there.
+
+Errors: every failure is `CodecError::Toml { offset, line, column, kind }`
+with a `toml::ErrorKind`, and the parser never panics. `offset`, `line`
+and `column` follow the conventions of `json` above (a byte-order mark
+counts in the offset, not the column; lines end at LF, so CR LF is one;
+columns count Unicode scalar values). `UnexpectedEnd` is at the end of the
+input, except inside a string or escape, where it points at where that
+starts. Messages never quote the input beyond the one character found.
+
+| Kinds | What they report |
+| :- | :- |
+| `UnexpectedEnd`, `UnexpectedCharacter` | The text ends, or the character `found` is wrong, where `expected` was needed; this includes a value that starts with `_` or with a letter other than `t`, `f`, `i` and `n`, and a line break in a single-line string |
+| `InvalidUtf8`, `ControlCharacter`, `BareCarriageReturn` | Bytes that are not UTF-8; a raw control character other than tab and line breaks, in a string or comment; a CR that is not followed by LF, anywhere |
+| `InvalidLiteral`, `InvalidEscape`, `InvalidUnicodeEscape`, `MultilineKey` | A word that starts like `true`, `false`, `inf` or `nan` and is not one (`tru`, `nope`); escapes; a multi-line string as a key |
+| `LeadingZero`, `MisplacedUnderscore`, `IntegerOutOfRange`, `FloatOutOfRange` | Numbers; an underscore that is not between two digits (`1_`, `+_1`, `0x_1`) |
+| `InvalidDatetime` | A date or time field out of range; `expected` gives the range |
+| `DuplicateKey`, `DuplicateTable` | A key or table defined twice |
+| `NotATable`, `NotAnArrayOfTables` | A dotted key or header through, or `[[...]]` onto, the wrong kind of value; `found` names it |
+| `ExtendsInlineTable`, `ExtendsDefinedTable` | Adding to an inline table after it closes, or with dotted keys to a header's table |
+| `InputTooLarge`, `TooDeep`, `StringTooLong`, `NumberTooLong`, `TooManyEntries` | A `Limits` field |
+
+`Limits`, each checked before the memory it guards is allocated, with the
+defaults of `json` above:
+
+| Field | Default | Bounds |
+| :- | :- | :- |
+| `max_input_bytes` | 64 MiB | Input length; checked first (in `parse_bytes`, before UTF-8 validation) |
+| `max_depth` | 128 | Tables and arrays between the root and a value, however written: `a = [[1]]`, `a.b.c = 1`, `[a.b]` and `[[a]]` (an array and its element) are each 2 |
+| `max_string_bytes` | 16 MiB | One string, or one part of a key, in UTF-8 bytes after escapes are decoded |
+| `max_number_bytes` | 1,024 | One number's or date-time's text |
+| `max_entries` | 1,000,000 | Entries of one table or array, an array of tables included |
+
+Memory and stack:
+
+- The parser keeps its own stack on the heap and takes a failed tree apart
+  without recursing; a key's parts are checked against the depth as they
+  are read, so a 10,000-part key stops at the first part too deep (the
+  129th, at the top level). Dropping, cloning, comparing and `Debug` of a
+  `Value` recurse once per level, so keep `max_depth` in the hundreds.
+- A tree takes more memory than JSON's, since every key and value carries
+  its span: a value is 56 bytes, a table's entry 96, and an index 8 to 16
+  bytes an entry. Once a parse is over, every table, array, string and key
+  is at exactly its size. The densest documents are chains of one-entry
+  tables (`a.b.b.b… = 0`, `[a.b.b…]`), at 97 bytes of heap for each 2-byte
+  `.b`, so a tree holds at most about 49 bytes of heap per byte of text; a
+  unit test sums the tree's allocations for such documents and checks it.
+- With glibc's overhead (measured as the growth of the process's resident
+  set, in a release build): chains of one-entry tables about 71 times their
+  text; small tables of one-letter keys (`[[a]]` or `[t]` with nine keys,
+  arrays of nine-key inline tables) about 36 to 38; arrays of scalars 29;
+  a key or empty header on each line 20; `Cargo.lock` 7. At the default
+  `max_input_bytes` a tree can take about 3 GiB of heap, about 4.5 GiB with
+  glibc, so lower it to read TOML from an untrusted source.
+- Parsing takes linear time. Measured (this machine, not the bench
+  harness): 100,000 keys in one table parse in 0.23 s in a debug build and
+  0.03 s in release, and 10,000 sibling tables in 0.026 s and 0.004 s.
+
 ## `tidepool-regex`
 
 - Parser → NFA → Pike VM simulation; linear time in input length for every
@@ -464,7 +593,7 @@ Writing:
     empty file; invalid files load read-only; a simulated crash between
     write and rename and a failed write leave the original; refused saves
     change nothing; the large-file threshold; on Unix, modes and links.
-- `codec`: RFC 8259 JSON cases, TOML 1.0 compliance cases, ZIP files
+- `codec`: RFC 8259 JSON cases, toml-test's TOML 1.1 cases, ZIP files
   produced by the `zip` command-line tool and by Android and Apple tools,
   hand-made vectors for inflate edge cases (stored, fixed and dynamic
   blocks, back-references at the window edge); every module is a fuzz

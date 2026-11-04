@@ -542,17 +542,63 @@ with pinned actions.
     `docs/subsystems/text-and-formats.md` → `json`. Its fuzz target and
     seed corpus come with M1.6.
 
-- [ ] **M1.7 — codec: TOML 1.0 parser**
+- [x] **M1.7 — codec: TOML 1.1 parser**
   - Depends: M1.4
   - Decide first: whether to vendor the cases of the `toml-test` suite as
     test-only fixtures, once their license is confirmed (as for the
     CommonMark examples in M6.5), or to write the compliance cases by hand.
-  - Do: `codec::toml` parsing into a value tree with source spans, with
-    `Limits` and errors that give the line and column (ADR-0013). Document
-    the supported subset in `docs/subsystems/text-and-formats.md` → `toml`.
-  - Accept: TOML 1.0 valid and invalid cases; limits enforced; no panics on
-    malformed input.
+  - Do: `codec::toml` parsing TOML 1.1 into a value tree with source spans,
+    with `Limits` and errors that give the line and column (ADR-0013,
+    ADR-0026). Vendor toml-test v2.2.0's 1.1 cases with their notice.
+    Document the supported subset in `docs/subsystems/text-and-formats.md`
+    → `toml`.
+  - Accept: every valid and invalid case on toml-test's 1.1 list; limits
+    enforced; no panics on malformed input.
   - Verify: `cargo test -p tidepool-codec`
+  - Note (2026-11-04): the user answered the `Decide first` line: vendor
+    toml-test (MIT, v2.2.0), and parse TOML 1.1, since Cargo has accepted it
+    since cargo#16415. The roadmap first said TOML 1.0. Both answers are in
+    ADR-0026.
+  - Note (2026-11-04): the 1.1 list's 895 files and the list itself are in
+    `crates/codec/tests/toml-test/`. Each one's git blob hash matched
+    toml-test's v2.2.0 tree when it was copied. What the parser accepts,
+    its value model and its limits are in the spec's `### toml` section.
+    - **Verified:** `cargo test -p tidepool-codec` passes: 143 unit tests
+      and the 8 tests of `tests/toml.rs`. Those run every case on the
+      list: 214 valid cases parse to their expected values, and 467
+      invalid ones fail. `cargo xtask ci` passes 9 of 9 steps.
+    - **Review:** a robustness review (by `security-reviewer`), a
+      conformance review and a review of the tests, spans and docs. A
+      skeptic checked each finding, then a completeness critic looked for
+      gaps.
+      - About 9.6 million mutated and generated inputs caused no panic.
+      - Nesting 200,000 deep overflowed no stack, on a 256 KiB thread.
+      - Every adversarial shape took time linear in its size.
+      - 180,000 TOML 1.0 documents compared against Python's `tomllib`
+        differed only where the spec documents a choice, or where 1.1
+        relaxes 1.0.
+    - **Fixed from the review:**
+      - the worst-case memory was about 80 times the text, not the 43
+        times documented: tables now grow by a quarter, are shrunk when
+        the parse ends, and index positions instead of copied names;
+      - `max_number_bytes` did not count `inf` and `nan`;
+      - five error kinds' docs did not match the code. A bare CR is now
+        `BareCarriageReturn` wherever it appears;
+      - the compliance test let a tree holding a key twice pass.
+
+      After the fixes, the robustness harness ran 1.8 million more inputs
+      with no problem, and its depth and timing checks passed again.
+    - **Measured** (release, RSS on this machine): the worst shape is a
+      long chain of one-entry tables (`k.b.b…`), at about 49 bytes of heap
+      per byte of text, about 72 times the text with glibc. At the default
+      64 MiB input that is about 4.5 GiB, so callers that read untrusted
+      TOML should lower `max_input_bytes`. `Cargo.lock` takes about 7
+      times its text. 100,000 keys parse in 0.03 s.
+    - **Not run here:** macOS and Windows. CI runs these tests there on
+      the next push (M0.4's ⏳).
+    - **For later tasks:** M1.6 adds a `toml` fuzz target, seeded from the
+      vendored valid cases. M1.5 decides whether its writer writes TOML 1.1
+      syntax.
 
 - [ ] **M1.6 — xtask: fuzz smoke**
   - Depends: M0.3, M1.4, M1.7
@@ -579,10 +625,12 @@ with pinned actions.
 
 - [ ] **M1.5 — codec: TOML with a preserving document model**
   - Depends: M1.7
+  - Decide first: whether the writer may write TOML 1.1 syntax, which
+    tools that know only TOML 1.0 cannot read (ADR-0026).
   - Do: the comment- and order-preserving document model of ADR-0013
     (accepted 2026-11-01) on top of M1.7's parser: read, change and add
     values, and write back.
-  - Accept: TOML 1.0 compliance cases still pass; an unchanged document
+  - Accept: TOML 1.1 compliance cases still pass; an unchanged document
     writes back byte-for-byte; editing a value and writing back preserves
     comments, order and formatting elsewhere.
   - Verify: `cargo test -p tidepool-codec`

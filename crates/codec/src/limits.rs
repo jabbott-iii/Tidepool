@@ -47,6 +47,23 @@
 /// arrays, such as `[[0]],` repeated) grow the process by about 23 times
 /// their text. Typical documents, made mostly of strings and objects, take
 /// 2 to 4 times their text (`cargo metadata` output takes about 3).
+///
+/// A TOML tree takes more, since every key and value carries its span: a
+/// value is 56 bytes, an entry of a table (its key and value) 96, and a
+/// table of more than 8 entries keeps an index of 8 to 16 bytes an entry.
+/// Once a parse is over, every table, array, string and key is left at
+/// exactly its size. An entry takes at least two bytes of text (its name and
+/// the `.`, `=` or `]` after it), and the densest documents are chains of
+/// one-entry tables (`a.b.b.b… = 0`, or `[a.b.b…]`), which take 97 bytes of
+/// heap for each 2-byte `.b`: so a TOML tree takes at most about 49 bytes of
+/// heap per byte of text. With glibc's overhead, such chains grow the
+/// process by about 71 times their text, measured (72 is what a chain of
+/// any length tends to); small tables of one-letter keys (`[[a]]` or `[t]`
+/// and nine keys, or arrays of inline tables of nine keys) by 36 to 38
+/// times; arrays of scalars by 29; `Cargo.lock` by about 7. At the default
+/// input size, that is up to about 3 GiB of heap, about 4.5 GiB with glibc:
+/// lower `max_input_bytes` to read TOML from an untrusted source. Manifests
+/// and settings files are rarely more than a few hundred kilobytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
     /// The longest input accepted, in bytes. Checked first, before anything
@@ -55,21 +72,27 @@ pub struct Limits {
     /// How deeply arrays and objects may nest. A document that is only a
     /// scalar has depth 0; `[[1]]` has depth 2.
     ///
-    /// The JSON parser keeps its own stack on the heap, so parsing does not
-    /// use more of the thread's stack as this grows, and when a parse fails
-    /// it takes apart what it built without recursing. Dropping, cloning,
-    /// comparing, formatting with `Debug` and writing the value a parse
-    /// returns do recurse once per level, though, so keep this in the
-    /// hundreds.
+    /// For TOML, every table and array between the root table and a value
+    /// counts, however it was written: `a = [[1]]` is depth 2, as are
+    /// `a.b.c = 1` and `[a.b]`, and `[[a]]` is too, an array and its
+    /// element (see [`toml`](crate::toml)).
+    ///
+    /// The JSON and TOML parsers keep their own stack on the heap, so
+    /// parsing does not use more of the thread's stack as this grows, and
+    /// when a parse fails it takes apart what it built without recursing.
+    /// Dropping, cloning, comparing, formatting with `Debug` and writing the
+    /// value a parse returns do recurse once per level, though, so keep this
+    /// in the hundreds.
     pub max_depth: usize,
     /// The longest string, in bytes of UTF-8 after escapes are decoded.
-    /// Applies to object keys as well.
+    /// Applies to object keys as well, and to each part of a TOML key.
     pub max_string_bytes: usize,
     /// The longest number, in bytes of its text (sign, digits, point and
-    /// exponent).
+    /// exponent, and for TOML a base prefix and underscores). Applies to a
+    /// TOML date-time's text too.
     pub max_number_bytes: usize,
-    /// The most elements one array, or members one object, may have. The
-    /// bound is per container, not for the whole document.
+    /// The most elements one array, or members one object or TOML table,
+    /// may have. The bound is per container, not for the whole document.
     pub max_entries: usize,
 }
 
@@ -78,19 +101,25 @@ impl Limits {
     ///
     /// - `max_input_bytes`: 64 MiB. `cargo metadata` for a large workspace
     ///   with a deep dependency graph runs to tens of megabytes; this leaves
-    ///   room above that while capping the parsed tree at 1 GiB of heap in
-    ///   the worst case, about 1.5 GiB with glibc's overhead (see above).
+    ///   room above that while capping a parsed JSON tree at 1 GiB of heap
+    ///   in the worst case, about 1.5 GiB with glibc's overhead (see above).
+    ///   A TOML tree can take up to about 3 GiB of heap at this size, about
+    ///   4.5 GiB with glibc, so lower it for TOML from an untrusted source.
     ///   Raise it for bigger inputs.
     /// - `max_depth`: 128. `cargo metadata` nests about 6 deep and language
-    ///   server messages about 10; 128 is what most JSON libraries allow.
+    ///   server messages about 10; 128 is what most JSON libraries allow,
+    ///   and what toml-test suggests for TOML.
     /// - `max_string_bytes`: 16 MiB, enough for a language server's edit
     ///   that replaces a whole large file.
     /// - `max_number_bytes`: 1,024. The longest useful number is under 800
     ///   bytes (an `f64` is decided by its first 768 significant digits);
     ///   anything longer is padding.
-    /// - `max_entries`: 1,000,000 per array or object, far above the
+    /// - `max_entries`: 1,000,000 per array, object or table, far above the
     ///   largest array in `cargo metadata` (one entry per package in the
-    ///   dependency graph), and it bounds one array to 32 MB of values.
+    ///   dependency graph). It bounds one JSON array to 32 MB of values; one
+    ///   TOML array to 56 MB of values (56 bytes each); and one TOML table
+    ///   to 96 MB of entries (96 bytes each) and 16 MB of index, besides
+    ///   what the values and keys hold.
     pub const DEFAULT: Self = Self {
         max_input_bytes: 64 * 1024 * 1024,
         max_depth: 128,

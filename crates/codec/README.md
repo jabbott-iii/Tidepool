@@ -15,11 +15,13 @@ Built, with the roadmap task that built it:
 
 - `json`: JSON (RFC 8259) and JSONC, with compact and pretty writers, and
   `Limits` and `CodecError` — M1.4.
+- `toml`: the TOML 1.1 parser, into a value tree whose keys and values carry
+  their spans, checked against toml-test's TOML 1.1 cases — M1.7.
 
 Not yet, with the roadmap task that adds it:
 
-- `toml`: the TOML 1.0 parser — M1.7.
-- `toml`: the document model that preserves comments and order — M1.5.
+- `toml`: the document model that preserves comments and order, and a
+  writer — M1.5.
 - `qoi` — M2.4.
 - `inflate`, `deflate` and `png` — M10.7.
 - `zip` and `xml` — M10.2.
@@ -34,7 +36,9 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 - [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0013
   (TOML for Tidepool's own files); ADR-0021 (the RFC 8259 examples in
-  `tests/json/` keep the IETF Trust's notice, in `tests/json.rs`).
+  `tests/json/` keep the IETF Trust's notice, in `tests/json.rs`); ADR-0026
+  (`toml` parses TOML 1.1, and its compliance cases are toml-test's,
+  vendored in `tests/toml-test/`).
 
 ## Rules
 
@@ -44,8 +48,14 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
   [`parsers.md`](../../.claude/rules/parsers.md),
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its
   `Cargo.toml`.
-- For `json`, the module docs in `src/json.rs` are authoritative, and the
-  spec summarizes them: change both together.
+- For `json` and `toml`, the module docs in `src/json.rs` and
+  `src/toml.rs` are authoritative, and the spec summarizes them: change both
+  together.
+- `tests/toml-test/` is third-party data (MIT, toml-test v2.2.0), copied
+  byte for byte with its notice in `tests/toml-test/NOTICE.md`. Never edit,
+  rename or add files there; a newer release replaces the directory and its
+  notice in one change (ADR-0026). `tests/toml.rs` checks that the list and
+  the files agree.
 
 ## Checks
 

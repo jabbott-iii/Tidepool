@@ -1,4 +1,7 @@
 # The Unicode data is pinned by SHA-256 (ADR-0018): never convert its line
 # endings. The tables generated from it are compared byte for byte.
 crates/text/ucd/** -text
+# toml-test's cases are compared byte for byte, and some are about CR, BOMs
+# and invalid UTF-8 (ADR-0026).
+crates/codec/tests/toml-test/** -text
 crates/text/src/pos/grapheme/tables.rs text eol=lf

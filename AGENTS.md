@@ -7,10 +7,10 @@ verified.
 - **Built:** the guarded workspace and its checks (M0.1–M0.4, M0.10,
   M0.11), the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
-  (M0.2), JSON and JSONC in `tidepool-codec` (M1.4), and in `tidepool-text`
-  the rope, positions and grapheme boundaries (M1.1), selections, change
-  sets and the undo tree (M1.2), and encodings, loading and the atomic
-  save (M1.3).
+  (M0.2), JSON and JSONC (M1.4) and TOML 1.1 (M1.7) in `tidepool-codec`,
+  and in `tidepool-text` the rope, positions and grapheme boundaries
+  (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
+  loading and the atomic save (M1.3).
 - **Not built:** everything else. 22 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks

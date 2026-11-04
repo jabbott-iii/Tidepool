@@ -15,13 +15,13 @@
 //! The error type for `tidepool-codec`.
 //!
 //! Ported from nadir-codec `error.rs`. Adapted for Tidepool: only the JSON
-//! variant exists so far (other formats add theirs with their roadmap
-//! tasks), and a JSON error carries the byte offset as well as the line and
-//! column.
+//! and TOML variants exist so far (other formats add theirs with their
+//! roadmap tasks), and their errors carry the byte offset as well as the
+//! line and column.
 
 use std::fmt;
 
-use crate::json;
+use crate::{json, toml};
 
 /// Errors produced by `tidepool-codec`.
 ///
@@ -50,6 +50,27 @@ pub enum CodecError {
         /// What is wrong.
         kind: json::ErrorKind,
     },
+    /// TOML text is malformed, breaks a rule of TOML 1.1, or exceeds a
+    /// [`Limits`](crate::Limits) bound.
+    Toml {
+        /// The byte offset of the problem in the input as given, counting a
+        /// leading byte-order mark if there is one. Always at the start of
+        /// a character when the input before it is UTF-8.
+        ///
+        /// For a string or escape sequence that the input ends inside, this
+        /// is where that construct starts, not the end of the input; see
+        /// [`toml::ErrorKind::UnexpectedEnd`].
+        offset: usize,
+        /// The line of the problem, starting at 1. Lines end at each LF
+        /// (`\n`); a CR-LF pair ends one line.
+        line: usize,
+        /// The column of the problem, starting at 1 and counted in
+        /// characters (Unicode scalar values), not bytes. A leading
+        /// byte-order mark is not counted.
+        column: usize,
+        /// What is wrong.
+        kind: toml::ErrorKind,
+    },
 }
 
 impl fmt::Display for CodecError {
@@ -63,6 +84,15 @@ impl fmt::Display for CodecError {
             } => write!(
                 f,
                 "JSON error at line {line}, column {column} (byte {offset}): {kind}"
+            ),
+            Self::Toml {
+                offset,
+                line,
+                column,
+                kind,
+            } => write!(
+                f,
+                "TOML error at line {line}, column {column} (byte {offset}): {kind}"
             ),
         }
     }
@@ -85,6 +115,20 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "JSON error at line 3, column 14 (byte 17): numbers cannot have leading zeros"
+        );
+    }
+
+    #[test]
+    fn toml_errors_display_the_same_way() {
+        let error = CodecError::Toml {
+            offset: 40,
+            line: 5,
+            column: 1,
+            kind: toml::ErrorKind::DuplicateKey,
+        };
+        assert_eq!(
+            error.to_string(),
+            "TOML error at line 5, column 1 (byte 40): the key is already defined"
         );
     }
 

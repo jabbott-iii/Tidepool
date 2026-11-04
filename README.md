@@ -7,9 +7,9 @@ support. It will also build and sign Android and iOS apps, and offer AI
 features through plugged-in language agents.
 
 **Status:** in development, at version 0.1, and still headless. The guarded
-workspace and its checks, license headers, the core library, JSON, and the
-text engine's rope, positions, selections, undo tree, encodings and atomic
-save are built; nothing opens a window yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
+workspace and its checks, license headers, the core library, JSON and
+TOML, and the text engine's rope, positions, selections, undo tree,
+encodings and atomic save are built; nothing opens a window yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
 and each crate's `README.md` says what it has.
 
 ## Build and check

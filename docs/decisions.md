@@ -950,3 +950,56 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** `platform` grows file metadata that `text` could be
   given instead of the `cfg`; or users report a save that changed a file's
   owner, links or access list.
+
+## ADR-0026 — `codec::toml` parses TOML 1.1; its compliance cases are toml-test v2.2.0's 1.1 list, vendored as test-only fixtures
+
+- **Status:** Accepted
+- **Date:** 2026-11-04
+- **Context:**
+  - M1.7 builds `codec::toml`, the parser that settings, keymaps, themes,
+    packs and tool descriptors (ADR-0013) and `Cargo.toml` go through. Its
+    `Decide first` line asked whether to vendor the `toml-test` suite's
+    cases, once their license was confirmed, or to write the compliance
+    cases by hand.
+  - `toml-lang/toml-test` is MIT-licensed ("Copyright (c) 2018 TOML
+    authors", its `LICENSE`, read on 2026-11-04). Release v2.2.0 (commit
+    `ce08da1ddb075d1c7596d663c7fcba9a2ae02c5c`, published 2026-04-30)
+    lists each TOML version's cases: `tests/files-toml-1.1.0` names 895
+    files, 106,344 bytes, with 214 valid documents (each with its expected
+    value as tagged JSON) and 467 invalid ones.
+  - TOML 1.1.0 was published on 2025-12-24. It adds newlines and trailing
+    commas in inline tables, the `\xHH` and `\e` escapes, and optional
+    seconds in times, and clarifies the rest. Cargo parses TOML 1.1 since
+    cargo#16415 (merged 2025-12-29), so a `Cargo.toml` may use any of it,
+    and a TOML 1.0 parser would reject that manifest.
+  - On 2026-11-04 the user chose TOML 1.1 (recommended) and to vendor
+    toml-test (recommended).
+- **Decision:**
+  - `codec::toml` parses TOML 1.1. Nothing that is valid TOML 1.0 is
+    rejected, since 1.1 only relaxes 1.0. There is no strict 1.0 mode.
+  - The files on toml-test v2.2.0's `files-toml-1.1.0` list, and the list
+    itself, are copied unchanged into `crates/codec/tests/toml-test/`, with
+    the MIT notice and their source beside them in a `NOTICE.md`, and an
+    Assets row in `docs/02-dependency-policy.md`. They are test-only and
+    never in a release binary. `.gitattributes` keeps their bytes as they
+    are, since some cases are about CR, BOMs and invalid UTF-8.
+  - The test reads each valid case's expected JSON with `codec::json` and
+    compares it with the parsed value. toml-test's Go runner is not
+    copied: its comparison rules are written again in the test.
+- **Consequences:**
+  - The parser is checked against the cases other TOML parsers use.
+  - Every manifest Cargo accepts can be read.
+  - About 900 small files in the repository. A newer toml-test release is
+    taken by replacing the directory and its notice in one change.
+  - M1.5's writer must decide whether it writes 1.1 syntax. A file that
+    uses 1.1 syntax cannot be read by tools that only know TOML 1.0.
+- **Alternatives considered:**
+  - TOML 1.0, as the roadmap first said: rejects manifests Cargo accepts.
+  - 1.1 with a strict 1.0 mode: more code and tests for a mode nothing
+    needs yet.
+  - Hand-written cases: no third-party data, but no outside check of our
+    reading of the spec.
+  - Only the cases taken from the spec's examples (about 100 files): far
+    less coverage of edge cases.
+- **Revisit when:** a TOML release after 1.1, or a toml-test release that
+  changes the 1.1 list.
