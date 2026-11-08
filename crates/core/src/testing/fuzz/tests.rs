@@ -1308,7 +1308,7 @@ fn links_on_the_way_are_refused_and_nothing_goes_through_them() {
         keep_died(&scratch.root, "linked").unwrap_err().to_string(),
         format!(
             "`{}` is a symbolic link, which the fuzzer never follows",
-            scratch.root.join("fuzz/crashes").display()
+            scratch.root.join("fuzz").join("crashes").display()
         )
     );
 
@@ -1392,10 +1392,12 @@ fn seed_directories_that_cannot_be_used_are_errors() {
         .run_with(&Config::default())
         .unwrap_err();
     assert!(matches!(error, FuzzError::NoSeeds { .. }), "{error:?}");
+    // The path as the engine builds it, with the OS's separator.
+    let empty = Path::new("fuzz").join("corpus").join("empty");
     assert!(
         error
             .to_string()
-            .ends_with("fuzz/corpus/empty` holds no seeds"),
+            .ends_with(&format!("{}` holds no seeds", empty.display())),
         "{error}"
     );
 

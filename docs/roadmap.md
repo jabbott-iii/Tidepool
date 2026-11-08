@@ -113,6 +113,24 @@ enforced by tooling from day one.
   - ⏳ needs human: push, and confirm `cargo xtask ci` is green on
     `ubuntu-latest`, `macos-latest` and `windows-latest` (the M0 exit
     criterion). Nothing ran on macOS or Windows in this session.
+  - Note (2026-11-08): at `adb0d3b`, Linux and macOS pass; Windows has
+    failed since M1.3, which these fix (none run on Windows yet):
+    - The checkout stopped at `fuzz/corpus/encoding/nul.bin`: Windows
+      reserves `NUL` and the other device names whatever the extension.
+      Renamed `nul-bytes.bin`, the same bytes; no other tracked path is
+      a reserved name, ends in a dot or space, or differs only in case.
+    - Before that, `coalescing_needs_the_kind_the_window_and_unmoved_cursors`
+      failed: on Windows `Instant::checked_duration_since` counts an
+      instant up to one tick of the performance counter later as no time
+      (std 1.99.0, `sys/time/windows.rs`), so a commit 1 ns before the
+      last one joined it. `History` now compares the instants, as its
+      docs say ("not after it").
+    - `cargo test` stops at its first failing binary, so the tests after
+      that one had never run on Windows. A review of them found two that
+      compared a path written with `/` to one Windows writes with `\`, in
+      `core`'s fuzz tests; both now build the path as the engine does.
+      `cargo clippy --workspace --all-targets --target
+      x86_64-pc-windows-msvc -- -D warnings` passes.
 
 - [x] **M0.5 — Budgets and reference machine**
   - Depends: M0.1
@@ -476,7 +494,7 @@ enforced by tooling from day one.
     ran only in Linux bash in this session, not in macOS's bash or Git
     Bash on Windows.
 
-- [ ] **M0.12 — docs: architecture diagrams in `diagrams/`**
+- [x] **M0.12 — docs: architecture diagrams in `diagrams/`**
   - Depends: M0.6
   - Decide first: what to draw while most crates are empty, and in what
     form (ADR-0029).
@@ -512,8 +530,8 @@ enforced by tooling from day one.
       matrix, the crates check and the CLI's errors.
     - ADR-0029 now says each file names the task it was drawn as of, not
       a commit: the files were drawn before the commit that holds them.
-  - ⏳ needs human: review the diagrams (`diagrams/README.md` first) in
-    GitHub's preview, then tick.
+  - Note (2026-11-08): done. The user reviewed the diagrams and approved
+    them.
 
 - [x] **M0.13 — crates: READMEs in Nadir's shape; `LICENSE` and `NOTICE` in every member**
   - Depends: M0.9

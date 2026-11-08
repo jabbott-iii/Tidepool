@@ -10,9 +10,10 @@ features through plugged-in language agents.
 workspace and its checks, the contribution workflow, license headers, the
 core library, JSON and TOML, the text engine's rope, positions,
 selections, undo tree, encodings and atomic save, and a fuzzer for the
-parsers are built;
-nothing opens a window yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
-and each crate's `README.md` says what it has.
+parsers are built; nothing opens a window yet.
+[`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
+crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
+what is built and what is planned.
 
 ## Build and check
 

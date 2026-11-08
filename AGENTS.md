@@ -8,6 +8,7 @@ verified.
   M0.9–M0.11), the performance budgets, confirmed on the reference machine
   (M0.5), the contribution workflow and a README in every member (M0.6),
   in Nadir's shape with copies of `LICENSE` and `NOTICE` (M0.13),
+  diagrams of the design and the code in `diagrams/` (M0.12),
   the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
   (M0.2), JSON and JSONC (M1.4) and TOML 1.1 (M1.7) in `tidepool-codec`,

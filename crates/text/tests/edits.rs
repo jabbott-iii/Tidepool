@@ -1082,8 +1082,7 @@ impl Model {
                 rev.tag == Tag::Coalesce(kind)
                     && rev
                         .time
-                        .and_then(|time| now.checked_duration_since(time))
-                        .is_some_and(|d| d <= window)
+                        .is_some_and(|time| time <= now && now - time <= window)
                     && pairs(before) == pairs(&rev.after)
                     && before.primary_index() == rev.after.primary_index()
             }

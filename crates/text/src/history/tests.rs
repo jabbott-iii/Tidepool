@@ -244,8 +244,7 @@ impl Model {
                         && node.after == view.before
                         && node
                             .time
-                            .and_then(|time| view.now.checked_duration_since(time))
-                            .is_some_and(|since| since <= window)
+                            .is_some_and(|time| time <= view.now && view.now - time <= window)
                 }
             };
         if joins {

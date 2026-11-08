@@ -350,10 +350,12 @@ impl History {
                 Group::Coalesce { kind, window } => {
                     unmoved
                         && matches!(current.tag, Tag::Coalesce(tag) if tag == kind)
+                        // Compared directly: on Windows, `checked_duration_since`
+                        // counts an instant up to one tick of the performance
+                        // counter after `now` as no time, which would join.
                         && current
                             .time
-                            .and_then(|time| now.checked_duration_since(time))
-                            .is_some_and(|since| since <= window)
+                            .is_some_and(|time| time <= now && now - time <= window)
                 }
             };
         let piece = Piece {
