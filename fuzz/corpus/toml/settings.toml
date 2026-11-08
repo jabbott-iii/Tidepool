@@ -1,0 +1,10 @@
+# Settings, with every kind of key.
+theme = "tidepool-dark"
+editor.font-size = 14
+editor."tab width" = 4
+'literal key' = true
+"" = "empty key"
+3.14159 = "pi"
+
+[keymap.normal]
+"ctrl+s" = "save"

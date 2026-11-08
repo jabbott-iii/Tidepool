@@ -10,7 +10,8 @@ verified.
   (M0.2), JSON and JSONC (M1.4) and TOML 1.1 (M1.7) in `tidepool-codec`,
   and in `tidepool-text` the rope, positions and grapheme boundaries
   (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
-  loading and the atomic save (M1.3).
+  loading and the atomic save (M1.3); and the fuzzer, with `cargo xtask
+  fuzz-smoke` and targets for JSON, TOML and the text decoder (M1.6).
 - **Not built:** everything else. 22 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
@@ -149,7 +150,7 @@ or file is there.
 | `crates/tui` | `tidepool-tui` | Terminal frontend | deny |
 | `crates/app` | `tidepool` | The binary: main loop, wiring, startup, crash handling | deny |
 | `crates/testkit` | `tidepool-testkit` | Fake LSP server, fake tools, transcripts (dev-only) | deny |
-| `xtask` | `xtask` | CI checks, Unicode tables; later goldens, fuzz smoke, theme contrast, packaging | deny |
+| `xtask` | `xtask` | CI checks, Unicode tables, fuzz smoke; later goldens, theme contrast, packaging | deny |
 | `bench` | `tidepool-bench` | Own benchmark harness and suites | deny |
 | `agents/` | (separate workspace, from M9.2) | Reference language agents: mock, local, Claude | deny |
 
@@ -162,17 +163,17 @@ These exist now:
 | `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
 | `cargo xtask deps` / `layers` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
+| `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | Runs each fuzz target (or `T`) with mutated inputs for `N` seconds, 60 by default; fails on a panic, a hang, over-allocation or a process that died, and prints the replay command for a death (ADR-0027, `docs/04-quality.md` → "Fuzz smoke") |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
 | `cargo tp` | Builds and runs the `tidepool` binary, which does nothing until M2.6 |
 
-Planned. Until its task lands, each of the first six exits 1 with "not
+Planned. Until its task lands, each of the first five exits 1 with "not
 yet implemented" (`bench`'s message still says it has no task; M1.9
 corrects it), and the last is not a command yet and exits 2:
 
 | Command | Task |
 | :- | :- |
-| `cargo xtask fuzz-smoke [--secs N] [--target T]` | M1.6 |
 | `cargo xtask bench [filter]` | M1.9 |
 | `cargo xtask golden [--bless]` | M2.4 |
 | `cargo xtask theme` | M3.2 |
@@ -197,7 +198,8 @@ secrets or opens a socket (`docs/04-quality.md`).
 - **Logging:** `tidepool_core::log` macros; `print!`/`eprint!` are denied in
   library crates. Log command lines through the redacting helper.
 - **Parsers:** every parser takes `Limits`, never panics on input, and has a
-  fuzz target (from M1.6).
+  fuzz target: a test in its crate's `tests/fuzz.rs`, seeds in
+  `fuzz/corpus/<target>/` and a row in `fuzz-smoke`'s table (ADR-0027).
 - **Text positions** are byte offsets; lines end at LF, CR LF or a lone CR;
   a bad position is an error, never a panic (ADR-0019). Every buffer edit
   goes through its `History` (ADR-0020).

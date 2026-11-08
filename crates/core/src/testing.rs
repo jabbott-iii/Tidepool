@@ -58,6 +58,8 @@ use std::panic::{self, AssertUnwindSafe};
 use crate::hash::fnv1a64;
 use crate::rng::Pcg32;
 
+pub mod fuzz;
+
 /// The environment variable that overrides the seed: a `u64`, in decimal or
 /// in hex with a `0x` prefix.
 pub const SEED_VAR: &str = "TIDEPOOL_SEED";

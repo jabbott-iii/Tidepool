@@ -243,11 +243,6 @@ pub(crate) const LATER: &[Later] = &[
         in_ci: false,
     },
     Later {
-        name: "fuzz-smoke",
-        task: "roadmap M1.6",
-        in_ci: false,
-    },
-    Later {
         name: "bench",
         task: "no roadmap task yet; first needed by M4.1",
         in_ci: false,
@@ -1195,7 +1190,7 @@ mod tests {
             .iter()
             .map(|check| check.name)
             .chain(LATER.iter().map(|later| later.name))
-            .chain(["ci"])
+            .chain(["ci", "fuzz-smoke"])
             .collect();
         let count = names.len();
         names.sort_unstable();

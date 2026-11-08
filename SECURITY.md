@@ -126,8 +126,9 @@ are no dependency advisories to track beyond Rust's standard library.
 - `cargo xtask deps` fails the build if a workspace gains a package from
   outside the repository, and the Claude Code hook runs it after every
   manifest edit.
-- Every parser takes `Limits`, and gets a fuzz target with
-  `cargo xtask fuzz-smoke` (roadmap M1.6).
+- Every parser takes `Limits`, and has a fuzz target that
+  `cargo xtask fuzz-smoke` runs; CI runs it on Linux, and every
+  `cargo test` replays the seeds and the saved crashes (ADR-0027).
 - CI's workflows pin each action by its full commit SHA, and their
   tokens read the repository only, but for CodeQL's upload of its results
   to code scanning. `cargo xtask workflows` checks the pins, and that no

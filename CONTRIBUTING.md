@@ -136,11 +136,12 @@ Windows, and the same commands CI runs:
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
+| `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
-On the way, each with its roadmap task: `fuzz-smoke` (M1.6), `bench`
-(M1.9), `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6,
-M12.4, M14.4), and the check `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
+On the way, each with its roadmap task: `bench` (M1.9), `golden` (M2.4),
+`theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4), and the
+check `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
 
@@ -154,9 +155,15 @@ cargo xtask ci
 Then, as the change needs:
 
 - **A parser** (`codec`, `font`, `markdown`, `syntax`, `rpc`, `term`,
-  `vcs`): hand-made test vectors beside its tests, and from M1.6 a fuzz
-  target with seeds in `fuzz/corpus/<target>/`, run with
-  `cargo xtask fuzz-smoke --target <target>`.
+  `vcs`): hand-made test vectors beside its tests, and a fuzz target: a
+  test in the crate's `tests/fuzz.rs`, seeds in `fuzz/corpus/<target>/`
+  and a row in `fuzz-smoke`'s table (`docs/04-quality.md` → "Fuzz
+  smoke"). Run it with `cargo xtask fuzz-smoke --target <target>`. If it
+  finds something, commit the file it saves in `fuzz/crashes/<target>/`
+  with the fix: every `cargo test` replays it, though a `reserve-*` file's
+  reserved memory is checked only by `fuzz-smoke` or by the command its
+  report gives. Its inputs may derive from third-party seeds; see
+  `fuzz/NOTICE.md`.
 - **Rendering or UI** (`gfx`, `font`, `ui`, `gui`, `tui`, `themes/`): from
   M2.4, `cargo xtask golden`. Re-bless a reference only when the change
   means to alter what is drawn, after you have looked at the diff images,

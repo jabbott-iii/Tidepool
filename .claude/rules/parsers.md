@@ -32,9 +32,13 @@ servers, agents and tools.
 - **Errors carry context:** the format, the byte offset (or line and
   column), and what was expected.
 - **Every new parser:**
-  1. registers an `xtask fuzz-smoke` target with a seed corpus in
-     `fuzz/corpus/<target>/` (from M1.6; a parser that lands before it
-     says in its task note which target M1.6 must add)
+  1. has a fuzz target (ADR-0027): a test named after the target in its
+     crate's `tests/fuzz.rs`, built on `tidepool_core::testing::fuzz`,
+     running the parser with small `Limits`; seeds in
+     `fuzz/corpus/<target>/`; and a row in `fuzz-smoke`'s `TARGETS`
+     (`xtask/src/fuzz.rs`). Run it with
+     `cargo xtask fuzz-smoke --target <target>` (`docs/04-quality.md` →
+     "Fuzz smoke")
   2. has hand-made test vectors committed beside its tests
   3. documents its supported subset in its subsystem doc
 - **Formats Tidepool writes** (settings, keymaps, themes, packs,

@@ -5,3 +5,10 @@ crates/text/ucd/** -text
 # and invalid UTF-8 (ADR-0026).
 crates/codec/tests/toml-test/** -text
 crates/text/src/pos/grapheme/tables.rs text eol=lf
+# Fuzz seeds and saved crashes are inputs byte for byte: binary data, BOMs,
+# CR and invalid UTF-8 among them (ADR-0027).
+fuzz/** -text
+# The json target reads these as seeds in place, so a replay gives the same
+# inputs only from the same bytes on every OS (ADR-0027). Every directory a
+# fuzz target reads seeds from is -text, as toml-test's is above.
+crates/codec/tests/json/** -text

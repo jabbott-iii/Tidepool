@@ -1,0 +1,25 @@
+[a.b.c]
+x = 1
+
+[a]
+y = 2
+
+[[pools]]
+name = "east rock"
+
+[pools.depth]
+metres = 1.5
+
+[[pools.creatures]]
+name = "hermit crab"
+
+[[pools]]
+name = "west ledge"
+
+[inline]
+point = { x = 1, y = 2, nested = { z = [1, [2, [3]]] } }
+multiline = {
+    a = 1,
+    b = 2,
+}
+array = [ 1, 2, ]

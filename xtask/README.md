@@ -1,9 +1,10 @@
 # xtask
 
 Project automation, run as `cargo xtask <command>`: the checks behind the
-pull request gate, and later goldens, fuzz smoke, benchmarks, theme contrast
-and packaging. It never ships, never uploads, publishes or signs, reads no
-secrets, and opens no sockets; the one program it starts is `cargo`.
+pull request gate and the fuzz smoke, and later goldens, benchmarks, theme
+contrast and packaging. It never ships, never uploads, publishes or signs,
+reads no secrets, and opens no sockets; the one program it starts is
+`cargo`.
 
 Layer 6, tools (dev-only). It may use `core` and `codec`, as its row of the
 dependency matrix in [`docs/01-architecture.md`](../docs/01-architecture.md)
@@ -21,11 +22,20 @@ Built, with the roadmap task that built it:
   reported without being resolved, in every check — M0.10.
 - `workflows`, which checks the actions, pins and token permissions of the
   CI workflows, ported from Nadir — M0.8.
+- `fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]`, which runs
+  `cargo test` of each fuzz target (its table is `TARGETS` in
+  `src/fuzz.rs`) with mutated inputs, reads each one's result line and
+  checks it shows the seed and seconds it was given, tells a death, an
+  exit without a result and a cargo failure apart, prints the replay
+  command for a death or a range of inputs, notes the size and hash of a
+  `.last-input` an earlier replay left, and keeps the input a replay died
+  or exited without a result on as `died-<hash>` when the replay wrote it
+  (not after an interrupt, and not a second copy of a saved crash);
+  ported in part from Nadir — M1.6.
 
 Not yet, with the roadmap task that adds it:
 
 - `crates` — M0.9.
-- `fuzz-smoke` — M1.6.
 - `bench` — M1.9.
 - `golden` — M2.4.
 - `theme` — M3.2.
@@ -40,7 +50,9 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 - Decisions in [`docs/decisions.md`](../docs/decisions.md): ADR-0017 (it
   runs `cargo` itself); ADR-0018 (the Unicode data); ADR-0021 (license
   headers); ADR-0022 (the CI workflows' supply chain, and the table of
-  what each workflow may use, `WORKFLOWS` in `src/workflows.rs`).
+  what each workflow may use, `WORKFLOWS` in `src/workflows.rs`); ADR-0027
+  (the fuzz targets live in the parser crates, and `fuzz-smoke`'s only
+  child is `cargo test`).
 
 ## Rules
 
@@ -51,15 +63,22 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
   `Cargo.toml`.
 - A check that reads a document reads it as the source of truth: `layers`
   parses the dependency matrix in `docs/01-architecture.md`.
+- It links only `core` and `codec`: the parsers that `fuzz-smoke` fuzzes
+  run in their own crates' test processes, never in `xtask`. A new target
+  adds its row to `TARGETS` in `src/fuzz.rs`, which must agree with
+  `fuzz/corpus/` and `fuzz/crashes/`; none of `fuzz/`, `fuzz/corpus/` and
+  `fuzz/crashes/` may be a link.
 
 ## Checks
 
 ```bash
 cargo test -p xtask
 cargo xtask ci
+cargo xtask fuzz-smoke --secs 60
 ```
 
-`cargo xtask ci` runs the whole gate.
+`cargo xtask ci` runs the whole gate. It does not run `fuzz-smoke`, which
+CI runs in a step of its own on Linux.
 
 ## License
 

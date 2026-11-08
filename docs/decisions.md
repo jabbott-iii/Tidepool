@@ -1003,3 +1003,110 @@ decides; the roadmap task that first depends on one asks for the decision.
     less coverage of edge cases.
 - **Revisit when:** a TOML release after 1.1, or a toml-test release that
   changes the 1.1 list.
+
+## ADR-0027 — Fuzz targets live in each parser crate's `tests/fuzz.rs`, driven by an engine in `core::testing`; `fuzz-smoke` runs them through `cargo test`; over-allocation is caught by `Limits` and the peak memory on Linux
+
+- **Status:** Accepted
+- **Date:** 2026-11-07
+- **Context:**
+  - M1.6 builds `cargo xtask fuzz-smoke` (`docs/04-quality.md` → "Fuzz
+    smoke"), which that spec called provisional on three points that
+    M1.6's `Decide first` line asked.
+  - Its first targets are JSON and TOML in `codec`, and the decoder of
+    `text::encoding`, which M1.3's note named. `text` is outside `xtask`'s
+    matrix row (`core`, `codec`), and later targets are in `font`,
+    `markdown`, `regex`, `term`, `rpc`, `vcs` and `toolchain`.
+  - The Claude Code hook builds `xtask` before every manifest check
+    (ADR-0017), so whatever `xtask` links compiles first.
+  - Counting allocations needs a `GlobalAlloc`, which is `unsafe`, and
+    `unsafe` lives only in `sys` and `platform`. Neither has code yet.
+  - Nadir's fuzzer, in its `xtask`, catches panics and hangs, has no
+    allocation cap, and reaches only `core` and `codec`, where all of
+    Nadir's parsers are.
+  - On 2026-11-07 the user chose: targets in each crate's tests
+    (recommended); `Limits` plus the peak memory (recommended); and
+    `cargo test` as `fuzz-smoke`'s only child (recommended).
+  - M1.6's review then found two things. Reading `/proc/self/status`
+    after every input, as first decided, cut throughput 2.7 to 7 times
+    (`json` from 332,000 to 122,000 inputs a second, `toml` from 1,290,000
+    to 173,000). And `VmHWM` counts only memory that was written:
+    `Vec::with_capacity(1 GiB)`, `vec![0; 256 MiB]` and a 16 GiB
+    reservation from a claimed length all went unseen, and Linux's
+    overcommit let them succeed, though that is the bug
+    `.claude/rules/parsers.md` means by "check before allocating". On
+    2026-11-07 the user chose to read `VmHWM` on a time budget
+    (recommended) and to check `VmPeak` as well (recommended), and this
+    ADR was amended before its first commit to record both.
+- **Decision:**
+  - **Targets.** Each crate with a parser has a dev-only integration test,
+    `tests/fuzz.rs`, with one test per target, named after it. The engine
+    (mutations, catching panics, a watchdog for hangs, the memory check,
+    saving crashes) is `tidepool_core::testing::fuzz`, beside the property
+    harness, which every crate may use. No matrix row changes.
+  - **Every `cargo test` replays.** A target's test runs its seeds
+    (`fuzz/corpus/<target>/`, and data already in the repository that it
+    names, read in place) and its saved crashes (`fuzz/crashes/<target>/`)
+    unchanged, so a saved crash is a regression test. It mutates only when
+    `fuzz-smoke` asks it to, through environment variables.
+  - **`fuzz-smoke`'s only child is `cargo test`:** for each target,
+    `cargo test` of that crate's `fuzz` test, filtered to the target, in an
+    optimized profile with overflow checks and debug assertions on. The
+    parsers run in that test binary. This extends ADR-0017's list of
+    children by one cargo command, with the same rules: an argv vector, the
+    root as its directory, standard input closed, `CARGO_NET_OFFLINE=true`.
+    Nothing but cargo runs.
+  - **Over-allocation.** Each parser runs with small `Limits`
+    (`text::encoding`'s decoder takes none). On Linux, the engine reads
+    `/proc/self/status` for two checks:
+    - **Written memory** (`VmHWM`, the peak resident set): a rise past the
+      target's cap is a finding. The file is read once enough of the
+      target's time has passed since the last read for the peak to have
+      crossed the cap at 1 MiB a microsecond, about 300 times the rate
+      measured. Under that bound the input reported is still the one that
+      took the peak past the cap, at a fraction of the cost of reading
+      after every input.
+    - **Reserved memory** (`VmPeak`, the peak address space, which counts
+      memory reserved and never written), from the same read: a peak more
+      than 256 MiB above the address space in use (`VmSize`) once the
+      target's thread has made its first allocation, before any input, is
+      a finding. (A baseline after the first input would hide a saved
+      crash that runs first.) Thread arenas and stacks move it by tens of
+      MiB, so it is checked only when `TIDEPOOL_FUZZ_SECS` is set, even to
+      0: in the runs `fuzz-smoke` starts, and in the reproduce command of
+      a saved reserved-memory crash, each one target to a process. Address space has no rate bound, so a run that reads
+      on the budget names the inputs since the last read; `fuzz-smoke`
+      then prints a replay, which reads after every input, and names and
+      saves the one.
+
+    Elsewhere both checks are skipped, and say so; CI's fuzz step runs on
+    Linux. A run whose process dies (an allocation too big to reserve, a
+    stack overflow) is reported with its seed. Since the inputs follow
+    from the seed alone, a replay that saves each input before running it
+    leaves the culprit on disk.
+- **Consequences:**
+  - A new parser adds a test to its own crate's `tests/fuzz.rs`, a seed
+    directory, and a row in `fuzz-smoke`'s table. `.claude/rules/parsers.md`
+    says so.
+  - `xtask` stays at `core` and `codec`, and the hook stays fast.
+  - Saved crashes cost nothing extra to keep as regression tests.
+  - The memory checks are coarse: they see the whole process, they run
+    only on Linux, the written-memory bound is an assumption measured on
+    one machine, and an allocation that kills the process is found only by
+    replaying it. A plain `cargo test` does not check reserved memory, so
+    a saved reserved-memory crash is a regression test only in runs with
+    `TIDEPOOL_FUZZ_SECS` set: `fuzz-smoke`'s, and its own reproduce
+    command.
+  - `fuzz-smoke` builds each parser crate's tests again in its own profile.
+- **Alternatives considered:**
+  - A dev-only fuzz member that may use any crate, run by `cargo run`: one
+    place for every target, and room for an allocation counter from
+    `platform`, at the cost of a new crate and its matrix row.
+  - Widening `xtask`'s row to every crate with a parser: the hook would
+    compile them all before each check.
+  - A counting allocator in `platform`: precise, but only a binary that may
+    use `platform` can install it, and it would be `platform`'s first
+    `unsafe` code, ahead of M2.1.
+  - `Limits` alone: the quality spec's "over-allocates" would go unchecked
+    by `fuzz-smoke`.
+- **Revisit when:** a parser's blow-up passes the coarse check and is found
+  otherwise; or `platform` has a counting allocator for other reasons.

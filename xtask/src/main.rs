@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! Project automation for the Tidepool repository: the checks behind
-//! `cargo xtask ci`. Later roadmap tasks add goldens, fuzz smoke, theme
-//! contrast, tool descriptors, benchmarks and packaging.
+//! `cargo xtask ci`, and `cargo xtask fuzz-smoke`. Later roadmap tasks add
+//! goldens, theme contrast, tool descriptors, benchmarks and packaging.
 //!
 //! Specification: `docs/04-quality.md` → "`xtask` checks". Run it as
 //! `cargo xtask <command>`; `cargo xtask --help` lists the commands.
@@ -32,7 +32,8 @@
 //!
 //! The one outside program it starts is `cargo`, which `cargo xtask ci`
 //! exists to run (`cargo fmt`, clippy, the tests, `cargo metadata`, `cargo
-//! locate-project`). That is the documented role of `xtask`, so it spawns
+//! locate-project`), and `cargo xtask fuzz-smoke` too (`cargo test` of each
+//! fuzz target, ADR-0027). That is the documented role of `xtask`, so it spawns
 //! cargo itself, with `std::process::Command`, rather than through
 //! `tidepool-toolchain` (`AGENTS.md` rule 2), which manages the tools
 //! Tidepool drives and which the dependency matrix does not let `xtask`
@@ -55,6 +56,7 @@ mod cargo;
 mod check;
 mod deps;
 mod error;
+mod fuzz;
 mod headers;
 mod layers;
 mod lexer;
@@ -132,8 +134,20 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
             task: later.task,
         });
     }
-    // Only `ucd` takes an option of its own; for any other command
-    // `--check` is left for `finish` to reject.
+    if command == "fuzz-smoke" {
+        let options = fuzz::Options::parse(&mut args, fuzz::TARGETS, fuzz::clock_seed)?;
+        if let Some(argument) = args.finish().map_err(usage_error)?.first() {
+            return Err(Error::Usage(format!(
+                "`fuzz-smoke` takes only options, but got `{argument}`"
+            )));
+        }
+        let root = absolute_root(&root)?;
+        let passed = fuzz::run(&options, fuzz::TARGETS, &root, out)?;
+        out.flush().map_err(Error::Output)?;
+        return Ok(passed);
+    }
+    // Only `ucd` and `fuzz-smoke` take options of their own; for any other
+    // command `--check` is left for `finish` to reject.
     let check_only = command == "ucd" && args.flag("--check");
     let extra = args.finish().map_err(usage_error)?;
     if let Some(argument) = extra.first() {
@@ -196,9 +210,15 @@ fn usage() -> String {
          has failed)",
         ci_steps.join(", ")
     );
+    let fuzz_about = format!(
+        "Run each fuzz target for --secs (default {}) with mutated inputs; fail on a panic, a \
+         hang, over-allocation or a death",
+        fuzz::DEFAULT_SECS
+    );
     let commands = [("ci", ci_about.as_str())]
         .into_iter()
-        .chain(COMMANDS.iter().map(|check| (check.name, check.about)));
+        .chain(COMMANDS.iter().map(|check| (check.name, check.about)))
+        .chain([("fuzz-smoke", fuzz_about.as_str())]);
     // Writing to a `String` cannot fail.
     for (name, about) in commands {
         let _ = writeln!(text, "  {name:<12}  {about}");
@@ -211,6 +231,12 @@ fn usage() -> String {
         "\nOptions:\n  \
          --root DIR    Check the repository at DIR instead of this one (for xtask's own tests)\n  \
          --check       ucd only: compare the tables instead of writing them\n  \
+         --secs N      fuzz-smoke only: fuzz each target for N seconds\n  \
+         --target T    fuzz-smoke only: fuzz only the target T\n  \
+         --seed S      fuzz-smoke only: the seed of the inputs (decimal or 0x hex; default: \
+         from the clock)\n  \
+         --replay      fuzz-smoke only: save each input before it runs and check memory after \
+         each, to name the one that kills the process or reserves too much\n  \
          --help        Show this text\n\
          \n\
          Exit status: 0 if every check passed, 1 if a check failed or could not run,\n\
@@ -279,13 +305,23 @@ mod tests {
                 "\n  --check       ucd only: compare the tables instead of writing them\n"
             )
         );
-        // `ucd` is implemented: it is not listed as not yet implemented.
+        // `ucd` and `fuzz-smoke` are implemented: neither is listed as not
+        // yet implemented.
         let later = text
             .split("\nNot yet implemented:\n")
             .nth(1)
             .and_then(|rest| rest.split("\nOptions:\n").next())
             .unwrap();
         assert!(!later.contains("ucd"), "{later}");
+        assert!(!later.contains("fuzz-smoke"), "{later}");
+        assert!(
+            text.contains("\n  --secs N      fuzz-smoke only: fuzz each target for N seconds\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n  --replay      fuzz-smoke only: "),
+            "{text}"
+        );
         assert!(text.contains("  tools         roadmap M5.1\n"));
     }
 
@@ -362,11 +398,6 @@ mod tests {
             (&["theme"], "theme", "roadmap M3.2"),
             (&["golden", "--bless", "scene"], "golden", "roadmap M2.4"),
             (
-                &["fuzz-smoke", "--secs", "60"],
-                "fuzz-smoke",
-                "roadmap M1.6",
-            ),
-            (
                 &["bench", "search"],
                 "bench",
                 "no roadmap task yet; first needed by M4.1",
@@ -394,6 +425,35 @@ mod tests {
             }
             assert!(out.is_empty());
         }
+    }
+
+    #[test]
+    fn fuzz_smoke_takes_only_its_options() {
+        assert_eq!(
+            usage_error(&["fuzz-smoke", "extra"]),
+            "`fuzz-smoke` takes only options, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["fuzz-smoke", "--target", "yaml"]),
+            "unknown fuzz target `yaml`; the targets are: json, toml, encoding"
+        );
+        assert_eq!(
+            usage_error(&["fuzz-smoke", "--secs", "soon"]),
+            "invalid value `soon` for option `--secs` (argument 2)"
+        );
+        assert_eq!(
+            usage_error(&["fuzz-smoke", "--seed", "0xnope"]),
+            "option `--seed` needs a u64, in decimal or as 0x-prefixed hex, not `0xnope`"
+        );
+        assert_eq!(
+            usage_error(&["fuzz-smoke", "--check"]),
+            "unexpected argument `--check` (argument 2)"
+        );
+        // Its options belong to it alone.
+        assert_eq!(
+            usage_error(&["deps", "--secs", "5"]),
+            "unexpected argument `--secs` (argument 2)"
+        );
     }
 
     #[test]

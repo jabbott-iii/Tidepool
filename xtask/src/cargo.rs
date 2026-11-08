@@ -30,6 +30,9 @@
 //! also read for lines that start with `SKIPPED:`, which a test prints when
 //! it cannot run ([`run_scanning_skips`]). Cargo and the test binaries then
 //! write to a pipe rather than the terminal, so they print without colour.
+//! `fuzz-smoke`'s `cargo test` is passed on the same way, without colour
+//! ([`NO_COLOR`]), with the lines that hold what it asks for kept
+//! ([`run_keeping_lines`]).
 
 use std::env;
 use std::ffi::OsString;
@@ -53,6 +56,10 @@ const MAX_LINE_BYTES: usize = 4096;
 /// The most skip reasons [`SkipScan`] keeps; any more are only counted.
 const MAX_SKIP_REASONS: usize = 1000;
 
+/// The most lines [`SkipScan`] keeps for its prefixes; any more are
+/// dropped.
+const MAX_KEPT_LINES: usize = 1000;
+
 /// The `SKIPPED:` lines a command printed.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Skips {
@@ -72,12 +79,19 @@ impl Skips {
     }
 }
 
-/// Finds `SKIPPED:` lines in a stream of bytes that arrives in pieces.
+/// Finds `SKIPPED:` lines in a stream of bytes that arrives in pieces, and
+/// keeps the lines that hold one of `prefixes`, from where it starts.
 #[derive(Debug, Default)]
 struct SkipScan {
     /// The start of the current line, up to [`MAX_LINE_BYTES`].
     line: Vec<u8>,
     skips: Skips,
+    /// What a line to keep holds. libtest can write other text before it
+    /// on the same line (`test json ... fuzz-result: …` with one test
+    /// thread), so it is looked for anywhere, and the line is kept from it.
+    prefixes: &'static [&'static str],
+    /// The lines kept, from the prefix on, at most [`MAX_KEPT_LINES`].
+    kept: Vec<String>,
 }
 
 impl SkipScan {
@@ -101,11 +115,22 @@ impl SkipScan {
     }
 
     fn end_line(&mut self) {
-        if let Some(reason) = skip_reason(&String::from_utf8_lossy(&self.line)) {
+        let line = String::from_utf8_lossy(&self.line);
+        if let Some(reason) = skip_reason(&line) {
             self.skips.count += 1;
             if self.skips.reasons.len() < MAX_SKIP_REASONS {
                 self.skips.reasons.push(reason);
             }
+        }
+        let found = self
+            .prefixes
+            .iter()
+            .filter_map(|prefix| line.find(prefix))
+            .min();
+        if let Some(at) = found
+            && self.kept.len() < MAX_KEPT_LINES
+        {
+            self.kept.push(line[at..].trim_end().to_string());
         }
         self.line.clear();
     }
@@ -130,8 +155,23 @@ fn skip_reason(line: &str) -> Option<String> {
 /// Copies `from` to `to` as it arrives, and returns the `SKIPPED:` lines
 /// in it. If `to` stops accepting output, the rest is still read (so the
 /// child never blocks on a full pipe) and scanned.
-fn tee(mut from: impl Read, to: &mut dyn Write) -> io::Result<Skips> {
-    let mut scan = SkipScan::default();
+#[cfg(test)]
+fn tee(from: impl Read, to: &mut dyn Write) -> io::Result<Skips> {
+    Ok(tee_keeping(from, to, &[])?.0)
+}
+
+/// Copies `from` to `to` as it arrives, and returns the `SKIPPED:` lines
+/// in it, and the lines that hold one of `prefixes`, from where it starts. If `to` stops accepting output, the rest is
+/// still read (so the child never blocks on a full pipe) and scanned.
+fn tee_keeping(
+    mut from: impl Read,
+    to: &mut dyn Write,
+    prefixes: &'static [&'static str],
+) -> io::Result<(Skips, Vec<String>)> {
+    let mut scan = SkipScan {
+        prefixes,
+        ..SkipScan::default()
+    };
     let mut forwarding = true;
     let mut buffer = [0_u8; 8192];
     loop {
@@ -147,7 +187,12 @@ fn tee(mut from: impl Read, to: &mut dyn Write) -> io::Result<Skips> {
         }
         scan.feed(piece);
     }
-    Ok(scan.finish())
+    // A last line without a newline counts too.
+    if !scan.line.is_empty() {
+        scan.end_line();
+    }
+    let kept = std::mem::take(&mut scan.kept);
+    Ok((scan.finish(), kept))
 }
 
 /// Runs `cargo <args>` in `root` with its output passed on to this
@@ -168,14 +213,55 @@ pub(crate) fn run_scanning_skips(root: &Path, args: &[&str]) -> Result<(bool, Sk
     )
 }
 
+/// Runs `cargo <args>` in `root` with `env` added to its environment and
+/// without colour ([`NO_COLOR`], which a CI job's `CARGO_TERM_COLOR=always`
+/// would otherwise put into the lines it reads), its output passed on to
+/// `out` and `err` as it comes. Returns whether it succeeded, and the
+/// lines, from either stream, that hold one of `prefixes`, from where it
+/// starts: those of standard output first, in order, then those of
+/// standard error.
+///
+/// # Errors
+///
+/// [`Error::Spawn`] if cargo cannot be started or its output cannot be
+/// read.
+pub(crate) fn run_keeping_lines(
+    root: &Path,
+    args: &[&str],
+    env: &[(&str, String)],
+    prefixes: &'static [&'static str],
+    out: &mut (dyn Write + Send),
+    err: &mut (dyn Write + Send),
+) -> Result<(bool, Vec<String>), Error> {
+    let mut command = command(root, args);
+    command.envs(env.iter().map(|(name, value)| (name, value)));
+    // Last, so that nothing given or inherited turns colour back on.
+    command.env(NO_COLOR.0, NO_COLOR.1);
+    let (passed, _, kept) = scan_output(command, args, out, err, prefixes)?;
+    Ok((passed, kept))
+}
+
 /// [`run_scanning_skips`] for `command`, which runs `cargo <args>`, with
 /// its output passed on to `out` and `err`.
 fn scan_skips(
-    mut command: Command,
+    command: Command,
     args: &[&str],
     out: &mut (dyn Write + Send),
     err: &mut (dyn Write + Send),
 ) -> Result<(bool, Skips), Error> {
+    let (passed, skips, _) = scan_output(command, args, out, err, &[])?;
+    Ok((passed, skips))
+}
+
+/// [`scan_skips`], also keeping the lines that hold one of `prefixes`,
+/// from where it starts ([`tee_keeping`]).
+fn scan_output(
+    mut command: Command,
+    args: &[&str],
+    out: &mut (dyn Write + Send),
+    err: &mut (dyn Write + Send),
+    prefixes: &'static [&'static str],
+) -> Result<(bool, Skips, Vec<String>), Error> {
     let spawn_error = |source| Error::Spawn {
         command: display(args),
         source,
@@ -188,14 +274,15 @@ fn scan_skips(
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
     let (from_stdout, from_stderr) = thread::scope(|scope| {
         let out = scope.spawn(|| match stdout {
-            Some(stdout) => tee(stdout, out),
-            None => Ok(Skips::default()),
+            Some(stdout) => tee_keeping(stdout, out, prefixes),
+            None => Ok((Skips::default(), Vec::new())),
         });
         let err = scope.spawn(|| match stderr {
-            Some(stderr) => tee(stderr, err),
-            None => Ok(Skips::default()),
+            Some(stderr) => tee_keeping(stderr, err, prefixes),
+            None => Ok((Skips::default(), Vec::new())),
         });
-        let joined = |handle: thread::ScopedJoinHandle<'_, io::Result<Skips>>| {
+        type Scanned = io::Result<(Skips, Vec<String>)>;
+        let joined = |handle: thread::ScopedJoinHandle<'_, Scanned>| {
             handle
                 .join()
                 .unwrap_or_else(|_| Err(io::Error::other("the thread reading cargo's output died")))
@@ -205,9 +292,11 @@ fn scan_skips(
     // Wait for the child even when reading failed, so it is not left
     // behind.
     let status = child.wait().map_err(spawn_error)?;
-    let mut skips = from_stdout.map_err(spawn_error)?;
-    skips.merge(from_stderr.map_err(spawn_error)?);
-    Ok((status.success(), skips))
+    let (mut skips, mut kept) = from_stdout.map_err(spawn_error)?;
+    let (more_skips, more_kept) = from_stderr.map_err(spawn_error)?;
+    skips.merge(more_skips);
+    kept.extend(more_kept);
+    Ok((status.success(), skips, kept))
 }
 
 /// The variable, and its value, that keeps every cargo child off the
@@ -552,6 +641,55 @@ mod tests {
                 count: 4,
             }
         );
+    }
+
+    #[test]
+    fn lines_with_a_prefix_are_kept_trimmed_and_bounded() {
+        let input = "running 1 test\n  fuzz-result: target=json \r\ntest json ... fuzz-result: x\n\
+                     test result: ok.\nfuzz-result: split";
+        let mut out = Vec::new();
+        let (skips, kept) = tee_keeping(
+            input.as_bytes(),
+            &mut out,
+            &["fuzz-result:", "test result:"],
+        )
+        .unwrap();
+        assert_eq!(out, input.as_bytes(), "the output is passed on unchanged");
+        assert_eq!(skips, Skips::default());
+        assert_eq!(
+            kept,
+            [
+                "fuzz-result: target=json",
+                "fuzz-result: x",
+                "test result: ok.",
+                "fuzz-result: split"
+            ]
+        );
+        let mut scan = SkipScan {
+            prefixes: &["x"],
+            ..SkipScan::default()
+        };
+        for _ in 0..MAX_KEPT_LINES + 5 {
+            scan.feed(b"x\n");
+        }
+        assert_eq!(scan.kept.len(), MAX_KEPT_LINES);
+        // Without prefixes, nothing is kept.
+        let (_, kept) = tee_keeping(&b"x\n"[..], &mut Vec::new(), &[]).unwrap();
+        assert!(kept.is_empty());
+    }
+
+    #[test]
+    fn a_command_with_lines_kept_gets_its_environment() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut command = command(root, &["--version"]);
+        command.envs([("XTASK_TEST_VARIABLE", "1")]);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let (passed, _, kept) =
+            scan_output(command, &["--version"], &mut out, &mut err, &["cargo "])
+                .expect("cargo runs");
+        assert!(passed);
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert!(kept[0].starts_with("cargo 1."), "{kept:?}");
     }
 
     #[test]

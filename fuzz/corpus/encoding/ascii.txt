@@ -1,0 +1,3 @@
+plain ASCII text
+with a second line
+and a lone CRend

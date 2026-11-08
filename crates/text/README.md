@@ -20,6 +20,11 @@ Built, with the roadmap task that built it:
 - `encoding` (UTF-8 and UTF-16 LE/BE by BOM, decoded losslessly, invalid
   input read-only) and `file` (loading with the 16 MiB large-file
   threshold, and the atomic save, which follows symbolic links) — M1.3.
+- The fuzz target `encoding` in `tests/fuzz.rs`: the decoder, which takes
+  no `Limits`, fed in pieces and at once, which must agree, decode as
+  `std` does, keep the promises about replaced runs, give back the input,
+  and encode it back when nothing was replaced; seeded from
+  `fuzz/corpus/encoding/` — M1.6.
 
 All of the crate's planned modules exist.
 
@@ -31,7 +36,9 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0018 (the
   Unicode data); ADR-0019 (positions); ADR-0020 (edits and undo); ADR-0025
   (saving: links followed, the temporary file's mode, what a rename
-  changes).
+  changes); ADR-0027 (the fuzz target, in `tests/fuzz.rs`).
+- [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what the
+  target runs and checks.
 
 ## Rules
 
@@ -52,7 +59,11 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 ```bash
 cargo test -p tidepool-text
 cargo xtask ucd --check
+cargo xtask fuzz-smoke --target encoding
 ```
+
+`cargo test` replays the fuzz target's seeds and saved crashes;
+`fuzz-smoke` also mutates them, for 60 s unless `--secs` says otherwise.
 
 `cargo xtask ci` runs the whole gate.
 

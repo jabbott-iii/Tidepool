@@ -600,7 +600,7 @@ with pinned actions.
       vendored valid cases. M1.5 decides whether its writer writes TOML 1.1
       syntax.
 
-- [ ] **M1.6 — xtask: fuzz smoke**
+- [x] **M1.6 — xtask: fuzz smoke**
   - Depends: M0.3, M1.4, M1.7
   - Decide first (`docs/04-quality.md` → "Fuzz smoke" calls these
     provisional):
@@ -614,14 +614,65 @@ with pinned actions.
       extend ADR-0017.
   - Do:
     - `cargo xtask fuzz-smoke [--secs N] [--target T]` per
-      `docs/04-quality.md`; targets for JSON and TOML with seed corpora in
-      `fuzz/corpus/`; a crash is saved to `fuzz/crashes/<target>/` and
-      becomes a regression test.
+      `docs/04-quality.md`; targets for JSON, TOML and `text::encoding`'s
+      decoder (M1.3's note) with seed corpora in `fuzz/corpus/`; a crash is
+      saved to `fuzz/crashes/<target>/` and becomes a regression test.
     - Add the Linux fuzz-smoke step (30 s per target) that
       `docs/04-quality.md` → "CI" requires to `.github/workflows/ci.yml`;
       M0.4 left a `TODO(M1.6)` there.
   - Accept: 60 s per target with no crash; a planted panic is found.
   - Verify: `cargo xtask fuzz-smoke --secs 60`
+  - Note (2026-11-07): the user answered the `Decide first` line, taking
+    the recommended option each time. Targets live in each parser crate's
+    `tests/fuzz.rs`, driven by an engine in `tidepool_core::testing`.
+    Over-allocation is caught by small `Limits` and, on Linux, the peak
+    memory. `fuzz-smoke`'s only child is `cargo test`, which extends
+    ADR-0017. All three are in ADR-0027. After the review, the user chose
+    to read the peak on a time budget and to check reserved memory
+    (`VmPeak`) as well, and ADR-0027 records both.
+  - Note (2026-11-08): done. The engine is `tidepool_core::testing::fuzz`;
+    the targets `json` and `toml` are in `crates/codec/tests/fuzz.rs` and
+    `encoding` in `crates/text/tests/fuzz.rs`, with 54 hand-made seeds in
+    `fuzz/corpus/` (some sit exactly at each of `codec`'s small `Limits`)
+    and `fuzz/NOTICE.md`. What each run does is in `docs/04-quality.md` →
+    "Fuzz smoke".
+    - **Verified:** `cargo xtask fuzz-smoke --secs 60` exits 0, 3 of 3
+      targets clean (seed `0x0d7d112a4d244aad`): `json` 9,116,317 inputs
+      (151,936 a second), `toml` 33,215,266 (553,548), `encoding`
+      12,213,990 (203,565). Written memory rose at most 0.5 MiB of a
+      16 MiB cap; reserved memory stayed at the 64 MiB glibc arena gap,
+      of a 256 MiB cap. A panic planted in `json::parse_bytes` on
+      `nullnull`, which no seed holds, was found in 30 s and saved as
+      `fuzz/crashes/json/panic-<hash>`; plain `cargo test` then failed on
+      that file, and passed on it once the plant was reverted. A planted
+      untouched 272 MiB reservation was found by range and named and
+      saved by its replay. `cargo xtask ci` passes 9 of 9 steps (1,005
+      tests, none SKIPPED), as do core's and xtask's tests on one
+      thread.
+    - **Review:** five dimensions, `security-reviewer` among them, each
+      finding checked by a skeptic; then three more rounds on the fixes.
+      Among what was fixed:
+      - a replay could delete the only copy of the input a death left;
+      - the result line was missed on one test thread;
+      - CI's colour made a build failure read as a death;
+      - a symbolic link at `fuzz/` or below was followed;
+      - `VmHWM` cannot see memory reserved and never written, hence
+        `VmPeak`;
+      - a race left the count of stuck threads up, which turned the
+        memory checks off for the rest of the process. Before the fix,
+        4 of 2,000 stress runs failed; after it, none of 6,400, and none
+        of 1,680 more at a load average of about 300.
+    - **Measured:** reading `/proc/self/status` after every input costs
+      2.7 to 7 times the throughput, hence the time budget
+      (`crates/core/src/testing/fuzz/memory.rs`). A replay adds about
+      8 µs an input.
+    - **Not run here:** macOS and Windows, where both memory checks skip
+      and say so. CI's new fuzz step runs on the next push (M0.4's ⏳). A
+      replay under a systemd memory limit was checked by a reviewer
+      only.
+    - **For later tasks:** every new parser adds a test to its crate's
+      `tests/fuzz.rs`, seeds and a row in `TARGETS`
+      (`.claude/rules/parsers.md`).
 
 - [ ] **M1.5 — codec: TOML with a preserving document model**
   - Depends: M1.7

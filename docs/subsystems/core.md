@@ -10,7 +10,7 @@ owner); port the code, don't depend on the crate.
 | :- | :- |
 | `error` | `CoreError` and the `ErrorContext` helper for "while doing X" context |
 | `log` | Macros `error!`, `warn!`, `info!`, `debug!`, `trace!` with a module target; sinks: stderr, rotating file, in-memory ring buffer (last 1,000 lines, for the Output panel and crash reports); redaction hook for secrets |
-| `testing` | Property-test harness (`check`, `check_sized`), `assert_approx!` |
+| `testing` | Property-test harness (`check`, `check_sized`), `assert_approx!`; `testing::fuzz`, the fuzzer behind each parser crate's fuzz targets (ADR-0027) |
 | `rng` | `Pcg32` (seedable), for tests and jitter in restart backoff |
 | `hash` | `fnv1a64`, a deterministic non-cryptographic hasher with `FastHashMap`/`FastHashSet`, `crc32` (IEEE), and `sha256` for download integrity only (ADR-0016) |
 | `cli` | Minimal argument parser (`--flag`, `--key value`, positional) for `tidepool`, `xtask` and `agents/` |
@@ -62,6 +62,21 @@ is the reference.
   `DEFAULT_SEED` (ASCII `"TIDEPOOL"`), `MAX_SIZE` (100), `assert_approx!`
   with the `Approx` trait. A failure report ends with
   `to reproduce: TIDEPOOL_SEED=0x… cargo test -p <package> <test path>`.
+- `testing::fuzz` (M1.6, ADR-0027): `Target::{new, seeds_in, dictionary,
+  memory_cap, reserved_cap, name, corpus, crashes, run, run_with}`;
+  `Config::from_env`; `Outcome::{is_clean, hung, summary, assert_clean}`
+  and its `Display` report; `Summary::parse` (the `fuzz-result:` line
+  `fuzz-smoke` reads) with `PeakMemory` and `Reading`;
+  `Finding::{path, site_in_std}` with its `input` (`Found`: `File` or
+  `Range`) and `earlier`; `Kind::file_prefix`, `Slowest`, `Memory`, `Skip`,
+  `Stop::{code, describe}`; `FuzzError`; `keep_died`, returning
+  `Option<Kept>` (`New` or `Existing`, `Kept::path`). Constants: `SECS_VAR`
+  (`TIDEPOOL_FUZZ_SECS`), `SEED_VAR` (`TIDEPOOL_FUZZ_SEED`), `REPLAY_VAR`
+  (`TIDEPOOL_FUZZ_REPLAY`), `LAST_INPUT`, `DIED_PREFIX`, `RESULT_PREFIX`,
+  `HANG_LIMIT` (5 s), `STACK_SIZE` (2 MiB), `MAX_LEN` (64 KiB),
+  `MAX_SEED_BYTES` (1 MiB), `DEFAULT_MEMORY_CAP` (64 MiB),
+  `DEFAULT_RESERVED_CAP` (256 MiB). Its rustdoc is the reference, and
+  `docs/04-quality.md` → "Fuzz smoke" summarizes it.
 - `rng`: `Pcg32::{new(seed, stream), next_u32, next_f32, range, shuffle,
   choose}`.
 - `hash`: `fnv1a64`, `crc32`, `Sha256::{new, update, finalize}`, `sha256`,

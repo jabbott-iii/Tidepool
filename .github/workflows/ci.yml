@@ -22,11 +22,8 @@
 #   using the peeled `^{}` SHA when the tag is annotated.
 # - No toolchain action: the hosted runners ship rustup, and
 #   `rust-toolchain.toml` selects the pinned toolchain and its components.
-# - TODO(M1.6): docs/04-quality.md also requires a Linux fuzz-smoke step
-#   (30 s per target). It is left out until `cargo xtask fuzz-smoke` exists
-#   (roadmap M1.6, whose entry notes this step). When it lands, add a step
-#   with `if: runner.os == 'Linux'` that runs
-#   `cargo xtask fuzz-smoke --secs 30`, paused like the steps below.
+# - On Linux, after the gate, `cargo xtask fuzz-smoke --secs 30` fuzzes each
+#   target for 30 s (docs/04-quality.md -> "Fuzz smoke", ADR-0027).
 
 name: CI
 
@@ -127,4 +124,23 @@ jobs:
           exec 2>&1
           echo "::stop-commands::${token}"
           cargo xtask ci
+          echo "::${token}::"
+
+      # Linux only: the memory checks read /proc, and one OS is enough
+      # for the rest. Every `cargo test` above has already replayed each
+      # target's seeds and saved crashes, on every OS. It runs only if the
+      # gate passed, and is paused as the steps above are: it runs the
+      # repository's code, and the code prints what it was given.
+      - name: cargo xtask fuzz-smoke
+        if: runner.os == 'Linux'
+        run: |
+          unset token
+          token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          if [ "${#token}" -ne 32 ] || [[ "$token" == *[!0-9a-f]* ]]; then
+            echo "no token to pause workflow commands with" >&2
+            exit 1
+          fi
+          exec 2>&1
+          echo "::stop-commands::${token}"
+          cargo xtask fuzz-smoke --secs 30
           echo "::${token}::"

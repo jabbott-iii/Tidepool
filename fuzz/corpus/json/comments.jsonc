@@ -1,0 +1,6 @@
+// A settings file.
+{
+  /* the theme */ "theme": "tidepool-dark",
+  "rulers": [80, 100,], // trailing comma
+  "nested": {"a": [], "b": {},},
+}

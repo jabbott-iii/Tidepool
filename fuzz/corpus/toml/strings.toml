@@ -1,0 +1,11 @@
+basic = "tab\tquote\"backslash\\ unicode\u00E9 \U0001F600 escape\e hex\x41"
+literal = 'D:\tidepool\cache\folder'
+multi = """
+A tide pool fills
+and empties \
+    twice a day"""
+multi_literal = '''
+The first newline is trimmed.
+   Indentation is kept.'''
+quotes = """She wrote "two" words, then ""three"" more."""
+empty = ""

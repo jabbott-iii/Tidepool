@@ -65,3 +65,22 @@ strip = "debuginfo"   # full symbols archived separately per build
 [profile.xtask]
 inherits = "release"
 debug = false
+
+# What `cargo xtask fuzz-smoke` builds the fuzz targets in (ADR-0027,
+# docs/04-quality.md -> "Fuzz smoke"): optimized, for many inputs a second,
+# but with the checks a debug build has, so that an overflow or a failed
+# `debug_assert!` on a mutated input is a panic the fuzzer catches, not
+# wrong output it cannot see. No LTO and many codegen units, since it is
+# rebuilt for each change and never shipped; line tables, so that a
+# backtrace of a finding names its lines; and unwinding, which catching a
+# panic needs.
+[profile.fuzz]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+lto = false
+codegen-units = 16
+incremental = false
+debug = "line-tables-only"
+strip = "none"
+panic = "unwind"

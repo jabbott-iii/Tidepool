@@ -12,7 +12,7 @@
 | Protocol transcripts | `crates/testkit/transcripts/` | LSP, DAP and TAP clients send and accept exactly the recorded messages |
 | Fake tools | `crates/testkit/fake-tools/` | `toolchain`, `vcs` and `mobile` handle real output formats and exit codes without the real tools |
 | Real-tool | Gated by `TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`, `TIDEPOOL_IT_ANDROID`, `TIDEPOOL_IT_IOS` | Integration with the actual installed tool |
-| Fuzz smoke | `cargo xtask fuzz-smoke` | No parser panics, hangs or over-allocates on mutated input |
+| Fuzz smoke | Each parser crate's `tests/fuzz.rs`; mutated by `cargo xtask fuzz-smoke` | No parser panics, hangs or over-allocates on its seeds, its saved crashes or mutated input |
 | Responsiveness | `bench` latency suite | Keystroke-to-frame stays within budget with slow fakes attached |
 | Vim conformance | `crates/editor/tests/vim/` | Each supported command in `docs/subsystems/vim-mode.md` behaves as in Vim on a fixture |
 
@@ -55,18 +55,216 @@ as a pass.
 
 ### Fuzz smoke (stable Rust, no dependencies)
 
-- `cargo xtask fuzz-smoke [--secs N] [--target T]` mutates each corpus in
-  `fuzz/corpus/<target>/` (bit flips, splices, length edits, dictionary
-  tokens) and runs the parser in-process. Provisional until M1.6: the
-  parsers after QOI live in crates outside `xtask`'s matrix row, and an
-  allocation cap needs a `GlobalAlloc`, which is `unsafe`
-  (`cargo xtask fuzz-smoke` in the table below).
-- Targets: JSON, TOML, XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, QOI,
-  TrueType, Markdown, regex compile, VT parser, JSON-RPC framing, LSP
-  messages, TAP messages, git porcelain v2, cargo JSON diagnostics, tool
-  version strings.
-- A crash is saved to `fuzz/crashes/<target>/` and becomes a regression
-  test.
+The design is ADR-0027's; the engine's rustdoc
+(`tidepool_core::testing::fuzz`) is authoritative, and this summarizes it.
+
+- **Targets** are tests. Each crate with a parser has a dev-only
+  integration test, `tests/fuzz.rs`, with one `#[test]` per target, named
+  after it. It builds a `Target` (its name, a function that takes any
+  bytes, seed directories, a dictionary of tokens, its memory caps) and
+  runs it. Rejecting an input is fine; a panic, a hang or too much memory
+  is a finding. A target may also check what its module promises beyond
+  "no panic", and panic on a mismatch.
+- **Registered** in three places: the test; its seeds in
+  `fuzz/corpus/<target>/`; and its row in `fuzz-smoke`'s table (`TARGETS`
+  in `xtask/src/fuzz.rs`: the target and its package).
+  `.claude/rules/parsers.md` requires one for every parser. `fuzz-smoke`
+  fails, running nothing, when `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/`
+  is a symbolic link or not a directory, when a directory in
+  `fuzz/corpus/` or `fuzz/crashes/` has no row, or when a row's
+  `fuzz/corpus/<target>/` is missing or holds no regular file that is not
+  hidden. `fuzz/NOTICE.md` says where a saved input may come from.
+- **Targets now** (M1.6). The parsers run with small `Limits` (4 KiB of
+  input, depth 32, strings of 1 KiB, numbers of 64 bytes, 256 entries),
+  and their corpora hold `edge-*` seeds that sit exactly at each limit, so
+  that one mutation crosses it; the decoder of `text::encoding` takes no
+  `Limits`. Each has a 16 MiB written-memory cap.
+
+  | Target | Crate | Runs | Also checks | Seeds read in place |
+  | :- | :- | :- | :- | :- |
+  | `json` | `codec` | `json::parse_bytes`, both dialects; and for input that is not UTF-8, `json::parse` of its lossy decoding | an error's offset is in the input, at a character boundary, with its line and column, and an `InvalidUtf8` one where the UTF-8 stops; strict JSON reads the same as JSONC, and JSONC accepts more only for a comment or a trailing comma; the compact and pretty output read back equal | `crates/codec/tests/json/` (the RFC 8259 examples and the other hand-made vectors) |
+  | `toml` | `codec` | `toml::parse_bytes`; and for input that is not UTF-8, `toml::parse` of its lossy decoding | the same error checks; every span is a non-empty range of characters of the input, and holds what its kind says (quotes, a bare key's name, a boolean's word, `[`, `[[` or `{`) | `crates/codec/tests/toml-test/`, valid and invalid (ADR-0026) |
+  | `encoding` | `text` | `encoding::Decoder`, fed in pieces that the input decides, and `decode` | the pieces decode as the whole does; the text and the detected format are what `std` decodes; the runs of replaced bytes keep their promises; `original_bytes()` is the input; a text decoded without a replacement encodes back to it | — |
+
+  Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, QOI, TrueType,
+  Markdown, regex compile, VT parser, JSON-RPC framing, LSP messages, TAP
+  messages, git porcelain v2, cargo JSON diagnostics, tool version
+  strings, each with its parser's task.
+- **Every `cargo test` replays.** A target's test runs, unchanged, every
+  saved crash in `fuzz/crashes/<target>/` (in name order), then every seed
+  (`fuzz/corpus/<target>/` in name order, then the data it names, in path
+  order). So a saved crash is a regression test, and a fixed one keeps
+  passing. Hidden files are skipped; a seed over 1 MiB, an empty seed
+  directory, and anything that is neither a file nor (for data read in
+  place) a directory fail the test. Every directory a target reads seeds
+  from is `-text` in `.gitattributes`, so that every checkout gives the
+  same bytes, and so the same inputs.
+- **Mutation** happens only when `fuzz-smoke` asks, through
+  `TIDEPOOL_FUZZ_SECS`. Each mutated input is a seed with 1 to 16 changes:
+  bit flips, random bytes, runs inserted, deleted or duplicated, splices
+  from other seeds, boundary integers, small steps on what may be a
+  length, and the target's dictionary tokens. Inputs are at most 64 KiB.
+  Input `n` depends on the seed, the target's name, the seeds and `n`
+  alone: never on the time, which only decides when to stop, nor on the
+  saved crashes. So a run can be replayed exactly.
+- **The engine** runs the target on a thread of its own with a 2 MiB
+  stack, whatever `RUST_MIN_STACK` says, as a parser has on a worker
+  thread (`AGENTS.md` rule 6). The targets of one process run one at a
+  time, until a hang, whose stuck thread runs on. The calling thread is a
+  watchdog: an input that takes more than 5 s is a hang, and so is one
+  that returns after 5 s, whenever the watchdog looked; a hang ends the
+  run, since a stuck thread cannot be stopped. Panics inside the target
+  are caught with the place they were raised, and panics from one place
+  are one finding. When the target caught another panic during the same
+  input, the finding is the one that escaped, and also names the caught
+  one: an earlier one, or one that a `drop` raised and caught while the
+  escaping one unwound (told apart by the escaping panic's message). A
+  place in the standard library (`/rustc/…`), such as
+  `Vec::with_capacity`'s "capacity overflow", may stand for several places
+  in the target, merged into one finding; the report says so. The first
+  panic of an input does not print the usual message; every later one,
+  and any panic elsewhere, goes to the hook that was installed before. So
+  when a panic aborts the process during unwinding (a `drop` that
+  panics), only that later panic is printed. The outcome says why the
+  run stopped (`stopped=` in the result line): `unchanged`,
+  `time`, `target-time`, `wall-cap`, `max-inputs`, `hang` or
+  `slow-input`.
+- **Memory** (Linux only; elsewhere both checks are skipped, and the
+  report says why). From one read of `/proc/self/status`:
+  - **Written** (`VmHWM`, the peak resident set): an input that takes it
+    more than the target's cap above where it was at the start is a
+    finding. Reading costs about 3.4 µs, as much as an input, so mutated
+    inputs are read after only once enough of the target's time has passed
+    for the peak to have passed the cap, at a rate of 1 MiB a microsecond
+    (300 times the rate measured): the input named is still the one that
+    took it past, as long as that bound holds. Unchanged inputs and every
+    input of a replay are read after one by one.
+  - **Reserved** (`VmPeak`, the peak address space, which counts memory
+    reserved and never written, such as `Vec::with_capacity(claimed)`):
+    a peak more than 256 MiB above the address space in use (`VmSize`)
+    once the target's thread has made its first allocation is a finding
+    (or above the peak then, if that is higher; the finding says which,
+    and the result line's `reserved_baseline` is the larger of `VmSize`
+    then and the peak then less the cap). Counting from `VmSize` matters:
+    glibc's arena trim leaves `VmPeak` 64 MiB above it, which would
+    otherwise add 64 MiB to the cap. Threads move it by tens of MiB,
+    so it is checked only when `TIDEPOOL_FUZZ_SECS` is set, even to 0: in
+    the runs `fuzz-smoke` starts, and in the reproduce command of a saved
+    reserved-memory crash, each one target to a process. A plain `cargo
+    test` says it was not checked (`not-asked`). It grows at any rate, so a
+    read on the budget names the range of inputs since the last read and
+    saves none (`ranges=` in the result line); `fuzz-smoke` then prints
+    the replay, which names and saves the one as `reserve-<hash>`. Such a
+    saved crash is a regression test only where the check runs: its
+    report's command sets `TIDEPOOL_FUZZ_SECS=0`.
+  - A thread left stuck in a target that hung keeps running, and can
+    allocate. While one is, later runs in the process check neither
+    (`hung-thread`), and when the stuck input returns, nothing more is
+    recorded for it.
+
+  The measurements are in the module docs of
+  `crates/core/src/testing/fuzz/memory.rs`. Limits: the checks see the
+  whole process; the written one is exact to about 2 MiB and rests on the
+  measured rate; a reservation smaller than its cap is not seen, so the
+  `Limits` checks before allocating remain the guard; a read that fails
+  partway keeps what was measured, and says so. An allocation too large to
+  make kills the process instead; see the replay below.
+- **Findings** are saved to `fuzz/crashes/<target>/<kind>-<hash>`: `panic`,
+  `hang`, `memory` or `reserve`, and the input's FNV-1a hash in 16 hex
+  digits, written whole through a hidden file and renamed into place. An
+  unchanged input that fails is named where it is, not saved again. The
+  test then fails with a report: each file (or range), its kind and the
+  place, why the run stopped, both memory checks, and the command that
+  reproduces it (`cargo test -p <package> --test fuzz -- --exact
+  <target>`, which replays the saved crash first). `.gitattributes` keeps
+  `fuzz/**` byte for byte.
+- **A process that dies** (an allocation too big to make aborts, a stack
+  overflow kills) cannot report, nor can a test binary that exits with
+  libtest's failure status without a result. `fuzz-smoke` then prints the
+  seed and the replay command: `cargo xtask fuzz-smoke --target <target>
+  --seed <seed> --secs <N> --replay`. A replay writes each input to the
+  hidden `fuzz/crashes/<target>/.last-input` before it runs, so when the
+  process dies again, or exits again without a result, the input is
+  there, and `fuzz-smoke` keeps it as `died-<hash>`, replacing a file of
+  that name, which then holds the input's bytes whatever it held. It keeps
+  it only if the replay wrote the file (its modification time changed
+  while the replay ran), and nothing when a signal stopped the test (`SIGINT`,
+  `SIGTERM`, `SIGHUP`). When the input is already a saved crash, a
+  `died-<hash>` or another kind's file of the same hash and bytes, it
+  says so, and makes no second copy. From then on the kept input runs
+  with the saved crashes.
+- **A `.last-input` left over**, by a replay that died or was
+  interrupted, is read by the next replay and run first (saved as a
+  mutated input is saved, should it fail). Before that first input the
+  replay writes it whole under a hidden name and renames it over the old
+  file, so it is on disk at every moment, and a replay that fails to
+  start leaves it. `fuzz-smoke` notes it before the
+  replay starts, with its size and hash and the `mv` command that keeps
+  it as `died-<hash>` by hand. That matters when an out-of-memory kill
+  took `fuzz-smoke` too, as systemd does to every process of the unit
+  unless its `OOMPolicy` is `continue`: nothing was kept, and the
+  leftover is likely the input it died on. For a death that may be an
+  out-of-memory kill, run the replay as `systemd-run --user --scope -p
+  OOMPolicy=continue cargo xtask fuzz-smoke … --replay`. That covers the
+  kernel's out-of-memory killer only: `systemd-oomd`, where it runs,
+  kills every process of the unit it picks whatever `OOMPolicy` says,
+  and then the note's `mv` command keeps the input.
+- **A replay's time.** Saving each input and reading the memory after it
+  add about 8 µs an input on the development machine, measured with a
+  target that does nothing (most of it cutting the file, about 3.6 µs
+  when an input is shorter than the one before, and the read, about
+  3.4 µs; writing is about 0.5 µs). So a replay's seconds count only the
+  time spent inside the target, which the run it replays had less of: it
+  usually gets as far, but the target's time varies, so not always. It
+  also stops at 20 times its seconds in all, which a target whose normal
+  run takes less than about 0.5 µs an input (2 million inputs a second)
+  can reach first; more `--secs` then help. A replay that finds nothing
+  says why it stopped, and that it may not have reached the input the run
+  it replays failed on. It removes its own `.last-input`, and the
+  directories it made if they are empty, and nothing else. Run one replay
+  of a target at a time: two would share the file.
+- **Paths.** Every directory on the way from the root to a target's seed
+  and crash directories, and to each directory of seeds read in place, is
+  looked at without following a link, and a link is refused; directories
+  are made one level at a time, and files with `create_new`. Not covered:
+  a directory swapped for a link while the run uses it.
+- **Environment** (read by the tests; `fuzz-smoke` sets them):
+
+  | Variable | Meaning | When not set |
+  | :- | :- | :- |
+  | `TIDEPOOL_FUZZ_SECS` | Seconds to make mutated inputs for; set at all, it also turns on the reserved-memory check | Only the unchanged inputs run |
+  | `TIDEPOOL_FUZZ_SEED` | The seed of the mutations, a `u64` in decimal or `0x` hex, as `TIDEPOOL_SEED` | `TIDEPOOL_SEED`'s default |
+  | `TIDEPOOL_FUZZ_REPLAY` | `1` to save each input before it runs, and read the memory after each | `0` |
+
+- **The profile** `fuzz` in the root `Cargo.toml` inherits `release`, with
+  `debug-assertions` and `overflow-checks` on (an overflow on a mutated
+  input is then a panic the fuzzer sees), no LTO, 16 codegen units, line
+  tables, no stripping, and unwinding, which catching a panic needs.
+- **`cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S]
+  [--replay]`** runs, for each target in table order (or `T`), `cargo test
+  --profile fuzz -p <package> --test fuzz -- --exact <target> --nocapture`
+  with the variables above and `CARGO_TERM_COLOR=never`: 60 s each unless
+  `--secs` says otherwise, and a seed from the clock, printed, unless
+  `--seed` gives one. Each test prints one result line (`fuzz-result:
+  target=… inputs=… …`), which `fuzz-smoke` reads wherever on its line it
+  starts (with one test thread, libtest writes `test json ... ` first). It
+  prints, for each target, the inputs, inputs a second, findings, both
+  memory checks (or the code of why one was not checked) and the slowest
+  input, then a summary table. It exits 1 if a target found something;
+  if its result line shows another seed, or, outside a replay or a hang,
+  fewer seconds than it was given; if its test failed, did not build or
+  did not run; if cargo failed before the test ran; if the test binary
+  exited with libtest's failure status without a result; or if the
+  test's process died (an allocation too big to make, a stack overflow, a
+  kill, or a call to exit). A test binary that cargo could not start (a
+  missing runner, no permission to run it) is cargo's failure. For a
+  death or an exit without a result outside a replay, it prints the
+  replay command, and says that the saved crashes run first (a `died-*`
+  among them may be what it died on); for a finding that names a range,
+  the replay that names and saves the one; for a finding saved to a file,
+  the command that makes the same inputs again where the file is lost, as
+  on a CI runner. `ci` does not run it; CI has its own step (below), and
+  every `cargo test` already replays the seeds and crashes.
 
 ### Benchmarks — `tidepool-bench`
 
@@ -95,7 +293,7 @@ as a pass.
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
-| `cargo xtask fuzz-smoke` | Not yet implemented (M1.6). Planned: a fuzz target crashes, hangs or exceeds its allocation cap. Provisional: the parsers of the targets after QOI live in crates outside `xtask`'s matrix row, and counting allocations needs a `GlobalAlloc`, which is `unsafe`. M1.6 must settle both |
+| `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/` is a link or not a directory, a directory in `fuzz/corpus/` or `fuzz/crashes/` has no row in its table, or a row has no seeds (then nothing runs); or a target panics, hangs, takes the written or the reserved memory past its cap, fails its own check, reports another seed or too few seconds, or its test fails, does not build, does not run or dies, or cargo fails before it runs ("Fuzz smoke", above). Not a step of `ci` |
 | `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
 | `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
 | `cargo xtask crates` | Not a command yet (M0.9). Planned: a member that does not inherit `edition`, `version` and `license`, lacks `publish = false` or `[lints] workspace = true`, or whose `README.md` is missing or not in the shape of ADR-0023 |
@@ -109,8 +307,10 @@ reference or a permission. It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
 parses. The one file it writes in the repository is the generated Unicode
-tables, with `cargo xtask ucd` without `--check` (below). It opens no
-sockets, and its cargo children run with
+tables, with `cargo xtask ucd` without `--check` (below), and the one it
+renames is a dead replay's `fuzz/crashes/<target>/.last-input`, to
+`died-<hash>`; the fuzz tests that `fuzz-smoke` runs save their findings
+to `fuzz/crashes/` ("Fuzz smoke"). It opens no sockets, and its cargo children run with
 `CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
 so with a `TIDEPOOL_IT_*` variable set, a real-tool test may still reach the
 network through its tool.
@@ -120,7 +320,10 @@ network through its tool.
 **Command line**
 
 - `cargo xtask <command> [--root DIR]`. Every command takes no other
-  argument, except `ucd`, which also accepts `--check` (once).
+  argument, except `ucd`, which also accepts `--check` (once), and
+  `fuzz-smoke`, which accepts `--secs N`, `--target T`, `--seed S` and
+  `--replay`, each once ("Fuzz smoke"). An unknown target, or a value that
+  does not parse, is a usage error.
   `--root DIR` checks the repository
   at `DIR` instead of the one `xtask` was built from; xtask's own tests use
   it on generated fixtures. A relative `DIR` is made absolute against the
@@ -128,9 +331,9 @@ network through its tool.
   (`std::path::absolute`). Links are not resolved, and `..` is kept except
   on Windows. `--help`, `-h` or `help` lists the commands.
 - Exit status: 0 if every check that ran passed; 1 if a check failed or
-  could not run; 2 if the command line was not understood (no or unknown
-  command, a stray argument, `--root` without a value or with an empty
-  one).
+  could not run (for `fuzz-smoke`, a target that did not run clean); 2 if
+  the command line was not understood (no or unknown command, a stray
+  argument, `--root` without a value or with an empty one).
 - A check prints its notes, one `violation:` line per problem, then
   `<check>: ok` or `<check>: FAILED (N violations)`. A check that cannot run
   prints `<check>: FAILED: <reason>`. A violation or reason that quotes
@@ -143,9 +346,10 @@ network through its tool.
   errors, and wherever it shows a package source, every URL has its user
   information replaced by `…` (`git+https://…@host/repo`). Not covered:
   cargo's message text can still name a value that is not a URL, such as a
-  `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
-  stream cargo's output as cargo prints it. So keep secrets out of the
-  repository's cargo files; cargo reads credentials from `CARGO_HOME`.
+  `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps,
+  and `fuzz-smoke`'s tests, stream cargo's output as cargo prints it. So
+  keep secrets out of the repository's cargo files; cargo reads
+  credentials from `CARGO_HOME`.
 - Control characters in output (M0.10): nothing a check reads, a file
   name, a cargo target's name or a line cargo quotes, can start a line of
   its output, which GitHub Actions would read as a workflow command such
@@ -163,17 +367,18 @@ network through its tool.
     `  | `, which is not whitespace once GitHub Actions has trimmed the
     leading spaces it ignores. So every line starts with text `xtask`
     wrote.
-  - Not covered by `xtask`: `ci`'s fmt, clippy and test steps stream
-    cargo's output as cargo prints it, and the code they build and test
-    can print anything. And the runner also reads the older `##[command]`
+  - Not covered by `xtask`: `ci`'s fmt, clippy and test steps, and
+    `fuzz-smoke`'s tests, stream cargo's output as cargo prints it, and the
+    code they build and test can print anything. And the runner also reads the older `##[command]`
     form anywhere in a line, so a path in a check's message can still hold
     one (actions/runner v2.338.2, `src/Runner.Common/ActionCommand.cs`:
     `TryParseV2` trims leading whitespace and needs `::` at the start;
     `TryParse` looks for `##[` anywhere). In CI the gate's step pauses
-    workflow commands, so neither acts as one, though a paused line still
-    shows in the log as printed (M0.11, "CI (GitHub Actions)"). Run
-    locally, the streamed steps can still send escape sequences to the
-    terminal.
+    workflow commands, and so does the fuzz-smoke step, so neither acts as
+    one, though a paused line still shows in the log as printed (M0.11, "CI
+    (GitHub Actions)"). Run locally, the streamed steps can still send
+    escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
+    line in its own messages is escaped, as any check's message is.
 - When every violation `deps` found is an out-of-date lockfile (below), its
   last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
   (`1 violation` when there is one). That line is built from the count and
@@ -182,8 +387,8 @@ network through its tool.
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
-  (M2.4), `fuzz-smoke` (M1.6), `bench` (M1.9; its message still says it
-  has no task, which M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
+  (M2.4), `bench` (M1.9; its message still says it has no task, which
+  M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
   `crates` (M0.9) is not named yet, so it exits 2 as an unknown command.
   Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
@@ -193,13 +398,18 @@ network through its tool.
 - `xtask` runs `cargo` itself, not through `tidepool-toolchain` (the
   exception named in `AGENTS.md` rule 2, ADR-0017): the cargo that
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
-  children are `cargo metadata`, `cargo locate-project` and `ci`'s fmt,
-  clippy and test steps. It runs no other program. Each child is an argv
-  vector, never a shell, and runs in the root with standard input closed and
-  `CARGO_NET_OFFLINE=true`. `cargo metadata` and `cargo locate-project`,
-  whose output `xtask` reads, also get `CARGO_TERM_COLOR=never`, which
-  overrides the environment and `term.color`; the fmt, clippy and test steps
-  keep cargo's own colour setting. If `CARGO_TARGET_DIR` (or else
+  children are `cargo metadata`, `cargo locate-project`, `ci`'s fmt,
+  clippy and test steps, and `fuzz-smoke`'s `cargo test` of each target
+  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables. It runs no
+  other program; the parsers run in those test processes, never in
+  `xtask`. Each child is an argv vector, never a shell, and runs in the
+  root with standard input closed and `CARGO_NET_OFFLINE=true`. `cargo
+  metadata`, `cargo locate-project` and `fuzz-smoke`'s tests, whose output
+  `xtask` reads, also get `CARGO_TERM_COLOR=never`, which overrides the
+  environment and `term.color` (`fuzz-smoke` reads only the tests' result
+  lines and cargo's and libtest's fixed ones in what they print); the fmt,
+  clippy and test steps keep cargo's own colour setting. If
+  `CARGO_TARGET_DIR` (or else
   `CARGO_BUILD_TARGET_DIR`) is set and not empty, every child gets
   `CARGO_TARGET_DIR` made absolute against the directory `xtask` started in.
   This is provisional: `package` is specified to run `lipo`, `iconutil` and
@@ -777,12 +987,14 @@ network through its tool.
 - `.github/workflows/ci.yml`: matrix Linux, macOS, Windows; `permissions:
   contents: read`; actions pinned by full commit SHA with the tag in a
   comment; cache keyed on the lockfile and toolchain; installs the
-  toolchain and runs `cargo xtask ci`, both with workflow commands paused
-  (below), plus, from M1.6, a Linux fuzz-smoke step (30 s per target).
+  toolchain and runs `cargo xtask ci`, then, on Linux only, `cargo xtask
+  fuzz-smoke --secs 30` (30 s per target; it runs only if the gate
+  passed), all three with workflow commands paused (below).
 - **Workflow commands are paused** (M0.11) in the toolchain step, whose
   rustup reads `rust-toolchain.toml` and can quote it, and in the gate's
-  step. Each step makes a token from 16 random bytes, and fails before
-  running anything if that is not 32 lowercase hex digits. It joins its
+  and the fuzz-smoke steps, which run the repository's code. Each step
+  makes a token from 16 random bytes, and fails before running anything
+  if that is not 32 lowercase hex digits. It joins its
   stderr to stdout (`exec 2>&1`), prints `::stop-commands::<token>`, runs
   its commands, then prints `::<token>::`. In between, the runner acts on
   no workflow command they print, whether `::warning::`, `::add-mask::` or
@@ -813,8 +1025,9 @@ network through its tool.
     - Output from a process that outlives its step's commands can arrive
       after the resume, and is not paused.
     - The pause keeps text from acting as a command. It does not contain
-      the code the gate builds and tests, or a `path` toolchain that
-      `rust-toolchain.toml` names, which run as the job. That code can
+      the code the gate and the fuzz-smoke step build and test, or a
+      `path` toolchain that `rust-toolchain.toml` names, which run as the
+      job. That code can
       write the files the runner reads after a step, even one that failed
       (`ActionRunner.cs`, in a `finally`): `$GITHUB_ENV` and `$GITHUB_PATH`
       reach the later steps, the actions' post steps among them, and
