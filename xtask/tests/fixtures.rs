@@ -2061,7 +2061,18 @@ fn fixture_toml_is_refused_with_the_case_path_as_given_or_resolved() {
         root: alias.join("repo"),
         case: alias,
     };
-    let resolved = fs::canonicalize(&linked.case).expect("the link resolves");
+    // On Windows `symlink` makes a file link, which does not resolve to a
+    // directory ("Access is denied"), so this case cannot run there.
+    let resolved = match fs::canonicalize(&linked.case) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            skipped(
+                "fixture_toml_is_refused_with_the_case_path_as_given_or_resolved",
+                &format!("the link to the case directory does not resolve: {error}"),
+            );
+            return;
+        }
+    };
     for spelling in [linked.case.clone(), resolved] {
         let contents = format!("# {}/x\n", spelling.display());
         let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

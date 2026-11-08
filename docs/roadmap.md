@@ -131,6 +131,13 @@ enforced by tooling from day one.
       `core`'s fuzz tests; both now build the path as the engine does.
       `cargo clippy --workspace --all-targets --target
       x86_64-pc-windows-msvc -- -D warnings` passes.
+    - At `d786f91`, Windows ran every test binary: all passed but
+      `fixture_toml_is_refused_with_the_case_path_as_given_or_resolved`.
+      Its link to a directory is a file link on Windows (`fs::soft_link`,
+      as `xtask` has no platform `cfg`), which does not resolve ("Access is
+      denied"), so the test now prints `SKIPPED:` there, as it does when no
+      link can be made. The doc tests, which run last, have not run on
+      Windows yet; a review of all 25 found nothing Windows-specific.
 
 - [x] **M0.5 — Budgets and reference machine**
   - Depends: M0.1
