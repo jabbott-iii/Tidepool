@@ -43,6 +43,11 @@ crates its row in the dependency matrix allows.
 Reference agents live in `agents/`, a separate Cargo workspace that follows
 the same dependency policy and is never linked into Tidepool.
 
+`diagrams/c4-architecture.md` and `diagrams/component-diagrams.md` draw
+these layers and the matrix's edges, what is built solid and what is
+planned dashed with its task (ADR-0029); `diagrams/README.md` lists the
+other views.
+
 ## Dependency matrix
 
 A crate may depend on the workspace crates listed in its row and nothing
@@ -91,7 +96,7 @@ policy approves it.
 ├── .cargo/config.toml        # aliases: xtask, tp
 ├── crates/{core,sys,platform,codec,text,regex,gfx,font,markdown,rpc,toolchain,
 │           syntax,term,workspace,ui,lang,vcs,agent,mobile,editor,gui,tui,app,testkit}/
-│                             # each with a README.md: what it is, status, spec (ADR-0023)
+│                             # each with a README.md, LICENSE and NOTICE (ADR-0023, ADR-0028)
 ├── crates/text/ucd/17.0.0/   # the official Unicode data files `cargo xtask ucd` reads (ADR-0018)
 ├── xtask/
 ├── bench/
@@ -103,6 +108,7 @@ policy approves it.
 ├── themes/                   # tidepool-dark.toml (jabbott.dev tokens)
 ├── tests/golden/             # golden frames (.qoi) and TUI cell snapshots (.txt)
 ├── fuzz/corpus/              # seed inputs per parser
+├── diagrams/                 # C4, UML class, component and sequence, data-flow and state diagrams (Mermaid, ADR-0029)
 ├── scripts/check-deps.sh     # the hook's fallback dependency check when xtask cannot be built
 ├── .claude/                  # Claude Code settings, hook, subagents, path-scoped rules, skills
 ├── .github/                  # CI and CodeQL workflows, Dependabot, PR template, issue form

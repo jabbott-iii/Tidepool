@@ -391,7 +391,7 @@ fn the_root_workspace_must_set_edition_2024() {
     );
 }
 
-/// A README of `tidepool-core` in ADR-0023's shape.
+/// A README of `tidepool-core` in ADR-0028's shape.
 const README_OK: &str = "# tidepool-core\n\
     \n\
     Errors, logging and the rest of the foundations.\n\
@@ -400,9 +400,25 @@ const README_OK: &str = "# tidepool-core\n\
     \n\
     Built: the errors — M0.2. Not yet: paths — M1.8.\n\
     \n\
-    ## Design\n\
+    ## Usage\n\
     \n\
-    `docs/subsystems/core.md`.\n";
+    Nothing to use yet: paths land in M1.8.\n\
+    \n\
+    ## Documentation\n\
+    \n\
+    - Design: `docs/subsystems/core.md`.\n\
+    \n\
+    ## Rules\n\
+    \n\
+    No `unsafe`.\n\
+    \n\
+    ## Checks\n\
+    \n\
+    `cargo test -p tidepool-core`.\n\
+    \n\
+    ## License\n\
+    \n\
+    Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).\n";
 
 /// The roadmap's tasks in these tests.
 fn tasks() -> BTreeSet<String> {
@@ -420,8 +436,48 @@ const FIRST_LINE: &str = "crates/core/README.md: its first line is not `# tidepo
                           package name as a heading";
 const NO_STATUS: &str = "crates/core/README.md has no `## Status` line outside code blocks, HTML \
                          blocks and comments";
-const NO_DESIGN: &str = "crates/core/README.md has no `## Design` line outside code blocks, HTML \
-                         blocks and comments";
+const NO_DOCUMENTATION: &str = "crates/core/README.md has no `## Documentation` line outside code \
+                                blocks, HTML blocks and comments";
+
+/// The violation for a README of `tidepool-core` without `section`.
+fn missing(section: &str) -> String {
+    format!(
+        "crates/core/README.md has no `{section}` line outside code blocks, HTML blocks and comments"
+    )
+}
+
+/// The violations for a README of `tidepool-core` with none of the sections.
+fn every_section_missing() -> Vec<String> {
+    SECTIONS.iter().map(|section| missing(section)).collect()
+}
+
+/// The violation for a README of `tidepool-core` with `section` more than
+/// once.
+fn twice(section: &str) -> String {
+    format!(
+        "crates/core/README.md has more than one `{section}` line outside code blocks, HTML \
+         blocks and comments: a README has each section once"
+    )
+}
+
+/// The violation for a README of `tidepool-core` with `then` before
+/// `first`.
+fn out_of_order(first: &str, then: &str) -> String {
+    format!("crates/core/README.md: `{first}` must come before `{then}`, but comes after it")
+}
+
+const FEATURES_MISPLACED: &str = "crates/core/README.md: `## Features` may stand only between \
+                                  `## Usage` and `## Documentation`";
+
+/// A README of `tidepool-core` whose sections are the lines `sections`, in
+/// that order, each with a line of text under it.
+fn with_sections(sections: &[&str]) -> String {
+    let mut text = "# tidepool-core\n\nErrors and the rest.\n".to_string();
+    for section in sections {
+        text.push_str(&format!("\n{section}\n\nText — M0.2.\n"));
+    }
+    text
+}
 
 #[test]
 fn a_readme_in_the_shape_passes_with_a_bom_or_crlf() {
@@ -476,7 +532,9 @@ fn the_first_line_must_be_the_package_name_as_a_heading() {
         "{violations:?}"
     );
     // An empty README breaks every rule of its shape.
-    assert_eq!(readme(""), [FIRST_LINE, NO_STATUS, NO_DESIGN]);
+    let mut expected = vec![FIRST_LINE.to_string()];
+    expected.extend(every_section_missing());
+    assert_eq!(readme(""), expected);
 }
 
 #[test]
@@ -494,11 +552,11 @@ fn a_section_counts_only_as_its_exact_line_outside_fenced_code() {
     }
     // A fence that never closes hides everything after it.
     let text = README_OK.replace("## Status\n", "````\n## Status\n```\n");
-    assert_eq!(readme(&text), [NO_STATUS, NO_DESIGN]);
+    assert_eq!(readme(&text), every_section_missing());
     // A closing fence of the other character, or indented four spaces,
     // does not close it.
     let text = README_OK.replace("## Status\n", "```\n~~~\n    ```\n## Status\n");
-    assert_eq!(readme(&text), [NO_STATUS, NO_DESIGN]);
+    assert_eq!(readme(&text), every_section_missing());
     // Not fences: indented four spaces or a tab (indented code), and
     // backticks with a backtick in the info string (inline code). The
     // section after each counts.
@@ -511,19 +569,19 @@ fn a_section_counts_only_as_its_exact_line_outside_fenced_code() {
     assert_eq!(readme(&text), Vec::<String>::new());
     // Only the exact line counts.
     for near in [
-        "## Designs",
-        "## Design ",
-        "##  Design",
-        " ## Design",
-        "### Design",
-        "## design",
-        "Design\n------",
+        "## Documentations",
+        "## Documentation ",
+        "##  Documentation",
+        " ## Documentation",
+        "### Documentation",
+        "## documentation",
+        "Documentation\n-------------",
     ] {
-        let text = README_OK.replace("## Design", near);
-        assert_eq!(readme(&text), [NO_DESIGN], "{near:?}");
+        let text = README_OK.replace("## Documentation", near);
+        assert_eq!(readme(&text), [NO_DOCUMENTATION], "{near:?}");
     }
     // With a CR before the LF it is still exact.
-    let text = README_OK.replace("## Design\n", "## Design\r\n");
+    let text = README_OK.replace("## Documentation\n", "## Documentation\r\n");
     assert_eq!(readme(&text), Vec::<String>::new());
 }
 
@@ -541,11 +599,282 @@ fn a_section_counts_only_where_a_reader_sees_it_as_text() {
     // A section only inside a comment, or an HTML block, is not seen.
     let text = README_OK.replace("## Status\n", "<!--\n## Status\n-->\n");
     assert_eq!(readme(&text), [NO_STATUS]);
-    let text = README_OK.replace("## Design\n", "<details>\n## Design\n</details>\n");
-    assert_eq!(readme(&text), [NO_DESIGN]);
+    let text = README_OK.replace(
+        "## Documentation\n",
+        "<details>\n## Documentation\n</details>\n",
+    );
+    assert_eq!(readme(&text), [NO_DOCUMENTATION]);
     // A comment on the line makes it another line than the section.
     let text = README_OK.replace("## Status\n", "## Status<!-- -->\n");
     assert_eq!(readme(&text), [NO_STATUS]);
+}
+
+#[test]
+fn each_section_must_be_there() {
+    for section in SECTIONS {
+        let text = README_OK.replace(&format!("{section}\n"), "");
+        assert_eq!(readme(&text), [missing(section)], "{section}");
+    }
+    // ADR-0023's `## Design` is no longer one: README_OK has none.
+    assert!(!README_OK.contains("## Design"));
+    assert_eq!(readme(README_OK), Vec::<String>::new());
+}
+
+#[test]
+fn each_section_must_be_there_only_once() {
+    for section in SECTIONS {
+        let text = format!("{README_OK}\n{section}\n\nAgain.\n");
+        assert_eq!(readme(&text), [twice(section)], "{section}");
+    }
+    // Three times is one violation too.
+    let text = format!("{README_OK}\n## Rules\n\n## Rules\n");
+    assert_eq!(readme(&text), [twice("## Rules")]);
+    // A copy inside a code block or a comment is not a second one.
+    let text = format!("{README_OK}\n```markdown\n## Rules\n```\n\n<!--\n## Checks\n-->\n");
+    assert_eq!(readme(&text), Vec::<String>::new());
+}
+
+#[test]
+fn the_sections_must_stand_in_order_one_violation_per_pair() {
+    // Two neighbours swapped.
+    let swapped = with_sections(&[
+        "## Status",
+        "## Documentation",
+        "## Usage",
+        "## Rules",
+        "## Checks",
+        "## License",
+    ]);
+    assert_eq!(
+        readme(&swapped),
+        [out_of_order("## Usage", "## Documentation")]
+    );
+    // One section moved far is one violation, at the pair it breaks.
+    let first = with_sections(&[
+        "## License",
+        "## Status",
+        "## Usage",
+        "## Documentation",
+        "## Rules",
+        "## Checks",
+    ]);
+    assert_eq!(readme(&first), [out_of_order("## Checks", "## License")]);
+    let last = with_sections(&[
+        "## Usage",
+        "## Documentation",
+        "## Rules",
+        "## Checks",
+        "## License",
+        "## Status",
+    ]);
+    assert_eq!(readme(&last), [out_of_order("## Status", "## Usage")]);
+    // All of them the other way round: every pair of neighbours.
+    let mut reversed = SECTIONS;
+    reversed.reverse();
+    assert_eq!(
+        readme(&with_sections(&reversed)),
+        SECTIONS
+            .windows(2)
+            .map(|pair| out_of_order(pair[0], pair[1]))
+            .collect::<Vec<_>>()
+    );
+    // A section missing leaves the ones on either side of it compared.
+    let gap = with_sections(&[
+        "## Status",
+        "## Rules",
+        "## Usage",
+        "## Checks",
+        "## License",
+    ]);
+    assert_eq!(
+        readme(&gap),
+        [
+            missing("## Documentation"),
+            out_of_order("## Usage", "## Rules")
+        ]
+    );
+    // A section there twice is reported as such, and not as out of order.
+    let doubled = with_sections(&[
+        "## Usage",
+        "## Status",
+        "## Usage",
+        "## Documentation",
+        "## Rules",
+        "## Checks",
+        "## License",
+    ]);
+    assert_eq!(readme(&doubled), [twice("## Usage")]);
+}
+
+#[test]
+fn features_may_stand_once_between_usage_and_documentation() {
+    // In its place, it passes; without it, too (README_OK).
+    let in_place = README_OK.replace(
+        "## Documentation\n",
+        "## Features\n\nNone.\n\n## Documentation\n",
+    );
+    assert_eq!(readme(&in_place), Vec::<String>::new());
+    // Anywhere else is one violation.
+    let elsewhere: [[&str; 7]; 4] = [
+        [
+            "## Status",
+            "## Features",
+            "## Usage",
+            "## Documentation",
+            "## Rules",
+            "## Checks",
+            "## License",
+        ],
+        [
+            "## Status",
+            "## Usage",
+            "## Documentation",
+            "## Features",
+            "## Rules",
+            "## Checks",
+            "## License",
+        ],
+        [
+            "## Status",
+            "## Usage",
+            "## Documentation",
+            "## Rules",
+            "## Checks",
+            "## License",
+            "## Features",
+        ],
+        [
+            "## Features",
+            "## Status",
+            "## Usage",
+            "## Documentation",
+            "## Rules",
+            "## Checks",
+            "## License",
+        ],
+    ];
+    for sections in elsewhere {
+        assert_eq!(
+            readme(&with_sections(&sections)),
+            [FEATURES_MISPLACED],
+            "{sections:?}"
+        );
+    }
+    // Twice, both in its place, is one violation.
+    let doubled = README_OK.replace(
+        "## Documentation\n",
+        "## Features\n\n## Features\n\n## Documentation\n",
+    );
+    assert_eq!(readme(&doubled), [twice("## Features")]);
+    // With `## Usage` missing, it is judged against `## Documentation` only.
+    let no_usage = with_sections(&[
+        "## Status",
+        "## Features",
+        "## Documentation",
+        "## Rules",
+        "## Checks",
+        "## License",
+    ]);
+    assert_eq!(readme(&no_usage), [missing("## Usage")]);
+}
+
+#[test]
+fn other_headings_may_stand_anywhere() {
+    // ADR-0023's `## Design` among them, before, between and after the
+    // sections, and a `### ` heading under one.
+    let text = README_OK
+        .replace("## Status\n", "## Overview\n\nMore.\n\n## Status\n")
+        .replace("## Rules\n", "## Design\n\n### Examples\n\n## Rules\n");
+    let text = format!("{text}\n## Appendix\n\nLast.\n");
+    assert_eq!(readme(&text), Vec::<String>::new());
+}
+
+/// The rank of `section` in [`SECTIONS`], or `None`.
+fn rank(section: &str) -> Option<usize> {
+    SECTIONS.iter().position(|&known| known == section)
+}
+
+#[test]
+fn the_section_rule_agrees_with_a_model_of_it() {
+    // Headings a README may have, and the sections' own lines.
+    const OTHER: &str = "## Examples";
+    tidepool_core::testing::check_sized(
+        "crates_sections",
+        3000,
+        |rng, size| {
+            // From the shape, with or without Features, then a few changes.
+            let mut sections: Vec<&str> = SECTIONS.to_vec();
+            if rng.range(0..2u32) == 1 {
+                sections.insert(2, FEATURES);
+            }
+            for _ in 0..rng.range(0..size / 20 + 1) {
+                let len = u32::try_from(sections.len()).unwrap_or(u32::MAX);
+                let at = rng.range(0..len + 1) as usize;
+                let any = *rng
+                    .choose(&[SECTIONS.as_slice(), &[FEATURES, OTHER]].concat())
+                    .unwrap_or(&OTHER);
+                match rng.range(0..3u32) {
+                    0 if at < sections.len() => {
+                        sections.remove(at);
+                    }
+                    1 if !sections.is_empty() => {
+                        let other = rng.range(0..len) as usize;
+                        let last = sections.len() - 1;
+                        sections.swap(at.min(last), other);
+                    }
+                    _ => sections.insert(at, any),
+                }
+            }
+            sections
+        },
+        |sections| {
+            let violations = readme(&with_sections(sections));
+            let count = |section: &str| sections.iter().filter(|&&s| s == section).count();
+            let found: Vec<&str> = sections.iter().copied().filter(|&s| s != OTHER).collect();
+            let mut with_features = SECTIONS.to_vec();
+            with_features.insert(2, FEATURES);
+            let valid = found == SECTIONS || found == with_features;
+            if valid != violations.is_empty() {
+                return Err(format!("valid: {valid}, violations: {violations:?}"));
+            }
+            for section in SECTIONS.iter().chain([&FEATURES]) {
+                let is_missing = violations.contains(&missing(section));
+                if is_missing != (count(section) == 0 && *section != FEATURES) {
+                    return Err(format!("missing {section} wrong: {violations:?}"));
+                }
+                if violations.contains(&twice(section)) != (count(section) > 1) {
+                    return Err(format!("twice {section} wrong: {violations:?}"));
+                }
+            }
+            // In order: the sections there once, as they stand, rise in rank.
+            let ranks: Vec<usize> = found
+                .iter()
+                .filter(|&&s| count(s) == 1)
+                .filter_map(|&s| rank(s))
+                .collect();
+            let ordered = ranks.windows(2).all(|pair| pair[0] < pair[1]);
+            let order_violations = violations
+                .iter()
+                .filter(|v| v.contains("must come before"))
+                .count();
+            if ordered != (order_violations == 0) || order_violations >= SECTIONS.len() {
+                return Err(format!("order wrong: {violations:?}"));
+            }
+            // Features: misplaced only when there once, and before a Usage
+            // or after a Documentation there once.
+            let at = |section: &str| sections.iter().position(|&s| s == section);
+            let misplaced = count(FEATURES) == 1
+                && at(FEATURES).is_some_and(|features| {
+                    (count(USAGE) == 1 && at(USAGE).is_some_and(|usage| features < usage))
+                        || (count(DOCUMENTATION) == 1
+                            && at(DOCUMENTATION).is_some_and(|doc| features > doc))
+                });
+            if violations.contains(&FEATURES_MISPLACED.to_string()) != misplaced {
+                return Err(format!("features wrong: {violations:?}"));
+            }
+            Ok(())
+        },
+    );
 }
 
 #[test]
@@ -651,23 +980,39 @@ fn readme_of(name: &str) -> String {
     README_OK.replace("tidepool-core", name)
 }
 
+/// Stand-ins for the root's `LICENSE` and `NOTICE` in these trees, each
+/// with a line that no violation may quote.
+const LICENSE_TEXT: &str = "Apache License\nVersion 2.0, January 2004\n\
+                            A line of LICENSE that must never be printed.\n";
+const NOTICE_TEXT: &str = "Tidepool\nA line of NOTICE that must never be printed.\n";
+
+/// Writes [`LICENSE_TEXT`] and [`NOTICE_TEXT`] into the directory `dir` of
+/// `tree` (`""` for its root).
+fn add_license_files(tree: &TempTree, dir: &str) {
+    tree.write(&beside(dir, "LICENSE"), LICENSE_TEXT);
+    tree.write(&beside(dir, "NOTICE"), NOTICE_TEXT);
+}
+
 /// Writes the member `crates/<dir>`, named `tidepool-<dir>`, with a manifest
-/// and README that keep every rule, and returns it.
+/// and README that keep every rule and copies of the root's `LICENSE` and
+/// `NOTICE`, and returns it.
 fn add_member(tree: &TempTree, dir: &str) -> Package {
     let name = format!("tidepool-{dir}");
     tree.write(&format!("crates/{dir}/Cargo.toml"), manifest_of(&name));
     tree.write(&format!("crates/{dir}/README.md"), readme_of(&name));
+    add_license_files(tree, &format!("crates/{dir}"));
     member(&name, tree.path().join(format!("crates/{dir}/Cargo.toml")))
 }
 
-/// A scratch repository: a root manifest and `count` members that keep
-/// every rule.
+/// A scratch repository: a root manifest, `LICENSE` and `NOTICE`, and
+/// members in `dirs` that keep every rule.
 fn repository(name: &str, dirs: &[&str]) -> (TempTree, Vec<Package>) {
     let tree = TempTree::new(name);
     tree.write(
         "Cargo.toml",
         "[workspace]\nresolver = \"3\"\n\n[workspace.package]\nedition = \"2024\"\n",
     );
+    add_license_files(&tree, "");
     let packages = dirs.iter().map(|dir| add_member(&tree, dir)).collect();
     (tree, packages)
 }
@@ -758,8 +1103,9 @@ fn each_file_that_cannot_be_read_is_a_violation_and_the_check_goes_on() {
         report.notes,
         [
             "members checked: 6, task IDs in docs/roadmap.md: 4",
-            "ADR-0023 (docs/decisions.md) gives the shape of a member's manifest and README, and \
-             docs/04-quality.md (`crates`) the rules this check applies.",
+            "ADR-0023 and ADR-0028 (docs/decisions.md) give the shape of a member's manifest, \
+             README and copies of LICENSE and NOTICE, and docs/04-quality.md (`crates`) the rules \
+             this check applies.",
         ]
     );
 }
@@ -774,6 +1120,7 @@ fn a_linked_readme_manifest_or_member_directory_is_never_read() {
     outside.write("Cargo.toml", manifest_of("tidepool-sys"));
     outside.write("text/Cargo.toml", manifest_of("tidepool-text"));
     outside.write("text/README.md", readme_of("tidepool-text"));
+    add_license_files(&outside, "text");
     fs::remove_file(tree.path().join("crates/core/README.md")).unwrap();
     fs::remove_file(tree.path().join("crates/sys/Cargo.toml")).unwrap();
     fs::remove_dir_all(tree.path().join("crates/text")).unwrap();
@@ -801,6 +1148,8 @@ fn a_linked_readme_manifest_or_member_directory_is_never_read() {
             link("crates/sys/Cargo.toml", "crates/sys/Cargo.toml"),
             link("crates/text/Cargo.toml", "crates/text"),
             link("crates/text/README.md", "crates/text"),
+            link("crates/text/LICENSE", "crates/text"),
+            link("crates/text/NOTICE", "crates/text"),
         ]
     );
 }
@@ -814,7 +1163,7 @@ fn the_root_manifest_and_each_member_are_checked_in_path_order() {
     );
     tree.write(
         "crates/text/README.md",
-        readme_of("tidepool-text").replace("## Design", "## Designs"),
+        readme_of("tidepool-text").replace("## Documentation", "## Documentations"),
     );
     tree.write(
         "crates/core/Cargo.toml",
@@ -829,8 +1178,8 @@ fn the_root_manifest_and_each_member_are_checked_in_path_order() {
              `edition = \"2024\"` in `[workspace.package]`, the edition every member inherits",
             "crates/core/Cargo.toml has no `package.publish`: write `publish = false` in \
              `[package]`, since no member is published",
-            "crates/text/README.md has no `## Design` line outside code blocks, HTML blocks and \
-             comments",
+            "crates/text/README.md has no `## Documentation` line outside code blocks, HTML blocks \
+             and comments",
         ]
     );
 }
@@ -846,12 +1195,21 @@ fn a_member_at_the_root_reads_the_root_s_files() {
         ),
     );
     tree.write("README.md", readme_of("solo"));
-    let packages = vec![member("solo", tree.path().join("Cargo.toml"))];
-    let report = check(tree.path(), &graph(&tree, packages), &tasks());
+    add_license_files(&tree, "");
+    let packages = || vec![member("solo", tree.path().join("Cargo.toml"))];
+    let report = check(tree.path(), &graph(&tree, packages()), &tasks());
     assert_eq!(report.violations, Vec::<String>::new());
     assert_eq!(
         report.notes,
         ["members checked: 1, task IDs in docs/roadmap.md: 4"]
+    );
+    // The member is its own copy: a NOTICE missing at the root is one
+    // violation, not also one for the member's copy.
+    fs::remove_file(tree.path().join("NOTICE")).unwrap();
+    let report = check(tree.path(), &graph(&tree, packages()), &tasks());
+    assert_eq!(
+        report.violations,
+        ["the workspace has no NOTICE at its root"]
     );
 }
 
@@ -868,6 +1226,7 @@ const LINKED_ROOT: &str =
 fn a_root_that_is_a_member_has_its_manifest_read_and_reported_once() {
     let tree = TempTree::new("crates-root-once");
     tree.write("README.md", readme_of("solo"));
+    add_license_files(&tree, "");
     let packages = || vec![member("solo", tree.path().join("Cargo.toml"))];
     // A manifest that does not parse: one violation, not one as the
     // workspace's and one as the member's.
@@ -934,6 +1293,157 @@ fn a_linked_root_manifest_is_a_violation_and_the_members_are_still_checked() {
              `[package]`, since no member is published",
         ]
     );
+}
+
+/// The violation for the member copy `rel` of the root's `name` that is not
+/// the same bytes.
+fn differs(rel: &str, name: &str) -> String {
+    format!("{rel} is not byte for byte the root's {name}: copy the root's {name} over it")
+}
+
+/// Asserts that no violation quotes a line of [`LICENSE_TEXT`] or
+/// [`NOTICE_TEXT`].
+fn quotes_no_license_line(violations: &[String]) {
+    assert!(
+        violations
+            .iter()
+            .all(|violation| !violation.contains("must never be printed")
+                && !violation.contains("January 2004")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn each_member_keeps_copies_of_license_and_notice_byte_for_byte() {
+    let (tree, packages) = repository(
+        "crates-copies",
+        &["core", "sys", "text", "gfx", "font", "ui"],
+    );
+    // Missing.
+    fs::remove_file(tree.path().join("crates/core/LICENSE")).unwrap();
+    // CR LF line endings: other bytes, the same text to a reader.
+    tree.write("crates/sys/NOTICE", NOTICE_TEXT.replace('\n', "\r\n"));
+    // Not a regular file.
+    fs::remove_file(tree.path().join("crates/text/NOTICE")).unwrap();
+    fs::create_dir(tree.path().join("crates/text/NOTICE")).unwrap();
+    // Not UTF-8.
+    tree.write("crates/gfx/LICENSE", b"Apache License\n\xff\n");
+    // One byte short: without its last newline.
+    tree.write(
+        "crates/font/LICENSE",
+        LICENSE_TEXT.strip_suffix('\n').unwrap(),
+    );
+    // Over 1 MiB, starting with the root's text.
+    tree.write(
+        "crates/ui/NOTICE",
+        format!("{NOTICE_TEXT}{}", "x".repeat(1024 * 1024)),
+    );
+    let report = check(tree.path(), &graph(&tree, packages), &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "crates/core/LICENSE is missing".to_string(),
+            differs("crates/font/LICENSE", "LICENSE"),
+            "crates/gfx/LICENSE cannot be read: the file is not UTF-8".to_string(),
+            differs("crates/sys/NOTICE", "NOTICE"),
+            "crates/text/NOTICE cannot be read: it is not a regular file".to_string(),
+            "crates/ui/NOTICE cannot be read: the file is larger than the 1048576-byte limit"
+                .to_string(),
+        ]
+    );
+    quotes_no_license_line(&report.violations);
+    assert_eq!(
+        report.notes[0],
+        "members checked: 6, task IDs in docs/roadmap.md: 4"
+    );
+}
+
+#[test]
+fn a_linked_copy_is_never_read() {
+    let (tree, packages) = repository("crates-copy-linked", &["core", "text"]);
+    // The link leads to the root's bytes, so only the link can fail.
+    let outside = TempTree::new("crates-copy-linked-target");
+    outside.write("LICENSE", LICENSE_TEXT);
+    fs::remove_file(tree.path().join("crates/text/LICENSE")).unwrap();
+    if let Err(reason) = symlink(
+        &tree,
+        "crates/text/LICENSE",
+        &outside.path().join("LICENSE"),
+    ) {
+        skipped("a_linked_copy_is_never_read", &reason);
+        return;
+    }
+    let report = check(tree.path(), &graph(&tree, packages), &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "crates/text/LICENSE cannot be read: crates/text/LICENSE is a symbolic link, which \
+             xtask does not follow"
+        ]
+    );
+}
+
+#[test]
+fn a_root_without_license_or_notice_is_one_violation_each() {
+    let (tree, packages) = repository("crates-root-copies", &["core", "text"]);
+    let metadata = graph(&tree, packages);
+    // Without the root's NOTICE, the members' copies of it are not compared,
+    // even one that differs; their LICENSE still is.
+    fs::remove_file(tree.path().join("NOTICE")).unwrap();
+    tree.write("crates/text/NOTICE", "Another notice.\n");
+    tree.write("crates/text/LICENSE", "Another license.\n");
+    let report = check(tree.path(), &metadata, &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "the workspace has no NOTICE at its root".to_string(),
+            differs("crates/text/LICENSE", "LICENSE"),
+        ]
+    );
+    // A copy that is missing is still missing.
+    fs::remove_file(tree.path().join("crates/core/NOTICE")).unwrap();
+    let report = check(tree.path(), &metadata, &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "the workspace has no NOTICE at its root".to_string(),
+            "crates/core/NOTICE is missing".to_string(),
+            differs("crates/text/LICENSE", "LICENSE"),
+        ]
+    );
+    // A root LICENSE that cannot be read is one violation, and no copy of it
+    // is compared.
+    fs::remove_file(tree.path().join("LICENSE")).unwrap();
+    fs::create_dir(tree.path().join("LICENSE")).unwrap();
+    let report = check(tree.path(), &metadata, &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "LICENSE cannot be read: it is not a regular file",
+            "the workspace has no NOTICE at its root",
+            "crates/core/NOTICE is missing",
+        ]
+    );
+    // A linked root NOTICE is named, and not read.
+    let outside = TempTree::new("crates-root-copies-target");
+    outside.write("NOTICE", NOTICE_TEXT);
+    if let Err(reason) = symlink(&tree, "NOTICE", &outside.path().join("NOTICE")) {
+        skipped(
+            "a_root_without_license_or_notice_is_one_violation_each (link)",
+            &reason,
+        );
+        return;
+    }
+    let report = check(tree.path(), &metadata, &tasks());
+    assert_eq!(
+        report.violations,
+        [
+            "LICENSE cannot be read: it is not a regular file",
+            "NOTICE cannot be read: NOTICE is a symbolic link, which xtask does not follow",
+            "crates/core/NOTICE is missing",
+        ]
+    );
+    quotes_no_license_line(&report.violations);
 }
 
 #[test]
@@ -1071,6 +1581,12 @@ fn the_scanners_keep_their_rules_on_generated_text() {
         "    ",
         "\t",
         "## Status",
+        "## Usage",
+        "## Features",
+        "## Documentation",
+        "## Rules",
+        "## Checks",
+        "## License",
         "## Design",
         "# tidepool-core",
         "- [ ] **",

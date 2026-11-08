@@ -699,7 +699,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0023 — Every workspace member has a README in one shape; `cargo xtask crates` checks the members' manifests and READMEs
 
-- **Status:** Accepted
+- **Status:** Accepted; its README shape and its `## Status` and `## Design` rule are superseded by ADR-0028
 - **Date:** 2026-11-02
 - **Context:**
   - On 2026-11-01 the user chose per-crate READMEs: a `README.md` in each
@@ -1110,3 +1110,132 @@ decides; the roadmap task that first depends on one asks for the decision.
     by `fuzz-smoke`.
 - **Revisit when:** a parser's blow-up passes the coarse check and is found
   otherwise; or `platform` has a counting allocator for other reasons.
+
+## ADR-0028 — Crate READMEs take Nadir's shape, keeping Tidepool's Rules and Checks, with examples that compile as doc tests; every member keeps copies of `LICENSE` and `NOTICE`; `cargo xtask crates` checks both
+
+- **Status:** Accepted
+- **Date:** 2026-11-08
+- **Context:**
+  - On 2026-11-08 the user asked for the crate READMEs and their licensing
+    to follow Nadir (<https://github.com/jabbott-iii/Nadir>). Of the
+    options put to them, they chose Nadir's README shape with Tidepool's
+    `## Rules` and `## Checks` kept, and copies of `LICENSE` and `NOTICE`
+    in every crate.
+  - Nadir's crate READMEs are its crates.io pages (its ADR-0039): what the
+    crate is and how it fits, its status, its usage with examples that are
+    doc tests (a `#[cfg(doctest)]` item whose doc is the README), its
+    features where it has some, links to its documentation, and "Apache
+    License 2.0: see LICENSE and NOTICE". Each crate keeps byte-identical
+    copies of the root's `LICENSE` and `NOTICE` (its ADR-0037), and its
+    `cargo xtask crates` fails a missing or differing copy.
+  - ADR-0023, accepted the same day in M0.6's review, gave the READMEs
+    another shape (Status, Design, Rules, Checks, License) and chose
+    against Nadir's, because Tidepool's crates are not published. M0.9 made
+    every member `publish = false`, and its `crates` check requires
+    `## Status` and `## Design`.
+  - Nothing of Tidepool is published, so a crates.io dependency line or a
+    docs.rs link would name pages that do not exist. Three libraries have
+    APIs to show (`tidepool-core`, `tidepool-codec`, `tidepool-text`), and
+    `xtask` has commands; `tidepool` builds a binary that does nothing.
+- **Decision:**
+  - **Every member's `README.md` has, in this order:**
+    - `# <package name>`; what the crate is; how it fits in Tidepool, with
+      a link to the repository; and its layer and the workspace crates it
+      may use, as the dependency matrix gives them;
+    - `## Status`: "Version 0.1, not published", then what is built, with
+      the tasks that built it, and what is not yet, with the tasks that
+      will build it (as ADR-0023 had it);
+    - `## Usage`: for a library with a built API, the path dependency a
+      workspace crate writes (only where its matrix row allows it), then
+      examples that compile as doc tests; for a binary, its commands; for
+      a crate with nothing to use yet, the task that brings its first API;
+    - `## Features`, only when the crate has Cargo features (none has
+      today);
+    - `## Documentation`: its spec, the ADRs that shape it, and
+      `cargo doc -p <package> --open` for its API reference. It takes the
+      place of ADR-0023's `## Design`;
+    - `## Rules` and `## Checks`, as ADR-0023 had them;
+    - `## License`: "Apache License 2.0: see [LICENSE](LICENSE) and
+      [NOTICE](NOTICE).", then any third-party material the crate holds
+      and where its notice is.
+  - **Examples are doc tests.** Each library member's `src/lib.rs` has
+    Nadir's `#[cfg(doctest)] #[doc = include_str!("../README.md")] struct
+    ReadmeDoctests;`, so `cargo test` compiles and runs the README's Rust
+    blocks. A binary's README holds no Rust block, which nothing would test.
+  - **Every member keeps copies of the root's `LICENSE` and `NOTICE`** in
+    its folder, byte for byte.
+  - **`cargo xtask crates`** keeps ADR-0023's manifest, first-line and
+    task-ID rules. It fails a README without a `## Status`, `## Usage`,
+    `## Documentation`, `## Rules`, `## Checks` or `## License` line, with
+    one of them twice, or with them out of this order (a `## Features` may
+    stand between Usage and Documentation); and a member whose `LICENSE` or
+    `NOTICE` is missing, a link, not a regular file, or not the same bytes
+    as the root's.
+  - This supersedes ADR-0023's README shape and its `## Status` and
+    `## Design` rule. The rest of ADR-0023 stands.
+- **Consequences:**
+  - Good: a crate's README shows how to use what it has built, and an
+    example that stops compiling fails `cargo test`. Each crate's folder
+    carries its license, as Nadir's do, and still does if a crate is ever
+    packaged or published.
+  - Bad: 52 more files; a change to `LICENSE` or `NOTICE` is 27 changes,
+    which `crates` finds but does not make. The READMEs partly repeat the
+    crate docs, and 22 of them have a `## Usage` that only says what comes.
+- **Alternatives considered:**
+  - Nadir's shape exactly, without Rules and Checks: the user kept them;
+    they say which `.claude/rules/` apply and what to run.
+  - ADR-0023's shape, with only the license copies added: not the style
+    the user asked for.
+  - Links to the root's `LICENSE` and `NOTICE` instead of copies: nothing
+    to keep in step, but not Nadir's style, and a packaged crate would
+    carry neither.
+- **Revisit when:** a crate is published (it then gets Nadir's crates.io
+  lines: a registry dependency and a docs.rs link), or the license changes.
+
+## ADR-0029 — `diagrams/` holds the C4, UML, data-flow and state diagrams, in Mermaid; what the code has is drawn solid, what the roadmap plans dashed, with its task
+
+- **Status:** Accepted
+- **Date:** 2026-11-08
+- **Context:**
+  - On 2026-11-08 the user asked for a `diagrams/` folder at the root with
+    C4 diagrams (the container and component levels), UML class, component
+    and sequence diagrams, and data-flow and state diagrams, in Nadir's
+    style. Nadir's `diagrams/` is Markdown with Mermaid blocks, which
+    GitHub draws; each file names the commit it is drawn from, and what is
+    planned is dashed and labelled.
+  - 22 of the 26 members are empty, and most of Tidepool is the design in
+    `docs/`. Asked what to draw, the user chose what is built and what is
+    planned, the planned parts marked with their task.
+  - Tidepool takes no third-party code (ADR-0001), and no tool to render
+    diagrams is a managed tool.
+- **Decision:**
+  - **`diagrams/`** at the root holds `README.md` (what each file shows,
+    how to read and keep them), `c4-architecture.md` (containers and
+    components), `class-diagrams.md`, `component-diagrams.md`,
+    `sequence-diagrams.md` and `data-flow-and-state.md`. Each names the
+    roadmap task it was drawn as of, whose ID never changes (ADR-0024),
+    and lists its sources.
+  - **Mermaid in Markdown only**, no generated images. The C4 views are
+    Mermaid flowcharts in C4's colours, as Nadir draws them, since
+    Mermaid's own C4 diagrams are experimental.
+  - **Built is solid; planned is dashed** and labelled with the roadmap
+    task that builds it. A class diagram shows only types the code has,
+    under their real names; planned types appear in the other diagrams,
+    under the names their specs give.
+  - **The code wins.** When a diagram and the code disagree, the code is
+    right. A change to what a diagram draws (a crate's dependencies, a
+    type drawn, a flow) updates the diagram in the same change, and a task
+    that builds what a diagram draws as planned makes it solid.
+- **Consequences:**
+  - Good: one place to see how the parts fit, before most of them exist.
+  - Bad: drawings of planned work go stale as specs change, and no check
+    reads them; Mermaid has no true UML component notation, so component
+    diagrams are flowcharts with ports drawn as nodes.
+- **Alternatives considered:**
+  - Images rendered by a tool (mermaid-cli, PlantUML): an outside program,
+    and pictures that cannot be reviewed as text.
+  - Only what is built: accurate, but most views would be empty.
+  - Mermaid's `C4Container` and `C4Component` diagrams: experimental, and
+    GitHub draws their layout poorly.
+- **Revisit when:** a check can compare a diagram with the code (the crate
+  graph with the dependency matrix, say), or GitHub stops drawing Mermaid.

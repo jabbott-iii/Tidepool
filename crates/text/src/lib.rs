@@ -41,6 +41,11 @@ pub mod rope;
 pub mod selection;
 pub mod transaction;
 
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 pub use encoding::{Decoded, Decoder, Encoding, Format};
 pub use error::TextError;
 pub use file::{FileStep, LineEndings, Loaded};

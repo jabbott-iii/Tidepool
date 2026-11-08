@@ -15,3 +15,8 @@
 //! Version control through the managed git CLI.
 //!
 //! Specification: `docs/subsystems/toolchains.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

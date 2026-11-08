@@ -5,11 +5,18 @@ manifests, supervision, consent, the context Tidepool assembles for them
 (with the secret deny-list), offline predictive text, and the merging of
 suggestions.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
+`editor`'s AI completion, chat and proposals use it; it speaks TAP through
+`tidepool-rpc` and starts agents through `tidepool-toolchain`.
+
 Layer 3, language and tool features. It may use `core`, `codec`, `text`,
 `rpc`, `toolchain` and `workspace`, as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Nothing yet: the crate is only its doc comment, which names its spec.
 
@@ -20,11 +27,17 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/agents.md`](../../docs/subsystems/agents.md)
+Nothing to use yet: `manifest`, `host`, `tap`, `context` and `consent` land
+in M9.3.
+
+## Documentation
+
+- Design: [`docs/subsystems/agents.md`](../../docs/subsystems/agents.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0009
   (agents are processes speaking TAP, Proposed); ADR-0014 (trust, Proposed).
+- API reference: `cargo doc -p tidepool-agent --open`
 
 ## Rules
 
@@ -45,4 +58,4 @@ cargo test -p tidepool-agent
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

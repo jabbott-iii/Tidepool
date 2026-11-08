@@ -73,7 +73,7 @@ const ROADMAP: &str = "# Roadmap (fixture)\n\
     - [ ] **M0.2 — fixture: the second task**\n";
 
 /// The README of the fixture's package `name`, in the shape `crates`
-/// checks (ADR-0023), naming the tasks of [`ROADMAP`].
+/// checks (ADR-0023, ADR-0028), naming the tasks of [`ROADMAP`].
 fn readme_of(name: &str) -> String {
     format!(
         "# {name}\n\
@@ -82,13 +82,34 @@ fn readme_of(name: &str) -> String {
          \n\
          ## Status\n\
          \n\
-         Built: nothing — M0.1. Not yet: the rest — M0.2.\n\
+         Version 0.1, not published. Built: nothing — M0.1. Not yet: the rest — M0.2.\n\
          \n\
-         ## Design\n\
+         ## Usage\n\
          \n\
-         None.\n"
+         Nothing to use yet: its first API lands in M0.2.\n\
+         \n\
+         ## Documentation\n\
+         \n\
+         - API reference: `cargo doc -p {name} --open`\n\
+         \n\
+         ## Rules\n\
+         \n\
+         None.\n\
+         \n\
+         ## Checks\n\
+         \n\
+         `cargo test -p {name}`\n\
+         \n\
+         ## License\n\
+         \n\
+         Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).\n"
     )
 }
+
+/// The real `LICENSE` and `NOTICE`, which the fixture keeps at its root and
+/// a copy of in each member (ADR-0028), as the repository does.
+const LICENSE: &str = include_str!("../../LICENSE");
+const NOTICE: &str = include_str!("../../NOTICE");
 
 /// The files `ci`'s `ucd` step checks: the pinned Unicode data and the
 /// tables generated from it, copied from the real repository by
@@ -349,9 +370,10 @@ impl Fixture {
 
     /// A small repository shaped like Tidepool's that passes every check
     /// but `ucd` (for which see [`Fixture::with_ucd`]): four crates that
-    /// follow [`MATRIX`], each with its README ([`readme_of`]) and a
-    /// manifest that inherits from the workspace, the two unsafe crate
-    /// roots, the real allowlist, a roadmap ([`ROADMAP`]), a lockfile, and
+    /// follow [`MATRIX`], each with its README ([`readme_of`]), copies of
+    /// [`LICENSE`] and [`NOTICE`] and a manifest that inherits from the
+    /// workspace, the two unsafe crate roots, the real allowlist, `LICENSE`
+    /// and `NOTICE` at the root, a roadmap ([`ROADMAP`]), a lockfile, and
     /// the two workflows ([`CI_WORKFLOW`], [`CODEQL_WORKFLOW`]).
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
@@ -374,6 +396,8 @@ impl Fixture {
             "[dependencies]\ntidepool-core = { path = \"../core\" }\n",
             "//! Text.\n\n/// Says hello.\npub fn hello() -> &'static str {\n    \"hello\"\n}\n",
         );
+        fixture.write("LICENSE", LICENSE);
+        fixture.write("NOTICE", NOTICE);
         fixture.write("docs/01-architecture.md", MATRIX);
         fixture.write("docs/roadmap.md", ROADMAP);
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
@@ -399,9 +423,9 @@ impl Fixture {
     }
 
     /// Writes the package `tidepool-<dir>` in `crates/<dir>`, with its
-    /// README. Its manifest inherits from the workspace and keeps the rules
-    /// of `crates`; `tables` come last, so that text appended to the
-    /// manifest goes on with them.
+    /// README and its copies of [`LICENSE`] and [`NOTICE`]. Its manifest
+    /// inherits from the workspace and keeps the rules of `crates`; `tables`
+    /// come last, so that text appended to the manifest goes on with them.
     fn package(&self, dir: &str, tables: &str, lib: &str) {
         let name = format!("tidepool-{dir}");
         self.write(
@@ -409,6 +433,8 @@ impl Fixture {
             &member_manifest(&name, tables),
         );
         self.write(&format!("crates/{dir}/README.md"), &readme_of(&name));
+        self.write(&format!("crates/{dir}/LICENSE"), LICENSE);
+        self.write(&format!("crates/{dir}/NOTICE"), NOTICE);
         self.source(&format!("crates/{dir}/src/lib.rs"), lib);
     }
 
@@ -2416,12 +2442,12 @@ fn crates_fails_on_a_readme_whose_first_line_is_not_the_package_name() {
 #[test]
 fn crates_fails_on_a_readme_without_a_section_outside_code() {
     let fixture = Fixture::passing("crates-section");
-    // `## Design` only inside a fenced code block, and `## Statuses` for
-    // `## Status`.
+    // `## Documentation` only inside a fenced code block, and `## Statuses`
+    // for `## Status`.
     fixture.write(
         "crates/core/README.md",
         &readme_of("tidepool-core")
-            .replace("## Design\n", "```markdown\n## Design\n```\n")
+            .replace("## Documentation\n", "```markdown\n## Documentation\n```\n")
             .replace("## Status\n", "## Statuses\n"),
     );
     let run = fixture.run("crates");
@@ -2431,8 +2457,8 @@ fn crates_fails_on_a_readme_without_a_section_outside_code() {
         [
             "crates/core/README.md has no `## Status` line outside code blocks, HTML blocks and \
              comments",
-            "crates/core/README.md has no `## Design` line outside code blocks, HTML blocks and \
-             comments",
+            "crates/core/README.md has no `## Documentation` line outside code blocks, HTML \
+             blocks and comments",
         ]
     );
     // A fence opener inside an HTML comment opens no code block, so the
@@ -2454,6 +2480,118 @@ fn crates_fails_on_a_readme_without_a_section_outside_code() {
             "crates/core/README.md has no `## Status` line outside code blocks, HTML blocks and \
              comments"
         ]
+    );
+}
+
+#[test]
+fn crates_fails_on_a_section_twice_out_of_order_or_features_out_of_place() {
+    let fixture = Fixture::passing("crates-order");
+    // `## Rules` twice.
+    fixture.append("crates/sys/README.md", "\n## Rules\n\nAgain.\n");
+    // `## Documentation` before `## Usage`.
+    fixture.write(
+        "crates/platform/README.md",
+        &readme_of("tidepool-platform")
+            .replace("## Usage\n", "## Swap\n")
+            .replace("## Documentation\n", "## Usage\n")
+            .replace("## Swap\n", "## Documentation\n"),
+    );
+    // `## Features` after `## Documentation`.
+    fixture.write(
+        "crates/text/README.md",
+        &readme_of("tidepool-text").replace("## Rules\n", "## Features\n\nNone.\n\n## Rules\n"),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/platform/README.md: `## Usage` must come before `## Documentation`, but comes \
+             after it",
+            "crates/sys/README.md has more than one `## Rules` line outside code blocks, HTML \
+             blocks and comments: a README has each section once",
+            "crates/text/README.md: `## Features` may stand only between `## Usage` and `## \
+             Documentation`",
+        ]
+    );
+    assert!(
+        run.stdout.ends_with("crates: FAILED (3 violations)\n"),
+        "{}",
+        run.stdout
+    );
+    // `## Features` in its place passes, and so do other headings anywhere.
+    fixture.write(
+        "crates/text/README.md",
+        &readme_of("tidepool-text").replace(
+            "## Documentation\n",
+            "## Features\n\nNone.\n\n## Documentation\n",
+        ),
+    );
+    fixture.write(
+        "crates/platform/README.md",
+        &readme_of("tidepool-platform").replace("## Rules\n", "## Design\n\nNone.\n\n## Rules\n"),
+    );
+    fixture.write("crates/sys/README.md", &readme_of("tidepool-sys"));
+    passes(&fixture, "crates");
+}
+
+#[test]
+fn crates_fails_on_a_missing_differing_or_linked_license_copy() {
+    let fixture = Fixture::passing("crates-copies");
+    fs::remove_file(fixture.root.join("crates/core/LICENSE")).expect("the copy exists");
+    fixture.write(
+        "crates/sys/NOTICE",
+        &format!("{NOTICE}This line must never be printed.\n"),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/core/LICENSE is missing",
+            "crates/sys/NOTICE is not byte for byte the root's NOTICE: copy the root's NOTICE over \
+             it",
+        ]
+    );
+    let output = format!("{}{}", run.stdout, run.stderr);
+    assert!(!output.contains("must never be printed"), "{output}");
+    assert!(!output.contains("Joseph Anthony Abbott III"), "{output}");
+
+    // A linked copy, to the root's own bytes, is named and not read.
+    fixture.write("crates/core/LICENSE", LICENSE);
+    fixture.write("crates/sys/NOTICE", NOTICE);
+    passes(&fixture, "crates");
+    fixture.write_outside("elsewhere/LICENSE", LICENSE);
+    let link = fixture.root.join("crates/text/LICENSE");
+    fs::remove_file(&link).expect("the copy exists");
+    if let Err(reason) = symlink(&fixture.real("elsewhere/LICENSE"), &link) {
+        skipped(
+            "crates_fails_on_a_missing_differing_or_linked_license_copy (link)",
+            &reason,
+        );
+        return;
+    }
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/text/LICENSE cannot be read: crates/text/LICENSE is a symbolic link, which \
+             xtask does not follow"
+        ]
+    );
+}
+
+#[test]
+fn crates_fails_on_a_workspace_without_a_notice_at_its_root() {
+    let fixture = Fixture::passing("crates-root-notice");
+    fs::remove_file(fixture.root.join("NOTICE")).expect("the root has a NOTICE");
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    // One violation: the members' copies have nothing to be compared with.
+    assert_eq!(
+        run.violations(),
+        ["the workspace has no NOTICE at its root"]
     );
 }
 

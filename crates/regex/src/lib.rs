@@ -15,3 +15,8 @@
 //! A linear-time regular expression engine.
 //!
 //! Specification: `docs/subsystems/text-and-formats.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

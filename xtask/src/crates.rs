@@ -13,11 +13,14 @@
 // limitations under the License.
 
 //! `cargo xtask crates`: every member of the root workspace has the
-//! manifest and the `README.md` that ADR-0023 asks for.
+//! manifest, the `README.md` and the copies of `LICENSE` and `NOTICE` that
+//! ADR-0023 and ADR-0028 ask for.
 //!
-//! Written for Tidepool; Nadir has no such check. The members are the root
-//! workspace's, as `cargo metadata --offline --no-deps` lists them, and each
-//! is found in the directory of its `Cargo.toml`. The check fails when:
+//! Written for Tidepool. The rule for the license copies is Nadir's, whose
+//! own `crates` check fails a missing or differing copy (ADR-0028's
+//! Context). The members are the root workspace's, as `cargo metadata
+//! --offline --no-deps` lists them, and each is found in the directory of
+//! its `Cargo.toml`. The check fails when:
 //!
 //! - a member's `Cargo.toml` does not inherit `edition`, `version` and
 //!   `license` from the workspace: each must be a table whose only key is
@@ -39,23 +42,40 @@
 //!   file, is over 1 MiB or is not UTF-8;
 //! - the README's first line, after one leading byte-order mark and one
 //!   trailing CR, is not `# <package name>`;
-//! - it has no line `## Status` or no line `## Design` (exactly, after one
-//!   trailing CR) that `layers`' reading of a document
-//!   ([`matrix::classify`]) takes for text: outside fenced code blocks,
-//!   HTML blocks and HTML comments as that reading finds them, line by line
-//!   and at the top level, which is close to a renderer's but not the same
-//!   (below);
+//! - its sections are not [`SECTIONS`], each once and in that order. A
+//!   section is a line `## Status`, `## Usage`, `## Documentation`,
+//!   `## Rules`, `## Checks` or `## License` (exactly, after one trailing
+//!   CR) that `layers`' reading of a document ([`matrix::classify`]) takes
+//!   for text: outside fenced code blocks, HTML blocks and HTML comments as
+//!   that reading finds them, line by line and at the top level, which is
+//!   close to a renderer's but not the same (below). One violation for each
+//!   section missing, each section there more than once, and each pair of
+//!   sections that are neighbours in [`SECTIONS`] once those missing or
+//!   there more than once are left out, and stand the other way round. So a
+//!   section moved far away is one violation. A `## Features` line
+//!   ([`FEATURES`]) may be there, once, after `## Usage` and before
+//!   `## Documentation` (judged against those of the two there once): one
+//!   violation if it is there more than once, one if it stands elsewhere.
+//!   Other `## ` headings may stand anywhere;
 //! - it names a task ID that `docs/roadmap.md` has no task for. A task ID is
 //!   `M`, ASCII digits, `.` and ASCII digits, each run of digits as long as
 //!   it goes, with no ASCII letter, digit or `_` just before the `M`: so
 //!   `M1.23` is one ID, and `xM1.2` none. Each unknown ID is reported once
 //!   per README, in numeric order;
-//! - a README cannot be read, or a manifest that cargo loaded cannot be read
-//!   or parsed here (a link, over 1 MiB, past this check's own [`LIMITS`]
-//!   for [`tidepool_codec::toml`]): one violation naming it, and the check
-//!   goes on with the other members. The root manifest is read once, also
-//!   when the root is a member. A member whose manifest is not under the
-//!   root fails too, unchecked.
+//! - a member has no `LICENSE` or no `NOTICE` beside its `Cargo.toml`, or
+//!   one of them is a symbolic link, is reached through one, is not a
+//!   regular file, is over 1 MiB, is not UTF-8 or is not, byte for byte, the
+//!   root's ([`LICENSE_FILES`]). One violation per copy. A member at the root
+//!   is its own copy, and is not compared;
+//! - the root's `LICENSE` or `NOTICE` is missing or cannot be read in the
+//!   same way: one violation each, and the members' copies of that file are
+//!   then not compared, only read;
+//! - a README, a copy or the root's `LICENSE` or `NOTICE` cannot be read, or
+//!   a manifest that cargo loaded cannot be read or parsed here (a link, over
+//!   1 MiB, past this check's own [`LIMITS`] for [`tidepool_codec::toml`]):
+//!   one violation naming it, and the check goes on with the other members.
+//!   The root manifest is read once, also when the root is a member. A
+//!   member whose manifest is not under the root fails too, unchecked.
 //!
 //! The tasks are the roadmap's lines that start `- [ ] **M<n>.<m> — ` or
 //! `- [x] **M<n>.<m> — `. When the roadmap cannot be read, or has no such
@@ -63,17 +83,19 @@
 //! does on a manifest that is not TOML or holds a value cargo rejects, in
 //! the root or any member. Every file is read as [`walk::read_unlinked`]
 //! reads one, and is first checked to be a regular file, so that a FIFO is
-//! never opened. A violation names a path, a package or target name or a
-//! task ID, never a line of a file: the first-line rule says what the line
-//! should be, not what it is. A failed `cargo metadata` is relayed as for
-//! the other checks, without the source lines cargo quotes.
+//! never opened. A violation names a path, a package or target name, a
+//! section or a task ID, never a line of a file: the first-line rule says
+//! what the line should be, not what it is, and a copy that differs is
+//! named, not shown.
 //!
 //! Not covered:
 //!
 //! - whether what a README calls built is built (ADR-0023's Consequences:
 //!   the check verifies the shape and the task IDs, not the claims);
-//! - ADR-0023's other parts: the paragraph, the layer line, and the
-//!   `## Rules`, `## Checks` and `## License` sections;
+//! - the rest of ADR-0028's shape: the paragraphs and the layer line before
+//!   `## Status`, what each section says, and whether a README's Rust
+//!   examples are doc tests (`cargo test` runs them only where the crate's
+//!   `src/lib.rs` includes the README);
 //! - where that reading and a renderer differ, a section is hidden, and
 //!   reported missing, or in one case seen though a browser hides it:
 //!   - only a line that is itself a fence, at most three columns in, opens
@@ -96,7 +118,7 @@
 //!     comment;
 //! - the members of `agents/`, a workspace of its own from roadmap M9.2;
 //! - a file system that ignores case (macOS and Windows by default), where
-//!   `readme.md` opens as `README.md`;
+//!   `readme.md` opens as `README.md`, and `license` as `LICENSE`;
 //! - races, as for every check ("Files searched" in `docs/04-quality.md`).
 
 use std::collections::BTreeSet;
@@ -145,8 +167,33 @@ const LIMITS: Limits = Limits {
 /// The edition the root workspace sets and every member inherits.
 const EDITION: &str = "2024";
 
-/// The sections every README has, each a line of its own.
-const SECTIONS: [&str; 2] = ["## Status", "## Design"];
+/// The sections every README has, each a line of its own, once, in this
+/// order (ADR-0028).
+const SECTIONS: [&str; 6] = [
+    "## Status",
+    USAGE,
+    DOCUMENTATION,
+    "## Rules",
+    "## Checks",
+    "## License",
+];
+
+/// The section [`FEATURES`] comes after.
+const USAGE: &str = "## Usage";
+
+/// The section [`FEATURES`] comes before.
+const DOCUMENTATION: &str = "## Documentation";
+
+/// The section a README has only when its crate has Cargo features: once,
+/// between [`USAGE`] and [`DOCUMENTATION`].
+const FEATURES: &str = "## Features";
+
+/// The files every member keeps beside its manifest, each byte for byte the
+/// root's (ADR-0028).
+const LICENSE_FILES: [&str; 2] = ["LICENSE", "NOTICE"];
+
+/// The largest `LICENSE` or `NOTICE` read, in bytes: Apache-2.0's is 11 KiB.
+const MAX_LICENSE_BYTES: u64 = 1024 * 1024;
 
 /// Runs the check on the repository at `root`.
 ///
@@ -161,9 +208,9 @@ pub(crate) fn run(root: &Path) -> Result<Report, Error> {
     Ok(check(root, &metadata, &tasks))
 }
 
-/// Checks the root manifest and the manifest and README of each member of
-/// `metadata`, the root workspace of the repository at `root`, against the
-/// roadmap's `tasks`.
+/// Checks the root manifest, the root's `LICENSE` and `NOTICE`, and the
+/// manifest, README and copies of each member of `metadata`, the root
+/// workspace of the repository at `root`, against the roadmap's `tasks`.
 fn check(root: &Path, metadata: &Metadata, tasks: &BTreeSet<String>) -> Report {
     let mut violations = Vec::new();
     // Read once: a member at the root has this manifest too, and a problem
@@ -172,6 +219,18 @@ fn check(root: &Path, metadata: &Metadata, tasks: &BTreeSet<String>) -> Report {
     match &root_manifest {
         Ok(document) => violations.extend(workspace_rules(&shown(root, MANIFEST), document)),
         Err(problem) => violations.push(problem.clone()),
+    }
+    // What each member's copies must be: `None` for a file the root does
+    // not have, or that cannot be read, which is reported here, once.
+    let mut originals: Vec<(&str, Option<String>)> = Vec::new();
+    for name in LICENSE_FILES {
+        match read_file(root, name, MAX_LICENSE_BYTES) {
+            Ok(text) => originals.push((name, Some(text))),
+            Err(error) => {
+                violations.push(root_file_problem(root, name, &error));
+                originals.push((name, None));
+            }
+        }
     }
 
     // Each member's directory relative to the root, with `/` between
@@ -211,6 +270,10 @@ fn check(root: &Path, metadata: &Metadata, tasks: &BTreeSet<String>) -> Report {
             }
             Err(error) => violations.push(unreadable(root, &readme, &error)),
         }
+        // A member at the root is its own copy.
+        if !dir.is_empty() {
+            violations.extend(copy_violations(root, dir, &originals));
+        }
     }
 
     let mut report = Report {
@@ -224,12 +287,48 @@ fn check(root: &Path, metadata: &Metadata, tasks: &BTreeSet<String>) -> Report {
     };
     if !report.violations.is_empty() {
         report.notes.push(
-            "ADR-0023 (docs/decisions.md) gives the shape of a member's manifest and README, and \
-             docs/04-quality.md (`crates`) the rules this check applies."
+            "ADR-0023 and ADR-0028 (docs/decisions.md) give the shape of a member's manifest, \
+             README and copies of LICENSE and NOTICE, and docs/04-quality.md (`crates`) the rules \
+             this check applies."
                 .to_string(),
         );
     }
     report
+}
+
+/// The violation for the root's `name` (`LICENSE` or `NOTICE`), which
+/// [`read_file`] could not read: one for a missing file, else
+/// [`unreadable`]'s.
+fn root_file_problem(root: &Path, name: &str, error: &Error) -> String {
+    match error {
+        Error::Read { source, .. } if source.kind() == io::ErrorKind::NotFound => {
+            format!("the workspace has no {name} at its root")
+        }
+        other => unreadable(root, name, other),
+    }
+}
+
+/// The violations of the copies of `LICENSE` and `NOTICE` in the member
+/// directory `dir`, against the root's `originals`: one for each copy that
+/// cannot be read ([`unreadable`]), and one for each that is not byte for
+/// byte the root's, where the root's could be read. Neither file is quoted.
+fn copy_violations(root: &Path, dir: &str, originals: &[(&str, Option<String>)]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (name, original) in originals {
+        let copy = beside(dir, name);
+        match read_file(root, &copy, MAX_LICENSE_BYTES) {
+            Ok(text) => {
+                if original.as_ref().is_some_and(|original| *original != text) {
+                    violations.push(format!(
+                        "{} is not byte for byte the root's {name}: copy the root's {name} over it",
+                        shown(root, &copy)
+                    ));
+                }
+            }
+            Err(error) => violations.push(unreadable(root, &copy, &error)),
+        }
+    }
+    violations
 }
 
 /// `path` with `.` left out and each `..` taking away the component before
@@ -476,14 +575,7 @@ fn readme_violations(shown: &str, name: &str, text: &str, tasks: &BTreeSet<Strin
             "{shown}: its first line is not `{heading}`, the package name as a heading"
         ));
     }
-    let found = sections(&lines);
-    for section in SECTIONS {
-        if !found.contains(&section) {
-            violations.push(format!(
-                "{shown} has no `{section}` line outside code blocks, HTML blocks and comments"
-            ));
-        }
-    }
+    violations.extend(section_violations(shown, &sections(&lines)));
     for id in unknown_ids(text, tasks) {
         violations.push(format!(
             "{shown} names the task {id}, which {ROADMAP} does not have"
@@ -492,17 +584,76 @@ fn readme_violations(shown: &str, name: &str, text: &str, tasks: &BTreeSet<Strin
     violations
 }
 
-/// Which of [`SECTIONS`] are lines of their own among `lines` (each without
-/// its line ending) that a reader sees as text, as `layers` reads its
-/// document ([`matrix::classify`]): not in a fenced code block, an HTML
-/// block or an HTML comment.
+/// The lines among `lines` (each without its line ending) that are one of
+/// [`SECTIONS`] or [`FEATURES`] and that a reader sees as text, as `layers`
+/// reads its document ([`matrix::classify`]): not in a fenced code block, an
+/// HTML block or an HTML comment. In the order they stand, repeats included.
 fn sections(lines: &[&str]) -> Vec<&'static str> {
     matrix::classify(lines)
         .iter()
         .zip(lines)
         .filter(|((kind, _), _)| *kind == matrix::Kind::Shown)
-        .filter_map(|(_, &line)| SECTIONS.iter().find(|&&section| section == line).copied())
+        .filter_map(|(_, &line)| {
+            SECTIONS
+                .iter()
+                .chain([&FEATURES])
+                .find(|&&section| section == line)
+                .copied()
+        })
         .collect()
+}
+
+/// The violations of a README, shown as `shown`, whose [`sections`] are
+/// `found`, in this order: each of [`SECTIONS`] that is missing or there
+/// more than once, in that order; [`FEATURES`] there more than once; each
+/// pair of neighbours in [`SECTIONS`], once those not there exactly once
+/// are left out, that stand the other way round; and [`FEATURES`], there
+/// once, before [`USAGE`] or after [`DOCUMENTATION`], where that one is
+/// there once.
+fn section_violations(shown: &str, found: &[&str]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let count = |section: &str| found.iter().filter(|&&line| line == section).count();
+    // Where `section` stands, if it is there once.
+    let once = |section: &str| {
+        (count(section) == 1)
+            .then(|| found.iter().position(|&line| line == section))
+            .flatten()
+    };
+    for section in SECTIONS.iter().chain([&FEATURES]) {
+        match count(section) {
+            0 if *section != FEATURES => violations.push(format!(
+                "{shown} has no `{section}` line outside code blocks, HTML blocks and comments"
+            )),
+            0 | 1 => {}
+            _ => violations.push(format!(
+                "{shown} has more than one `{section}` line outside code blocks, HTML blocks and \
+                 comments: a README has each section once"
+            )),
+        }
+    }
+    let placed: Vec<(&str, usize)> = SECTIONS
+        .iter()
+        .filter_map(|&section| Some((section, once(section)?)))
+        .collect();
+    for pair in placed.windows(2) {
+        if let [(first, at), (then, then_at)] = pair
+            && at > then_at
+        {
+            violations.push(format!(
+                "{shown}: `{first}` must come before `{then}`, but comes after it"
+            ));
+        }
+    }
+    if let Some(at) = once(FEATURES) {
+        let early = once(USAGE).is_some_and(|usage| at < usage);
+        let late = once(DOCUMENTATION).is_some_and(|documentation| at > documentation);
+        if early || late {
+            violations.push(format!(
+                "{shown}: `{FEATURES}` may stand only between `{USAGE}` and `{DOCUMENTATION}`"
+            ));
+        }
+    }
+    violations
 }
 
 /// The task ID that `text` starts with: `M`, one or more ASCII digits, `.`

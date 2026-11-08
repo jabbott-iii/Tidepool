@@ -34,7 +34,8 @@ paths:
   from the workspace, sets `publish = false` and
   `[lints] workspace = true`, and gives no target an `edition` of its own;
   `cargo xtask crates` checks all of it, and that the workspace's edition
-  is 2024. A new member also gets a `README.md` (ADR-0023), a row in the
+  is 2024. A new member also gets a `README.md` (ADR-0023, ADR-0028),
+  copies of the root's `LICENSE` and `NOTICE` (ADR-0028), a row in the
   dependency matrix, and a line in `AGENTS.md`'s workspace map.
 - **Build scripts:** `build.rs` may only emit `cargo:` directives. No
   network access, no running external tools, no compiling C.

@@ -132,7 +132,7 @@ Windows, and the same commands CI runs:
 | `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
-| `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks a `## Status` or `## Design` line, or names a task the roadmap does not have |
+| `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks one of `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License`, has one twice or out of that order, or names a task the roadmap does not have; or its `LICENSE` or `NOTICE` is missing or not byte for byte the root's |
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
@@ -228,7 +228,12 @@ Update the docs in the same pull request when the change affects them:
 
 - The subsystem spec in `docs/subsystems/` for a change in behavior or
   design.
-- The crate's `README.md` when what it has built changes (ADR-0023).
+- The crate's `README.md` when what it has built changes, in the shape
+  ADR-0028 gives it; its Rust examples run as doc tests (ADR-0023,
+  ADR-0028).
+- The diagrams in `diagrams/` that draw what changed: a crate's
+  dependencies, a type, a flow or a state. What a task builds turns from
+  dashed to solid (ADR-0029).
 - An ADR in `docs/decisions.md` for a decision made or changed. Use the
   template at the top of that file; to supersede an ADR, change only its
   `Status` line.
@@ -289,3 +294,9 @@ data does in `crates/text/ucd/17.0.0/license.txt` and the RFC 8259 examples
 do in `crates/codec/tests/json.rs`. The files the check exempts are
 listed by path in it, each with its reason (`docs/04-quality.md` →
 "`headers`").
+
+Every member of the workspace keeps copies of the root's `LICENSE` and
+`NOTICE` beside its `Cargo.toml`, byte for byte (ADR-0028), and a new crate
+gets them too. `cargo xtask crates` fails a copy that is missing or
+differs, so a change to either file is copied to every member in the same
+pull request.

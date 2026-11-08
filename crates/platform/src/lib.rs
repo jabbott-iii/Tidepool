@@ -24,3 +24,8 @@
 // is wrong here. `cargo xtask unsafe-audit` enforces that this allow
 // appears in no other crate.
 #![allow(unsafe_code)]
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

@@ -15,3 +15,8 @@
 //! Android and iOS builds, signing, verification and devices.
 //!
 //! Specification: `docs/subsystems/mobile.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

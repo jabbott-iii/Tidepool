@@ -5,11 +5,22 @@ untrusted: sizes checked against `Limits` before allocating, nesting
 bounded, errors that say where and what was expected, and no panic on any
 input.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
+for Linux, macOS and Windows, written in Rust with no third-party crates.
+Its library uses no other crate (its tests use `core`'s harness), and today
+`xtask` reads `cargo metadata` with its `json` and the members' manifests
+with its `toml`; `rpc`, `toolchain`, `syntax`, `workspace` and every crate
+above them but `vcs` and `tui` may use it, as their rows of the matrix
+allow.
+
 Layer 1, OS behavior, formats and pure engines. It may use `core`, as its
 row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Built, with the roadmap task that built it:
 
@@ -35,9 +46,94 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)
+A workspace crate whose row of the matrix allows it depends on it by path:
+
+```toml
+[dependencies]
+tidepool-codec = { path = "../codec" }
+```
+
+Read JSONC, JSON with comments and trailing commas, which the caller asks
+for; strict RFC 8259 is the default. A malformed document is an error with
+its line, column and byte offset, and what was expected there:
+
+```rust
+use tidepool_codec::json::{self, Dialect, Value};
+use tidepool_codec::{CodecError, Limits};
+
+fn main() -> Result<(), CodecError> {
+    let text = r#"{
+        // Editor settings.
+        "theme": "tidepool-dark",
+        "tab_size": 4,
+        "rulers": [80, 100,],
+    }"#;
+    let settings = json::parse(text, Dialect::Jsonc, Limits::DEFAULT)?;
+    assert_eq!(settings.get("theme").and_then(Value::as_str), Some("tidepool-dark"));
+    assert_eq!(settings.get("tab_size").and_then(Value::as_u64), Some(4));
+
+    let error = json::parse(text, Dialect::Json, Limits::DEFAULT)
+        .expect_err("a comment is not strict JSON");
+    assert!(error.to_string().starts_with("JSON error at line 2, column 9"));
+    Ok(())
+}
+```
+
+Write a value as compact or pretty JSON. Members keep their order, and the
+output reads back as the same value:
+
+```rust
+use tidepool_codec::json::{self, Dialect, Value};
+use tidepool_codec::{CodecError, Limits};
+
+fn main() -> Result<(), CodecError> {
+    let value = Value::Object(vec![
+        ("name".to_string(), Value::from("tidepool")),
+        ("rulers".to_string(), Value::from(vec![Value::from(80u64), Value::from(100u64)])),
+    ]);
+    assert_eq!(json::to_string_compact(&value), r#"{"name":"tidepool","rulers":[80,100]}"#);
+
+    let pretty = json::to_string_pretty(&value);
+    assert_eq!(pretty, "{\n  \"name\": \"tidepool\",\n  \"rulers\": [\n    80,\n    100\n  ]\n}");
+    assert_eq!(json::parse(&pretty, Dialect::Json, Limits::DEFAULT)?, value);
+    Ok(())
+}
+```
+
+Read TOML 1.1. Every key and value carries the span of its text, so a
+caller can point at the place a setting came from, and every rule on
+defining keys and tables is enforced:
+
+```rust
+use tidepool_codec::toml::{self, Value};
+use tidepool_codec::{CodecError, Limits};
+
+fn main() -> Result<(), CodecError> {
+    let text = "[package]\nname = \"tidepool\"\n\n[lints.clippy]\nunwrap_used = \"deny\"\n";
+    let root = toml::parse(text, Limits::DEFAULT)?;
+
+    let name = root.get("package").and_then(|package| package.get("name"));
+    assert_eq!(name.and_then(Value::as_str), Some("tidepool"));
+    assert_eq!(name.map(|name| &text[name.span.range()]), Some("\"tidepool\""));
+
+    let lint = root
+        .get("lints")
+        .and_then(|lints| lints.get("clippy"))
+        .and_then(|clippy| clippy.get("unwrap_used"));
+    assert_eq!(lint.and_then(Value::as_str), Some("deny"));
+
+    let error = toml::parse("name = 1\nname = 2\n", Limits::DEFAULT)
+        .expect_err("a key defined twice");
+    assert!(error.to_string().starts_with("TOML error at line 2, column 1"));
+    Ok(())
+}
+```
+
+## Documentation
+
+- Design: [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0013
   (TOML for Tidepool's own files); ADR-0021 (the RFC 8259 examples in
   `tests/json/` keep the IETF Trust's notice, in `tests/json.rs`); ADR-0026
@@ -46,6 +142,7 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
   `tests/fuzz.rs`).
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what
   each target runs and checks.
+- API reference: `cargo doc -p tidepool-codec --open`
 
 ## Rules
 
@@ -86,4 +183,10 @@ otherwise.
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Two sets of test data are not the project's: the RFC 8259 examples in
+`tests/json/` (`rfc8259_image.json` and `rfc8259_locations.json`) are the
+IETF Trust's, under the Revised BSD License, with their notice in
+`tests/json.rs`; and toml-test's cases in `tests/toml-test/` are MIT, with
+their notice in `tests/toml-test/NOTICE.md`. Both are test-only.

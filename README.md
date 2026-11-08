@@ -54,7 +54,8 @@ command, and what to run for each kind of change.
 | `docs/subsystems/` | One spec per subsystem, including the jabbott.dev theme, vim mode, managed toolchains, mobile and agents |
 | `docs/roadmap.md` | Milestones M0–M14 plus backlog, with checkbox tasks, acceptance criteria and verification commands |
 | `docs/decisions.md` | Architecture decision records (ADRs) |
-| `crates/`, `xtask/`, `bench/` | The workspace; each member has a `README.md` |
+| `crates/`, `xtask/`, `bench/` | The workspace; each member has a `README.md`, and copies of `LICENSE` and `NOTICE` |
+| `diagrams/` | C4, UML class, component and sequence, data-flow and state diagrams, in Mermaid |
 | `.claude/` | Claude Code settings, hook, subagents, path-scoped rules and skills |
 | `.github/` | CI and CodeQL workflows, Dependabot, the pull request template and issue form |
 | `scripts/check-deps.sh` | Fallback dependency check for the Claude Code hook |

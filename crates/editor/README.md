@@ -4,12 +4,19 @@ Where Tidepool's features live: the editor view, named commands and the
 modal keymap engine (vim mode included), and every panel. It renders through
 `ui` and never knows which frontend draws it.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
+the `tidepool` binary connects it to the frontends; it uses the services and
+features below it, and never `gui` or `tui`.
+
 Layer 4, views and frontends. It may use `core`, `codec`, `text`, `regex`,
 `markdown`, `syntax`, `term`, `workspace`, `ui`, `lang`, `vcs`, `agent` and
 `mobile`, as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Nothing yet: the crate is only its doc comment, which names its spec.
 
@@ -33,13 +40,18 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md)
-- [`docs/subsystems/vim-mode.md`](../../docs/subsystems/vim-mode.md)
-- [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
+Nothing to use yet: the editor view lands in M4.1.
+
+## Documentation
+
+- Design: [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md),
+  [`docs/subsystems/vim-mode.md`](../../docs/subsystems/vim-mode.md),
+  [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
   first, features in `editor`); ADR-0006 (vim mode, Proposed).
+- API reference: `cargo doc -p tidepool-editor --open`
 
 ## Rules
 
@@ -60,4 +72,4 @@ cargo test -p tidepool-editor
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

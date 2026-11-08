@@ -30,7 +30,7 @@ coding agent. This section covers only what is specific to Claude Code.
 | `security-reviewer` | Read-only review; mandatory for `sys`/`platform`, `toolchain`, `mobile`, `vcs`, `agent`, parser and workflow changes |
 
 Each owner also keeps the `README.md` of the crates it changes true
-(ADR-0023).
+(ADR-0023, ADR-0028).
 
 **Path-scoped rules** in `.claude/rules` load automatically when you open
 matching files:
@@ -43,7 +43,7 @@ matching files:
 | `toolchains-and-secrets.md` | `toolchain`, `mobile`, `vcs`, `toolchains/` |
 | `ai-context.md` | `agent`, `agents/` |
 | `ui-style.md` | `ui`, `gui`, `tui`, `editor`, `themes/`, `assets/` |
-| `docs-and-roadmap.md` | `docs/`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, crate READMEs |
+| `docs-and-roadmap.md` | `docs/`, `diagrams/`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, crate READMEs |
 | `ci-workflows.md` | `.github/` |
 
 **Permissions and hooks:**

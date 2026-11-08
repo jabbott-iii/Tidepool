@@ -33,5 +33,10 @@ pub mod json;
 mod limits;
 pub mod toml;
 
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 pub use error::CodecError;
 pub use limits::Limits;

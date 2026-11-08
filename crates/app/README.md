@@ -1,14 +1,19 @@
 # tidepool
 
 The Tidepool binary: the event-driven main loop, the wiring between `editor`
-and the frontends, startup, settings loading and crash handling. `cargo tp`
-runs it.
+and the frontends, startup, settings loading and crash handling.
+
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool) as the
+program itself: it may use every crate above it, and no crate uses it.
 
 Layer 5, the application. It may use all crates above, as its row of the
 dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Built, with the roadmap task that built it:
 
@@ -24,13 +29,24 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/01-architecture.md`](../../docs/01-architecture.md) ("The main
-  loop")
-- [`docs/05-release.md`](../../docs/05-release.md)
+```bash
+cargo tp
+```
+
+`cargo tp` builds and runs the binary. It does nothing until M2.6: it
+ignores its arguments and exits 0. `cargo tp -- --tui` starts the terminal
+UI from M7.1.
+
+## Documentation
+
+- Design: [`docs/01-architecture.md`](../../docs/01-architecture.md) ("The
+  main loop")
+- Release: [`docs/05-release.md`](../../docs/05-release.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0012 (the
   main loop, Proposed).
+- API reference: `cargo doc -p tidepool --open`
 
 ## Rules
 
@@ -51,4 +67,4 @@ cargo tp
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

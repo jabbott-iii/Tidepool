@@ -7,6 +7,7 @@ verified.
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
   M0.9–M0.11), the performance budgets, confirmed on the reference machine
   (M0.5), the contribution workflow and a README in every member (M0.6),
+  in Nadir's shape with copies of `LICENSE` and `NOTICE` (M0.13),
   the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
   (M0.2), JSON and JSONC (M1.4) and TOML 1.1 (M1.7) in `tidepool-codec`,
@@ -66,7 +67,8 @@ or file is there.
 | `crates/agent`, `agents/` | `docs/subsystems/agents.md` |
 | Tests, CI, `xtask` | `docs/04-quality.md` |
 | `.github/` (workflows, Dependabot, templates) | `docs/04-quality.md` ("CI"), ADR-0022 |
-| A crate's `README.md` | ADR-0023 |
+| A crate's `README.md` | ADR-0023, ADR-0028 |
+| `diagrams/` | `diagrams/README.md`, ADR-0029 |
 | `CONTRIBUTING.md`, `SECURITY.md` | This file; they summarize it for people |
 | Packaging Tidepool itself | `docs/05-release.md` |
 | `docs/roadmap.md` | Its "How to use this file", ADR-0024 |
@@ -163,7 +165,7 @@ These exist now:
 | Command | What it does |
 | :- | :- |
 | `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
-| `cargo xtask deps` / `layers` / `crates` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests and READMEs (ADR-0023) |
+| `cargo xtask deps` / `layers` / `crates` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028) |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | Runs each fuzz target (or `T`) with mutated inputs for `N` seconds, 60 by default; fails on a panic, a hang, over-allocation or a process that died, and prints the replay command for a death (ADR-0027, `docs/04-quality.md` → "Fuzz smoke") |
 | `cargo xtask --help` | Lists the commands |
@@ -213,9 +215,14 @@ secrets or opens a socket (`docs/04-quality.md`).
   exempts by path: the generated grapheme tables, which keep the Unicode
   data's notice instead. The root `NOTICE` holds the project's name and
   copyright line.
-- **Crate READMEs:** every member has a `README.md` saying what it is, its
-  status, its spec and its rules (ADR-0023). A change to what a crate has
-  built updates its README.
+- **Crate READMEs:** every member has a `README.md` in Nadir's shape
+  (ADR-0023, ADR-0028): `# <package name>`, what it is, how it fits and
+  its layer, then `## Status`, `## Usage`, `## Documentation`, `## Rules`,
+  `## Checks` and `## License`, in that order. A library's Rust examples
+  run as doc tests through the `ReadmeDoctests` item in its `src/lib.rs`;
+  a binary's README has no Rust block. Every member also keeps
+  byte-for-byte copies of the root's `LICENSE` and `NOTICE`. A change to
+  what a crate has built updates its README.
 - **Tests:** unit tests beside the code; integration tests in each crate's
   `tests/`; goldens in `tests/golden/`; real-tool tests gated by
   `TIDEPOOL_IT_*` and printing `SKIPPED: <reason>` otherwise. Committed
@@ -230,8 +237,8 @@ secrets or opens a socket (`docs/04-quality.md`).
    real result.
 3. The checkbox is ticked only after steps 1 and 2.
 4. Docs are updated where behavior or design changed: the subsystem spec,
-   the crate's `README.md` status, and this file for a new command, crate or
-   rule. If a decision changed, add an ADR in `docs/decisions.md`
+   the crate's `README.md` status, the diagrams that draw it (`diagrams/`,
+   ADR-0029), and this file for a new command, crate or rule. If a decision changed, add an ADR in `docs/decisions.md`
    (`/record-decision`).
 5. The final message summarizes:
    - changes and files affected

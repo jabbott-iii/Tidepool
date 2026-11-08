@@ -4,11 +4,18 @@ Building, signing, verifying and installing Android and iOS apps, always
 through the platforms' official tools, and an inspector for APK, AAB and IPA
 files.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
+`editor`'s mobile panels use it; it drives the official tools through
+`tidepool-toolchain`.
+
 Layer 3, language and tool features. It may use `core`, `codec` and
 `toolchain`, as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Nothing yet: the crate is only its doc comment, which names its spec.
 
@@ -23,11 +30,16 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/mobile.md`](../../docs/subsystems/mobile.md)
+Nothing to use yet: `inspect` lands in M10.2.
+
+## Documentation
+
+- Design: [`docs/subsystems/mobile.md`](../../docs/subsystems/mobile.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0007
   (signing is delegated, Proposed); ADR-0008 (iOS on macOS, Proposed).
+- API reference: `cargo doc -p tidepool-mobile --open`
 
 ## Rules
 
@@ -49,4 +61,4 @@ cargo test -p tidepool-mobile
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -15,3 +15,8 @@
 //! TrueType parsing, the glyph rasterizer, the glyph atlas and text layout.
 //!
 //! Specification: `docs/subsystems/rendering.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

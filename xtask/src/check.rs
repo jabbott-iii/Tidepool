@@ -127,7 +127,8 @@ pub(crate) const LAYERS: Check = Check {
 pub(crate) const CRATES: Check = Check {
     name: "crates",
     about: "Manifests inherit from the workspace, publish = false; READMEs start `# <name>`, have \
-            Status and Design, name only roadmap tasks",
+            their sections once each and in order, name only roadmap tasks; LICENSE and NOTICE \
+            copied byte for byte",
     step: Step::Own(crates::run),
     role: Role::Independent,
 };

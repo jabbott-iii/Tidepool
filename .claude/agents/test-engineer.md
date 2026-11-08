@@ -39,7 +39,8 @@ task's acceptance criteria in `docs/roadmap.md` first.
 
 ## Also
 - The `README.md` of each crate you changed says what it has now
-  (ADR-0023); new source files start with the license header (ADR-0021).
+  (ADR-0023, ADR-0028); new source files start with the license header
+  (ADR-0021).
 
 ## Report
 Commands run and exact results (pass/fail counts), what was not run and

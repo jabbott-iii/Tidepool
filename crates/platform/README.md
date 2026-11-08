@@ -5,11 +5,18 @@ waker, presenting a framebuffer, the clipboard, terminal raw mode, PTYs,
 processes, file watching and the per-OS paths. No `target_os` cfg shows in
 its public API.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where it
+is the only crate that uses `tidepool-sys`: `toolchain`, `term`,
+`workspace`, both frontends and the binary reach the OS through it.
+
 Layer 1, OS behavior, formats and pure engines. It may use `core` and `sys`,
 as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Built, with the roadmap task that built it:
 
@@ -28,12 +35,19 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/sys-and-platform.md`](../../docs/subsystems/sys-and-platform.md)
-- [`docs/03-platforms.md`](../../docs/03-platforms.md)
+Nothing to use yet: `window`, `events` with the `Waker`, and `surface` land
+in M2.2.
+
+## Documentation
+
+- Design:
+  [`docs/subsystems/sys-and-platform.md`](../../docs/subsystems/sys-and-platform.md)
+- Platforms: [`docs/03-platforms.md`](../../docs/03-platforms.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0010 (X11
   through `dlopen`, Proposed); ADR-0012 (the main loop, Proposed).
+- API reference: `cargo doc -p tidepool-platform --open`
 
 ## Rules
 
@@ -57,4 +71,4 @@ cargo xtask unsafe-audit
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

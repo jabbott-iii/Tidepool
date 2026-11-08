@@ -34,6 +34,11 @@ pub mod log;
 pub mod rng;
 pub mod testing;
 
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 pub use cancel::{CancelToken, Deadline};
 pub use color::{Color, PremultipliedColor};
 pub use error::{CoreError, ErrorContext, WithContext};

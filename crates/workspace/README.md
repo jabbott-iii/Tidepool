@@ -4,11 +4,18 @@ The project model under the editor: workspace folders and ignore rules,
 workspace trust, layered settings, the file tree, project search, open
 buffers and session state.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
+`editor`, `lang` and `agent` use it; its buffers are `tidepool-text`
+documents, and its settings are TOML read with `tidepool-codec`.
+
 Layer 2, services. It may use `core`, `platform`, `codec`, `text` and
 `regex`, as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Nothing yet: the crate is only its doc comment, which names its spec.
 
@@ -21,11 +28,16 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md)
+Nothing to use yet: `folder`, `trust` and `settings` land in M4.7.
+
+## Documentation
+
+- Design: [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0014
   (untrusted until trusted, Proposed); ADR-0013 (settings are TOML).
+- API reference: `cargo doc -p tidepool-workspace --open`
 
 ## Rules
 
@@ -45,4 +57,4 @@ cargo test -p tidepool-workspace
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -476,6 +476,82 @@ enforced by tooling from day one.
     ran only in Linux bash in this session, not in macOS's bash or Git
     Bash on Windows.
 
+- [ ] **M0.12 — docs: architecture diagrams in `diagrams/`**
+  - Depends: M0.6
+  - Decide first: what to draw while most crates are empty, and in what
+    form (ADR-0029).
+  - Do: per ADR-0029, in `diagrams/`: C4 containers and components; UML
+    class diagrams of the built types; UML component diagrams; UML
+    sequence diagrams; data-flow and state diagrams; a `README.md` that
+    says what each file shows and how to keep it true. Say where the
+    diagrams are in `AGENTS.md`, `docs/01-architecture.md` and the docs
+    rules.
+  - Accept:
+    - Every Mermaid block parses.
+    - Only what the code has is solid; each planned element names a task
+      this file has, and a spec says it.
+    - Every type in a class diagram exists under that name, and the crate
+      graph is the dependency matrix's.
+  - Verify: parse every Mermaid block (state how); doc review (human)
+  - Note (2026-11-08): the user asked for the diagrams and answered the
+    `Decide first` line: draw what is built and what is planned, planned
+    parts dashed with their task, in Mermaid as Nadir does (ADR-0029).
+  - Note (2026-11-08): written. Six files, 101 Mermaid blocks, drawn as
+    of M0.13.
+    - **Parsed:** every block parses and renders with Mermaid 11.4.1
+      (`mermaid.parse` and `mermaid.render` on a local page in the
+      desktop app's browser), which drew all 44 of Nadir's blocks and
+      failed a planted broken one. Scaled to an 880 px column, the median
+      block's text is 12.7 px and the smallest 7.9 px; none is wider than
+      2,000 px (Nadir's median is 10.7 px).
+    - **Review:** two rounds, each finding checked by a skeptic, which
+      confirmed 27 errors and found 3 more plausible, all fixed: tasks tied to the wrong element (the
+      vim modes, reload and merge), steps the code does not take (a failed
+      directory sync drawn as a successful save, a `FAILED` drawn as
+      `DIED`), M0.1's crate roots drawn planned, and statements about the
+      matrix, the crates check and the CLI's errors.
+    - ADR-0029 now says each file names the task it was drawn as of, not
+      a commit: the files were drawn before the commit that holds them.
+  - ⏳ needs human: review the diagrams (`diagrams/README.md` first) in
+    GitHub's preview, then tick.
+
+- [x] **M0.13 — crates: READMEs in Nadir's shape; `LICENSE` and `NOTICE` in every member**
+  - Depends: M0.9
+  - Decide first: the READMEs' shape and how a crate carries its license
+    (ADR-0028).
+  - Do: per ADR-0028:
+    - Rewrite every member's README in the new shape, with examples for
+      the built APIs of `core`, `codec` and `text`, and the
+      `ReadmeDoctests` item in each library's `src/lib.rs`.
+    - Copy the root's `LICENSE` and `NOTICE` into every member.
+    - `cargo xtask crates` checks the sections and their order, and the
+      copies; update `docs/04-quality.md`, `AGENTS.md`, `CONTRIBUTING.md`
+      and the docs rules.
+  - Accept: fixtures fail for each new rule; the real workspace passes;
+    the README examples run as doc tests in `cargo test`.
+  - Verify: `cargo xtask crates`; `cargo xtask ci`
+  - Note (2026-11-08): the user asked for the READMEs and licensing in
+    Nadir's style and answered the `Decide first` line: Nadir's shape,
+    keeping `## Rules` and `## Checks`, and copies of `LICENSE` and
+    `NOTICE` in every crate (ADR-0028). The task touches all 26 members,
+    as asked.
+  - Note (2026-11-08): done. Every member's README is in ADR-0028's shape;
+    the libraries' `src/lib.rs` have `ReadmeDoctests`, so the examples of
+    `core` (4), `codec` (3) and `text` (3) run in `cargo test`; every
+    member holds copies of `LICENSE` and `NOTICE` that `cmp` finds equal
+    to the root's.
+    - **Verified** on rustc 1.99.0: `cargo xtask crates` prints "members
+      checked: 26" and `crates: ok`; `cargo xtask ci` passes 10 of 10
+      steps, 1,067 tests, 0 failed, 0 `SKIPPED:`. A unit test and a
+      fixture fail for each new rule (a section missing, twice or out of
+      order, `## Features` out of place, a copy missing, linked or
+      differing, the root's `LICENSE` or `NOTICE` missing), and a seeded
+      property test checks the section rule against a model.
+    - **Review:** the review of M0.12 also read the READMEs, the check and
+      the docs; it confirmed six errors and found one more plausible, in
+      who may use `core`, `codec` and `tidepool-testkit`, the CLI errors'
+      wording, and two docs rules, all fixed.
+
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
 CI runners, with `headers`, `workflows` and `crates` among its steps.
 `Cargo.lock` contains zero third-party packages. CodeQL has run on `main`

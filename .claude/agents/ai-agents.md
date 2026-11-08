@@ -38,7 +38,8 @@ your rulebook. Read `docs/subsystems/agents.md`, ADR-0009 in
 
 ## Done means
 - The `README.md` of each crate you changed says what it has now
-  (ADR-0023); new source files start with the license header (ADR-0021).
+  (ADR-0023, ADR-0028); new source files start with the license header
+  (ADR-0021).
 - TAP conformance suite; deny-list, consent, latency, stale-result and
   crash tests; opt-in network tests print `SKIPPED:` otherwise.
 - `security-reviewer` has reviewed context assembly and consent changes.

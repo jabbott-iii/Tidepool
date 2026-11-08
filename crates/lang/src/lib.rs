@@ -16,3 +16,8 @@
 //! services and DAP.
 //!
 //! Specification: `docs/subsystems/languages.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

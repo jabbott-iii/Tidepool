@@ -9,6 +9,7 @@ paths:
   - "crates/*/README.md"
   - "xtask/README.md"
   - "bench/README.md"
+  - "diagrams/**"
 ---
 
 # Rules for docs, the roadmap and READMEs
@@ -26,10 +27,12 @@ paths:
     the task lines of `docs/roadmap.md` (`- [ ] **M1.3 — ` and
     `- [x] **M1.3 — `), and reads each crate README (below). Run it after
     editing a README or a task line.
-- **Status lives in four places:** the roadmap's ticks, the status
-  paragraph of `AGENTS.md`, the status line of the root `README.md`, and
-  the `## Status` section of each crate's `README.md`. Keep them in
-  agreement, and do not add status to other docs.
+- **Status lives in five places:** the roadmap's ticks, the status
+  paragraph of `AGENTS.md`, the status line of the root `README.md`, the
+  `## Status` section (and the `## Usage` line of a crate with nothing to
+  use yet) of each crate's `README.md`, and what `diagrams/` draws solid or
+  dashed (ADR-0029). Keep them in agreement, and do not add status to other
+  docs.
 - **Write what exists in the present tense, and what does not with its
   task:** "`core::path` lands in M1.8". Never describe a command, crate,
   module or file as existing before it does.
@@ -45,12 +48,25 @@ paths:
     task's text; add a dated `Note:` instead.
 - **ADRs** are appended, never rewritten. Change an accepted ADR only by
   superseding it, and only the user accepts one (`/record-decision`).
-- **Crate READMEs** keep the shape of ADR-0023: `# <package name>`, a
-  paragraph, the layer line, then `## Status`, `## Design`, `## Rules`,
-  `## Checks` and `## License`. Every task ID they name must exist in the
-  roadmap. `cargo xtask crates` checks the first line, the `## Status` and
-  `## Design` lines and the task IDs, not the rest of the shape, nor
-  whether what a README calls built is built.
+- **Crate READMEs** keep the shape of ADR-0028 (Nadir's, with ADR-0023's
+  Rules and Checks): `# <package name>`, what the crate is, how it fits in
+  Tidepool, the layer line, then `## Status`, `## Usage`,
+  `## Documentation`, `## Rules`, `## Checks` and `## License`, each once
+  and in that order (`## Features` only for a crate with Cargo features,
+  between Usage and Documentation). A library's Rust examples run as doc
+  tests through `ReadmeDoctests` in its `src/lib.rs`, so they use only the
+  API that exists; a binary's README has no Rust block. Every task ID they
+  name must exist in the roadmap. Every member keeps byte-for-byte copies
+  of the root's `LICENSE` and `NOTICE`. `cargo xtask crates` checks the
+  first line, the sections and their order, the task IDs and the copies,
+  not the rest of the shape, nor whether what a README calls built is
+  built.
+- **Diagrams** (`diagrams/`, ADR-0029) are Mermaid in Markdown, drawn from
+  the code and the specs. What the code has is solid; what the roadmap
+  plans is dashed and names the task that builds it; class diagrams show
+  only types that exist. The code wins: a change to what a diagram draws
+  updates it, and a task that builds something drawn as planned makes it
+  solid. No check reads them, so parse a changed block before you finish.
 - **Specs and code agree.** Where rustdoc is authoritative (as for
   `codec::json`), the spec summarizes it; change both in the same change.
 - **Cite, don't restate.** Point to the ADR, spec section or task rather

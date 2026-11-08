@@ -15,3 +15,8 @@
 //! Lexers (Rust, Markdown, TOML), language packs, brackets and indentation.
 //!
 //! Specification: `docs/subsystems/languages.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

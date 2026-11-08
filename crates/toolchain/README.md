@@ -5,11 +5,18 @@ tool descriptors, detection, consented install plans, SHA-256-checked
 downloads through `curl`, process supervision and secrets that never reach a
 command line or a log.
 
+It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
+`lang`, `vcs`, `agent` and `mobile` start every outside program through it
+(`AGENTS.md` rule 2); it reaches the OS through `tidepool-platform`.
+
 Layer 2, services. It may use `core`, `platform` and `codec`, as its row of
 the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
+
+Version 0.1, not published (`publish = false`): the API changes as the
+roadmap needs.
 
 Nothing yet: the crate is only its doc comment, which names its spec.
 
@@ -25,14 +32,21 @@ Not yet, with the roadmap task that adds it:
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
-## Design
+## Usage
 
-- [`docs/subsystems/toolchains.md`](../../docs/subsystems/toolchains.md)
-- [`docs/02-dependency-policy.md`](../../docs/02-dependency-policy.md)
+Nothing to use yet: `descriptor`, `detect` and `registry` land in M5.1.
+
+## Documentation
+
+- Design:
+  [`docs/subsystems/toolchains.md`](../../docs/subsystems/toolchains.md)
+- Dependency policy:
+  [`docs/02-dependency-policy.md`](../../docs/02-dependency-policy.md)
   ("Managed tools")
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0002
   (managed tools); ADR-0016 (download checksums); ADR-0017 (only `xtask`
   runs `cargo` outside this crate).
+- API reference: `cargo doc -p tidepool-toolchain --open`
 
 ## Rules
 
@@ -56,4 +70,4 @@ cargo xtask tools    # from M5.1
 
 ## License
 
-Apache-2.0, like the rest of Tidepool: see [`LICENSE`](../../LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

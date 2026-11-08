@@ -15,3 +15,8 @@
 //! The CPU rasterizer, backdrop cache and damage tracking.
 //!
 //! Specification: `docs/subsystems/rendering.md`.
+
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
