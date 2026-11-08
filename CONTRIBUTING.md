@@ -129,9 +129,10 @@ Windows, and the same commands CI runs:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
+| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
+| `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks a `## Status` or `## Design` line, or names a task the roadmap does not have |
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
@@ -140,8 +141,8 @@ Windows, and the same commands CI runs:
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
 On the way, each with its roadmap task: `bench` (M1.9), `golden` (M2.4),
-`theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4), and the
-check `crates` (M0.9). `AGENTS.md` → "Commands" keeps the list.
+`theme` (M3.2), `tools` (M5.1) and `package` (M11.6, M12.4, M14.4).
+`AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
 

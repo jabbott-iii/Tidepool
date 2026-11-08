@@ -65,6 +65,31 @@ const MATRIX: &str = "# 01 — Architecture (fixture)\n\
     \n\
     ## Workspace layout\n";
 
+/// A small roadmap for the fixture: the task IDs its READMEs may name
+/// ([`readme_of`]), in the format of `docs/roadmap.md`.
+const ROADMAP: &str = "# Roadmap (fixture)\n\
+    \n\
+    - [x] **M0.1 — fixture: the first task**\n\
+    - [ ] **M0.2 — fixture: the second task**\n";
+
+/// The README of the fixture's package `name`, in the shape `crates`
+/// checks (ADR-0023), naming the tasks of [`ROADMAP`].
+fn readme_of(name: &str) -> String {
+    format!(
+        "# {name}\n\
+         \n\
+         A crate of the fixture.\n\
+         \n\
+         ## Status\n\
+         \n\
+         Built: nothing — M0.1. Not yet: the rest — M0.2.\n\
+         \n\
+         ## Design\n\
+         \n\
+         None.\n"
+    )
+}
+
 /// The files `ci`'s `ucd` step checks: the pinned Unicode data and the
 /// tables generated from it, copied from the real repository by
 /// [`Fixture::with_ucd`].
@@ -324,15 +349,17 @@ impl Fixture {
 
     /// A small repository shaped like Tidepool's that passes every check
     /// but `ucd` (for which see [`Fixture::with_ucd`]): four crates that
-    /// follow [`MATRIX`], the two unsafe crate roots, the real allowlist, a
-    /// lockfile, and the two workflows ([`CI_WORKFLOW`],
-    /// [`CODEQL_WORKFLOW`]).
+    /// follow [`MATRIX`], each with its README ([`readme_of`]) and a
+    /// manifest that inherits from the workspace, the two unsafe crate
+    /// roots, the real allowlist, a roadmap ([`ROADMAP`]), a lockfile, and
+    /// the two workflows ([`CI_WORKFLOW`], [`CODEQL_WORKFLOW`]).
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
         fixture.write(
             "Cargo.toml",
             "[workspace]\nresolver = \"3\"\nmembers = [\"crates/core\", \"crates/sys\", \
-             \"crates/platform\", \"crates/text\"]\n",
+             \"crates/platform\", \"crates/text\"]\n\n[workspace.package]\nedition = \"2024\"\n\
+             version = \"0.1.0\"\nlicense = \"Apache-2.0\"\n\n[workspace.lints]\n",
         );
         fixture.package("core", "", "//! Core.\n");
         fixture.package("sys", "", "//! Sys.\n#![allow(unsafe_code)]\n");
@@ -348,6 +375,7 @@ impl Fixture {
             "//! Text.\n\n/// Says hello.\npub fn hello() -> &'static str {\n    \"hello\"\n}\n",
         );
         fixture.write("docs/01-architecture.md", MATRIX);
+        fixture.write("docs/roadmap.md", ROADMAP);
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
         fixture.workflow("ci.yml", CI_WORKFLOW);
         fixture.workflow("codeql.yml", CODEQL_WORKFLOW);
@@ -370,15 +398,17 @@ impl Fixture {
         self
     }
 
-    /// Writes the package `tidepool-<dir>` in `crates/<dir>`.
+    /// Writes the package `tidepool-<dir>` in `crates/<dir>`, with its
+    /// README. Its manifest inherits from the workspace and keeps the rules
+    /// of `crates`; `tables` come last, so that text appended to the
+    /// manifest goes on with them.
     fn package(&self, dir: &str, tables: &str, lib: &str) {
+        let name = format!("tidepool-{dir}");
         self.write(
             &format!("crates/{dir}/Cargo.toml"),
-            &format!(
-                "[package]\nname = \"tidepool-{dir}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
-                 publish = false\n\n{tables}"
-            ),
+            &member_manifest(&name, tables),
         );
+        self.write(&format!("crates/{dir}/README.md"), &readme_of(&name));
         self.source(&format!("crates/{dir}/src/lib.rs"), lib);
     }
 
@@ -509,6 +539,16 @@ fn exclude(fixture: &Fixture, dir: &str) {
             &format!("resolver = \"3\"\nexclude = [\"{dir}\"]\n"),
         ),
     );
+}
+
+/// The manifest of the member `name`, as [`Fixture::package`] writes it:
+/// inheriting `edition`, `version`, `license` and lints from the workspace,
+/// and not published, then `tables`.
+fn member_manifest(name: &str, tables: &str) -> String {
+    format!(
+        "[package]\nname = \"{name}\"\nedition.workspace = true\nversion.workspace = true\n\
+         license.workspace = true\npublish = false\n\n[lints]\nworkspace = true\n\n{tables}"
+    )
 }
 
 /// A package manifest for `name`, with `tables` after the package table.
@@ -1843,7 +1883,7 @@ fn no_check_shows_the_secret_cargo_quotes_from_a_file_it_cannot_parse() {
         ".cargo/config.toml",
         "[alias]\ntoken = \"FAKETOKENB_unterminated\n",
     );
-    for command in ["deps", "layers", "unsafe-audit"] {
+    for command in ["deps", "layers", "crates", "unsafe-audit"] {
         let run = fixture.run(command);
         run.expect_code(1);
         for (stream, text) in [("stdout", &run.stdout), ("stderr", &run.stderr)] {
@@ -2158,6 +2198,324 @@ fn layers_fails_on_a_matrix_a_reader_does_not_see() {
             run.stdout
         );
     }
+}
+
+// --- crates ---
+
+#[test]
+fn crates_passes_on_the_unbroken_fixture() {
+    let fixture = Fixture::passing("crates-pass");
+    let run = fixture.run("crates");
+    run.expect_code(0);
+    assert_eq!(
+        run.stdout,
+        "members checked: 4, task IDs in docs/roadmap.md: 2\ncrates: ok\n"
+    );
+}
+
+#[test]
+fn crates_fails_on_a_manifest_that_does_not_inherit_or_may_be_published() {
+    // Manifests cargo accepts, each breaking rules of `crates` only.
+    let fixture = Fixture::passing("crates-manifest");
+    // A literal edition and version, no license and no `[lints]`.
+    fixture.write(
+        "crates/core/Cargo.toml",
+        &manifest("tidepool-core", "0.1.0", ""),
+    );
+    // A literal license, `publish = true`, and lints of its own.
+    fixture.write(
+        "crates/sys/Cargo.toml",
+        &member_manifest("tidepool-sys", "")
+            .replace("license.workspace = true", "license = \"Apache-2.0\"")
+            .replace("publish = false", "publish = true")
+            .replace(
+                "[lints]\nworkspace = true\n",
+                "[lints.rust]\nunsafe_code = \"deny\"\n",
+            ),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    let core = "crates/core/Cargo.toml";
+    let sys = "crates/sys/Cargo.toml";
+    assert_eq!(
+        run.violations(),
+        [
+            format!(
+                "{core} does not inherit `package.edition` from the workspace: write \
+                 `edition.workspace = true` in `[package]`, and nothing else for `edition`"
+            ),
+            format!(
+                "{core} does not inherit `package.version` from the workspace: write \
+                 `version.workspace = true` in `[package]`, and nothing else for `version`"
+            ),
+            format!(
+                "{core} has no `package.license`: write `license.workspace = true` in \
+                 `[package]`, to inherit it from the workspace"
+            ),
+            format!(
+                "{core} has no `[lints]` table: write `[lints]` with `workspace = true` and \
+                 nothing else in it"
+            ),
+            format!(
+                "{sys} does not inherit `package.license` from the workspace: write \
+                 `license.workspace = true` in `[package]`, and nothing else for `license`"
+            ),
+            format!(
+                "{sys} sets `package.publish` to something other than `false`: write `publish = \
+                 false` in `[package]`, since no member is published"
+            ),
+            format!(
+                "{sys} does not take its lints only from the workspace: write `[lints]` with \
+                 `workspace = true` and nothing else in it"
+            ),
+        ],
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.ends_with("crates: FAILED (7 violations)\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn crates_fails_on_a_target_with_an_edition_of_its_own() {
+    // Cargo builds this, with a warning, and compiles the library under
+    // 2021 whatever the package inherits.
+    let fixture = Fixture::passing("crates-target-edition");
+    fixture.append("crates/core/Cargo.toml", "[lib]\nedition = \"2021\"\n");
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/core/Cargo.toml: the `[lib]` target sets an `edition` of its own: remove it, \
+             so that the target uses the package's edition, which it inherits from the workspace"
+        ]
+    );
+    // The control: cargo does accept it.
+    let checked = Command::new(cargo())
+        .args([
+            "metadata",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        .arg(fixture.root.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", fixture.case.join("target"))
+        .output()
+        .expect("cargo runs");
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+}
+
+#[test]
+fn crates_fails_on_a_root_edition_other_than_2024() {
+    let fixture = Fixture::passing("crates-edition");
+    let text = fs::read_to_string(fixture.root.join("Cargo.toml")).expect("the root manifest");
+    fixture.write(
+        "Cargo.toml",
+        &text.replace("edition = \"2024\"", "edition = \"2021\""),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "Cargo.toml sets `workspace.package.edition` to something other than \"2024\": write \
+             `edition = \"2024\"` in `[workspace.package]`, the edition every member inherits"
+        ]
+    );
+}
+
+#[test]
+fn crates_fails_on_a_member_without_a_readme() {
+    let fixture = Fixture::passing("crates-no-readme");
+    fs::remove_file(fixture.root.join("crates/sys/README.md")).expect("the README exists");
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(run.violations(), ["crates/sys/README.md is missing"]);
+    // `readme.md` is not `README.md`, where case matters.
+    fixture.write("crates/sys/readme.md", &readme_of("tidepool-sys"));
+    if fixture.root.join("crates/sys/README.md").exists() {
+        skipped(
+            "crates_fails_on_a_member_without_a_readme (readme.md)",
+            "this file system ignores case, so `readme.md` opens as `README.md`",
+        );
+        return;
+    }
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(run.violations(), ["crates/sys/README.md is missing"]);
+}
+
+#[test]
+fn crates_reports_a_linked_readme_without_reading_it() {
+    let fixture = Fixture::passing("crates-linked");
+    // The link leads to a README in the shape, so only the link fails.
+    fixture.write_outside(
+        "elsewhere.md",
+        &format!(
+            "{}\nThis line must never be printed.\n",
+            readme_of("tidepool-text")
+        ),
+    );
+    let link = fixture.root.join("crates/text/README.md");
+    fs::remove_file(&link).expect("the README exists");
+    if let Err(reason) = symlink(&fixture.real("elsewhere.md"), &link) {
+        skipped("crates_reports_a_linked_readme_without_reading_it", &reason);
+        return;
+    }
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/text/README.md cannot be read: crates/text/README.md is a symbolic link, \
+             which xtask does not follow"
+        ]
+    );
+    let output = format!("{}{}", run.stdout, run.stderr);
+    assert!(!output.contains("must never be printed"), "{output}");
+}
+
+#[test]
+fn crates_fails_on_a_readme_whose_first_line_is_not_the_package_name() {
+    let fixture = Fixture::passing("crates-heading");
+    fixture.write(
+        "crates/platform/README.md",
+        &readme_of("tidepool-platform").replacen(
+            "# tidepool-platform",
+            "# Platform, a heading from the file",
+            1,
+        ),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/platform/README.md: its first line is not `# tidepool-platform`, the package \
+             name as a heading"
+        ]
+    );
+    // The line itself is never quoted.
+    assert!(
+        !run.stdout.contains("a heading from the file"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn crates_fails_on_a_readme_without_a_section_outside_code() {
+    let fixture = Fixture::passing("crates-section");
+    // `## Design` only inside a fenced code block, and `## Statuses` for
+    // `## Status`.
+    fixture.write(
+        "crates/core/README.md",
+        &readme_of("tidepool-core")
+            .replace("## Design\n", "```markdown\n## Design\n```\n")
+            .replace("## Status\n", "## Statuses\n"),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/core/README.md has no `## Status` line outside code blocks, HTML blocks and \
+             comments",
+            "crates/core/README.md has no `## Design` line outside code blocks, HTML blocks and \
+             comments",
+        ]
+    );
+    // A fence opener inside an HTML comment opens no code block, so the
+    // sections after it count; a section only inside a comment does not.
+    fixture.write(
+        "crates/core/README.md",
+        &readme_of("tidepool-core").replace("## Status\n", "<!--\n```\n-->\n\n## Status\n"),
+    );
+    passes(&fixture, "crates");
+    fixture.write(
+        "crates/core/README.md",
+        &readme_of("tidepool-core").replace("## Status\n", "<!--\n## Status\n-->\n"),
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/core/README.md has no `## Status` line outside code blocks, HTML blocks and \
+             comments"
+        ]
+    );
+}
+
+#[test]
+fn crates_fails_on_a_task_id_the_roadmap_does_not_have() {
+    let fixture = Fixture::passing("crates-task-id");
+    // M0.3 twice, and M0.12, which is not M0.1 followed by a digit;
+    // `xM0.4` names nothing, and M0.2 is in the roadmap.
+    fixture.append(
+        "crates/text/README.md",
+        "\nSee M0.3, M0.12, M0.3 again and xM0.4; M0.2 is a task.\n",
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/text/README.md names the task M0.3, which docs/roadmap.md does not have",
+            "crates/text/README.md names the task M0.12, which docs/roadmap.md does not have",
+        ]
+    );
+    // Once the roadmap has them, it passes.
+    fixture.append(
+        "docs/roadmap.md",
+        "- [ ] **M0.3 — fixture: a third task**\n- [ ] **M0.12 — fixture: and a twelfth**\n",
+    );
+    let run = fixture.run("crates");
+    run.expect_code(0);
+    assert!(
+        run.stdout
+            .starts_with("members checked: 4, task IDs in docs/roadmap.md: 4\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn crates_cannot_run_without_a_roadmap_that_has_tasks() {
+    let fixture = Fixture::passing("crates-roadmap");
+    fs::remove_file(fixture.root.join("docs/roadmap.md")).expect("the roadmap exists");
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    // One line, the reason: nothing was checked.
+    assert_eq!(run.stdout.lines().count(), 1, "{}", run.stdout);
+    assert!(
+        run.stdout.starts_with("crates: FAILED: cannot read `")
+            && run.stdout.contains("docs/roadmap.md`: "),
+        "{}",
+        run.stdout
+    );
+
+    fixture.write(
+        "docs/roadmap.md",
+        "# Roadmap\n\nM0.1 is named, but no line is a task.\n",
+    );
+    let run = fixture.run("crates");
+    run.expect_code(1);
+    assert_eq!(
+        run.stdout,
+        "crates: FAILED: docs/roadmap.md: no line starts `- [ ] **M<n>.<m> — ` or `- [x] \
+         **M<n>.<m> — `, so there is no task for a README to name; is the root right?\n"
+    );
 }
 
 // --- unsafe-audit ---
@@ -2926,6 +3284,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "clippy",
             "test",
             "layers",
+            "crates",
             "unsafe-audit",
             "headers",
             "workflows",
@@ -2948,6 +3307,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("clippy", "ok"),
             ("test", "ok"),
             ("layers", "ok"),
+            ("crates", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -2960,8 +3320,9 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
         run.stdout
     );
     assert!(
-        summary
-            .ends_with("ci: FAILED: 1 of 9 steps failed: fmt; not yet implemented: tools, theme\n"),
+        summary.ends_with(
+            "ci: FAILED: 1 of 10 steps failed: fmt; not yet implemented: tools, theme\n"
+        ),
         "{summary}"
     );
     assert!(
@@ -2999,6 +3360,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "[dev-dependencies]\ntidepool-core = { path = \"../core\" }\n",
     );
     fixture.lock();
+    // crates: a member without its README.
+    fs::remove_file(fixture.root.join("crates/platform/README.md")).expect("the README exists");
     // headers: a script without one.
     fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
     // workflows: an action pinned by its tag.
@@ -3022,6 +3385,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("clippy", "FAILED"),
             ("test", "FAILED"),
             ("layers", "FAILED"),
+            ("crates", "FAILED"),
             ("unsafe-audit", "FAILED"),
             ("headers", "FAILED"),
             ("workflows", "FAILED"),
@@ -3035,8 +3399,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 8 of 9 steps failed: fmt, clippy, test, layers, unsafe-audit, headers, \
-         workflows, ucd; not yet implemented: tools, theme"
+        "ci: FAILED: 9 of 10 steps failed: fmt, clippy, test, layers, crates, unsafe-audit, \
+         headers, workflows, ucd; not yet implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -3044,6 +3408,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "clippy::needless_return",
         "planted failure",
         "violation: tidepool-sys -> tidepool-core not allowed (dev-dependency)",
+        "violation: crates/platform/README.md is missing",
         "violation: crates/core/src/lib.rs:16: `allow(unsafe_code)` is only allowed",
         "violation: scripts/tool.sh:2: expected `# Copyright 2026 Joseph Anthony Abbott III`",
         "violation: .github/workflows/ci.yml:34: `actions/cache@v6` is not pinned by a full commit \
@@ -3088,6 +3453,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("clippy", "not"),
             ("test", "not"),
             ("layers", "FAILED"),
+            ("crates", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -3101,7 +3467,7 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 9 steps failed: deps, layers; not run: clippy, test; not yet \
+        "ci: FAILED: 2 of 10 steps failed: deps, layers; not run: clippy, test; not yet \
          implemented: tools, theme"
     );
     assert!(
@@ -3202,6 +3568,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("clippy", "ok"),
             ("test", "ok"),
             ("layers", "ok"),
+            ("crates", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -3229,7 +3596,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 9 of 9 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 10 of 10 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -3297,7 +3664,7 @@ fn a_relative_root_is_made_absolute() {
         "./repo/".to_string(),
         format!("../{case}/repo"),
     ] {
-        for command in ["deps", "layers", "unsafe-audit"] {
+        for command in ["deps", "layers", "crates", "unsafe-audit"] {
             let run = xtask_in(
                 &fixture.case,
                 &[command, "--root", &root],
@@ -3334,6 +3701,22 @@ fn the_real_repository_passes_deps_layers_unsafe_audit_and_headers() {
 }
 
 #[test]
+fn the_real_repository_s_crates_pass() {
+    // Every member, its manifest and its README, and the roadmap's task
+    // IDs, whose number changes as tasks are added.
+    let run = xtask(&["crates"], None);
+    run.expect_code(0);
+    assert!(
+        run.stdout
+            .starts_with("members checked: 26, task IDs in docs/roadmap.md: "),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.ends_with("\ncrates: ok\n"), "{}", run.stdout);
+    assert_eq!(run.stdout.lines().count(), 2, "{}", run.stdout);
+}
+
+#[test]
 fn the_real_repository_s_workflows_pass() {
     // Both of them: `ci.yml` and `codeql.yml`, each with its row.
     let run = xtask(&["workflows"], None);
@@ -3343,19 +3726,15 @@ fn the_real_repository_s_workflows_pass() {
 
 #[test]
 fn usage_errors_exit_2_and_later_commands_exit_1() {
-    // `crates` is not a command until roadmap M0.9.
-    for command in ["frobnicate", "crates"] {
-        let run = xtask(&[command], None);
-        run.expect_code(2);
-        assert!(
-            run.stderr.starts_with(&format!(
-                "xtask: unknown command `{command}`\n\nUsage: cargo xtask"
-            )),
-            "{}",
-            run.stderr
-        );
-        assert_eq!(run.stdout, "");
-    }
+    let run = xtask(&["frobnicate"], None);
+    run.expect_code(2);
+    assert!(
+        run.stderr
+            .starts_with("xtask: unknown command `frobnicate`\n\nUsage: cargo xtask"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(run.stdout, "");
 
     for (command, task) in [("tools", "roadmap M5.1"), ("theme", "roadmap M3.2")] {
         let run = xtask(&[command], None);

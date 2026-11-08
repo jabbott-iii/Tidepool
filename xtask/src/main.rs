@@ -54,6 +54,7 @@
 
 mod cargo;
 mod check;
+mod crates;
 mod deps;
 mod error;
 mod fuzz;
@@ -275,6 +276,7 @@ mod tests {
             "ci",
             "deps",
             "layers",
+            "crates",
             "unsafe-audit",
             "headers",
             "workflows",
@@ -293,7 +295,7 @@ mod tests {
             );
         }
         assert!(text.contains(
-            "  ci            Run deps, fmt, clippy, test, layers, unsafe-audit, headers, \
+            "  ci            Run deps, fmt, clippy, test, layers, crates, unsafe-audit, headers, \
              workflows, ucd in that order"
         ));
         assert!(text.contains(
@@ -334,8 +336,8 @@ mod tests {
         assert_eq!(usage_error(&["CI"]), "unknown command `CI`");
         // The `fmt`, `clippy` and `test` steps of `ci` are not commands.
         assert_eq!(usage_error(&["fmt"]), "unknown command `fmt`");
-        // `crates` is not one until roadmap M0.9.
-        assert_eq!(usage_error(&["crates"]), "unknown command `crates`");
+        // `crates` is one since roadmap M0.9, but only in lower case.
+        assert_eq!(usage_error(&["Crates"]), "unknown command `Crates`");
     }
 
     #[test]
@@ -347,6 +349,10 @@ mod tests {
         assert_eq!(
             usage_error(&["ucd", "extra"]),
             "`ucd` takes no arguments, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["crates", "extra"]),
+            "`crates` takes no arguments, but got `extra`"
         );
         assert_eq!(
             usage_error(&["ucd", "--check", "extra"]),

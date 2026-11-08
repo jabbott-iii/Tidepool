@@ -22,6 +22,10 @@ paths:
   - A test in `xtask` reads the table of reference agents in
     `docs/subsystems/agents.md` (its `` | `tp-agent-… `` rows). Run
     `cargo test -p xtask` after editing it.
+  - `cargo xtask crates` takes the task IDs a crate README may name from
+    the task lines of `docs/roadmap.md` (`- [ ] **M1.3 — ` and
+    `- [x] **M1.3 — `), and reads each crate README (below). Run it after
+    editing a README or a task line.
 - **Status lives in four places:** the roadmap's ticks, the status
   paragraph of `AGENTS.md`, the status line of the root `README.md`, and
   the `## Status` section of each crate's `README.md`. Keep them in
@@ -44,7 +48,9 @@ paths:
 - **Crate READMEs** keep the shape of ADR-0023: `# <package name>`, a
   paragraph, the layer line, then `## Status`, `## Design`, `## Rules`,
   `## Checks` and `## License`. Every task ID they name must exist in the
-  roadmap.
+  roadmap. `cargo xtask crates` checks the first line, the `## Status` and
+  `## Design` lines and the task IDs, not the rest of the shape, nor
+  whether what a README calls built is built.
 - **Specs and code agree.** Where rustdoc is authoritative (as for
   `codec::json`), the spec summarizes it; change both in the same change.
 - **Cite, don't restate.** Point to the ADR, spec section or task rather

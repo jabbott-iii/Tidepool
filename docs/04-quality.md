@@ -284,7 +284,7 @@ The design is ADR-0027's; the engine's rustdoc
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented, and `crates` with M0.9) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
@@ -296,14 +296,18 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/` is a link or not a directory, a directory in `fuzz/corpus/` or `fuzz/crashes/` has no row in its table, or a row has no seeds (then nothing runs); or a target panics, hangs, takes the written or the reserved memory past its cap, fails its own check, reports another seed or too few seconds, or its test fails, does not build, does not run or dies, or cargo fails before it runs ("Fuzz smoke", above). Not a step of `ci` |
 | `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
 | `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
-| `cargo xtask crates` | Not a command yet (M0.9). Planned: a member that does not inherit `edition`, `version` and `license`, lacks `publish = false` or `[lints] workspace = true`, or whose `README.md` is missing or not in the shape of ADR-0023 |
+| `cargo xtask crates` | A member of the root workspace does not inherit `edition`, `version` and `license` from the workspace (each only `workspace = true`), lacks `publish = false`, has a `[lints]` table that is missing or not only `workspace = true`, or has a target (`[lib]`, `[[bin]]`, `[[test]]`, `[[bench]]`, `[[example]]`) with an `edition` of its own; the root `Cargo.toml` does not set `edition = "2024"` in `[workspace.package]`; a member's `README.md` is missing, a symbolic link or reached through one, not a regular file, over 1 MiB or not UTF-8, does not start with the line `# <package name>`, has no `## Status` or `## Design` line outside code blocks, HTML blocks and comments, or names a task ID that `docs/roadmap.md` has no task for; a manifest that cargo loaded cannot be read or parsed here, or is not under the root; or `docs/roadmap.md` cannot be read or has no task, or `cargo metadata` fails (then it cannot run) (ADR-0023) |
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
 `.rs` file, whatever the rest of its name, and `headers` every source file
 it checks, though it never prints a line of one. `workflows` reads each
 workflow, and quotes only the part of a line it rejects, such as an action's
-reference or a permission. It reads other files only
+reference or a permission. `crates` reads the root `Cargo.toml`, each
+member's `Cargo.toml` and `README.md`, and `docs/roadmap.md`. Its violations
+quote no line of them, only paths, package and target names and task IDs;
+a failed `cargo metadata` is relayed as for the other checks ("Secrets in
+messages", below). It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
 parses. The one file it writes in the repository is the generated Unicode
@@ -389,7 +393,6 @@ network through its tool.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
   (M2.4), `bench` (M1.9; its message still says it has no task, which
   M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
-  `crates` (M0.9) is not named yet, so it exits 2 as an unknown command.
   Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
@@ -496,15 +499,20 @@ network through its tool.
   - A linked `Cargo.toml` is not a manifest to the walk, so the `target`
     beside it is searched, and cargo is not asked about its directory.
   - The files a check reads by a fixed name, `xtask/deps-allowlist.txt`
-    for `deps` and `docs/01-architecture.md` for `layers`, are not opened
-    when they, or a directory on the way to them, are links: the check
-    fails, naming the link.
-  - Not covered: cargo follows links. `deps`, `layers` and `unsafe-audit`
-    run `cargo metadata`, which loads every workspace they find, and
-    `cargo xtask` itself loads the root one before `xtask` starts. A linked
-    member, path dependency, crate root or configuration file is resolved
-    by cargo, and the paths cargo reports are resolved again by `xtask`.
-    The link is still a violation.
+    for `deps`, `docs/01-architecture.md` for `layers`, and
+    `docs/roadmap.md`, the root `Cargo.toml` and each member's `Cargo.toml`
+    and `README.md` for `crates`, are not opened when they, or a directory
+    on the way to them, are links: the check fails, naming the link (for
+    `crates`, a linked manifest or README is one violation, and the check
+    goes on).
+  - Not covered: cargo follows links. `deps`, `layers`, `crates` and
+    `unsafe-audit` run `cargo metadata`, which loads every workspace they
+    find, and `cargo xtask` itself loads the root one before `xtask`
+    starts. A linked member, path dependency, crate root or configuration
+    file is resolved by cargo, and the paths cargo reports are resolved
+    again by `deps`, `layers` and `unsafe-audit` (`crates` reads them only
+    as paths under the root, refusing a link on the way). The link is still
+    a violation.
   - The repository holds no links. Git for Windows checks them out as text
     files unless symbolic links are turned on (`core.symlinks`).
 - `Cargo.toml`, `Cargo.lock` and `.rs` match in any case, since macOS and
@@ -673,6 +681,103 @@ network through its tool.
   which fails `layers` as the matrix stands. The matrix needs a decision
   before M5.1.
 
+**`crates`**
+
+- Checks the members of the root workspace (`cargo metadata --offline
+  --no-deps`) against ADR-0023, each in the directory of its `Cargo.toml`.
+  A member's manifest must be under the root: cargo's path and the root
+  are compared with `.` and `..` taken out, as cargo writes the path, and
+  no link resolved. One that is not is a violation and is not checked.
+- Cargo loads every manifest first (`cargo metadata`). A manifest that is
+  not TOML, or holds a value cargo rejects, in the root or any member,
+  makes it fail, and then the check cannot run (below).
+- Then each manifest is read whole, at most 1 MiB of UTF-8, and parsed
+  with `tidepool_codec::toml` within limits of the check's own (32 levels
+  deep, 64 KiB a string, 10,000 entries a table). One violation per rule
+  broken:
+  - `package.edition`, `package.version` and `package.license` must each
+    be a table whose only key is `workspace`, set to `true`, which is what
+    `edition.workspace = true` and `edition = { workspace = true }` both
+    are. A literal value, a missing key, `workspace = false` or another key
+    beside it fails.
+  - `package.publish` must be `false`. Missing, `true`, a list of
+    registries (`[]` included) and `publish.workspace = true` fail.
+  - `[lints]` must be there and hold only `workspace = true`.
+  - No target may set an `edition` of its own: an `edition` key in
+    `[lib]`, or in any table of `[[bin]]`, `[[test]]`, `[[bench]]` or
+    `[[example]]`, is one violation per target, named by its table and its
+    `name` if it has one. Cargo 1.99 still accepts one, with a warning, and
+    compiles that target under it, whatever the package inherits.
+  - The root `Cargo.toml` must set `edition = "2024"` in
+    `[workspace.package]`, the edition every member inherits. It is read
+    once, also when the root is itself a member, so a problem with it is
+    reported once.
+  - A manifest that cargo loaded but this check cannot read or parse (a
+    link, over 1 MiB, past the limits above) is one violation naming it,
+    and the check goes on with the other members.
+- A member's README is the `README.md` beside its `Cargo.toml`, that name
+  exactly. Missing, a symbolic link or reached through one, not a regular
+  file (checked before it is opened, so a FIFO is never opened), over
+  1 MiB or not UTF-8 is one violation. Otherwise:
+  - its first line, after one leading byte-order mark and one trailing CR,
+    must be `# <package name>`. The violation says what the line should
+    be, never what it is;
+  - it must have a line `## Status` and a line `## Design`, exactly (after
+    one trailing CR), that `layers`' reading of a document ("`layers`"
+    above) takes for text: outside fenced code blocks, HTML blocks and
+    HTML comments as that reading finds them, line by line and at the top
+    level, which is close to a renderer's but not the same (Not covered,
+    below). So a fence opens at
+    most three columns in, with three or more backticks or tildes (and no
+    backtick in a backtick fence's info string), and closes with at least
+    as many of the same character, then only spaces and tabs; a block that
+    never closes runs to the end; and a fence inside a comment or an HTML
+    block opens nothing;
+  - every task ID it names, anywhere (in code too), must be a task in
+    `docs/roadmap.md`. A task ID is `M`, ASCII digits, `.` and ASCII
+    digits, each run of digits as long as it goes, with no ASCII letter,
+    digit or `_` just before the `M`: `M1.23` is one ID, not `M1.2`, and
+    `xM1.2` is none. Each unknown ID is one violation, once per README, in
+    numeric order (`M1.9` before `M1.10`).
+- The tasks are the lines of `docs/roadmap.md` that start
+  `- [ ] **M<n>.<m> — ` or `- [x] **M<n>.<m> — `, an em dash between the
+  spaces. The roadmap is read as `layers` reads its document (at most
+  4 MiB, no link on the way), and must be a regular file.
+- If the roadmap cannot be read or has no task, or `cargo metadata` fails,
+  the check cannot run: `crates: FAILED: <reason>`, where cargo's error is
+  relayed without the source lines it quotes ("Secrets in messages").
+- Violations name paths (escaped, as everywhere), package and target
+  names and task IDs. Notes give the number of members checked and of the
+  roadmap's task IDs.
+- Not covered:
+  - whether what a README calls built is built, or whether the tasks it
+    gives for it are ticked (ADR-0023's Consequences);
+  - ADR-0023's other parts: the paragraph, the layer line, and the
+    `## Rules`, `## Checks` and `## License` sections;
+  - where that reading and a renderer differ, a section is hidden, and
+    reported missing, or in one case seen though a browser hides it:
+    - only a line that is itself a fence, at most three columns in, opens
+      or closes one. A fence after `>` or a list marker on its line, or
+      four or more columns in, is not seen. So when a list item opens its
+      fence on the marker line (`- ```sh`), its closing fence opens one;
+      and a fence that closes four or more columns in, or that its list
+      item ends without closing, runs on. Each hides the sections after
+      it;
+    - every `<!--` outside a fence or an HTML block opens a comment that
+      runs to the next `-->` after it, wherever the `<!--` is: in a code
+      span, in indented code, after a backslash. `<!-->` and `<!--->` do
+      not close. Each hides the sections up to the next `-->`;
+    - every line whose first character after its indentation is `<`
+      (other than a comment) opens an HTML block, as `layers` reads one,
+      and a section in that block is not seen;
+    - a `<!--` on a line of an HTML block is not followed, so a section
+      after the block counts, though a browser shows it inside that
+      comment;
+  - the members of `agents/`, a workspace of its own from M9.2;
+  - on a file system that ignores case (macOS and Windows by default),
+    `readme.md` opens as `README.md`, and passes;
+  - races, as in "Files searched".
+
 **`unsafe-audit`**
 
 - Reads every `.rs` file under the root with its own small lexer. The lexer
@@ -689,9 +794,13 @@ network through its tool.
     or `}`) and the keyword. Doc comments and `/* */` don't count.
   - `allow`, `expect` or `warn` of `unsafe_code` (also inside `cfg_attr`)
     anywhere but `crates/sys/src/lib.rs` and `crates/platform/src/lib.rs`.
-    Only attributes in source are seen; no check reads a member's `[lints]`
-    table or `RUSTFLAGS`. So `unsafe` compiles only in the library targets
-    of `sys` and `platform` (their `#[cfg(test)]` modules included). Their
+    Only attributes in source are seen here. A member's `[lints]` table
+    cannot relax `unsafe_code` either: `crates` fails one that is anything
+    but `workspace = true`. No check reads the root's `[workspace.lints]`,
+    whose `unsafe_code = "deny"` every member inherits, or `RUSTFLAGS`;
+    review keeps both. So, while that table denies it, `unsafe`
+    compiles only in the library targets of `sys` and `platform` (their
+    `#[cfg(test)]` modules included). Their
     integration tests, benches, examples and binaries are crates of their
     own, under the workspace's `deny`. This is provisional: M2.2's Xvfb test
     reads pixels back with `XGetImage`, and where that FFI call may live is
@@ -739,9 +848,12 @@ network through its tool.
   manifest has no `[package]` today.
 - Also not covered: unsafe attributes (`#[no_mangle]`, `#[export_name]`,
   `#[link_section]`) written without `unsafe`, as editions before 2024
-  allow. Only the `unsafe_code` lint catches those. Members are expected to
-  use edition 2024 and `[lints] workspace = true`, which no check verifies
-  until `cargo xtask crates` (M0.9, ADR-0023).
+  allow. Only the `unsafe_code` lint catches those. Members use edition
+  2024 and `[lints] workspace = true`, and `cargo xtask crates` verifies
+  both: each member inherits the workspace's edition, which the root must
+  set to 2024, no target of a member sets an edition of its own, and each
+  member inherits the workspace's lints, though no check reads what
+  `[workspace.lints]` holds (ADR-0023, "`crates`" above).
 - Notes list the `unsafe` uses per crate (review any growth), the files
   scanned and the crate roots checked.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
@@ -945,16 +1057,16 @@ network through its tool.
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `unsafe-audit`, `headers`, `workflows`, `ucd` (as `ucd
-  --check`). Each step
+  `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd` (as
+  `ucd --check`). Each step
   starts with a `== <step>: ...` heading; the cargo steps print cargo's own
   output.
 - It keeps going after a failure, so one run reports every problem, with
   one exception. Once `deps` has failed or could not run, clippy and test
   are not run, because they would build and run the code `deps` rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
-  runs. `layers`, `unsafe-audit`, `headers`, `workflows` and `ucd` are not
-  gates, and run after clippy and test. So code that `deps` accepts but they reject,
+  runs. `layers`, `crates`, `unsafe-audit`, `headers`, `workflows` and
+  `ucd` are not gates, and run after clippy and test. So code that `deps` accepts but they reject,
   such as a vendored crate that cargo made a member, is still compiled, and
   its build scripts and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
@@ -978,7 +1090,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 9 of 9 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 10 of 10 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 

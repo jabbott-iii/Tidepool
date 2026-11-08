@@ -74,8 +74,8 @@ pub(crate) enum Error {
         /// What is wrong with the output.
         detail: String,
     },
-    /// A document this tool reads as data (the dependency matrix) is not in
-    /// the expected shape.
+    /// A document this tool reads as data (the dependency matrix, the
+    /// roadmap's task lines) is not in the expected shape.
     Doc {
         /// The document, relative to the repository root.
         path: String,

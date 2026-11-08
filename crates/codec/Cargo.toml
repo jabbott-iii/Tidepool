@@ -3,6 +3,7 @@ name = "tidepool-codec"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+publish = false
 
 # The library has no dependencies. Its tests use `tidepool-core`'s property
 # harness, the only edge the dependency matrix allows for `codec`.

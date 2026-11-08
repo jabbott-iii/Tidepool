@@ -289,7 +289,7 @@ pub(crate) fn parse(text: &str) -> Result<Matrix, Error> {
 
 /// What a line of the document is to a reader of the rendered document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     /// Text they see.
     Shown,
     /// A line of a fenced code block, its fences included.
@@ -315,7 +315,7 @@ enum HtmlEnd {
 /// blocks). Where this reading and a renderer could differ, it errs towards
 /// hiding a line: the parser then sees less than the reader, never more,
 /// and the one-header-row rule turns any difference into an error.
-fn classify(lines: &[&str]) -> Vec<(Kind, String)> {
+pub(crate) fn classify(lines: &[&str]) -> Vec<(Kind, String)> {
     let mut kinds = Vec::with_capacity(lines.len());
     let mut in_comment = false;
     // The fence character and how many of it opened the block.

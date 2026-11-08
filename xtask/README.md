@@ -32,10 +32,15 @@ Built, with the roadmap task that built it:
   or exited without a result on as `died-<hash>` when the replay wrote it
   (not after an interrupt, and not a second copy of a saved crash);
   ported in part from Nadir — M1.6.
+- `crates`, which checks that every member inherits `edition`, `version`,
+  `license` and lints from the workspace and sets `publish = false`, that
+  no target sets an edition of its own, that the workspace's edition is
+  2024, and that each member's `README.md` starts with its package name,
+  has `## Status` and `## Design`, and names only task IDs the roadmap
+  has — M0.9.
 
 Not yet, with the roadmap task that adds it:
 
-- `crates` — M0.9.
 - `bench` — M1.9.
 - `golden` — M2.4.
 - `theme` — M3.2.
@@ -50,7 +55,8 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 - Decisions in [`docs/decisions.md`](../docs/decisions.md): ADR-0017 (it
   runs `cargo` itself); ADR-0018 (the Unicode data); ADR-0021 (license
   headers); ADR-0022 (the CI workflows' supply chain, and the table of
-  what each workflow may use, `WORKFLOWS` in `src/workflows.rs`); ADR-0027
+  what each workflow may use, `WORKFLOWS` in `src/workflows.rs`); ADR-0023
+  (the members' manifests and READMEs, which `crates` checks); ADR-0027
   (the fuzz targets live in the parser crates, and `fuzz-smoke`'s only
   child is `cargo test`).
 
@@ -62,7 +68,8 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
   [`dependencies.md`](../.claude/rules/dependencies.md) for its
   `Cargo.toml`.
 - A check that reads a document reads it as the source of truth: `layers`
-  parses the dependency matrix in `docs/01-architecture.md`.
+  parses the dependency matrix in `docs/01-architecture.md`, and `crates`
+  takes the task IDs a README may name from `docs/roadmap.md`.
 - It links only `core` and `codec`: the parsers that `fuzz-smoke` fuzzes
   run in their own crates' test processes, never in `xtask`. A new target
   adds its row to `TARGETS` in `src/fuzz.rs`, which must agree with

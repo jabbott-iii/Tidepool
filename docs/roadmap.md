@@ -114,16 +114,23 @@ enforced by tooling from day one.
     `ubuntu-latest`, `macos-latest` and `windows-latest` (the M0 exit
     criterion). Nothing ran on macOS or Windows in this session.
 
-- [ ] **M0.5 — Budgets and reference machine**
+- [x] **M0.5 — Budgets and reference machine**
   - Depends: M0.1
   - Do: ask the user for the reference machine; record it and confirm or
     adjust every budget in `docs/00-overview.md`.
   - Accept: the budgets table says "confirmed" with the machine named.
   - Verify: doc review (human)
-  - ⏳ needs human: review the reference machine and "Target (confirmed)"
-    edit in `docs/00-overview.md` → "Performance budgets".
+  - Note (2026-11-08): done. The user reviewed `docs/00-overview.md` →
+    "Performance budgets" and approved the reference machine and every
+    "Target (confirmed)" as written. The machine entry was checked against
+    the development machine that day: `/sys/class/dmi/id` (MSI Pulse GL66
+    11UGKV), `lscpu` (i7-11800H, 8 cores / 16 threads), `free` (15.3 GiB),
+    `lsblk` (the root file system on the NVMe drive), `/etc/os-release`
+    and `uname -r` (Pop!_OS 24.04 LTS, `7.2.6-76070206-generic`), `lspci`
+    (Intel UHD and RTX 3070 Mobile), the panel's mode (1920×1080) and
+    `XDG_CURRENT_DESKTOP` (COSMIC, on Wayland).
 
-- [ ] **M0.6 — Contribution workflow and crate READMEs**
+- [x] **M0.6 — Contribution workflow and crate READMEs**
   - Depends: M0.3
   - Do:
     - `CONTRIBUTING.md`: the workflow (an issue first), setup, commands,
@@ -147,10 +154,22 @@ enforced by tooling from day one.
   - Verify: parse the YAML (state how); doc review (human)
   - Note (2026-11-02): the files were written in the documentation rebuild
     of 2026-11-02 (ADR-0024).
-  - ⏳ needs human: review the texts; accept ADR-0023 (crate READMEs) and
-    ADR-0024 (this re-plan), or say what to change; and turn on private
-    vulnerability reporting for `jabbott-iii/Tidepool`, which `SECURITY.md`
-    and the issue form link to.
+  - Note (2026-11-08): done. The user reviewed and approved the texts as
+    written (`CONTRIBUTING.md`, `SECURITY.md`, the pull request template,
+    `issue.yml`, `config.yml` and the 26 members' READMEs), and accepted
+    ADR-0023 and ADR-0024 as written.
+    - **YAML:** `issue.yml` and `config.yml` parse with PyYAML 6.0.1
+      (`python3 -I`, `yaml.safe_load`). `issue.yml` has `name`,
+      `description` and `body`; `config.yml` sets `blank_issues_enabled:
+      false` and links private vulnerability reporting.
+    - **Private vulnerability reporting** is on: `gh api
+      repos/jabbott-iii/Tidepool/private-vulnerability-reporting` returned
+      `{"enabled":true}`.
+    - **READMEs:** a script checked that every member has a `README.md`
+      whose first line is `# <package name>`, and that each `## Status`
+      names under "Built" only ticked tasks and under "Not yet" only
+      unticked ones, all of them in this file. M0.9's `cargo xtask crates`
+      makes the shape a check.
 
 - [x] **M0.7 — License headers: `cargo xtask headers`; the RFC 8259 notice**
   - Depends: M0.3
@@ -283,7 +302,7 @@ enforced by tooling from day one.
     still reports 0 Rust files extracted with errors (89 of 89 on
     2026-11-02, before the rewrite).
 
-- [ ] **M0.9 — `cargo xtask crates`: the members' manifests and READMEs**
+- [x] **M0.9 — `cargo xtask crates`: the members' manifests and READMEs**
   - Depends: M0.3, M0.6
   - Decide first: accept ADR-0023 (crate READMEs and the manifest check),
     which is `Proposed`, if M0.6 has not.
@@ -298,6 +317,36 @@ enforced by tooling from day one.
       name only task IDs this file has.
   - Accept: fixtures fail for each rule; the real workspace passes.
   - Verify: `cargo xtask crates`; `cargo xtask ci`
+  - Note (2026-11-08): the `Decide first` line is answered: the user
+    accepted ADR-0023 as written in M0.6's review.
+  - Note (2026-11-08): done. Every member but `xtask` got
+    `publish = false`. The check is `xtask/src/crates.rs`, a step of `ci`
+    after `layers`; its rules are in `docs/04-quality.md` → "`crates`".
+    - **Beyond the Do line:** it also fails a root `[workspace.package]`
+      edition other than `"2024"`, and a target (`[lib]`, `[[bin]]`,
+      `[[test]]`, `[[bench]]`, `[[example]]`) that sets an `edition` of its
+      own, which cargo 1.99 still accepts with only a warning. Together
+      they make ADR-0023's "Manifests cannot drift from the workspace's
+      edition" true. As ADR-0023 words it, a README's first line must be
+      `# <package name>`, and its task IDs are checked wherever they are,
+      not only in `## Status` and `## Design`.
+    - **Verified** on rustc 1.99.0: `cargo xtask crates` prints "members
+      checked: 26, task IDs in docs/roadmap.md: 105" and `crates: ok`;
+      `cargo xtask ci` passes 10 of 10 steps, 1,045 tests, 0 failed, 0
+      `SKIPPED:`. A fixture fails for each rule (the `crates_` tests in
+      `xtask/tests/fixtures.rs`, beside the unit tests in
+      `xtask/src/crates/tests.rs`), and
+      `the_real_repository_s_crates_pass` runs it on this repository.
+    - **Review:** two rounds, each finding checked by a skeptic. The first
+      confirmed 15, all fixed, among them the target `edition`; the second
+      confirmed 6 in the fixes, all in how a README is read. Sections are
+      found as `layers` reads a document, and where that differs from a
+      renderer is listed under "Not covered" there, rather than changing
+      the reading `layers` relies on.
+    - **Not run:** macOS and Windows, where a `readme.md` opens as
+      `README.md` and passes (not covered); a FIFO named `README.md`,
+      which `std` cannot make, so a directory stands in for "not a regular
+      file".
 
 - [x] **M0.10 — xtask: paths shown escaped; symbolic links never resolved**
   - Depends: M0.3, M0.7

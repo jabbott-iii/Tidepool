@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::Skips;
 use crate::error::Error;
-use crate::{cargo, deps, headers, layers, ucd, unsafe_audit, walk, workflows};
+use crate::{cargo, crates, deps, headers, layers, ucd, unsafe_audit, walk, workflows};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -123,6 +123,15 @@ pub(crate) const LAYERS: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask crates`.
+pub(crate) const CRATES: Check = Check {
+    name: "crates",
+    about: "Manifests inherit from the workspace, publish = false; READMEs start `# <name>`, have \
+            Status and Design, name only roadmap tasks",
+    step: Step::Own(crates::run),
+    role: Role::Independent,
+};
+
 /// `cargo xtask unsafe-audit`.
 pub(crate) const UNSAFE_AUDIT: Check = Check {
     name: "unsafe-audit",
@@ -182,7 +191,8 @@ const TEST: &[&str] = &["test", "--workspace"];
 
 /// The checks that are subcommands of their own. `ucd` is listed as its
 /// `--check` form; without `--check` it runs [`UCD_WRITE`].
-pub(crate) const COMMANDS: &[Check] = &[DEPS, LAYERS, UNSAFE_AUDIT, HEADERS, WORKFLOWS, UCD];
+pub(crate) const COMMANDS: &[Check] =
+    &[DEPS, LAYERS, CRATES, UNSAFE_AUDIT, HEADERS, WORKFLOWS, UCD];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
 /// dependency problem is reported, and nothing is compiled, before
@@ -208,6 +218,7 @@ pub(crate) const CI: &[Check] = &[
         role: Role::Compiles,
     },
     LAYERS,
+    CRATES,
     UNSAFE_AUDIT,
     HEADERS,
     WORKFLOWS,
@@ -1098,6 +1109,7 @@ mod tests {
                 ("clippy", Role::Compiles),
                 ("test", Role::Compiles),
                 ("layers", Role::Independent),
+                ("crates", Role::Independent),
                 ("unsafe-audit", Role::Independent),
                 ("headers", Role::Independent),
                 ("workflows", Role::Independent),
@@ -1130,6 +1142,7 @@ mod tests {
             ),
             ("test", Some("cargo test --workspace")),
             ("layers", None),
+            ("crates", None),
             ("unsafe-audit", None),
             ("headers", None),
             ("workflows", None),
@@ -1163,6 +1176,7 @@ mod tests {
         };
         let deps_run: fn(&Path) -> Result<Report, Error> = deps::run;
         let layers_run: fn(&Path) -> Result<Report, Error> = layers::run;
+        let crates_run: fn(&Path) -> Result<Report, Error> = crates::run;
         let audit_run: fn(&Path) -> Result<Report, Error> = unsafe_audit::run;
         let headers_run: fn(&Path) -> Result<Report, Error> = headers::run;
         let workflows_run: fn(&Path) -> Result<Report, Error> = workflows::run;
@@ -1170,6 +1184,7 @@ mod tests {
         let ucd_write: fn(&Path) -> Result<Report, Error> = ucd::write;
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
+        assert!(std::ptr::fn_addr_eq(own("crates"), crates_run));
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
         assert!(std::ptr::fn_addr_eq(own("headers"), headers_run));
         assert!(std::ptr::fn_addr_eq(own("workflows"), workflows_run));

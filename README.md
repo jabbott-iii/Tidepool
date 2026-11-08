@@ -7,9 +7,10 @@ support. It will also build and sign Android and iOS apps, and offer AI
 features through plugged-in language agents.
 
 **Status:** in development, at version 0.1, and still headless. The guarded
-workspace and its checks, license headers, the core library, JSON and
-TOML, the text engine's rope, positions, selections, undo tree,
-encodings and atomic save, and a fuzzer for the parsers are built;
+workspace and its checks, the contribution workflow, license headers, the
+core library, JSON and TOML, the text engine's rope, positions,
+selections, undo tree, encodings and atomic save, and a fuzzer for the
+parsers are built;
 nothing opens a window yet. [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done,
 and each crate's `README.md` says what it has.
 
@@ -21,7 +22,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, unsafe-audit, headers, workflows, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, crates, unsafe-audit, headers, workflows, ucd
 cargo test -p tidepool-text
 ```
 

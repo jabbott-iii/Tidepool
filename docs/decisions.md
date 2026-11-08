@@ -699,7 +699,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0023 — Every workspace member has a README in one shape; `cargo xtask crates` checks the members' manifests and READMEs
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Context:**
   - On 2026-11-01 the user chose per-crate READMEs: a `README.md` in each
@@ -755,7 +755,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0024 — The roadmap is re-planned from the state of the code on 2026-11-02; task IDs are stable
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Context:**
   - The roadmap, the docs and the Claude Code files were written on
