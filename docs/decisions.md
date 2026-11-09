@@ -953,7 +953,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0026 — `codec::toml` parses TOML 1.1; its compliance cases are toml-test v2.2.0's 1.1 list, vendored as test-only fixtures
 
-- **Status:** Accepted
+- **Status:** Accepted; the question its Consequences leave to M1.5 is answered by ADR-0031: the writer writes TOML 1.0 syntax for the text it creates
 - **Date:** 2026-11-04
 - **Context:**
   - M1.7 builds `codec::toml`, the parser that settings, keymaps, themes,
@@ -1483,3 +1483,67 @@ decides; the roadmap task that first depends on one asks for the decision.
   WASM or web build becomes a goal; jabbott.dev changes its markup or
   class names; the Pages job takes more than 15 minutes; or DEFLATE in
   `codec` (M10.7) lets `xtask` read the commit's objects itself.
+
+## ADR-0031 — `codec::toml`'s document writer writes TOML 1.0 syntax for the text it creates, and keeps the text it does not change byte for byte
+
+- **Status:** Accepted
+- **Date:** 2026-11-08
+- **Context:**
+  - M1.5 builds the comment- and order-preserving document model that
+    ADR-0013 calls for, on M1.7's parser, which reads TOML 1.1 (ADR-0026).
+    Settings are its first user: M4.7 writes them back through it, and
+    saving them keeps unknown keys and comments.
+  - ADR-0026's Consequences left M1.5 one question: whether the writer
+    may write TOML 1.1 syntax, which a reader that knows only TOML 1.0
+    rejects. TOML 1.1 adds four such forms: line breaks, comments and a
+    trailing comma in an inline table; the `\xHH` and `\e` escapes; and
+    times without seconds. Each value they spell has a 1.0 spelling too:
+    an inline table on one line, `é` and `\u001B`, and `:00` for the
+    seconds.
+  - The parser does not record which syntax a value was written in
+    (`docs/subsystems/text-and-formats.md` → `toml`: not whether seconds
+    were written, for one).
+  - On 2026-11-08 the user chose "1.0 for new text" (the recommended
+    option) over "1.1 where shorter" and "follow the document".
+- **Decision:**
+  - The document model reads what the parser reads: all of TOML 1.1.
+  - An unchanged document writes back byte for byte. An edit rewrites only
+    the bytes of the value it changes or the entry or table it adds;
+    comments, blank lines, order, quoting, layout and line endings
+    elsewhere stay as they were.
+  - Every piece of text the writer creates is TOML 1.0:
+    - a string escapes a control character with one of 1.0's short
+      escapes (`\b`, `\t`, `\n`, `\f`, `\r`) or `\uXXXX`, never `\e` or
+      `\xHH`;
+    - a time, local date-time or offset date-time is written with its
+      seconds;
+    - an inline table is written on one line, with no comment, line
+      break or trailing comma.
+  - So a document that is TOML 1.0 stays TOML 1.0 after any edit, and 1.1
+    syntax is in a file only where a person wrote it. An edit inside text
+    that already uses 1.1 syntax, such as an inline table laid over
+    several lines, keeps that text's layout: it adds no 1.1 syntax to a
+    1.0 document, and it does not take any out of a 1.1 one.
+  - The tests check each of the four forms in what the writer creates,
+    and that every valid case of toml-test's 1.1 list (ADR-0026) writes
+    back byte for byte when nothing is changed.
+- **Consequences:**
+  - A settings file Tidepool edits stays readable by tools that know only
+    TOML 1.0, and what a person wrote is never reformatted.
+  - A few values take more text: `\u001B` (6 bytes) for `\e` (2), and
+    `07:30:00` for `07:30`. A time the writer rewrites gains `:00` even
+    where a person left the seconds out, since the parser does not record
+    that; only a value an edit changes is rewritten.
+  - An inline table too long for one line is the caller's to write as a
+    table under a header instead.
+- **Alternatives considered:**
+  - 1.1 where shorter (`\e`, `\xHH`, no zero seconds, inline tables over
+    several lines): a file could stop parsing in a 1.0 tool after an edit
+    whose syntax the person never saw.
+  - Follow the document, writing 1.1 only into a file that already uses
+    it: needs a detector of 1.1 syntax, which the parser does not record,
+    and tests of its own, for a few bytes.
+  - A strict 1.0 writer that also rewrites a person's 1.1 syntax into 1.0:
+    breaks the byte-for-byte promise for text the edit did not touch.
+- **Revisit when:** a TOML release after 1.1 (ADR-0026's trigger), or a
+  report that a TOML file Tidepool wrote back was rejected by a TOML tool.

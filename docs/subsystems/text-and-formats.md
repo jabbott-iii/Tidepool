@@ -310,7 +310,7 @@ line and column. None of them panic on input.
 | Module | Supports | Used by |
 | :- | :- | :- |
 | `json` | RFC 8259, strict by default; JSONC (comments, one trailing comma) as an option; writer (compact, pretty). Subset: see `json` below | LSP/DAP/TAP, cargo diagnostics, `cargo metadata`, `xtask` |
-| `toml` | TOML 1.1 (ADR-0026), read into a value tree with spans. Subset: see `toml` below. The comment- and order-preserving document model for files Tidepool writes back lands in M1.5 | Settings, keymaps, themes, packs, descriptors, `Cargo.toml` |
+| `toml` | TOML 1.1 (ADR-0026), read into a value tree with spans; `Document`, which changes and adds values and keeps the rest of the text byte for byte, comments and order included, writing TOML 1.0 (ADR-0013, ADR-0031). Subset: see `toml` below | Settings, keymaps, themes, packs, descriptors, `Cargo.toml` |
 | `xml` | Well-formed XML 1.0 without DTDs or external entities (none are fetched or expanded) | `AndroidManifest.xml`, plist |
 | `plist` | XML property lists (read/write) | `Info.plist`, `ExportOptions.plist`, entitlements |
 | `yaml` | A documented YAML 1.2 subset for highlighting and validation (aliases with an expansion limit; no custom tags) | Viewing YAML files |
@@ -430,10 +430,11 @@ Writing:
 
 `parse(&str, Limits)` and `parse_bytes(&[u8], Limits)` return the root
 `Table` of a TOML 1.1 document (ADR-0026). The module documentation in
-`crates/codec/src/toml.rs` is authoritative; this is its summary. There is
-no writer and comments are not kept: the document model of ADR-0013 builds
-on this parser in M1.5. The compliance cases are toml-test v2.2.0's 1.1
-list, vendored in `crates/codec/tests/toml-test/` (see "Tests" below).
+`crates/codec/src/toml.rs` is authoritative; this is its summary.
+`Document` builds on the parser to edit a document and keep the rest of
+its text, comments included (see "The document model" below). The
+compliance cases are toml-test v2.2.0's 1.1 list, vendored in
+`crates/codec/tests/toml-test/` (see "Tests" below).
 
 All of TOML 1.1.0 is accepted: everything 1.0.0 has, which 1.1 only
 relaxes, plus line breaks, comments and a trailing comma in inline tables,
@@ -554,6 +555,292 @@ Memory and stack:
 - Parsing takes linear time. Measured (this machine, not the bench
   harness): 100,000 keys in one table parse in 0.23 s in a debug build and
   0.03 s in release, and 10,000 sibling tables in 0.026 s and 0.004 s.
+
+#### The document model: `toml::Document`
+
+`Document` holds a TOML document's text, its parsed root `Table` and the
+`Limits` it was read with. A caller reads values through the tree, changes
+or adds them with `set`, and takes the text back. If nothing was edited, the
+text is the input byte for byte. After edits, only the bytes of the changed
+value, or of the added entry or table, are new (ADR-0013, ADR-0031). The
+rustdoc in `crates/codec/src/toml.rs` ("Editing") is authoritative.
+
+```rust
+#[derive(Clone, Debug)]
+pub struct Document { /* text: String, root: Table, limits: Limits */ }
+
+impl Document {
+    /// Parses as `toml::parse` does and keeps a copy of the text. `limits` also bound every later edit.
+    pub fn parse(text: &str, limits: Limits) -> Result<Self, CodecError>;
+    /// The same for bytes, which must be UTF-8, as `toml::parse_bytes` reads them.
+    pub fn parse_bytes(bytes: &[u8], limits: Limits) -> Result<Self, CodecError>;
+    /// The text: the input until an edit, then the input with only edited bytes changed.
+    pub fn as_str(&self) -> &str;
+    /// The text, consuming the document.
+    pub fn into_string(self) -> String;
+    /// The root table. Its spans index `as_str()`.
+    pub fn root(&self) -> &Table;
+    /// The value at `path`. None for an empty path, a missing step, or a Key step on an array of tables.
+    pub fn get(&self, path: &[Step<'_>]) -> Option<&Value>;
+    /// Makes the value at `path` equal to `value`: replaces it, or adds it with any missing tables.
+    /// Does nothing if it already holds equal data. On error the document is unchanged.
+    pub fn set(&mut self, path: &[Step<'_>], value: &ValueKind) -> Result<(), CodecError>;
+}
+
+/// One step of a path from the root table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Step<'a> {
+    /// The entry with this name, decoded and compared exactly, as `Table::get` compares.
+    Key(&'a str),
+    /// The element at this index, from 0, of an array written as a value or of an array of tables.
+    Index(usize),
+}
+impl<'a> From<&'a str> for Step<'a> { /* Step::Key */ }
+impl From<usize> for Step<'_> { /* Step::Index */ }
+```
+
+- **Invariant:** `root()` always equals `toml::parse(as_str(), limits)`.
+  Neither field is ever exposed mutably.
+- **Spans after an edit:** every edit makes a new tree, so spans from before
+  it are stale. The borrow checker stops a caller from holding a `&Value`
+  across `set`.
+- **Batches:** to make several edits atomic, clone the `Document`, edit the
+  clone, and keep it only if every edit succeeds.
+- **New files:** an empty document is `Document::parse("", limits)`.
+
+**Paths.**
+
+- A `Key` step needs a table; an `Index` step needs an array.
+- An array of tables is always indexed explicitly. A `Key` step on one is
+  `NotATable { found: "an array of tables" }`, and the editor never picks
+  the last element for the caller.
+- A path is by structure, not spelling: `editor.font-size = 14` at the root,
+  `[editor]` with `font-size = 14`, and `editor = { font-size = 14 }` are
+  all `["editor", "font-size"]`.
+
+**Building values.**
+
+- `Value: From<ValueKind>` gives span `0..0`.
+- `Array::new(Vec<Value>)` builds an array written as a value.
+- `Table::new_inline()` builds an empty table of kind `Inline`.
+- `Table::insert(name, value: impl Into<Value>) -> Option<Value>` replaces
+  an existing entry in place, or appends a new one.
+- The writer ignores the spans and the `TableKind` of a value built in code.
+- A value read from another document, such as the defaults, is passed as
+  `&value.kind`, without a clone.
+
+**Setting a value that exists.**
+
+- If the value at the path holds the same data, nothing changes. This makes
+  a "save every setting" pass byte for byte when nothing changed, and keeps
+  `0x10`, `1_000`, `'lit'` and `07:30` as written.
+- "Same data" means:
+  - same kind and value, spans and table kinds ignored;
+  - floats compared by bits, with any two NaNs of one sign equal;
+  - arrays compared in order, with the array-of-tables flag ignored;
+  - tables compared entry by entry in order.
+- Otherwise, if the value is a scalar, an array written as a value, or an
+  inline table (at a key or at an index of an array), exactly the bytes of
+  its span are replaced with created text.
+  - The key, the spaces, the comment after the value and the line break
+    stay.
+  - A multi-line string or array, or an inline table laid over several lines
+    (TOML 1.1), is replaced whole by one line of TOML 1.0, and comments
+    inside it go with it. This is the accepted reading of ADR-0031: the
+    bytes an edit changes are the whole value's.
+  - To keep such a layout, set its entries or elements instead. Those edits
+    replace only their own spans, so the 1.1 layout around them stays
+    (ADR-0031).
+  - The type may change.
+- Otherwise the edit is refused with `NotReplaceable`, because the value's
+  text is spread over lines or sections. That covers a table defined by a
+  header, an element of an array of tables, a table made by a header's
+  prefix (`Implicit`), a table made by dotted keys, and an array of tables.
+
+**Adding a value.** The walk stops at N, the deepest table on the path that
+exists. After it come the missing tables t1…tm (m ≥ 0) and the final key k.
+An `Index` step among them is `MissingArray`.
+
+Terms used in the rules:
+
+- **c0:** 3 if the text starts with U+FEFF, otherwise 0. No edit writes
+  before c0. The content is the text from c0.
+- **nl:** CR LF if the text's first line break is CR LF, otherwise LF.
+- **le(x):** the line end after offset x. Skip spaces and tabs, then a `#`
+  comment, then the LF or CR LF; or stop at the end of the text.
+- **Leaves of T:** T's entries whose value is a scalar, an array written as
+  a value or an inline table, plus, recursively, the leaves of T's Dotted
+  children. Never through Header, ArrayHeader or Implicit tables, nor
+  through arrays of tables. A Dotted table's leaves are all in the section
+  of its nearest non-Dotted ancestor, which is Root, Header, ArrayHeader or
+  Inline.
+- **Last leaf:** the leaf with the largest span end. Its key line is the
+  line where its key's span starts.
+- **Section end** of a Root, Header or ArrayHeader table: le(the end of its
+  last leaf). With no leaves, le(its header's span end), or for Root the
+  root point.
+- **Root point:**
+  - With headers: the line start of the first header (the smallest span
+    start of any Header table or ArrayHeader element), moved up over the
+    comment lines directly above it. Blank lines stop the move. Before the
+    first header there are then only blank and comment lines, so this scan
+    is exact.
+  - With no header: the end of the text.
+- **Subtree end of N:** le(x), where x is the largest of the span ends of
+  every leaf of every non-inline table in N's subtree, and of every Header
+  and ArrayHeader header in it, N's own included. The walk enters tables of
+  every kind except Inline, and arrays of tables, but not arrays written as
+  values. If there is nothing (a document with no keys and no headers), it
+  is the end of the text.
+- **Indent:** the leading spaces and tabs of the last leaf's key line. There
+  is none after a header line or at the root point.
+- **Key text:** the names written as keys and joined by `.`. The **key
+  line** is `indent + key text + " = " + value`.
+
+Where an added value goes:
+
+| N | m | Inserted | Where |
+| :- | :- | :- | :- |
+| Root with leaves; Header; ArrayHeader element | 0 | key line `k = v` | at N's section end: N's own section, so `[[a]]` element 0 of 3 gets it before the second `[[a]]` |
+| Root without leaves | 0 | key line, then a blank line | at the root point |
+| Dotted D in a section | any | key line `p.t1….tm.k = v`, where p is the names from the section's table (exclusive) down to D | at le(the end of D's last leaf), with that leaf's indent |
+| Inline C, or Dotted D inside C, with a leaf | any | `, q.t1….tm.k = v`, where q is the names from C (exclusive) down to N | right after the span end of N's last leaf, before any comma, comment or line break that follows it |
+| Inline C, empty | any | ` t1….tm.k = v`, plus a space if `}` follows `{` directly | right after `{`: `{}` becomes `{ k = v }`, `{\n}` becomes `{ k = v\n}` |
+| Implicit | 0 | header block `[path(N)]`, then `k = v` (N becomes Header) | at N's subtree end |
+| Root, Header, ArrayHeader, Implicit | ≥ 1 | header block `[path(N).t1….tm]`, then `k = v` (t1…tm−1 become implicit) | at N's subtree end |
+
+- **path(N)** is the `Key` steps from the root to N, with the `Index` steps
+  left out. A header names the last element of each array of tables on its
+  path.
+  - Every section in element i's subtree lies before element i+1's
+    `[[...]]`, so a header placed at element i's subtree end names element
+    i.
+  - Only blank and comment lines lie between a subtree end and the next
+    header, so a new header takes no existing keys.
+- **No forbidden extensions:** a header is never written where dotted keys
+  or an inline table made a table, and a dotted key is never written into a
+  table a header defined. So `ExtendsInlineTable`, `ExtendsDefinedTable` and
+  `DuplicateTable` cannot arise.
+- **Line insertion** of lines at P (always a line start or the end of the
+  text), with the flags blank_before (header blocks) and blank_after
+  (header blocks, and a root key at the root point):
+  - **Empty content** (`""` or a BOM alone): each line followed by nl,
+    written at c0.
+  - **End of a text with no final line break:** first nl, then nl again if
+    blank_before is set and the last line is not blank, then the lines
+    joined by nl and no final nl. A file that had no final newline still has
+    none.
+  - **Otherwise:** nl first, if blank_before is set, P > c0 and the line
+    before P is not blank; then each line followed by nl; then nl, if
+    blank_after is set, P is not the end of the text and the line at P is
+    not blank.
+- **Neighbouring text:** comments and blank lines after the line that a new
+  key line follows stay below the new line, and comments attached to the
+  next header stay attached to it.
+
+**Created text** is TOML 1.0 (ADR-0031) and fits on one line:
+
+| Kind | Written |
+| :- | :- |
+| Key part | Bare when it is non-empty and only ASCII letters, digits, `-` and `_` (so `3`, `true` and `tab-size` stay bare); otherwise quoted by the string rule. Parts are joined with `.` and no spaces. A header is `[a.b]`; `[[...]]` is never written |
+| String | A literal `'…'` when the text holds a `\` or a `"`, no `'`, and no U+0000–U+001F or U+007F (`'C:\Users\me'`). Otherwise a basic `"…"`: `\"`, `\\`, `\b \t \n \f \r`, and `\uXXXX` with uppercase hex for every other control character and DEL (`\u001B`); everything else raw. Never multi-line, never `\e`, `\xHH` or `\U` |
+| Integer | Decimal, `-` for negatives, no `+`, underscores or base prefix |
+| Float | Finite: `json::Number::from_f64(v)`'s `Display`. That is the shortest digits that read back as the same `f64`, in exponent form when the magnitude is not 0 and outside [1e-5, 1e16) (`1e16`, `5e-324`, `1.5e300`), with `.0` on whole numbers (`3.0`, `-0.0`). Then `inf` and `-inf`; NaN is `nan` or `-nan` by its sign bit, and its payload is not kept. Every finite value reads back bit for bit |
+| Boolean | `true`, `false` |
+| Date-time | Checked first, because a value built in code is not: year 0–9999, month 1–12, a day the month has, hour ≤ 23, minute ≤ 59, second ≤ 60, nanosecond ≤ 999,999,999, offset within ±1439 minutes. Then `Datetime`'s `Display`: `T`, the seconds always written, the fraction without trailing zeros, `Z` or `±HH:MM` (`+00:00` stays apart from `Z`). A time parsed from `07:32` and then changed is written with `:00` seconds |
+| Array | `[a, b]` or `[]`, with no trailing comma. Tables in it are inline. An array of tables passed as a value is written as an array of inline tables |
+| Table value | `{ k = v, k2 = v2 }` or `{}`, entries in order, nested tables inline (never dotted keys). No comment, line break or trailing comma |
+
+**Errors.**
+
+- `Document::parse` and `Document::parse_bytes` fail exactly as
+  `toml::parse` and `toml::parse_bytes` do, with `CodecError::Toml`.
+- `set` fails with `CodecError::TomlEdit { step, kind: toml::EditErrorKind }`,
+  and the document is then unchanged.
+- `step` is the index of the path step the problem concerns: the step that
+  could not be taken, `path.len() - 1` for the target, or `path.len()` for
+  the edit as a whole.
+- Messages never quote keys or text.
+
+| `EditErrorKind` | When | `step` |
+| :- | :- | :- |
+| `EmptyPath` | The path has no steps | 0 |
+| `NotATable { found }` | A `Key` step on a scalar, an array written as a value, or an array of tables | that step |
+| `NotAnArray { found }` | An `Index` step on something that is not an array | that step |
+| `IndexOutOfRange { len }` | An `Index` step past the end; edits never add elements | that step |
+| `MissingArray` | An `Index` step after a key that does not exist; edits create tables only | that `Index` step |
+| `NotReplaceable { found }` | The target is a table under a header, an element of an array of tables, a table made by a header's prefix, a table made by dotted keys, or an array of tables, and the data differs | `path.len() - 1` |
+| `InvalidDatetime { expected }` | A date-time in the new value has a field out of range (`expected` as in `ErrorKind::InvalidDatetime`) | `path.len() - 1` |
+| `TooLarge { limit }` | The new text would be longer than `max_input_bytes`; this is found before anything is allocated, and the writer stops at the room left | `path.len()` |
+| `Limit(ErrorKind)` | The new value nests deeper than `max_depth` (`TooDeep`, checked before writing), or the new text breaks a limit when it is read again (`TooDeep`, `StringTooLong`, `NumberTooLong`, `TooManyEntries`) | `path.len() - 1` before writing, `path.len()` when read again |
+| `Unverified { reason }` | The new text did not parse, or its data is not the old data plus exactly this edit. This is a bug in the document model, and the edit is refused rather than corrupting the file | `path.len()` |
+
+**Verification.** Every edit except a no-op works in local variables, then
+commits:
+
+1. Plan one splice: a range of the old text, empty for an insertion, and the
+   created text.
+2. Check the new length with checked arithmetic.
+3. Build the new text from `get` slices.
+4. Parse it with the document's `Limits`.
+5. Walk the old and new trees together along the path:
+   - At each table on the path, the new table has the old table's entries,
+     in the same order and with the same data, apart from the stepped entry,
+     which may be new and may sit at any position.
+   - At each array, the lengths and the array-of-tables flag match, and
+     every item except the indexed one has the same data.
+   - Each created table holds only the next step.
+   - The value at the path has the same data as `value`.
+6. Only then assign the text and the tree.
+
+Text outside the splice is unchanged by construction. The cost is one parse
+and one tree walk per edit, linear in the document's size, with two trees
+in memory briefly. A settings file of a few KB takes microseconds.
+
+**Limits and untrusted input.**
+
+- A document may come from an untrusted workspace, and nothing panics on
+  it: all text access uses `get` and checked arithmetic; every walk keeps an
+  explicit stack; and the writer recurses only after the value's depth
+  (measured without recursion) is known to be within `max_depth`.
+- Sizes stay bounded by the stored `Limits`.
+- Because an edit briefly holds two trees, read workspace and user settings
+  with a lower `max_input_bytes`, for example 1 MiB (see `Limits`).
+
+**Not supported** (later tasks add them when a caller needs them):
+
+- Removing keys, tables or elements; renaming, reordering or moving
+  entries. A "reset to default" can set the default value but cannot remove
+  the key.
+- Appending to an array, or adding a `[[...]]` element. The rule is ready
+  for later: after the last element's subtree end.
+- Replacing a table under a header, a dotted or implicit table, or an array
+  of tables as a whole. Set its entries instead.
+- Writing a table value under a header: a table passed to `set` is always
+  written inline. Set its leaves to get a header.
+- Multi-line created text, and keeping a changed value's spelling (base,
+  underscores, quote style, left-out seconds, `t`, `z`).
+- A comment API, detecting 1.1 syntax, reformatting, and applying several
+  edits under one re-parse.
+- Settings semantics (layers, validation, version keys, migrations) belong
+  to M4.7. File I/O belongs to `text::file`, called on workers.
+
+Example (also the crate README's doc test, and the module documentation's):
+
+```rust
+use tidepool_codec::Limits;
+use tidepool_codec::toml::{Document, ValueKind};
+
+let limits = Limits { max_input_bytes: 1024 * 1024, ..Limits::DEFAULT };
+let mut doc = Document::parse("# Mine\n[editor]\nfont-size = 14 # big\n", limits)?;
+doc.set(&["editor".into(), "tab-size".into()], &ValueKind::Integer(4))?;
+doc.set(&["editor".into(), "font-size".into()], &ValueKind::Integer(16))?;
+doc.set(&["theme".into(), "name".into()], &ValueKind::String("tidepool-dark".into()))?;
+assert_eq!(
+    doc.as_str(),
+    "# Mine\n[editor]\nfont-size = 16 # big\ntab-size = 4\n\n[theme]\nname = \"tidepool-dark\"\n"
+);
+```
 
 ## `tidepool-regex`
 

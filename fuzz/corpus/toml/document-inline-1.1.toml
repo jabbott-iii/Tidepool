@@ -1,0 +1,22 @@
+# TOML 1.1 inline tables: over lines, with comments and trailing commas.
+one-line = { a = 1, b = 2 }
+trailing = { a = 1, b = 2, }
+empty = {}
+spaced = { }
+open = {
+}
+commented = { # just a comment
+}
+multi = {
+    a = 1, # one
+    b = [
+        2, # two
+    ],
+    c.d = 3,
+}
+comma-first = { a = 1
+    , b = 2
+    }
+nested = { inner = { x = 1, }, list = [{ y = 2, }, {}] }
+time = 07:32
+escape = "\e\x41"

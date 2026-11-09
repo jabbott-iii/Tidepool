@@ -88,9 +88,9 @@
     {
       "name": "TOML 1.1",
       "area": "Formats",
-      "summary": "A TOML 1.1 parser into a tree whose keys and values keep their place in the text, passing every valid and invalid case on toml-test's 1.1 list, with errors that give the line and column and the same kind of limits as JSON's. A document model that keeps comments, order and formatting will let Tidepool change a value and write the file back, unchanged everywhere else.",
+      "summary": "A TOML 1.1 parser into a tree whose keys and values keep their place in the text, passing every valid and invalid case on toml-test's 1.1 list, with errors that give the line and column and the same kind of limits as JSON's. A document model changes or adds a value and writes the file back with only those bytes changed, so comments, order and formatting stay; what it writes is TOML 1.0, so a file that tools knowing only TOML 1.0 can read stays readable to them.",
       "tasks": ["M1.7", "M1.5"],
-      "ticked": ["M1.7"]
+      "ticked": ["M1.7", "M1.5"]
     },
     {
       "name": "The rope and positions",

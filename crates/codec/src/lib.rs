@@ -22,8 +22,9 @@
 //! returns a [`CodecError`] that says where the input went wrong and what was
 //! expected there, and never panics, whatever the input.
 //!
-//! Formats so far: [`json`] (JSON and JSONC) and [`toml`] (TOML 1.1, read
-//! only). The others arrive with their roadmap tasks.
+//! Formats so far: [`json`] (JSON and JSONC) and [`toml`] (TOML 1.1, with a
+//! document model that edits a document and keeps the rest of its text).
+//! The others arrive with their roadmap tasks.
 //!
 //! Parts of this crate are ported from Nadir's `nadir-codec` (same owner);
 //! each ported file says so in its header. Tidepool does not depend on Nadir.

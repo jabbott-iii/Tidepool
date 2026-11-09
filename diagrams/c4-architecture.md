@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, and the benchmark and fake
 tool crates still to come.
 
-Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M1.5 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -280,7 +280,7 @@ roots, the two that allow `unsafe_code`. The other four crates are empty.
 flowchart LR
     subgraph L1["Layer 1"]
         k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>planned M2.2: window,<br/>events, surface on X11"]
-        k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>Limits, CodecError<br/>planned M1.5, M2.4,<br/>M10.7, M10.2, M11.3"]
+        k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>planned M2.4, M10.7,<br/>M10.2, M11.3"]
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
         k_gfx["tidepool-gfx<br/>planned M2.3:<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, backdrop, damage"]
@@ -874,7 +874,7 @@ examples as doc tests (M0.13); the table leaves those out.
 | `tidepool-core` | `crates/core` | 0, foundations | deny | `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`, `color`, `cancel` (M0.2); `testing::fuzz` (M1.6) | `path` (M1.8) | none |
 | `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1) | M2.1, M5.7, M5.9, M11.7, M11.8, M12.1, M12.2 | none |
 | `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1) | M2.2, M2.7, M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | none |
-| `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7), fuzz targets `json` and `toml` (M1.6) | M1.5, M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
+| `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6) | M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
 | `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | nothing | M2.3, M2.4 | none |

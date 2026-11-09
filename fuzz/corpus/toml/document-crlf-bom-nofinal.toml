@@ -1,0 +1,8 @@
+﻿# CR LF, a byte-order mark, and no final line break.
+name = "crlf"
+
+# about t
+[t]
+x = 1 # c
+[[a]]
+y = 2

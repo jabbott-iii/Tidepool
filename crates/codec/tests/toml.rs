@@ -63,6 +63,15 @@
 //! The property tests print their seed and a command to rerun them if they
 //! fail; set `TIDEPOOL_SEED` to run them with another seed. Real fuzzing
 //! arrives with `xtask fuzz-smoke` (roadmap M1.6).
+//!
+//! The document model ([`toml::Document`], M1.5) is checked on the same
+//! cases: every one reads as the parser reads it and writes back byte for
+//! byte, and every leaf of every valid case can be replaced, and every
+//! table take a new key and a chain of new tables, each edit changing only
+//! its own bytes. The expected JSON, edited the same way, is the oracle, so
+//! these checks do not rest on the document model's own verification.
+//! Generated documents take random edits too, checked against a model of
+//! the data.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -71,7 +80,10 @@ use std::thread;
 use std::time::Duration;
 
 use tidepool_codec::json::{self, Dialect};
-use tidepool_codec::toml::{self, Datetime, ErrorKind, Offset, Table, TableKind, Value, ValueKind};
+use tidepool_codec::toml::{
+    self, Array, Datetime, Document, EditErrorKind, ErrorKind, Offset, Step, Table, TableKind,
+    Value, ValueKind,
+};
 use tidepool_codec::{CodecError, Limits};
 use tidepool_core::Pcg32;
 use tidepool_core::testing::{check, check_sized};
@@ -1630,6 +1642,507 @@ fn generated_documents_parse_to_what_was_written() {
                 .map_err(|error| format!("rejected: {error}\nin:\n{text}"))?;
             check_entries(text, "", expected, &root)
                 .map_err(|problem| format!("{problem}\nin:\n{text}"))
+        },
+    );
+}
+
+// ------------------------------------------------------ the document model
+
+#[test]
+fn documents_read_what_parse_reads() {
+    let cases = cases();
+    let mut failures = Vec::new();
+    for name in cases.valid.iter().chain(&cases.invalid) {
+        let input = read(name, "toml");
+        let parsed = toml::parse_bytes(&input, Limits::DEFAULT);
+        let document = Document::parse_bytes(&input, Limits::DEFAULT);
+        let problem = match (&parsed, &document) {
+            (Ok(root), Ok(document)) => {
+                if document.as_str().as_bytes() != input.as_slice() {
+                    Some("the text is not the input".to_string())
+                } else if format!("{root:?}") != format!("{:?}", document.root()) {
+                    Some("the tree is not the parser's".to_string())
+                } else {
+                    None
+                }
+            }
+            (Err(a), Err(b)) if a == b => None,
+            _ => Some(format!("parse gives {parsed:?}, the document {document:?}")),
+        };
+        if let Some(problem) = problem {
+            failures.push(format!("{name}: {problem}"));
+        }
+    }
+    report("all", VALID_CASES + INVALID_CASES, &failures);
+}
+
+#[test]
+fn every_valid_case_writes_back_byte_for_byte() {
+    let cases = cases();
+    let mut failures = Vec::new();
+    for name in &cases.valid {
+        let input = read(name, "toml");
+        let document = Document::parse_bytes(&input, Limits::DEFAULT).expect("a valid case");
+        if document.into_string().into_bytes() != input {
+            failures.push(format!("{name}: written back differently"));
+        }
+    }
+    report("valid", cases.valid.len(), &failures);
+}
+
+/// A step of a path, owned, for listing the paths in a tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Owned {
+    Key(String),
+    Index(usize),
+}
+
+/// `path` as the steps [`Document`] takes.
+fn steps(path: &[Owned]) -> Vec<Step<'_>> {
+    path.iter()
+        .map(|step| match step {
+            Owned::Key(name) => Step::Key(name),
+            Owned::Index(index) => Step::Index(*index),
+        })
+        .collect()
+}
+
+/// `path` and one more key.
+fn and(path: &[Owned], name: &str) -> Vec<Owned> {
+    let mut path = path.to_vec();
+    path.push(Owned::Key(name.to_string()));
+    path
+}
+
+/// Every value under `root`, with its path, in a walk that keeps its own
+/// list.
+fn values_with_paths(root: &Table) -> Vec<(Vec<Owned>, &Value)> {
+    let mut found = Vec::new();
+    let mut work: Vec<(Vec<Owned>, &Value)> = root
+        .entries()
+        .iter()
+        .rev()
+        .map(|(key, value)| (vec![Owned::Key(key.name.clone())], value))
+        .collect();
+    while let Some((path, value)) = work.pop() {
+        match &value.kind {
+            ValueKind::Table(table) => {
+                for (key, inner) in table.entries().iter().rev() {
+                    work.push((and(&path, &key.name), inner));
+                }
+            }
+            ValueKind::Array(array) => {
+                for (index, item) in array.items().iter().enumerate().rev() {
+                    let mut inner = path.clone();
+                    inner.push(Owned::Index(index));
+                    work.push((inner, item));
+                }
+            }
+            _ => {}
+        }
+        found.push((path, value));
+    }
+    found
+}
+
+/// Whether a value can be replaced whole: a scalar, an array written as a
+/// value, or an inline table.
+fn replaceable(value: &Value) -> bool {
+    match &value.kind {
+        ValueKind::Table(table) => table.kind() == TableKind::Inline,
+        ValueKind::Array(array) => !array.is_array_of_tables(),
+        _ => true,
+    }
+}
+
+/// The paths of every table in `root`, the root's (empty) first.
+fn table_paths(root: &Table) -> Vec<Vec<Owned>> {
+    let mut paths = vec![Vec::new()];
+    for (path, value) in values_with_paths(root) {
+        if value.as_table().is_some() {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+/// The value at `path` in toml-test's expected JSON: a member of an
+/// object (the last of that name, as Go reads one), or an element.
+fn json_at<'j>(expected: &'j mut json::Value, path: &[Owned]) -> Option<&'j mut json::Value> {
+    let mut here = expected;
+    for step in path {
+        here = match (step, here) {
+            (Owned::Key(name), json::Value::Object(members)) => {
+                &mut members
+                    .iter_mut()
+                    .rev()
+                    .find(|(member, _)| member == name)?
+                    .1
+            }
+            (Owned::Index(index), json::Value::Array(items)) => items.get_mut(*index)?,
+            _ => return None,
+        };
+    }
+    Some(here)
+}
+
+/// A tagged scalar, as toml-test's expected JSON writes one.
+fn tagged_json(kind: &str, value: &str) -> json::Value {
+    json::Value::Object(vec![
+        ("type".to_string(), json::Value::from(kind)),
+        ("value".to_string(), json::Value::from(value)),
+    ])
+}
+
+/// Whether `new` is `old` with text inserted at one place.
+fn is_insertion(old: &str, new: &str) -> bool {
+    let prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = old
+        .bytes()
+        .rev()
+        .zip(new.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    new.len() > old.len() && prefix + suffix >= old.len()
+}
+
+/// Reads a valid case as a document and as its expected JSON.
+fn document_and_expected(name: &str) -> (Document, json::Value) {
+    let document = Document::parse_bytes(&read(name, "toml"), Limits::DEFAULT)
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+    let expected = json::parse_bytes(&read(name, "json"), Dialect::Json, Limits::DEFAULT)
+        .unwrap_or_else(|error| panic!("{name}.json: {error}"));
+    (document, expected)
+}
+
+#[test]
+fn every_leaf_of_every_valid_case_can_be_set() {
+    let cases = cases();
+    let mut failures = Vec::new();
+    let mut edits = 0;
+    for name in &cases.valid {
+        let (document, expected) = document_and_expected(name);
+        let old = document.as_str();
+        for (path, leaf) in values_with_paths(document.root()) {
+            if !replaceable(leaf) {
+                continue;
+            }
+            let path_steps = steps(&path);
+            let mut problem = None;
+            // An equal value changes nothing.
+            let mut same = document.clone();
+            if let Err(error) = same.set(&path_steps, &leaf.kind) {
+                problem = Some(format!("setting the same value: {error}"));
+            } else if same.as_str() != old {
+                problem = Some("setting the same value changed the text".to_string());
+            }
+            // Another one changes exactly its bytes.
+            let (value, written, json_value) = if leaf.as_integer().is_some() {
+                (
+                    ValueKind::String("\u{1b}x".into()),
+                    "\"\\u001Bx\"",
+                    tagged_json("string", "\u{1b}x"),
+                )
+            } else {
+                (ValueKind::Integer(7), "7", tagged_json("integer", "7"))
+            };
+            let mut edited = document.clone();
+            let span = leaf.span;
+            let wanted = format!("{}{written}{}", &old[..span.start], &old[span.end..]);
+            match edited.set(&path_steps, &value) {
+                Err(error) => problem = Some(format!("{error}")),
+                Ok(()) if edited.as_str() != wanted => {
+                    problem = Some(format!("wrote {:?}, not {wanted:?}", edited.as_str()));
+                }
+                Ok(()) => {
+                    let mut oracle = expected.clone();
+                    match json_at(&mut oracle, &path) {
+                        Some(at) => *at = json_value,
+                        None => problem = Some("no such path in the expected JSON".to_string()),
+                    }
+                    let reread = toml::parse(edited.as_str(), Limits::DEFAULT)
+                        .map_err(|error| error.to_string())
+                        .and_then(|root| compare_table("", &oracle, &root));
+                    if let Err(error) = reread {
+                        problem = Some(format!("the oracle disagrees: {error}"));
+                    }
+                }
+            }
+            edits += 1;
+            if let Some(problem) = problem {
+                failures.push(format!("{name} at {path:?}: {problem}"));
+            }
+        }
+    }
+    // Every leaf of toml-test's valid cases, as with the cases' counts.
+    assert_eq!(edits, 1015, "leaves");
+    report("leaf edits of valid", edits, &failures);
+}
+
+/// Adds `name` = `value`, which `json_value` is in the expected JSON, to
+/// every table of every valid case, checking each edit as
+/// [`every_table_of_every_valid_case_takes_a_new_key`] says.
+fn every_table_takes(
+    path_of: impl Fn(&[Owned]) -> Vec<Owned>,
+    value: &ValueKind,
+    json_value: &json::Value,
+) {
+    let cases = cases();
+    let mut failures = Vec::new();
+    let mut edits = 0;
+    for name in &cases.valid {
+        let (document, expected) = document_and_expected(name);
+        let old = document.as_str();
+        for table in table_paths(document.root()) {
+            let path = path_of(&table);
+            if document.get(&steps(&path[..table.len() + 1])).is_some() {
+                continue;
+            }
+            edits += 1;
+            let mut edited = document.clone();
+            let problem = match edited.set(&steps(&path), value) {
+                Err(error) => Some(error.to_string()),
+                Ok(()) if !is_insertion(old, edited.as_str()) => {
+                    Some(format!("not an insertion: {:?}", edited.as_str()))
+                }
+                Ok(()) => {
+                    let mut oracle = expected.clone();
+                    let mut added = json_value.clone();
+                    for step in path[table.len() + 1..].iter().rev() {
+                        if let Owned::Key(name) = step {
+                            added = json::Value::Object(vec![(name.clone(), added)]);
+                        }
+                    }
+                    let Some(Owned::Key(first)) = path.get(table.len()) else {
+                        panic!("the path adds a key");
+                    };
+                    match json_at(&mut oracle, &table) {
+                        Some(json::Value::Object(members)) => members.push((first.clone(), added)),
+                        _ => panic!("{name}: no table at {table:?} in the expected JSON"),
+                    }
+                    toml::parse(edited.as_str(), Limits::DEFAULT)
+                        .map_err(|error| error.to_string())
+                        .and_then(|root| compare_table("", &oracle, &root))
+                        .err()
+                        .map(|error| format!("the oracle disagrees: {error}\n{}", edited.as_str()))
+                }
+            };
+            if let Some(problem) = problem {
+                failures.push(format!("{name} at {path:?}: {problem}"));
+            }
+        }
+    }
+    // Every table of toml-test's valid cases, the roots included.
+    assert_eq!(edits, 607, "tables");
+    report("table edits of valid", edits, &failures);
+}
+
+#[test]
+fn every_table_of_every_valid_case_takes_a_new_key() {
+    every_table_takes(
+        |table| and(table, "new key"),
+        &ValueKind::Integer(7),
+        &tagged_json("integer", "7"),
+    );
+}
+
+#[test]
+fn every_table_of_every_valid_case_takes_a_missing_chain() {
+    every_table_takes(
+        |table| and(&and(table, "fresh-a"), "fresh-b"),
+        &ValueKind::Boolean(true),
+        &tagged_json("bool", "true"),
+    );
+}
+
+/// Whether two values hold the same data, by rules of this test's own: a
+/// table's entries by name in any order, as toml-test compares them,
+/// arrays in order and of either kind, and scalars as [`same_scalar`] says.
+fn same_unordered(a: &ValueKind, b: &ValueKind) -> bool {
+    match (a, b) {
+        (ValueKind::Table(a), ValueKind::Table(b)) => same_tables(a, b),
+        (ValueKind::Array(a), ValueKind::Array(b)) => {
+            a.len() == b.len()
+                && a.items()
+                    .iter()
+                    .zip(b.items())
+                    .all(|(a, b)| same_unordered(&a.kind, &b.kind))
+        }
+        _ => same_scalar(a, b),
+    }
+}
+
+fn same_tables(a: &Table, b: &Table) -> bool {
+    a.len() == b.len()
+        && a.entries().iter().all(|(key, value)| {
+            b.get(&key.name)
+                .is_some_and(|other| same_unordered(&value.kind, &other.kind))
+        })
+}
+
+/// The model's edit: `table` with `path` set to `value`, through
+/// `Table::insert` and `Array::new` on copies, making inline tables for
+/// the steps that do not exist.
+fn model_set(table: &Table, path: &[Owned], value: &ValueKind) -> Table {
+    let mut table = table.clone();
+    let Some((Owned::Key(name), rest)) = path.split_first() else {
+        panic!("a table's step is a key: {path:?}");
+    };
+    let new = match (rest.is_empty(), table.get(name)) {
+        (true, _) => value.clone(),
+        (false, Some(existing)) => model_set_value(&existing.kind, rest, value),
+        (false, None) => ValueKind::Table(model_set(&Table::new_inline(), rest, value)),
+    };
+    table.insert(name.clone(), new);
+    table
+}
+
+fn model_set_value(kind: &ValueKind, path: &[Owned], value: &ValueKind) -> ValueKind {
+    match (path.first(), kind) {
+        (Some(Owned::Key(_)), ValueKind::Table(table)) => {
+            ValueKind::Table(model_set(table, path, value))
+        }
+        (Some(Owned::Index(index)), ValueKind::Array(array)) => {
+            let mut items = array.items().to_vec();
+            let rest = &path[1..];
+            items[*index] = Value::from(if rest.is_empty() {
+                value.clone()
+            } else {
+                model_set_value(&items[*index].kind, rest, value)
+            });
+            ValueKind::Array(Array::new(items))
+        }
+        _ => panic!("the model cannot take {path:?} into {kind:?}"),
+    }
+}
+
+/// The data `expected` describes, as a value to set: tables, which dotted
+/// keys may have made, become inline tables.
+fn to_kind(expected: &Expected) -> ValueKind {
+    match expected {
+        Expected::Scalar(kind, _) => kind.clone(),
+        Expected::Array(items, _) | Expected::Tables(items, _) => ValueKind::Array(Array::new(
+            items
+                .iter()
+                .map(|item| Value::from(to_kind(item)))
+                .collect(),
+        )),
+        Expected::Table(entries, _, _) => {
+            let mut table = Table::new_inline();
+            for (name, _, value) in entries {
+                table.insert(name.clone(), to_kind(value));
+            }
+            ValueKind::Table(table)
+        }
+    }
+}
+
+#[test]
+fn generated_documents_take_random_edits() {
+    check_sized(
+        "toml document edits",
+        400,
+        |rng, size| {
+            let newline = if rng.next_u32() & 1 == 0 {
+                "\n"
+            } else {
+                "\r\n"
+            };
+            let mut writer = Writer {
+                rng,
+                names: 0,
+                newline,
+            };
+            let (mut text, _) = writer.document(size);
+            if writer.chance(4) {
+                text.insert(0, '\u{feff}');
+            }
+            if writer.chance(4) && text.ends_with('\n') {
+                text.truncate(text.len() - newline.len());
+            }
+            let seed = u64::from(writer.rng.next_u32());
+            (text, seed)
+        },
+        |(text, seed)| {
+            let mut rng = Pcg32::new(*seed, 1);
+            let mut writer = Writer {
+                rng: &mut rng,
+                names: 1_000_000,
+                newline: "\n",
+            };
+            let mut document = Document::parse(text, Limits::DEFAULT)
+                .map_err(|error| format!("rejected: {error}"))?;
+            let mut model = document.root().clone();
+            let edits = writer.rng.range(1..21u32);
+            for edit in 0..edits {
+                let old = document.as_str().to_string();
+                let values = values_with_paths(document.root());
+                let leaves: Vec<(Vec<Owned>, toml::Span)> = values
+                    .iter()
+                    .filter(|(_, value)| replaceable(value))
+                    .map(|(path, value)| (path.clone(), value.span))
+                    .collect();
+                let tables = table_paths(document.root());
+                let value = to_kind(&writer.value(2));
+                let (path, replaced) = match writer.rng.range(0..3u32) {
+                    0 if !leaves.is_empty() => {
+                        let (path, span) = writer.rng.choose(&leaves).cloned().expect("a leaf");
+                        (path, Some(span))
+                    }
+                    1 => {
+                        let table = writer.rng.choose(&tables).cloned().unwrap_or_default();
+                        (and(&and(&table, &format!("chain {edit}")), "end"), None)
+                    }
+                    _ => {
+                        let table = writer.rng.choose(&tables).cloned().unwrap_or_default();
+                        (and(&table, &format!("new-{edit}")), None)
+                    }
+                };
+                let context = || format!("edit {edit} at {path:?} to {value:?} in:\n{old}");
+                match document.set(&steps(&path), &value) {
+                    Ok(()) => {}
+                    Err(CodecError::TomlEdit {
+                        kind: EditErrorKind::TooLarge { .. } | EditErrorKind::Limit(_),
+                        ..
+                    }) => {
+                        if document.as_str() != old {
+                            return Err(format!("a refused edit changed the text: {}", context()));
+                        }
+                        continue;
+                    }
+                    Err(error) => return Err(format!("{error}: {}", context())),
+                }
+                let new = document.as_str();
+                let one_splice = match replaced {
+                    Some(span) => {
+                        new.starts_with(&old[..span.start]) && new.ends_with(&old[span.end..])
+                    }
+                    None => is_insertion(&old, new),
+                };
+                if !one_splice {
+                    return Err(format!("not one splice: {new:?}: {}", context()));
+                }
+                let content = old.strip_prefix('\u{feff}').unwrap_or(&old);
+                if new.starts_with('\u{feff}') != old.starts_with('\u{feff}')
+                    || (!content.is_empty() && new.ends_with('\n') != old.ends_with('\n'))
+                {
+                    return Err(format!(
+                        "the BOM or final line break changed: {new:?}: {}",
+                        context()
+                    ));
+                }
+                model = model_set(&model, &path, &value);
+                let reread = toml::parse(new, Limits::DEFAULT)
+                    .map_err(|error| format!("{error}: {}", context()))?;
+                if !same_tables(&model, &reread) {
+                    return Err(format!("the model disagrees: {new:?}: {}", context()));
+                }
+            }
+            Ok(())
         },
     );
 }

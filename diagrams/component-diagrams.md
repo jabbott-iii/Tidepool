@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M1.5 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -153,7 +153,7 @@ flowchart LR
 
     i_os_win(("window, events,<br/>present, terminal<br/>raw mode<br/>planned M2.2, M7.1"))
     i_text(("Rope, Transaction,<br/>History, file"))
-    i_codec(("json: parse, write<br/>toml: parse"))
+    i_codec(("json: parse, write<br/>toml: parse, Document"))
     i_regex(("regex matching<br/>planned M4.8"))
     i_os_watch(("watch<br/>planned M4.5"))
     i_os_proc(("process, PTY<br/>planned M5.7, M5.9"))
@@ -204,7 +204,9 @@ dependency: `tidepool-core` is a dev-dependency of each, for their tests
 ### 2.1 tidepool-codec
 
 `json` (M1.4) and `toml` (M1.7) parse within `Limits` and fail with
-`CodecError`, and `json` also writes. `xtask` is their only user today:
+`CodecError`, and `json` also writes. `toml::Document` (M1.5) edits a TOML
+document and writes it back, changing only the edited bytes. `xtask` is
+the only user of `json` and `toml` today:
 `metadata.rs` reads `cargo metadata` with `json::parse_bytes`, and
 `crates.rs` reads the members' manifests with `toml::parse`.
 
@@ -224,13 +226,13 @@ flowchart LR
     i_jwrite(("json::<br/>to_string_compact,<br/>to_string_pretty"))
     i_tparse(("toml::parse,<br/>parse_bytes"))
     i_limits(("Limits,<br/>CodecError"))
-    i_tdoc(("TOML document<br/>model and writer<br/>planned M1.5"))
+    i_tdoc(("toml::Document<br/>parse, get, set,<br/>as_str"))
     i_qoi(("qoi<br/>planned M2.4"))
     i_png(("inflate,<br/>deflate, png<br/>planned M10.7"))
     i_zip(("zip, xml<br/>planned M10.2"))
     i_plist(("plist<br/>planned M11.3"))
 
-    c_codec["tidepool-codec<br/>json: RFC 8259 and JSONC, M1.4<br/>toml: TOML 1.1 with spans, M1.7"]
+    c_codec["tidepool-codec<br/>json: RFC 8259 and JSONC, M1.4<br/>toml: TOML 1.1 with spans, M1.7<br/>toml::Document, M1.5"]
 
     c_xtask -->|"cargo metadata"| i_jparse
     c_xtask -->|"members' manifests"| i_tparse
@@ -252,7 +254,7 @@ flowchart LR
     i_jwrite --- c_codec
     i_tparse --- c_codec
     i_limits --- c_codec
-    i_tdoc -.- c_codec
+    i_tdoc --- c_codec
     i_qoi -.- c_codec
     i_png -.- c_codec
     i_zip -.- c_codec
@@ -260,9 +262,9 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_codec,i_jparse,i_jwrite,i_tparse,i_limits built
+    class c_xtask,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc built
     class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_editor,c_workspace,c_mobile planned
-    class i_tdoc,i_qoi,i_png,i_zip,i_plist planned
+    class i_qoi,i_png,i_zip,i_plist planned
 ```
 
 - The YAML subset, CSV and INI in the spec's table are in the backlog, with
@@ -1053,7 +1055,7 @@ flowchart LR
     i_civil(("core:<br/>civil::DateTime"))
 
     c_core["tidepool-core<br/>built M0.2, M1.6"]
-    c_codec["tidepool-codec<br/>built M1.4, M1.7"]
+    c_codec["tidepool-codec<br/>built M1.4, M1.5, M1.7"]
 
     c_main -->|"the command line"| i_cli
     c_fuzz --> i_cli

@@ -19,9 +19,9 @@
 //! cases are toml-test's TOML 1.1 list, in `tests/toml-test/`.
 //!
 //! [`parse`](fn@parse) (or [`parse_bytes`]) reads a whole document and
-//! returns its root table. There is no writer yet, and comments are not
-//! kept: the document model that preserves them arrives with roadmap task
-//! M1.5.
+//! returns its root table. A [`Document`] keeps the text as well, so that a
+//! value can be changed or added and the text taken back with everything
+//! else in it as it was, comments included: see [Editing](#editing).
 //!
 //! ```
 //! use tidepool_codec::Limits;
@@ -124,6 +124,216 @@
 //! [`Array::is_array_of_tables`] tells an array of tables from an array
 //! written as a value.
 //!
+//! # Editing
+//!
+//! A [`Document`] holds a document's text, its root table and the
+//! [`Limits`](crate::Limits) it was read with. A caller reads values
+//! through the tree ([`Document::root`], [`Document::get`]), changes or adds
+//! them with [`Document::set`], and takes the text back
+//! ([`Document::as_str`], [`Document::into_string`]). Until an edit, the
+//! text is the input byte for byte. After edits, only the bytes of each
+//! changed value, or of each added entry or table, are new: comments, blank
+//! lines, order, quoting, layout and line endings elsewhere stay as they
+//! were (ADR-0013, ADR-0031).
+//!
+//! ```
+//! use tidepool_codec::Limits;
+//! use tidepool_codec::toml::{Document, ValueKind};
+//!
+//! let limits = Limits { max_input_bytes: 1024 * 1024, ..Limits::DEFAULT };
+//! let mut doc = Document::parse("# Mine\n[editor]\nfont-size = 14 # big\n", limits)?;
+//! doc.set(&["editor".into(), "tab-size".into()], &ValueKind::Integer(4))?;
+//! doc.set(&["editor".into(), "font-size".into()], &ValueKind::Integer(16))?;
+//! doc.set(&["theme".into(), "name".into()], &ValueKind::String("tidepool-dark".into()))?;
+//! assert_eq!(
+//!     doc.as_str(),
+//!     "# Mine\n[editor]\nfont-size = 16 # big\ntab-size = 4\n\n[theme]\nname = \"tidepool-dark\"\n"
+//! );
+//! # Ok::<(), tidepool_codec::CodecError>(())
+//! ```
+//!
+//! - **The tree always matches the text:** [`Document::root`] is what
+//!   [`parse`](fn@parse) gives for [`Document::as_str`] with the document's
+//!   limits, and neither is ever handed out mutably. Every edit makes a new
+//!   tree, so spans from before it are stale; the borrow checker stops a
+//!   caller from holding a [`Value`] of the document across
+//!   [`Document::set`].
+//! - **Batches:** to make several edits all or nothing, clone the document,
+//!   edit the clone, and keep it only if every edit succeeds.
+//! - **New files:** an empty document is `Document::parse("", limits)`.
+//!
+//! ## Paths
+//!
+//! A path is a list of [`Step`]s from the root table: a [`Step::Key`] needs
+//! a table, and a [`Step::Index`] an array. An array of tables is always
+//! indexed explicitly: a key step on one is
+//! [`EditErrorKind::NotATable`], and the editor never picks its last
+//! element for the caller. A path follows the structure, not the spelling:
+//! `editor.font-size = 14` at the root, `[editor]` with `font-size = 14`,
+//! and `editor = { font-size = 14 }` are all `["editor", "font-size"]`.
+//!
+//! ## Building values
+//!
+//! [`Document::set`] takes a [`ValueKind`]. A value read from another
+//! document, such as the defaults, is passed as `&value.kind`, without a
+//! clone. To build one in code, `Value::from(kind)` gives a value with the
+//! span `0..0`, [`Array::new`] an array written as a value, and
+//! [`Table::new_inline`] an empty inline table, which [`Table::insert`]
+//! fills. The writer ignores the spans and the [`TableKind`] of a value
+//! built in code.
+//!
+//! ## Setting a value that exists
+//!
+//! - If the value at the path holds the same data, nothing changes. So a
+//!   pass that saves every setting leaves an unchanged file byte for byte,
+//!   and `0x10`, `1_000`, `'lit'` and `07:30` stay as written. The same
+//!   data means the same kind and value, ignoring spans and table kinds;
+//!   floats compared by their bits, with any two NaNs of one sign equal;
+//!   arrays compared in order, ignoring whether they are arrays of tables;
+//!   and tables compared entry by entry, in order.
+//! - Otherwise, if the value is a scalar, an array written as a value or an
+//!   inline table (at a key, or at an index of an array), exactly the bytes
+//!   of its span are replaced with text the writer creates, and the type
+//!   may change. The key, the spaces, a comment after the value and the
+//!   line break stay.
+//! - **A value written over several lines is replaced whole, by one line of
+//!   TOML 1.0:** a multi-line string, an array laid over lines, or an inline
+//!   table laid over lines (TOML 1.1). Comments inside it go with it, and so
+//!   does its layout. To keep them, set its entries or elements instead:
+//!   each of those edits replaces only its own span, so the layout around
+//!   it stays (ADR-0031).
+//! - Otherwise the edit is refused with [`EditErrorKind::NotReplaceable`],
+//!   since the value's text is spread over lines or sections: a table
+//!   defined by a header, an element of an array of tables, a table made by
+//!   a header's prefix ([`TableKind::Implicit`]), a table made by dotted
+//!   keys, or an array of tables. Set its entries instead.
+//!
+//! ## Adding a value
+//!
+//! When the path does not exist, the walk stops at N, the deepest table on
+//! the path that does. After it come the missing tables t1…tm (m ≥ 0, made
+//! by the edit) and the last key k. Only tables are made: an
+//! [`Step::Index`] among the missing steps is
+//! [`EditErrorKind::MissingArray`]. What is added, and where:
+//!
+//! | N | m | Added | Where |
+//! | :- | :- | :- | :- |
+//! | The root, with leaves; a header's table; an element of an array of tables | 0 | The line `k = v` | At the end of N's section: element 0 of three `[[a]]`s gets it before the second `[[a]]` |
+//! | The root, without leaves | 0 | The line `k = v`, then a blank line | At the root point |
+//! | A table made by dotted keys in a section | any | The line `p.t1….tm.k = v`, where p names the tables from the section's table (not included) down to N | On the line after N's last leaf, with that leaf's indent |
+//! | An inline table C, or a table made by dotted keys inside one, with a leaf | any | `, q.t1….tm.k = v`, where q names the tables from C (not included) down to N | Right after N's last leaf, before the comma, comment or line break after it |
+//! | An empty inline table | any | ` t1….tm.k = v`, and a space if `}` follows `{` directly | Right after `{`: `{}` becomes `{ k = v }`, and `{\n}` becomes `{ k = v\n}` |
+//! | A table made by a header's prefix | 0 | The header `[path]` naming N, then `k = v`; N becomes a header's table | After N's subtree |
+//! | The root, a header's table, an element of an array of tables, a table made by a header's prefix | ≥ 1 | The header `[path.t1….tm]`, path naming N, then `k = v` | After N's subtree |
+//!
+//! The terms in it:
+//!
+//! - **Leaves** of a table: its entries whose value is a scalar, an array
+//!   written as a value or an inline table, and the leaves of its tables
+//!   made by dotted keys, and theirs; never those of a header's table, an
+//!   array of tables or a table made by a header's prefix. N's **last
+//!   leaf** is the one whose text ends last.
+//! - **The end of N's section** is the line after its last leaf, or with
+//!   none, the line after its header.
+//! - **The root point**, where a root without leaves takes a key: above the
+//!   first header and the comment lines directly above it (a blank line
+//!   stops them), so that a comment that belongs to the header stays with
+//!   it. With no header, the end of the text.
+//! - **After N's subtree** is the line after the last thing in N or under
+//!   it: a leaf of any table that is not inline, or a header. Only blank
+//!   and comment lines lie between there and the next header, so a new
+//!   header takes no keys that were there.
+//! - **path** is the keys from the root to N, the indexes of arrays of
+//!   tables left out: a header names the last element of each array of
+//!   tables on its path, and every section under element i comes before
+//!   element i + 1's `[[...]]`, so a header placed after element i's
+//!   subtree names element i.
+//! - **The indent** is the spaces and tabs that start the last leaf's line;
+//!   there is none after a header or at the root point.
+//!
+//! So a header is never written where dotted keys or an inline table have
+//! made a table, nor a dotted key into a table a header defined.
+//!
+//! A new line goes in at the start of a line, or at the end of the text,
+//! and ends with the text's line break: CR LF if its first line break is
+//! one, otherwise LF. A blank line goes before a new header, unless there
+//! is one already or the header starts the content, and after it, unless
+//! there is one already or the header ends the text; a key added at the
+//! root point is followed by one the same way. Lines added to an empty
+//! document (or a byte-order mark alone) have no blank line. At the end of
+//! a text that does not end in a line break, the new lines come after one,
+//! and the text still does not end in one. Nothing is ever written before a
+//! leading byte-order mark. Comments and blank lines after the line a new
+//! line follows stay below it.
+//!
+//! ## The text the writer creates
+//!
+//! It is TOML 1.0 (ADR-0031), and fits on one line:
+//!
+//! | Kind | Written |
+//! | :- | :- |
+//! | Key | Bare when it is not empty and only ASCII letters, digits, `-` and `_` (so `3`, `true` and `tab-size` stay bare); otherwise quoted as a string is. A dotted key's parts are joined by `.`, without spaces, and a header is `[a.b]`; `[[...]]` is never written |
+//! | String | A literal string, `'C:\Users\me'`, when the text holds a `\` or a `"` but no `'` and no control character (U+0000 to U+001F and U+007F). Otherwise a basic string: `\"`, `\\`, `\b`, `\t`, `\n`, `\f` and `\r`, then `\uXXXX` with uppercase hex for every other control character (`\u001B`), and everything else as it is. Never multi-line, and never `\e`, `\xHH` or `\U` |
+//! | Integer | Decimal: `-` for a negative number, no `+`, underscores or base prefix |
+//! | Float | A finite float as [`json::Number`](crate::json::Number) writes it: the shortest digits that read back as the same `f64`, with an exponent when the magnitude is not 0 and outside 1e-5 to 1e16 (`1e16`, `5e-324`, `1.5e300`), and with `.0` on a whole number (`3.0`, `-0.0`). Then `inf` and `-inf`, and `nan` or `-nan` by the sign bit (a NaN's payload is not kept). Every finite float reads back bit for bit |
+//! | Boolean | `true` or `false` |
+//! | Date-time | Checked first, since one built in code is not: a year from 0 to 9999, a month from 1 to 12, a day the month has, an hour to 23, a minute to 59, a second to 60, nanoseconds to 999,999,999 and an offset within 23:59 either way. Then as [`Datetime`]'s `Display` writes it: `T` between date and time, the seconds always written, a fraction without trailing zeros, and `Z` or `±HH:MM` (`+00:00` stays apart from `Z`). So a time read from `07:32` is written `07:32:00` once it is changed |
+//! | Array | `[a, b]` or `[]`, without a trailing comma. A table in it is inline; an array of tables passed as a value is written as an array of inline tables |
+//! | Table | `{ k = v, k2 = v2 }` or `{}`, the entries in order, a table in it inline too (never dotted keys). No comment, line break or trailing comma. A table passed to [`Document::set`] is always written inline: to get a header, set its entries one by one |
+//!
+//! ## Errors and verification
+//!
+//! [`Document::parse`] and [`Document::parse_bytes`] fail exactly as
+//! [`parse`](fn@parse) and [`parse_bytes`] do. [`Document::set`] fails with
+//! [`CodecError::TomlEdit`](crate::CodecError::TomlEdit), whose `step` is
+//! the index of the step the problem concerns and whose
+//! [`EditErrorKind`] says what it is, and the document is then unchanged.
+//! Messages never quote keys or text.
+//!
+//! Every edit that changes something is planned as one splice, a range of
+//! the text (empty to insert) and the text to put there, which is built
+//! within the room [`Limits::max_input_bytes`](crate::Limits::max_input_bytes)
+//! leaves. The new text is parsed with the document's limits, and the old
+//! and new trees are compared along the path: every table on it keeps its
+//! other entries, in order and with the same data; every array keeps its
+//! length and its other elements; each table the edit makes holds only the
+//! next step; and the value at the path holds the data that was set. Only
+//! then do the text and the tree change. A new text that does not pass is
+//! [`EditErrorKind::Unverified`], a bug in this module that refuses the
+//! edit rather than corrupt the file. The text outside the splice is
+//! unchanged by construction.
+//!
+//! An edit costs one parse and one walk of the tree, linear in the size of
+//! the document, and holds two trees for a moment: a settings file of a few
+//! kilobytes takes microseconds. A document may come from an untrusted
+//! workspace, and nothing here panics on one: every access to the text is
+//! checked, every walk keeps its own stack, and the writer recurses only
+//! once the depth of the value, measured without recursing, is known to be
+//! within [`Limits::max_depth`](crate::Limits::max_depth). Because of the
+//! second tree, read settings from a workspace or a user with a lower
+//! `max_input_bytes`, such as 1 MiB.
+//!
+//! ## Not supported
+//!
+//! Later tasks add these when a caller needs them:
+//!
+//! - Removing keys, tables or elements, and renaming, reordering or moving
+//!   entries: a reset to a default can set the default's value, but not
+//!   remove the key.
+//! - Adding an element to an array, or a `[[...]]` element.
+//! - Replacing as a whole a header's table, a table made by a header's
+//!   prefix or by dotted keys, or an array of tables; and writing a table
+//!   under a header.
+//! - Created text over several lines, and keeping a changed value's
+//!   spelling (its base, underscores, quotes, left-out seconds, `t` or
+//!   `z`).
+//! - An API for comments, telling 1.1 syntax from 1.0, reformatting, and
+//!   making several edits with one parse.
+//!
+//! What a settings file means (layers, validation, version keys,
+//! migrations) is M4.7's; reading and saving files is `text::file`'s, on a
+//! worker.
+//!
 //! # Limits and errors
 //!
 //! Every [`Limits`](crate::Limits) field that applies is enforced before
@@ -153,21 +363,27 @@
 //! take about 3 GiB of heap, about 4.5 GiB with glibc, so lower it to read
 //! TOML from an untrusted source.
 //!
-//! Every error is a [`CodecError::Toml`](crate::CodecError::Toml) with the
-//! byte offset, line and column of the problem and an [`ErrorKind`] saying
-//! what was wrong and what was expected. For a string or escape that the
-//! text ends inside, the position is where that construct starts. Messages
-//! never quote the input beyond the one character found. The parser never
-//! panics.
+//! Every parse error is a [`CodecError::Toml`](crate::CodecError::Toml)
+//! with the byte offset, line and column of the problem and an
+//! [`ErrorKind`] saying what was wrong and what was expected. For a string
+//! or escape that the text ends inside, the position is where that
+//! construct starts. Messages never quote the input beyond the one
+//! character found. The parser never panics. An edit that
+//! [`Document::set`] refuses is a
+//! [`CodecError::TomlEdit`](crate::CodecError::TomlEdit) instead, with an
+//! [`EditErrorKind`] (see [Editing](#errors-and-verification)).
 
 mod datetime;
+mod document;
 mod parse;
 mod table;
+mod write;
 
 use std::fmt;
 use std::ops::Range;
 
 pub use datetime::{Date, Datetime, Offset, Time};
+pub use document::{Document, Step};
 pub use parse::{parse, parse_bytes};
 pub use table::Table;
 
@@ -271,6 +487,15 @@ pub struct Array {
 }
 
 impl Array {
+    /// An array written as a value, holding `items`: one built in code,
+    /// to pass to [`Document::set`]. It is never an array of tables.
+    pub fn new(items: Vec<Value>) -> Self {
+        Self {
+            items,
+            of_tables: false,
+        }
+    }
+
     /// The elements, in document order.
     pub fn items(&self) -> &[Value] {
         &self.items
@@ -362,6 +587,16 @@ impl Value {
     /// has one. See [`Table::get`].
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.as_table()?.get(name)
+    }
+}
+
+impl From<ValueKind> for Value {
+    /// A value built in code, with the span `0..0`, since it has no text.
+    fn from(kind: ValueKind) -> Self {
+        Self {
+            kind,
+            span: Span::default(),
+        }
     }
 }
 
@@ -584,6 +819,121 @@ impl fmt::Display for ErrorKind {
     }
 }
 
+/// Why [`Document::set`] refused an edit. See
+/// [`CodecError::TomlEdit`](crate::CodecError::TomlEdit), which adds the
+/// step of the path it concerns, and the
+/// [module documentation](self#errors-and-verification).
+///
+/// The document is unchanged after any of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EditErrorKind {
+    /// The path has no steps. Reported at step 0.
+    EmptyPath,
+    /// A [`Step::Key`] on something other than a table: a scalar, an array
+    /// written as a value, or an array of tables, whose elements need a
+    /// [`Step::Index`] first.
+    NotATable {
+        /// What the path reaches there, such as "an integer" or "an array
+        /// of tables".
+        found: &'static str,
+    },
+    /// A [`Step::Index`] on something other than an array.
+    NotAnArray {
+        /// What the path reaches there, such as "a table".
+        found: &'static str,
+    },
+    /// A [`Step::Index`] past the end of an array. An edit never adds
+    /// elements.
+    IndexOutOfRange {
+        /// The number of elements the array has.
+        len: usize,
+    },
+    /// A [`Step::Index`] after a key that does not exist. An edit makes
+    /// only tables, never arrays. Reported at the index.
+    MissingArray,
+    /// The value at the path is one whose text is spread over lines or
+    /// sections, and the new value differs from it: a table defined by a
+    /// header, an element of an array of tables, a table made by a header's
+    /// prefix or by dotted keys, or an array of tables. Set its entries
+    /// instead. Reported at the last step.
+    NotReplaceable {
+        /// What the value is, such as "a table defined by a header".
+        found: &'static str,
+    },
+    /// A date-time in the new value has a field out of range, which only a
+    /// value built in code can have. Reported at the last step.
+    InvalidDatetime {
+        /// The range that field must be in, as in
+        /// [`ErrorKind::InvalidDatetime`].
+        expected: &'static str,
+    },
+    /// The edited text would be longer than
+    /// [`Limits::max_input_bytes`](crate::Limits::max_input_bytes). Found
+    /// before more than that is written. Reported at `path.len()`, the edit
+    /// as a whole.
+    TooLarge {
+        /// The limit.
+        limit: usize,
+    },
+    /// The new value nests deeper than
+    /// [`Limits::max_depth`](crate::Limits::max_depth) allows where it
+    /// goes ([`ErrorKind::TooDeep`], found before anything is written, at
+    /// the last step), or the edited text breaks another limit when it is
+    /// read again ([`ErrorKind::TooDeep`], [`ErrorKind::StringTooLong`],
+    /// [`ErrorKind::NumberTooLong`] or [`ErrorKind::TooManyEntries`], at
+    /// `path.len()`).
+    Limit(ErrorKind),
+    /// The edited text did not parse, or its data was not the old data
+    /// with exactly this edit made. This is a bug in the document model:
+    /// the edit is refused rather than corrupt the text. Reported at
+    /// `path.len()`.
+    Unverified {
+        /// What went wrong, without quoting the text.
+        reason: &'static str,
+    },
+}
+
+impl fmt::Display for EditErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyPath => f.write_str("the path has no steps"),
+            Self::NotATable { found } => {
+                write!(f, "a key needs a table, but the path reaches {found} there")
+            }
+            Self::NotAnArray { found } => write!(
+                f,
+                "an index needs an array, but the path reaches {found} there"
+            ),
+            Self::IndexOutOfRange { len } => write!(
+                f,
+                "the index is past the end of an array of {len} elements; an edit never adds elements"
+            ),
+            Self::MissingArray => {
+                f.write_str("an index follows a key that does not exist; an edit makes only tables")
+            }
+            Self::NotReplaceable { found } => write!(
+                f,
+                "the value is {found}, whose text is spread over lines or sections, so it cannot \
+                 be replaced whole; set its entries instead"
+            ),
+            Self::InvalidDatetime { expected } => write!(
+                f,
+                "a date-time in the new value is out of range; expected {expected}"
+            ),
+            Self::TooLarge { limit } => write!(
+                f,
+                "the edited text would be longer than the limit of {limit} bytes"
+            ),
+            Self::Limit(kind) => write!(f, "the edited text breaks a limit: {kind}"),
+            Self::Unverified { reason } => write!(
+                f,
+                "the edit was refused because {reason}; this is a bug in the document model"
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -743,5 +1093,71 @@ mod tests {
         ] {
             assert!(!kind.to_string().is_empty());
         }
+
+        // And the edits a document refuses.
+        let edits = [
+            (EditErrorKind::EmptyPath, "the path has no steps"),
+            (
+                EditErrorKind::NotATable {
+                    found: "an array of tables",
+                },
+                "a key needs a table, but the path reaches an array of tables there",
+            ),
+            (
+                EditErrorKind::NotAnArray { found: "a table" },
+                "an index needs an array, but the path reaches a table there",
+            ),
+            (
+                EditErrorKind::IndexOutOfRange { len: 3 },
+                "the index is past the end of an array of 3 elements; an edit never adds elements",
+            ),
+            (
+                EditErrorKind::MissingArray,
+                "an index follows a key that does not exist; an edit makes only tables",
+            ),
+            (
+                EditErrorKind::NotReplaceable {
+                    found: "a table defined by a header",
+                },
+                "the value is a table defined by a header, whose text is spread over lines or \
+                 sections, so it cannot be replaced whole; set its entries instead",
+            ),
+            (
+                EditErrorKind::InvalidDatetime {
+                    expected: "a month from 01 to 12",
+                },
+                "a date-time in the new value is out of range; expected a month from 01 to 12",
+            ),
+            (
+                EditErrorKind::TooLarge { limit: 8 },
+                "the edited text would be longer than the limit of 8 bytes",
+            ),
+            (
+                EditErrorKind::Limit(ErrorKind::TooManyEntries { limit: 2 }),
+                "the edited text breaks a limit: an array or table has more than the limit of 2 \
+                 entries",
+            ),
+            (
+                EditErrorKind::Unverified {
+                    reason: "the edited text does not parse",
+                },
+                "the edit was refused because the edited text does not parse; this is a bug in \
+                 the document model",
+            ),
+        ];
+        for (kind, expected) in edits {
+            assert_eq!(kind.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn values_and_arrays_can_be_built_in_code() {
+        let value = Value::from(ValueKind::Integer(7));
+        assert_eq!(value.span, Span::new(0, 0));
+        assert_eq!(value.as_integer(), Some(7));
+        let array = Array::new(vec![value.clone(), value]);
+        assert_eq!(array.len(), 2);
+        assert!(!array.is_array_of_tables());
+        assert!(Array::new(Vec::new()).is_empty());
     }
 }

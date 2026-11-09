@@ -155,6 +155,39 @@ impl Table {
         }
     }
 
+    /// An empty inline table, to build a value in code for
+    /// [`Document::set`](super::Document::set), which writes every table it
+    /// is given inline. It allocates nothing until an entry is added.
+    pub fn new_inline() -> Self {
+        Self::new(TableKind::Inline)
+    }
+
+    /// Sets the entry named `name` to `value`, for a table built in code. An
+    /// entry the table has keeps its key and its place, and its old value
+    /// is returned; otherwise the entry is added at the end, with a key
+    /// whose span is `0..0`.
+    ///
+    /// Only a table the caller owns can be changed: a [`Document`]'s tree
+    /// is never handed out mutably. No limit is checked here; the document
+    /// checks them when the value is set.
+    ///
+    /// [`Document`]: super::Document
+    pub fn insert(&mut self, name: impl Into<String>, value: impl Into<Value>) -> Option<Value> {
+        let name = name.into();
+        let value = value.into();
+        match self.position(&name) {
+            Some(at) => Some(std::mem::replace(&mut self.entry_mut(at).1, value)),
+            None => {
+                let key = Key {
+                    name,
+                    span: super::Span::default(),
+                };
+                self.push(key, value);
+                None
+            }
+        }
+    }
+
     /// How the table was defined.
     pub fn kind(&self) -> TableKind {
         self.kind
@@ -483,6 +516,28 @@ mod tests {
             assert_eq!(table.position("k10"), Some(10));
         }
         assert_eq!(Table::new(TableKind::Inline).entries.capacity(), 0);
+    }
+
+    #[test]
+    fn insert_replaces_in_place_or_appends() {
+        let mut table = Table::new_inline();
+        assert_eq!(table.kind(), TableKind::Inline);
+        for n in 0..20 {
+            assert_eq!(table.insert(format!("k{n}"), int(n)), None);
+        }
+        // Past eight entries the index finds them, and a replacement keeps
+        // the entry where it was.
+        assert_eq!(table.insert("k3", ValueKind::Boolean(true)), Some(int(3)));
+        assert_eq!(table.len(), 20);
+        assert_eq!(table.position("k3"), Some(3));
+        assert_eq!(
+            table.get("k3").and_then(Value::as_bool),
+            Some(true),
+            "replaced"
+        );
+        let (key, value) = &table.entries()[19];
+        assert_eq!((key.name.as_str(), key.span), ("k19", Span::new(0, 0)));
+        assert_eq!(value, &int(19));
     }
 
     #[test]

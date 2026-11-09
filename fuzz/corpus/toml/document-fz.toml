@@ -1,0 +1,16 @@
+# Keys named as the fuzz target's edits name theirs, so that the edits
+# meet them: a `fz` that is a value, a header's table, an array of tables,
+# a table made by dotted keys and an inline table, and names of new tables
+# that are taken.
+fz-a = 2
+[fz]
+x = 1
+[t.fz]
+x = 1
+[[u.fz]]
+y = 1
+[v]
+fz.z = 1
+fz-c = 3
+[w]
+fz = { a = 1 }

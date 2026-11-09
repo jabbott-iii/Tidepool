@@ -16,8 +16,9 @@
 //!
 //! Ported from nadir-codec `error.rs`. Adapted for Tidepool: only the JSON
 //! and TOML variants exist so far (other formats add theirs with their
-//! roadmap tasks), and their errors carry the byte offset as well as the
-//! line and column.
+//! roadmap tasks), and their parse errors carry the byte offset as well as
+//! the line and column. TOML also has a variant of its own for an edit that
+//! `toml::Document` refuses, which has a path step instead of a position.
 
 use std::fmt;
 
@@ -71,6 +72,18 @@ pub enum CodecError {
         /// What is wrong.
         kind: toml::ErrorKind,
     },
+    /// [`toml::Document::set`] refused an edit, and the document is
+    /// unchanged. Kept apart from [`CodecError::Toml`], so that a caller can
+    /// tell a file that does not parse from an edit that cannot be made.
+    TomlEdit {
+        /// The index of the step of the path that the problem concerns: the
+        /// step that could not be taken, `path.len() - 1` for the value at
+        /// the end of it, or `path.len()` for the edit as a whole. See
+        /// [`toml::EditErrorKind`] for which.
+        step: usize,
+        /// What is wrong.
+        kind: toml::EditErrorKind,
+    },
 }
 
 impl fmt::Display for CodecError {
@@ -94,6 +107,9 @@ impl fmt::Display for CodecError {
                 f,
                 "TOML error at line {line}, column {column} (byte {offset}): {kind}"
             ),
+            Self::TomlEdit { step, kind } => {
+                write!(f, "TOML edit refused at step {step} of its path: {kind}")
+            }
         }
     }
 }
@@ -129,6 +145,19 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "TOML error at line 5, column 1 (byte 40): the key is already defined"
+        );
+    }
+
+    #[test]
+    fn toml_edits_display_their_step() {
+        let error = CodecError::TomlEdit {
+            step: 2,
+            kind: toml::EditErrorKind::IndexOutOfRange { len: 2 },
+        };
+        assert_eq!(
+            error.to_string(),
+            "TOML edit refused at step 2 of its path: the index is past the end of an array of 2 \
+             elements; an edit never adds elements"
         );
     }
 

@@ -39,6 +39,8 @@
 
 mod scalar;
 
+pub(super) use scalar::datetime_fault;
+
 use super::table::reserve_one;
 use super::{Array, ErrorKind, Key, Span, Table, TableKind, Value, ValueKind};
 use crate::{CodecError, Limits};
@@ -151,8 +153,9 @@ fn error_at(bytes: &[u8], at: usize, kind: ErrorKind) -> CodecError {
     }
 }
 
-/// What a dotted key or a header holds, for error messages.
-fn described(kind: &ValueKind) -> &'static str {
+/// What a dotted key or a header holds, for error messages (the document
+/// model's too).
+pub(super) fn described(kind: &ValueKind) -> &'static str {
     match kind {
         ValueKind::String(_) => "a string",
         ValueKind::Integer(_) => "an integer",
@@ -1024,8 +1027,8 @@ impl<'a> Parser<'a> {
 }
 
 /// Whether `byte` may be part of a bare key: an ASCII letter or digit, `-`
-/// or `_`.
-fn is_bare(byte: u8) -> bool {
+/// or `_`. The writer writes a key bare only when every byte is one.
+pub(super) fn is_bare(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
 }
 

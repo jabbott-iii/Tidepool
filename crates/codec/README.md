@@ -28,15 +28,19 @@ Built, with the roadmap task that built it:
   `Limits` and `CodecError` — M1.4.
 - `toml`: the TOML 1.1 parser, into a value tree whose keys and values carry
   their spans, checked against toml-test's TOML 1.1 cases — M1.7.
+- `toml::Document`: the document model that edits a TOML document and keeps
+  the rest of its text byte for byte, comments and order included. It
+  replaces and adds values (making any missing tables), writes what it
+  creates as TOML 1.0, and checks every edit by parsing the new text
+  before keeping it — M1.5.
 - Fuzz targets `json` and `toml` in `tests/fuzz.rs`, with small `Limits`
   and seeds at each limit, checking error places, JSON's dialects and
-  write-back, and TOML's spans; seeded from `fuzz/corpus/<target>/` and,
-  read in place, `tests/json/` and `tests/toml-test/` — M1.6.
+  write-back, and TOML's spans and document edits; seeded from
+  `fuzz/corpus/<target>/` and, read in place, `tests/json/` and
+  `tests/toml-test/` — M1.6, M1.5.
 
 Not yet, with the roadmap task that adds it:
 
-- `toml`: the document model that preserves comments and order, and a
-  writer — M1.5.
 - `qoi` — M2.4.
 - `inflate`, `deflate` and `png` — M10.7.
 - `zip` and `xml` — M10.2.
@@ -131,6 +135,38 @@ fn main() -> Result<(), CodecError> {
 }
 ```
 
+Edit a TOML document and write it back. A `Document` changes only the
+bytes of each value it sets, or of each entry or table it adds, so comments,
+order and layout elsewhere stay as they were, and what it creates is TOML
+1.0. A path follows the structure, not the spelling: `["editor",
+"tab-size"]` names `tab-size` under `[editor]`, in `editor.tab-size = 4`
+and in `editor = { tab-size = 4 }` alike:
+
+```rust
+use tidepool_codec::toml::{Document, ValueKind};
+use tidepool_codec::{CodecError, Limits};
+
+fn main() -> Result<(), CodecError> {
+    // An edit briefly holds two trees: read settings with a lower limit.
+    let limits = Limits { max_input_bytes: 1024 * 1024, ..Limits::DEFAULT };
+    let mut doc = Document::parse("# Mine\n[editor]\nfont-size = 14 # big\n", limits)?;
+    doc.set(&["editor".into(), "tab-size".into()], &ValueKind::Integer(4))?;
+    doc.set(&["editor".into(), "font-size".into()], &ValueKind::Integer(16))?;
+    doc.set(&["theme".into(), "name".into()], &ValueKind::String("tidepool-dark".into()))?;
+    assert_eq!(
+        doc.as_str(),
+        "# Mine\n[editor]\nfont-size = 16 # big\ntab-size = 4\n\n[theme]\nname = \"tidepool-dark\"\n"
+    );
+
+    // A table defined by a header is not replaced whole: set its entries.
+    let error = doc
+        .set(&["editor".into()], &ValueKind::Integer(1))
+        .expect_err("a header's table");
+    assert!(error.to_string().starts_with("TOML edit refused at step 0"));
+    Ok(())
+}
+```
+
 `cargo run -p tidepool-codec --example formats` runs the example whose
 output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
 
@@ -142,7 +178,9 @@ output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
   `tests/json/` keep the IETF Trust's notice, in `tests/json.rs`); ADR-0026
   (`toml` parses TOML 1.1, and its compliance cases are toml-test's,
   vendored in `tests/toml-test/`); ADR-0027 (the fuzz targets, in
-  `tests/fuzz.rs`).
+  `tests/fuzz.rs`); ADR-0031 (`toml::Document` writes TOML 1.0 for the
+  text it creates, and keeps the text an edit does not change byte for
+  byte).
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what
   each target runs and checks.
 - API reference: `cargo doc -p tidepool-codec --open`

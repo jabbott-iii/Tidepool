@@ -36,14 +36,21 @@
 //! - `toml`: every key's and value's span is a non-empty range of the
 //!   input on character boundaries, and holds what its kind says: a quoted
 //!   key or string its quotes, a bare key its name, a boolean its word, an
-//!   array or table its brackets or braces.
+//!   array or table its brackets or braces. A UTF-8 input that parses is
+//!   also read as a `toml::Document`, which must hold the same text and
+//!   tree, and four edits are made on copies of it, two of them in a table
+//!   the input picks (see [`check_document`]): each is made, changing
+//!   exactly the bytes it should, or refused for a limit (or as not
+//!   replaceable, where the rules refuse it), and never as unverified.
 //!
 //! Input that is not UTF-8 stops at the first check, so it is also parsed
 //! as `String::from_utf8_lossy` gives it, through the `&str` entry points,
 //! with the same checks: the parser itself then sees every input.
 
 use tidepool_codec::json::{self, Dialect};
-use tidepool_codec::toml::{self, Span, Table, TableKind, ValueKind};
+use tidepool_codec::toml::{
+    self, Document, EditErrorKind, Span, Step, Table, TableKind, ValueKind,
+};
 use tidepool_codec::{CodecError, Limits};
 use tidepool_core::testing::fuzz::{Outcome, Target};
 
@@ -77,7 +84,8 @@ const WRITTEN: Limits = {
 };
 
 /// The cap on the rise of the written peak: the targets' peak rose by
-/// about 0.4 MiB over a 60 s run.
+/// about 0.4 MiB over a 60 s run, and `toml`'s by about 0.7 MiB once it
+/// edited documents too (M1.5).
 const MEMORY_CAP: u64 = 16 * 1024 * 1024;
 
 /// A run's result line for `fuzz-smoke`, then the verdict.
@@ -339,9 +347,14 @@ const TOML_TOKENS: &[&[u8]] = &[
 ];
 
 /// `toml`: [`toml::parse_bytes`], and for input that is not UTF-8,
-/// [`toml::parse`] of its lossy decoding too.
+/// [`toml::parse`] of its lossy decoding too. A document that parses is
+/// edited too (see [`check_document`]).
 fn parse_toml(input: &[u8]) {
-    check_toml(input, &toml::parse_bytes(input, LIMITS), true);
+    let result = toml::parse_bytes(input, LIMITS);
+    check_toml(input, &result, true);
+    if let Ok(root) = &result {
+        check_document(input, root);
+    }
     if std::str::from_utf8(input).is_err() {
         let text = String::from_utf8_lossy(input);
         check_toml(text.as_bytes(), &toml::parse(&text, WRITTEN), false);
@@ -459,6 +472,299 @@ fn check_value(text: &str, value: &toml::Value) {
         }
         ValueKind::Integer(_) | ValueKind::Float(_) | ValueKind::Datetime(_) => {}
     }
+}
+
+/// A step of a path, owned, for the paths a walk of a tree lists.
+#[derive(Clone, Debug)]
+enum Owned {
+    Key(String),
+    Index(usize),
+}
+
+fn steps(path: &[Owned]) -> Vec<Step<'_>> {
+    path.iter()
+        .map(|step| match step {
+            Owned::Key(name) => Step::Key(name),
+            Owned::Index(index) => Step::Index(*index),
+        })
+        .collect()
+}
+
+/// A value and its path.
+type Found<'t> = (Vec<Owned>, &'t toml::Value);
+
+/// Every value under `root` with its path, and the path of every table
+/// (the root's first, then in the order a walk with its own list meets
+/// them).
+fn walk(root: &Table) -> (Vec<Found<'_>>, Vec<Vec<Owned>>) {
+    let mut values = Vec::new();
+    let mut tables = vec![Vec::new()];
+    let mut work: Vec<Found<'_>> = root
+        .entries()
+        .iter()
+        .map(|(key, value)| (vec![Owned::Key(key.name.clone())], value))
+        .collect();
+    while let Some((path, value)) = work.pop() {
+        let mut inner = |step: Owned, value| {
+            let mut path = path.clone();
+            path.push(step);
+            work.push((path, value));
+        };
+        match &value.kind {
+            ValueKind::Table(table) => {
+                tables.push(path.clone());
+                for (key, value) in table.entries() {
+                    inner(Owned::Key(key.name.clone()), value);
+                }
+            }
+            ValueKind::Array(array) => {
+                for (index, item) in array.items().iter().enumerate() {
+                    inner(Owned::Index(index), item);
+                }
+            }
+            _ => {}
+        }
+        values.push((path, value));
+    }
+    (values, tables)
+}
+
+/// Whether a value can be replaced whole: a scalar, an array written as a
+/// value or an inline table.
+fn replaceable(value: &toml::Value) -> bool {
+    match &value.kind {
+        ValueKind::Table(table) => table.kind() == TableKind::Inline,
+        ValueKind::Array(array) => !array.is_array_of_tables(),
+        _ => true,
+    }
+}
+
+/// Whether two values hold the same data, ignoring spans and how tables
+/// and arrays were written; floats by their bits, and any two NaNs of one
+/// sign alike. The depth is bounded by [`LIMITS`].
+fn same(a: &ValueKind, b: &ValueKind) -> bool {
+    match (a, b) {
+        (ValueKind::Table(a), ValueKind::Table(b)) => {
+            a.len() == b.len()
+                && a.entries()
+                    .iter()
+                    .zip(b.entries())
+                    .all(|((a_key, a), (b_key, b))| {
+                        a_key.name == b_key.name && same(&a.kind, &b.kind)
+                    })
+        }
+        (ValueKind::Array(a), ValueKind::Array(b)) => {
+            a.len() == b.len()
+                && a.items()
+                    .iter()
+                    .zip(b.items())
+                    .all(|(a, b)| same(&a.kind, &b.kind))
+        }
+        (ValueKind::Float(a), ValueKind::Float(b)) if a.is_nan() && b.is_nan() => {
+            a.is_sign_negative() == b.is_sign_negative()
+        }
+        (ValueKind::Float(a), ValueKind::Float(b)) => a.to_bits() == b.to_bits(),
+        _ => a == b,
+    }
+}
+
+/// The value at `path` in `root`, found by this test's own walk.
+fn value_at<'t>(root: &'t Table, path: &[Owned]) -> Option<&'t ValueKind> {
+    let (Owned::Key(first), rest) = path.split_first()? else {
+        return None;
+    };
+    let mut here = &root.get(first)?.kind;
+    for step in rest {
+        here = match (step, here) {
+            (Owned::Key(name), ValueKind::Table(table)) => &table.get(name)?.kind,
+            (Owned::Index(index), ValueKind::Array(array)) => &array.get(*index)?.kind,
+            _ => return None,
+        };
+    }
+    Some(here)
+}
+
+/// Sets `path` to `value` on a copy of `document`. The edit must be made,
+/// and then `text` must be what `expected` says and hold the value when
+/// the parser reads it again; or be refused for a limit or (if `may_refuse`
+/// allows) as not replaceable, and change nothing. Anything else, an
+/// `Unverified` refusal above all, is a finding.
+fn edit_document(
+    document: &Document,
+    path: &[Owned],
+    value: &ValueKind,
+    expected: &dyn Fn(&str) -> bool,
+    may_refuse: bool,
+) {
+    let mut edited = document.clone();
+    match edited.set(&steps(path), value) {
+        Ok(()) => {
+            let text = edited.as_str();
+            assert!(expected(text), "an edit wrote other text than it should");
+            let root = toml::parse(text, LIMITS).expect("an edited document parses");
+            assert!(
+                value_at(&root, path).is_some_and(|found| same(found, value)),
+                "an edited document does not hold the value set"
+            );
+        }
+        Err(CodecError::TomlEdit { kind, .. }) => {
+            let allowed = match kind {
+                EditErrorKind::TooLarge { .. } | EditErrorKind::Limit(_) => true,
+                EditErrorKind::NotReplaceable { .. } => may_refuse,
+                _ => false,
+            };
+            assert!(allowed, "an edit was refused: {kind}");
+            assert!(
+                edited.as_str() == document.as_str(),
+                "a refused edit changed the text"
+            );
+        }
+        Err(other) => panic!("an edit failed with a {other:?}"),
+    }
+}
+
+/// FNV-1a, 64 bits, of `bytes`: a hash that picks a table from the input
+/// alone, so that a replay picks the same one.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// The path of the table, of `tables`, that `input` picks for edits 2 and
+/// 3 of [`check_document`]. The root is always one, so there is one to
+/// pick.
+fn picked(input: &[u8], tables: &[Vec<Owned>]) -> Vec<Owned> {
+    let pick = usize::try_from(fnv1a(input) % tables.len() as u64).unwrap_or(0);
+    tables.get(pick).cloned().unwrap_or_default()
+}
+
+/// The document model on a UTF-8 input that parses to `root`: it reads the
+/// same text and tree, and takes four edits, each on a copy:
+///
+/// 1. the leaf that starts last becomes a string that needs every kind of
+///    escape and quote, written exactly in its span's place;
+/// 2. `fz = 7` goes into a table that the input picks (by [`fnv1a`], from
+///    every table of every kind, the root included): a pure insertion, the
+///    replacement of a `fz` there, or, for a `fz` that is a table, a
+///    refusal as not replaceable;
+/// 3. a new table and a key in it, `fz-c….fz-d = 1`, go into that same
+///    table: a pure insertion;
+/// 4. a new table and a key in it, `fz-a….fz-b = true`, go into the root:
+///    a pure insertion.
+///
+/// Between them, 2 and 3 reach every rule of where a value is added: a
+/// section's own key line, the root point, a dotted or inline key, and a
+/// header block after any table's subtree, an element of an array of
+/// tables' before the next element.
+fn check_document(input: &[u8], root: &Table) {
+    let document = Document::parse_bytes(input, LIMITS).expect("a document reads what parse does");
+    let old = document.as_str();
+    assert!(
+        old.as_bytes() == input,
+        "a document's text is not its input"
+    );
+    assert!(
+        format!("{:?}", document.root()) == format!("{root:?}"),
+        "a document's tree is not the parser's"
+    );
+    let (values, tables) = walk(document.root());
+
+    let string = ValueKind::String("\u{1b}\t\"'\\é".into());
+    let written = "\"\\u001B\\t\\\"'\\\\é\"";
+    if let Some((path, leaf)) = values
+        .iter()
+        .filter(|(_, value)| replaceable(value))
+        .max_by_key(|(_, value)| value.span.start)
+    {
+        let wanted = if same(&leaf.kind, &string) {
+            old.to_string()
+        } else {
+            format!(
+                "{}{written}{}",
+                &old[..leaf.span.start],
+                &old[leaf.span.end..]
+            )
+        };
+        edit_document(&document, path, &string, &|text| text == wanted, false);
+    }
+
+    let table_path = picked(input, &tables);
+    let table = if table_path.is_empty() {
+        document.root()
+    } else {
+        document
+            .get(&steps(&table_path))
+            .and_then(toml::Value::as_table)
+            .expect("a table the walk found")
+    };
+    let seven = ValueKind::Integer(7);
+    let mut path = table_path.clone();
+    path.push(Owned::Key("fz".into()));
+    match document.get(&steps(&path)) {
+        None => edit_document(
+            &document,
+            &path,
+            &seven,
+            &|text| is_insertion(old, text),
+            false,
+        ),
+        Some(found) if replaceable(found) => {
+            let span = found.span;
+            let wanted = if same(&found.kind, &seven) {
+                old.to_string()
+            } else {
+                format!("{}7{}", &old[..span.start], &old[span.end..])
+            };
+            edit_document(&document, &path, &seven, &|text| text == wanted, false);
+        }
+        Some(_) => edit_document(&document, &path, &seven, &|_| false, true),
+    }
+
+    let mut first = "fz-c".to_string();
+    while table.contains_key(&first) {
+        first.push('c');
+    }
+    let mut path = table_path;
+    path.extend([Owned::Key(first), Owned::Key("fz-d".into())]);
+    let one = ValueKind::Integer(1);
+    edit_document(
+        &document,
+        &path,
+        &one,
+        &|text| is_insertion(old, text),
+        false,
+    );
+
+    let mut first = "fz-a".to_string();
+    while document.root().contains_key(&first) {
+        first.push('a');
+    }
+    let path = [Owned::Key(first), Owned::Key("fz-b".into())];
+    let yes = ValueKind::Boolean(true);
+    edit_document(
+        &document,
+        &path,
+        &yes,
+        &|text| is_insertion(old, text),
+        false,
+    );
+}
+
+/// Whether `new` is `old` with text inserted at one place.
+fn is_insertion(old: &str, new: &str) -> bool {
+    let prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = old
+        .bytes()
+        .rev()
+        .zip(new.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    new.len() > old.len() && prefix + suffix >= old.len()
 }
 
 #[test]
@@ -632,6 +938,10 @@ fn the_hand_made_seeds_parse_as_they_are_meant_to() {
         ("dates.toml", true),
         ("tables.toml", true),
         ("bom-crlf.toml", true),
+        ("document-shapes.toml", true),
+        ("document-inline-1.1.toml", true),
+        ("document-crlf-bom-nofinal.toml", true),
+        ("document-fz.toml", true),
         ("duplicate-key.toml", false),
         ("unterminated.toml", false),
         ("redefined.toml", false),
@@ -639,6 +949,38 @@ fn the_hand_made_seeds_parse_as_they_are_meant_to() {
         let result = toml::parse_bytes(&read(&format!("toml/{file}")), LIMITS);
         assert_eq!(result.is_ok(), valid, "{file}: {result:?}");
     }
+}
+
+/// `document-fz.toml` is worded so that edit 2 of [`check_document`] picks
+/// a table whose `fz` is a table made by dotted keys, which a document
+/// refuses to replace whole: so every replay takes that path too, and the
+/// edits that follow meet names already taken.
+#[test]
+fn the_fz_seed_makes_edit_2_meet_a_fz_that_is_a_table() {
+    let input = std::fs::read(format!("{ROOT}/fuzz/corpus/toml/document-fz.toml")).unwrap();
+    let document = Document::parse_bytes(&input, LIMITS).expect("parses");
+    let (_, tables) = walk(document.root());
+    let mut path = picked(&input, &tables);
+    path.push(Owned::Key("fz".into()));
+    let fz = document.get(&steps(&path)).expect("a `fz` there");
+    assert!(!replaceable(fz), "{path:?}");
+    let refused = document.clone().set(&steps(&path), &ValueKind::Integer(7));
+    assert!(
+        matches!(
+            refused,
+            Err(CodecError::TomlEdit {
+                kind: EditErrorKind::NotReplaceable {
+                    found: "a table made by dotted keys"
+                },
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    path.pop();
+    path.push(Owned::Key("fz-c".into()));
+    assert!(document.get(&steps(&path)).is_some(), "fz-c is taken");
+    assert!(document.root().contains_key("fz-a"), "fz-a is taken");
 }
 
 #[test]

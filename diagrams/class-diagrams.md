@@ -8,7 +8,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M1.5 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -949,6 +949,7 @@ classDiagram
         <<enumeration>>
         Json
         Toml
+        TomlEdit
     }
     class JsonFns["json"] {
         <<module>>
@@ -1029,14 +1030,15 @@ classDiagram
     Number *-- Repr
     CodecError *-- ErrorKind : Json
     note for Value "Array holds a Vec of Value, and<br/>Object a Vec of String and Value<br/>pairs in document order"
-    note for CodecError "Each variant carries offset,<br/>line, column and kind"
+    note for CodecError "Json and Toml carry offset,<br/>line, column and kind;<br/>TomlEdit a step and a kind"
 ```
 
 ## 11. codec: TOML
 
 `toml::parse` reads TOML 1.1 into a tree whose keys and values carry their
 byte spans in the source. A `Table` keeps its entries in order and builds a
-hash index only once it has many; nothing here writes TOML back yet.
+hash index only once it has many. `Document` (M1.5, drawn below) keeps a
+document's text beside its tree and writes edits back into that text.
 
 ```mermaid
 classDiagram
@@ -1057,6 +1059,8 @@ classDiagram
         +get(name) Option~Value~
         +get_key_value(name) Option of Key and Value
         +contains_key(name) bool
+        +new_inline()$ Table
+        +insert(name, value) Option~Value~
     }
     class Index {
         -hasher: RandomState
@@ -1100,6 +1104,7 @@ classDiagram
     class Array {
         -items: Vec~Value~
         -of_tables: bool
+        +new(items)$ Array
         +items() Value slice
         +get(index) Option~Value~
         +len() usize
@@ -1165,6 +1170,7 @@ classDiagram
         <<enumeration>>
         Json
         Toml
+        TomlEdit
     }
     class ErrorKind["toml::ErrorKind"] {
         <<enumeration>>
@@ -1195,6 +1201,58 @@ classDiagram
         TooManyEntries
     }
     CodecError *-- ErrorKind : Toml
+```
+
+`Document` keeps the text it parsed, its root `Table` and its `Limits`.
+`set` plans one splice, parses the new text again and checks it against
+the old tree along the path before keeping either; a refused edit is
+`CodecError::TomlEdit`, with the step of the path it concerns and an
+`EditErrorKind`, and leaves the document as it was. What `set` writes is
+TOML 1.0 (ADR-0031).
+
+```mermaid
+classDiagram
+    direction LR
+    class Document["toml::Document"] {
+        -text: String
+        -root: Table
+        -limits: Limits
+        +parse(text, limits)$ Result~Document~
+        +parse_bytes(bytes, limits)$ Result~Document~
+        +as_str() str
+        +into_string() String
+        +root() Table
+        +get(path) Option~Value~
+        +set(path, value) Result
+    }
+    class Step["toml::Step"] {
+        <<enumeration>>
+        Key
+        Index
+    }
+    class EditErrorKind["toml::EditErrorKind"] {
+        <<enumeration>>
+        EmptyPath
+        NotATable
+        NotAnArray
+        IndexOutOfRange
+        MissingArray
+        NotReplaceable
+        InvalidDatetime
+        TooLarge
+        Limit
+        Unverified
+    }
+    class CodecError["codec::CodecError"]
+    class Table["toml::Table"]
+    class ValueKind["toml::ValueKind"]
+    class Limits["codec::Limits"]
+    Document *-- Table : root
+    Document *-- Limits
+    Document ..> Step : paths of
+    Document ..> ValueKind : set writes
+    Document ..> CodecError : set fails with
+    CodecError *-- EditErrorKind : TomlEdit
 ```
 
 ## 12. text: the rope
@@ -2205,9 +2263,6 @@ is described in words here.
 - `tidepool-core`: path helpers in `core::path` (UTF-8 paths,
   canonicalization, the display of paths that are not UTF-8), planned
   (M1.8). The spec names no types.
-- `tidepool-codec`: TOML's comment- and order-preserving document model
-  (ADR-0013), on top of `toml::parse`, planned (M1.5). The spec names no
-  types.
 - `tidepool-platform`: `Window` (`Window::open(config)`), `wait_events`
   filling a `Vec<Event>`, the `Waker` that interrupts it from any thread,
   and `present(&Framebuffer, &[DamageRect])`, planned (M2.2); `Pty`

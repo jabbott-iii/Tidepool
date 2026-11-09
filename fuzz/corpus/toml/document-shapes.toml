@@ -1,0 +1,37 @@
+# Shapes the document model places keys among.
+top = 1
+dotted.a = 2
+dotted.b.c = 3
+
+[fruit]
+apple.color = "red"
+apple.taste.sweet = true
+
+[fruit.apple.texture] # a header under a dotted table
+smooth = true
+
+[[fruit.apple.seeds]]
+size = 2
+
+[a.b.c]
+x = 1
+
+[a]
+y = 2
+
+[[pools]]
+name = "east rock"
+depth.metres = 1.5
+
+[pools.creatures]
+crab = { name = "hermit", legs = 10 }
+
+[[pools.visits]]
+when = 2024-05-01
+
+[[pools]]
+name = "west ledge"
+list = [{ a = 1 }, { b.c = 2 }, []]
+
+[x.y.z.w] # without super
+[x]

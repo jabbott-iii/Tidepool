@@ -57,6 +57,58 @@ pub(super) const MINUTE_RANGE: &str = "a minute from 00 to 59";
 pub(super) const SECOND_RANGE: &str = "seconds from 00 to 60";
 pub(super) const OFFSET_HOUR_RANGE: &str = "an offset of 00 to 23 hours";
 pub(super) const OFFSET_MINUTE_RANGE: &str = "an offset of 00 to 59 minutes";
+// Two fields that four and nine digits always hold when they are read, but
+// that a date-time built in code may not.
+pub(super) const YEAR_RANGE: &str = "a year from 0000 to 9999";
+pub(super) const NANOSECOND_RANGE: &str = "a fraction of a second of 0 to 999999999 nanoseconds";
+
+/// The range that the first field of `datetime` out of range must be in, or
+/// `None` if every field is in range: what the parser checks of a date-time
+/// it reads, plus the year and the nanoseconds, which its digits bound. The
+/// writer checks a date-time built in code with it, since only one built
+/// that way can be out of range.
+///
+/// An offset is in range within 23:59 either way: its minutes then are
+/// always 00 to 59.
+pub(in crate::toml) fn datetime_fault(datetime: &Datetime) -> Option<&'static str> {
+    let (date, time, offset) = match *datetime {
+        Datetime::OffsetDatetime { date, time, offset } => (Some(date), Some(time), Some(offset)),
+        Datetime::LocalDatetime { date, time } => (Some(date), Some(time), None),
+        Datetime::LocalDate(date) => (Some(date), None, None),
+        Datetime::LocalTime(time) => (None, Some(time), None),
+    };
+    if let Some(Date { year, month, day }) = date {
+        if year > 9999 {
+            return Some(YEAR_RANGE);
+        }
+        if !(1..=12).contains(&month) {
+            return Some(MONTH_RANGE);
+        }
+        if !(1..=days_in_month(year, month)).contains(&day) {
+            return Some(DAY_RANGE);
+        }
+    }
+    if let Some(time) = time {
+        if time.hour > 23 {
+            return Some(HOUR_RANGE);
+        }
+        if time.minute > 59 {
+            return Some(MINUTE_RANGE);
+        }
+        if time.second > 60 {
+            return Some(SECOND_RANGE);
+        }
+        if time.nanosecond > 999_999_999 {
+            return Some(NANOSECOND_RANGE);
+        }
+    }
+    match offset {
+        Some(Offset::Minutes(minutes)) if minutes.unsigned_abs() > 23 * 60 + 59 => {
+            Some(OFFSET_HOUR_RANGE)
+        }
+        _ => None,
+    }
+}
 
 /// Whether a string holds `byte` as it is: tab, printable ASCII other than
 /// `quote` (and `\`, if the string has escapes), and every byte of a

@@ -908,7 +908,7 @@ is published from `main`.
       `tests/fuzz.rs`, seeds and a row in `TARGETS`
       (`.claude/rules/parsers.md`).
 
-- [ ] **M1.5 — codec: TOML with a preserving document model**
+- [x] **M1.5 — codec: TOML with a preserving document model**
   - Depends: M1.7
   - Decide first: whether the writer may write TOML 1.1 syntax, which
     tools that know only TOML 1.0 cannot read (ADR-0026).
@@ -919,6 +919,48 @@ is published from `main`.
     writes back byte-for-byte; editing a value and writing back preserves
     comments, order and formatting elsewhere.
   - Verify: `cargo test -p tidepool-codec`
+  - Note (2026-11-08): the user chose TOML 1.0 syntax for the text the
+    writer creates, which answers the `Decide first` line (ADR-0031).
+  - Note (2026-11-08): done.
+    - **Built:** `toml::Document` (`parse`, `parse_bytes`, `get`, `set`,
+      `as_str`, `into_string`), the path type `Step`, `EditErrorKind` and
+      `CodecError::TomlEdit`, and `Array::new`, `Table::new_inline` and
+      `Table::insert` for building values. `set` plans one splice, parses
+      the new text again with the document's `Limits` and compares the
+      old and new trees along the path before keeping either; a refused
+      edit leaves the document as it was. The design was merged from
+      three independent ones; `docs/subsystems/text-and-formats.md` →
+      "The document model" summarizes the rustdoc, which is authoritative.
+    - **Verified:** `cargo test -p tidepool-codec` passes: 160 unit tests,
+      6 in `tests/fuzz.rs`, 26 and 6 of JSON, 14 in `tests/toml.rs`, 27 in
+      `tests/toml_document.rs` and 9 doc tests. All 214 valid toml-test
+      cases write back byte for byte; every leaf (1,015) and every table
+      (607) of them takes an edit, each checked against toml-test's
+      expected JSON edited the same way. `cargo xtask fuzz-smoke --target
+      toml --secs 60`: 17,985,186 inputs, no finding, +0.7 MiB of the
+      16 MiB cap. `cargo xtask ci` passes 11 of 11 steps, with 1,170 tests
+      passed in 65 binaries and none skipped.
+    - **Review:** five lenses (placement, robustness by
+      `security-reviewer`, ADR-0031's syntax, the re-parse check, docs and
+      tests), a second agent reproducing or refuting each finding, then a
+      completeness critic. No defect in what an edit writes: placement and
+      created text were also checked against Python's `tomllib`, a TOML 1.0
+      parser. Fixed from it: each of the re-parse check's comparisons, and
+      the rule that two NaNs of one sign are the same data, now has a test
+      that fails without it (six mutants, each killed); the fuzz target
+      picks the table it edits by a hash of the input, so implicit tables,
+      header blocks under other tables and the scan above the first
+      header are fuzzed too.
+    - **Not supported, for the task that needs it:** removing keys,
+      appending to an array or adding a `[[...]]` element, and replacing a
+      table under a header as a whole. A changed value is written afresh,
+      so it loses its spelling (hex, underscores, left-out seconds), and a
+      multi-line value it replaces becomes one line, without the comments
+      inside it (ADR-0031). Each edit parses the whole text again and
+      briefly holds two trees, so M4.7 should read settings with a lower
+      `max_input_bytes`, about 1 MiB.
+    - **Not run here:** macOS and Windows. CI runs these tests there on
+      the next push.
 
 - [ ] **M1.8 — core: path helpers**
   - Depends: M0.2

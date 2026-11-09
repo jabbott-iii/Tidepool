@@ -11,7 +11,8 @@ verified.
   diagrams of the design and the code in `diagrams/` (M0.12),
   the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
-  (M0.2), JSON and JSONC (M1.4) and TOML 1.1 (M1.7) in `tidepool-codec`,
+  (M0.2), JSON and JSONC (M1.4), TOML 1.1 (M1.7) and its document model,
+  which writes edits back and keeps the rest (M1.5), in `tidepool-codec`,
   and in `tidepool-text` the rope, positions and grapheme boundaries
   (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
   loading and the atomic save (M1.3); and the fuzzer, with `cargo xtask
