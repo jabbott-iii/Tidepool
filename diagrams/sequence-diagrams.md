@@ -344,9 +344,9 @@ sequenceDiagram
     Hist-->>Caller: Checkpoint: the sealed<br/>revision and its exact text
     Caller->>Save: save(path, checkpoint.text(), format)
     loop at most 40 symbolic links
-        Save->>Fs: symlink_metadata, read_link
+        Save->>Fs: symlink_metadata, read_link,<br/>where Windows' rules apply<br/>canonicalize the link's directory
     end
-    Note over Save,Fs: The target is the file at the end<br/>of the links, each relative link read<br/>from its own directory. It need not<br/>exist yet.
+    Note over Save,Fs: The target is the file at the end<br/>of the links, each relative link read<br/>from its own directory as the OS<br/>reaches it (ADR-0034). It need not<br/>exist yet, unless it ends in a separator.
     opt the target exists
         Save->>Save: check_regular,<br/>else NotRegularFile
         Save->>Fs: open it for writing,<br/>without creating or truncating it

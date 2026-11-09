@@ -25,7 +25,8 @@
 //! - **Saving** writes a temporary file in the target's directory, syncs it,
 //!   gives it the target's permissions and renames it over the target, so a
 //!   crash leaves either the old file or the new one, never a mix. Symbolic
-//!   links are followed to the file they name and stay links.
+//!   links are followed to the file they name, as the OS follows them, and
+//!   stay links.
 //! - **A rename makes a new file.** So a save splits a hard link (the other
 //!   names keep the old text); gives the file the saver's owner and group on
 //!   Unix, even when only the group differs; gives it the access list its
@@ -38,9 +39,10 @@
 //!
 //! [`History::checkpoint`]: crate::History::checkpoint
 
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, BufWriter, ErrorKind, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf, Prefix};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -80,7 +82,11 @@ pub enum FileStep {
     Open,
     /// Reading the file.
     Read,
-    /// Reading where a symbolic link points.
+    /// Reading where a symbolic link points: reading the link; where
+    /// Windows' path rules apply, reading the path to a relative link as
+    /// Win32 reads it and finding the canonical path of its directory; or
+    /// refusing a target that has a root or a drive but is not absolute
+    /// ([`ErrorKind::InvalidInput`]).
     ReadLink,
     /// Opening the existing file for writing, which neither creates nor
     /// truncates it, to check that the user may write it. A refusal is
@@ -282,9 +288,17 @@ pub fn load(path: impl AsRef<Path>) -> Result<Loaded, TextError> {
 /// either its old bytes or exactly the new ones, even after a crash.
 ///
 /// 1. Follows the chain of symbolic links at `path`, at most 40, to the file
-///    they name: the target. A relative link is relative to its own
-///    directory. The target need not exist (a new file, or a link to
-///    nothing); then the save creates it.
+///    they name: the target. A relative link is followed from its own
+///    directory as the OS reaches it, so its `..` apply after any directory
+///    links before it (ADR-0034). On Unix its target is joined onto the
+///    link's parent as written, and the kernel resolves the joined path;
+///    where Windows' path rules apply, onto the canonical path of the
+///    link's directory, taken from the whole path in its verbatim form. An
+///    absolute target is used as it is; one that has a root or a drive but
+///    is not absolute (`\x`, `c:x`, which only Windows parses) is refused.
+///    The target need not exist (a new file, or a link to nothing); then
+///    the save creates it, unless it ends in a separator, which asks for a
+///    directory.
 /// 2. An existing target must be a regular file that the user may write,
 ///    checked by opening it for writing without creating or truncating it,
 ///    even if its directory is writable.
@@ -320,9 +334,15 @@ pub fn load(path: impl AsRef<Path>) -> Result<Loaded, TextError> {
 /// [`TooManyLinks`](TextError::TooManyLinks);
 /// [`NotRegularFile`](TextError::NotRegularFile);
 /// [`NotWritable`](TextError::NotWritable); [`Io`](TextError::Io) with the
-/// [`FileStep`] that failed. Before the rename, an error removes the
-/// temporary file (if that fails too, it stays behind) and leaves the
-/// target untouched. At [`FileStep::SyncDirectory`] the target already holds
+/// [`FileStep`] that failed: at [`FileStep::ReadLink`] also when a target
+/// has a root or a drive but is not absolute (`InvalidInput`), or, where
+/// Windows' path rules apply, when a link's directory cannot be
+/// canonicalized (one that may be passed through but not opened); at
+/// [`FileStep::Rename`] with `NotADirectory`, before anything is written,
+/// when a missing target ends in a separator, as Unix's rename refuses it
+/// (NT's would drop the separator and make a file). Before the rename, an
+/// error removes the temporary file (if that fails too, it stays behind)
+/// and leaves the target untouched. At [`FileStep::SyncDirectory`] the target already holds
 /// the new text.
 pub fn save(path: impl AsRef<Path>, text: &Rope, format: Format) -> Result<(), TextError> {
     Temp::create(path.as_ref())?
@@ -376,6 +396,16 @@ impl Temp {
                 check_regular(&metadata)?;
                 check_writable(&target)?;
                 Some(metadata.permissions())
+            }
+            // A missing target that ends in a separator asks for a
+            // directory, which a save cannot make. Unix's rename refuses
+            // it; NT's drops the separator and makes a file, so it is
+            // refused here, before anything is written, as Unix refused it.
+            None if ends_in_separator(target.as_os_str()) => {
+                return Err(io_error(
+                    FileStep::Rename,
+                    io::Error::from(ErrorKind::NotADirectory),
+                ));
             }
             None => None,
         };
@@ -466,7 +496,9 @@ impl Temp {
 }
 
 /// Follows the symbolic links at `path` to the path of the file they name,
-/// with its metadata if it exists.
+/// with its metadata if it exists. Each link is followed by [`follow`]: on
+/// Unix from the link's parent as written, and where Windows' path rules
+/// apply from the canonical path of its directory (ADR-0034).
 fn resolve(path: &Path) -> Result<(PathBuf, Option<Metadata>), TextError> {
     let mut current = path.to_path_buf();
     let mut followed = 0;
@@ -484,12 +516,126 @@ fn resolve(path: &Path) -> Result<(PathBuf, Option<Metadata>), TextError> {
         }
         followed += 1;
         let link = fs::read_link(&current).map_err(|error| io_error(FileStep::ReadLink, error))?;
-        // Relative to the link's directory; `join` keeps an absolute link.
-        current = match current.parent() {
+        current = follow(&current, link)?;
+    }
+}
+
+/// The path that `link`, read from the symbolic link at `at`, names
+/// (ADR-0034).
+///
+/// - An absolute target is used as it is. A target with a root or a drive
+///   but not the rest of an absolute path (`\x`, `c:x`, `c:`, which only
+///   Windows parses) is refused, as `core::path::resolve` refuses it.
+/// - Where Unix path rules apply, a relative target is joined onto the
+///   link's directory as given, and the kernel resolves the joined path
+///   when the save uses it, after any directory links before it and
+///   through `/proc` magic links and mounts as it opens them.
+///   Canonicalizing the directory instead would read a magic link's target
+///   as text (`realpath(3)`) and could name another directory: a save
+///   through `/proc/<pid>/root/…` or `/proc/self/fd/N/…`, or below a
+///   directory a mount covers, wrote another file that way. (That shows
+///   only with a mount namespace, as under `unshare -Urm`, so no test here
+///   can.)
+/// - Where Windows' path rules apply, it is joined onto the link's own
+///   directory as Windows reaches it: the whole path to the link read as
+///   Win32 reads it (`std::path::absolute`), in its verbatim form, so that
+///   its parent is not read again on its own (`C:\w\space ` alone would
+///   open `C:\w\space`), then canonicalized. `std`'s `push` onto that
+///   verbatim directory applies the target's `.` and `..`, as NT applies
+///   them after the directory links before it. Joining onto the path as
+///   given would let Win32 apply `..` to its text, and write outside the
+///   directory the link is in. A final separator on the target is kept,
+///   as the join keeps it on Unix, so that [`save`] refuses a missing
+///   target that asks for a directory.
+fn follow(at: &Path, link: PathBuf) -> Result<PathBuf, TextError> {
+    if link.is_absolute() {
+        return Ok(link);
+    }
+    // A root or a drive without the rest of an absolute path means
+    // something that depends on the current drive, so it is refused. The
+    // message does not name the target.
+    if link.has_root() || matches!(link.components().next(), Some(Component::Prefix(_))) {
+        return Err(io_error(
+            FileStep::ReadLink,
+            io::Error::new(
+                ErrorKind::InvalidInput,
+                "the link's target has a root or a drive but is not absolute",
+            ),
+        ));
+    }
+    if !windows_rules() {
+        // Unix path rules: the lexical join, exactly as before ADR-0034.
+        return Ok(match at.parent() {
             Some(dir) => dir.join(link),
             None => link,
-        };
+        });
     }
+    let whole = std::path::absolute(at).map_err(|error| io_error(FileStep::ReadLink, error))?;
+    let whole = verbatim(whole);
+    let dir = whole.parent().unwrap_or(&whole);
+    let dir = fs::canonicalize(dir).map_err(|error| io_error(FileStep::ReadLink, error))?;
+    let mut target = dir.join(&link).into_os_string();
+    if ends_in_separator(link.as_os_str()) {
+        target.push(MAIN_SEPARATOR_STR);
+    }
+    Ok(PathBuf::from(target))
+}
+
+/// Whether Windows' path rules apply: whether `std` parses a drive prefix,
+/// which only its Windows path parsing does. There every absolute path
+/// (`std::path::absolute`'s answer) has a prefix, and on Unix none does.
+/// Asked of a constant, so that on Unix a path is never made absolute,
+/// which needs the current directory's name.
+fn windows_rules() -> bool {
+    matches!(
+        Path::new(r"C:\").components().next(),
+        Some(Component::Prefix(_))
+    )
+}
+
+/// Whether `text` ends in a path separator here: `/`, and on Windows `\`
+/// too.
+fn ends_in_separator(text: &OsStr) -> bool {
+    text.as_encoded_bytes()
+        .last()
+        .is_some_and(|&byte| std::path::is_separator(char::from(byte)))
+}
+
+/// `path`, which is absolute, with a plain drive, share or device prefix
+/// turned into Windows' verbatim one (`\\?\C:\…`, `\\?\UNC\server\share\…`,
+/// `\\?\` for `\\.\`), as `core::path` probes a path: then no part of it is
+/// read again by Win32's rules on its own. Built from the prefix's parts and
+/// the rest of the path as it is. Any other path comes back unchanged.
+fn verbatim(path: PathBuf) -> PathBuf {
+    let spelled = {
+        let mut parts = path.components();
+        match parts.next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::Disk(_) => {
+                    let mut spelled = OsString::from(r"\\?\");
+                    spelled.push(path.as_os_str());
+                    Some(spelled)
+                }
+                Prefix::UNC(server, share) => {
+                    let mut spelled = OsString::from(r"\\?\UNC\");
+                    spelled.push(server);
+                    spelled.push(r"\");
+                    spelled.push(share);
+                    spelled.push(parts.as_path());
+                    Some(spelled)
+                }
+                Prefix::DeviceNS(device) => {
+                    let mut spelled = OsString::from(r"\\?\");
+                    spelled.push(device);
+                    spelled.push(parts.as_path());
+                    Some(spelled)
+                }
+                Prefix::Verbatim(_) | Prefix::VerbatimUNC(..) | Prefix::VerbatimDisk(_) => None,
+            },
+            _ => None,
+        }
+    };
+    spelled.map_or(path, PathBuf::from)
 }
 
 /// Refuses anything but a regular file.
@@ -920,5 +1066,81 @@ mod tests {
                 Ok(())
             },
         );
+    }
+
+    /// ADR-0034: a target with a root or a drive but not the rest of an
+    /// absolute path is refused where Windows' path rules apply. Tested on
+    /// `follow` itself, since no link need hold one: Windows stores a
+    /// drive-relative target as an absolute path when it makes the link.
+    /// Elsewhere such a target is an ordinary name, joined onto the link's
+    /// parent as written.
+    #[test]
+    fn a_target_with_a_root_or_a_drive_alone_is_refused_where_windows_reads_it() {
+        let at = Path::new("dir").join("link");
+        for target in [r"\x", "c:x", "c:"] {
+            let followed = follow(&at, PathBuf::from(target));
+            if windows_rules() {
+                let error = followed.expect_err("refused");
+                assert!(
+                    matches!(&error, TextError::Io { step: FileStep::ReadLink, error }
+                        if error.kind() == ErrorKind::InvalidInput),
+                    "{target}: {error:?}"
+                );
+                assert!(!error.to_string().contains(target), "{error}");
+            } else {
+                let joined = followed.expect("an ordinary name here");
+                assert_eq!(joined, Path::new("dir").join(target), "{target}");
+            }
+        }
+    }
+
+    /// ADR-0034: where Unix path rules apply, a relative target is joined
+    /// onto the link's parent as written, with no file system call, and the
+    /// kernel resolves the result when the save uses it.
+    #[test]
+    fn unix_rules_keep_the_lexical_join() {
+        if windows_rules() {
+            return;
+        }
+        for (at, target, joined) in [
+            ("a/b/link", "../x", "a/b/../x"),
+            ("/no/such/dir/link", "x", "/no/such/dir/x"),
+            ("link", "x", "x"),
+            ("a/link", "x/", "a/x/"),
+        ] {
+            let followed = follow(Path::new(at), PathBuf::from(target)).expect("joined");
+            assert_eq!(followed.as_os_str(), joined, "{at} -> {target}");
+        }
+    }
+
+    /// A target that asks for a directory keeps its final separator, as
+    /// the plain join keeps it on Unix; `std`'s `push` onto the verbatim
+    /// directory Windows' rules give would drop it.
+    #[test]
+    fn a_final_separator_on_a_target_is_kept() {
+        let dir = scratch_dir("final-separator");
+        let target = PathBuf::from(format!("x{MAIN_SEPARATOR_STR}"));
+        let followed = follow(&dir.join("link"), target).expect("joined");
+        assert!(ends_in_separator(followed.as_os_str()), "{followed:?}");
+        assert_eq!(followed.file_name(), Some(OsStr::new("x")));
+    }
+
+    /// Where Windows' path rules apply, the path to a link is probed in its
+    /// verbatim form, so that Win32 does not read its parent again on its
+    /// own (`C:\w\space ` alone opens `C:\w\space`). Elsewhere it is kept.
+    #[test]
+    fn a_plain_windows_prefix_becomes_verbatim() {
+        for (plain, spelled) in [
+            (r"C:\w\space \l", r"\\?\C:\w\space \l"),
+            (r"\\srv\sh\d\l", r"\\?\UNC\srv\sh\d\l"),
+            (r"\\.\C:\w\l", r"\\?\C:\w\l"),
+        ] {
+            let want = if windows_rules() { spelled } else { plain };
+            let got = verbatim(PathBuf::from(plain));
+            assert_eq!(got.as_os_str(), want, "{plain}");
+        }
+        for kept in [r"\\?\C:\w\l", r"\\?\UNC\srv\sh\l", "/home/me/l"] {
+            assert_eq!(verbatim(PathBuf::from(kept)).as_os_str(), kept);
+        }
     }
 }

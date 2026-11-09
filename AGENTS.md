@@ -105,7 +105,9 @@ or file is there.
    appears only in `sys`, `platform`, `toolchain` install plans and `xtask`
    packaging. The one exception is a `#[cfg(unix)]` in `text::file` that
    creates the save's temp file private and clears setuid and setgid, plus
-   `cfg(unix)` in `text`'s tests of modes and links (ADR-0025), and
+   `cfg(unix)` in `text`'s tests of modes and links (ADR-0025) and
+   `cfg(windows)` in its tests that make links to directories (ADR-0034),
+   and
    `cfg(unix)` and `cfg(windows)` in `core::path`'s tests, which build
    paths that are not UTF-8 (ADR-0032). No check enforces this yet; review
    does.

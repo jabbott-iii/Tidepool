@@ -865,7 +865,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0025 — Saving follows symbolic links to their target; the temp file starts private and loses setuid and setgid through one `cfg(unix)` in `text::file`; what a rename changes is documented, and `buffers` checks it
 
-- **Status:** Accepted; ADR-0032 adds a second exception to rule 5: `cfg(unix)` and `cfg(windows)` in `core::path`'s tests
+- **Status:** Accepted; ADR-0032 adds a second exception to rule 5: `cfg(unix)` and `cfg(windows)` in `core::path`'s tests; ADR-0034 follows a relative link from the link's own directory as Windows reaches it (Unix keeps the lexical join) and allows `cfg(windows)` in `text`'s link tests
 - **Date:** 2026-11-03
 - **Context:**
   - M1.3 builds `text::file`'s atomic save: a temp file in the same
@@ -1722,3 +1722,104 @@ decides; the roadmap task that first depends on one asks for the decision.
   opens a different file from its verbatim form; or
   `io::ErrorKind::FilesystemLoop` becomes stable, so a link loop can
   report its own kind.
+
+## ADR-0034 — `text::file::save` follows a relative link from the link's own directory as Windows reaches it, and keeps the lexical join on Unix; rule 5 allows `cfg(windows)` in `tidepool-text`'s link tests
+
+- **Status:** Accepted
+- **Date:** 2026-11-09
+- **Context:**
+  - ADR-0025 has `save` follow the chain of symbolic links at the path, at
+    most 40, and save at the file the chain names. `text::file`'s
+    `resolve` joins a relative link target onto the link's *lexical*
+    parent, the path as given.
+  - On Unix that is right: the kernel resolves the joined path, applying
+    each `..` physically after the directory links before it. It also
+    reads `/proc` magic links (`/proc/<pid>/root`, `/proc/<pid>/cwd`,
+    `/proc/self/fd/N`) and the mounts on the way as the OS opens them.
+  - On Windows it is not. Win32 applies `..` to the text before anything
+    opens it (`GetFullPathNameW`), while NT resolves a relative link from
+    the link's directory as reached through earlier links. With `a`
+    linking to `b\c\d` and `b\c\d\l` linking to `..\..\x`, opening
+    `C:\w\a\l` reaches `C:\w\b\x`, but `save` built `C:\w\a\..\..\x` and
+    wrote `C:\x`. A save could write outside the directory that
+    `core::path::resolve` and `under` (ADR-0033) say it writes in. M1.8's
+    security review found this from std's Windows sources; it was not
+    run.
+  - A first fix, accepted the same day and never committed, joined every
+    relative target onto `fs::canonicalize` of the link's lexical parent,
+    on every OS. Its review found two regressions:
+    - On Linux, `realpath(3)` reads a magic link's target as text, so a
+      save through `/proc/<pid>/root/…` or `/proc/self/fd/N/…`, or into a
+      directory a mount covers, wrote a different file from the one the
+      path names. This was reproduced with `unshare`.
+    - On Windows, `Path::parent` of a plain path can name another
+      directory when Win32 reads it alone: `C:\w\space \l`'s parent
+      `C:\w\space ` opens `C:\w\space`, because Win32 trims a trailing
+      space from a path's last name but keeps one inside a path.
+      `core::path` avoids this by reading the whole path with
+      `std::path::absolute` and probing it in its verbatim form.
+  - A test needs a link to a directory. On Windows, `fs::soft_link` makes
+    a file link, which Windows does not traverse as a directory; only
+    `std::os::windows::fs::symlink_dir`, behind `#[cfg(windows)]`, makes
+    one. ADR-0025 allows only `cfg(unix)` in `text`'s tests.
+  - On 2026-11-09 the user chose to fix the defect in the session that
+    found it, to allow `cfg(windows)` in `text`'s link tests, and, after
+    the review, to change the decision as below and amend this record
+    before its first commit (each the recommended option).
+- **Decision:**
+  - **Where Unix path rules apply, nothing changes.** A relative target is
+    joined onto the link's lexical parent, and the kernel resolves the
+    joined path when the save uses it.
+  - **Where Windows' path rules apply, the link's own directory is used.**
+    `save` reads the whole path to the link with `std::path::absolute`
+    (`GetFullPathNameW`, the reading `CreateFileW` applies), turns a plain
+    drive, UNC or `\\.\` prefix into its verbatim form (`\\?\`,
+    `\\?\UNC\`), takes the parent of that, canonicalizes it, and joins
+    the target onto the result. `std`'s `push` onto a verbatim path
+    applies the target's `.` and `..`, as NT applies them, and a target's
+    final separator is kept. A missing target that ends in a separator
+    asks for a directory, so `save` refuses it (`Io` at
+    `FileStep::Rename`, `NotADirectory`) before anything is written, as
+    Unix's rename refuses it; NT's rename drops the separator and would
+    make a file. The library tells the two sets of rules
+    apart at run time, by whether `std` parses `C:\` with a
+    `Component::Prefix`, which it does only on Windows, so it has no
+    platform `cfg` beyond ADR-0025's one, and a save under Unix rules
+    makes no new call (`absolute` of a relative path would need the
+    current directory, which can fail where the old join did not).
+  - **An absolute target is used as it is.** A target that is not
+    absolute but has a root or a drive (`\x`, `c:x`, which only Windows
+    parses) is refused with `TextError::Io` at `FileStep::ReadLink`
+    (`InvalidInput`), as `core::path::resolve` refuses it, since its
+    meaning depends on the process's current drive.
+  - **Rule 5 gains one test exception.** `#[cfg(windows)]` may appear in
+    `tidepool-text`'s tests that make links to directories
+    (`symlink_dir`), as `cfg(unix)` already may in its tests of modes and
+    links. The library keeps its one `cfg(unix)` (ADR-0025).
+- **Consequences:**
+  - A save through links writes the file the OS opens at that path, on
+    Unix exactly as before and on Windows now through directory links
+    too. M4.3 can make a containment check and the write agree by
+    construction, by saving at the path `core::path::resolve` returned.
+  - On Windows, following a relative link canonicalizes its directory.
+    That fails where the directory cannot be opened (one that may be
+    traversed but not opened), and the save is then an error at
+    `FileStep::ReadLink` rather than a write elsewhere.
+  - The windows-latest CI job runs the case with a real directory link.
+    The refusal of `\x` and `c:x` is tested where Windows' rules apply
+    without making a link, since Windows may store such a target
+    otherwise.
+- **Alternatives considered:**
+  - Canonicalize the link's directory on every OS: the first fix, which
+    breaks `/proc` magic links and mount-overs on Linux, as above.
+  - Call `core::path::resolve` from `save`: one implementation for the
+    check and the write, but `text`'s library would gain its first
+    dependency, and `resolve` canonicalizes too, with the same Linux
+    caveat. M4.3 can get the agreement by passing `resolve`'s result to
+    `save`.
+  - No Windows test: the fix would rest on reasoning alone.
+- **Revisit when:** `std` gives a portable way to make a link to a
+  directory, so the test needs no `cfg`; or M4.3 saves through
+  `core::path::resolve` and `save`'s own link following can go; or a
+  Windows CI run shows a save through links landing elsewhere than the OS
+  opens.

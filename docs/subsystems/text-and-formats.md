@@ -268,8 +268,14 @@ Saving follows ADR-0025.
   read-only here.
 - **Saving** (`save(path, &Rope, Format)`) is atomic:
   1. follows the chain of symbolic links at the path, at most 40 (else
-     `TooManyLinks`), a relative link from its own directory. A missing
-     target is created;
+     `TooManyLinks`), a relative link from its own directory as the OS
+     reaches it (ADR-0034). On Unix the target is joined onto the link's
+     parent as written, and the kernel resolves it; where Windows' path
+     rules apply, onto the canonical path of the link's directory, taken
+     from the whole path in its verbatim form, so its `..` apply after
+     the directory links before it. A target that has a root or a drive
+     but is not absolute (`\x`, `c:x`) is refused (`Io` at `ReadLink`). A
+     missing target is created;
   2. an existing target must be a regular file that the user may write,
      tested by opening it for writing without creating or truncating it.
      Otherwise `NotRegularFile` or `NotWritable`, and nothing changes;

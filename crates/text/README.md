@@ -160,7 +160,9 @@ output Tidepool's demo page shows: positions, graphemes, undo and the save.
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0018 (the
   Unicode data); ADR-0019 (positions); ADR-0020 (edits and undo); ADR-0025
   (saving: links followed, the temporary file's mode, what a rename
-  changes); ADR-0027 (the fuzz target, in `tests/fuzz.rs`).
+  changes); ADR-0027 (the fuzz target, in `tests/fuzz.rs`); ADR-0034 (a
+  relative link is followed from its own directory as Windows reaches it;
+  Unix keeps the lexical join).
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what the
   target runs and checks.
 - API reference: `cargo doc -p tidepool-text --open`
@@ -177,7 +179,8 @@ output Tidepool's demo page shows: positions, graphemes, undo and the save.
 - One platform `cfg` in the library, which ADR-0025 allows: the
   `#[cfg(unix)]` in `src/file.rs` that creates the temporary file of an
   existing file with mode 0600 and clears setuid and setgid from the mode
-  it copies. Tests that check modes and links may use `cfg(unix)` too.
+  it copies. Tests that check modes and links may use `cfg(unix)` too,
+  and tests that make links to directories `cfg(windows)` (ADR-0034).
 
 ## Checks
 

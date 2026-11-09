@@ -765,6 +765,14 @@ is published from `main`.
       `text::encoding::Decoder`. M4.3 checks the link count, owner and
       group before a save. M4.9 may clean the `.tidepool-save-*` files a
       crash leaves behind.
+  - Note (2026-11-09): M1.8's security review found that on Windows a save
+    through a directory link joined a relative link target onto the
+    link's lexical parent, which Win32 reads as another place than the
+    OS opens. Where Windows' path rules apply, `save` now joins it onto
+    the canonical path of the link's directory, taken from the whole path
+    in its verbatim form; Unix keeps the lexical join, which the kernel
+    resolves. A target with a root or a drive that is not absolute is
+    refused (ADR-0034).
 
 - [x] **M1.4 — codec: JSON and JSONC**
   - Depends: M0.2

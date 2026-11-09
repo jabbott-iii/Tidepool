@@ -16,7 +16,9 @@
 //! round-trip byte for byte (BOMs, UTF-16, every line ending, no trailing
 //! newline), a file that is not valid UTF-8 is never written back, refused
 //! saves change nothing, and the large-file threshold. On Unix, also modes
-//! and symbolic links (ADR-0025).
+//! and symbolic links (ADR-0025); on Unix and Windows, a relative link
+//! behind a link to a directory, and a link target with a root or a drive
+//! alone (ADR-0034).
 //!
 //! Each test has its own scratch directory under `target/tmp`, removed when
 //! it passes.
@@ -480,6 +482,230 @@ fn file_errors_hold_no_path() {
         "{message}"
     );
 }
+
+/// Says on standard error, as the gate counts it, that `test` skipped.
+fn skipped(test: &str, reason: &str) {
+    let _ = writeln!(io::stderr(), "SKIPPED: {test}: {reason}");
+}
+
+/// `relative` with this OS's separator: Windows keeps a link's target as it
+/// is written.
+fn rel(relative: &str) -> PathBuf {
+    relative.split('/').collect()
+}
+
+/// Whether `std` parses Windows' prefixes here: asked at run time, not
+/// through `cfg`, as `core::path`'s tests ask it.
+fn windows_paths() -> bool {
+    matches!(
+        Path::new(r"C:\").components().next(),
+        Some(std::path::Component::Prefix(_))
+    )
+}
+
+/// Makes a symbolic link to a directory. Windows tells links to directories
+/// from links to files, and `fs::soft_link` makes only the second, so the
+/// two OSes need a function each: ADR-0025 allows `cfg(unix)` in the tests
+/// of links, and ADR-0034 `cfg(windows)` in those that link to directories.
+#[cfg(unix)]
+fn directory_link(target: &Path, at: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, at)
+}
+
+/// Makes a symbolic link to a directory (ADR-0034).
+#[cfg(windows)]
+fn directory_link(target: &Path, at: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, at)
+}
+
+/// Makes a symbolic link to a file, beside [`directory_link`].
+#[cfg(unix)]
+fn file_link(target: &Path, at: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, at)
+}
+
+/// Makes a symbolic link to a file, beside [`directory_link`] (ADR-0034).
+#[cfg(windows)]
+fn file_link(target: &Path, at: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(target, at)
+}
+
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .expect("lstat")
+        .file_type()
+        .is_symlink()
+}
+
+/// ADR-0034: a relative link reached through a link to a directory is
+/// followed from the directory the OS reaches. `w/a` links to `b/c/d`, and
+/// `w/b/c/d/l` to `../../x`, so the OS opens `w/a/l` as `w/b/x`. Before
+/// ADR-0034 a save joined the target onto `w/a`, the link's directory as
+/// given, which the decoy `x` beside `w` stands for. The kernel applied the
+/// `..` after the link on Unix anyway, so this passed there before the fix;
+/// Win32 applies them to the text, so on Windows the save wrote the decoy,
+/// and this test would have failed.
+#[test]
+fn a_relative_link_behind_a_directory_link_saves_where_the_os_opens_it() {
+    let test = "a_relative_link_behind_a_directory_link_saves_where_the_os_opens_it";
+    let dir = scratch_dir("behind-a-directory-link");
+    let w = dir.join("w");
+    let d = w.join("b").join("c").join("d");
+    fs::create_dir_all(&d).expect("mkdir");
+    let l = d.join("l");
+    if let Err(error) =
+        directory_link(&rel("b/c/d"), &w.join("a")).and_then(|()| file_link(&rel("../../x"), &l))
+    {
+        return skipped(test, &format!("cannot make a link here: {error}"));
+    }
+    let through = w.join("a").join("l");
+
+    // Nothing there yet: the save creates the file where the OS opens it.
+    file::save(&through, &Rope::from("first"), Format::UTF8).expect("save");
+    assert_eq!(read(&w.join("b").join("x")), b"first");
+    assert_eq!(names(&dir), ["w"]);
+    assert_eq!(names(&w), ["a", "b"]);
+    assert!(is_link(&l));
+    assert_eq!(fs::read_link(&l).expect("readlink"), rel("../../x"));
+
+    // Again, with a decoy where the path as given would lead.
+    write(&dir.join("x"), b"decoy");
+    file::save(&through, &Rope::from("second"), Format::UTF8).expect("save");
+    assert_eq!(read(&w.join("b").join("x")), b"second");
+    assert_eq!(read(&dir.join("x")), b"decoy");
+    assert!(is_link(&l));
+    assert_eq!(names(&w.join("b")), ["c", "x"]);
+    assert_eq!(names(&dir), ["w", "x"]);
+}
+
+/// ADR-0034: a link target with a root or a drive but not the rest of an
+/// absolute path (`\x`, `c:x`) means something that depends on the
+/// current drive, so where Windows' path rules apply a save refuses it, as
+/// `core::path::resolve` does, and its message does not name the target.
+/// Elsewhere both are ordinary names, and the save writes through them.
+///
+/// On Windows this may print `SKIPPED`: making the link stores a
+/// drive-relative target (`c:x`) as an absolute path, which is no longer
+/// the case under test, and an account may not make links at all. The
+/// refusal itself is tested on `follow` in `src/file.rs`, with no link.
+#[test]
+fn a_target_with_a_root_or_a_drive_alone_is_refused_where_windows_reads_it() {
+    let test = "a_target_with_a_root_or_a_drive_alone_is_refused_where_windows_reads_it";
+    let dir = scratch_dir("root-or-drive-target");
+    let mut skips = Vec::new();
+    for (name, target) in [("rooted", r"\x"), ("drive", "c:x")] {
+        let link = dir.join(name);
+        // `fs::soft_link` is deprecated in favour of one function per OS,
+        // but those need a `cfg`, which this test does not; on Windows it
+        // makes a link to a file, which is what is wanted here.
+        #[allow(deprecated)]
+        let made = fs::soft_link(target, &link);
+        if let Err(error) = made {
+            skips.push(format!("cannot make the link `{name}` here: {error}"));
+            continue;
+        }
+        // Windows may store such a target as an absolute path instead,
+        // which would then be followed somewhere outside this test.
+        let stored = fs::read_link(&link).expect("readlink");
+        if stored != Path::new(target) {
+            skips.push(format!("the OS stored the target of `{name}` otherwise"));
+            continue;
+        }
+        let saved = file::save(&link, &Rope::from("through"), Format::UTF8);
+        if windows_paths() {
+            let error = saved.expect_err("refused");
+            assert!(
+                matches!(&error, TextError::Io { step: FileStep::ReadLink, error }
+                    if error.kind() == io::ErrorKind::InvalidInput),
+                "{error:?}"
+            );
+            let message = error.to_string();
+            assert!(!message.contains(target), "{message}");
+        } else {
+            saved.expect("an ordinary name here");
+            assert_eq!(read(&dir.join(target)), b"through");
+        }
+        assert!(is_link(&link));
+    }
+    if !skips.is_empty() {
+        skipped(test, &skips.join("; "));
+    }
+}
+
+/// ADR-0034: where Windows' path rules apply, the directory a relative link
+/// is in is taken from the whole path, as Win32 reads it, not from its
+/// parent alone. Win32 keeps a trailing space on a name inside a path and
+/// trims it from a path's last name, so the parent `w\space ` of the plain
+/// `w\space \l` opened on its own is `w\space`. Elsewhere the names are
+/// ordinary and the save writes there too.
+#[test]
+fn a_link_below_a_name_win32_trims_at_the_end_saves_beside_it() {
+    let test = "a_link_below_a_name_win32_trims_at_the_end_saves_beside_it";
+    let dir = scratch_dir("trimmed-name");
+    // On Windows this is `\\?\…`, through which a trailing space is kept.
+    let exact = fs::canonicalize(&*dir).expect("canonicalize");
+    let w = exact.join("w");
+    fs::create_dir_all(w.join("space ")).expect("mkdir");
+    fs::create_dir(w.join("space")).expect("mkdir");
+    if let Err(error) = file_link(Path::new("x"), &w.join("space ").join("l")) {
+        return skipped(test, &format!("cannot make a link here: {error}"));
+    }
+    // The plain path, in which Win32 keeps the inner space.
+    let through = dir.join("w").join("space ").join("l");
+    file::save(&through, &Rope::from("text"), Format::UTF8).expect("save");
+    assert_eq!(read(&w.join("space ").join("x")), b"text");
+    assert_eq!(names(&w.join("space ")), ["l", "x"]);
+    assert!(names(&w.join("space")).is_empty());
+    assert!(is_link(&w.join("space ").join("l")));
+}
+
+/// A link whose target ends in a separator asks for a directory. Saving a
+/// file through it is an error, whether that name is a file or missing,
+/// and writes nothing. For a file, the OS refuses the path when the save
+/// reads its metadata. For a missing name, `save` refuses it before the
+/// temporary file: Unix's rename would refuse it too, but NT's drops the
+/// separator and makes a file `x` (ADR-0034).
+#[test]
+fn a_link_to_a_name_with_a_final_separator_saves_no_file() {
+    let test = "a_link_to_a_name_with_a_final_separator_saves_no_file";
+    let dir = scratch_dir("separator-target");
+    let mut target = std::ffi::OsString::from("x");
+    target.push(std::path::MAIN_SEPARATOR_STR);
+    // `fs::soft_link` is deprecated in favour of one function per OS, but
+    // those need a `cfg`, which this test does not.
+    #[allow(deprecated)]
+    let made = fs::soft_link(&target, dir.join("l"));
+    if let Err(error) = made {
+        return skipped(test, &format!("cannot make a link here: {error}"));
+    }
+    // `x` missing: refused as Unix's rename refuses it, and no file named
+    // `x` is made.
+    let error = file::save(dir.join("l"), &Rope::from("new"), Format::UTF8).expect_err("missing");
+    assert!(
+        matches!(
+            &error,
+            TextError::Io { step: FileStep::Rename, error } if error.kind() == io::ErrorKind::NotADirectory
+        ),
+        "{error:?}"
+    );
+    assert_eq!(names(&dir), ["l"]);
+    // `x` a file: it is not replaced.
+    write(&dir.join("x"), b"old");
+    file::save(dir.join("l"), &Rope::from("new"), Format::UTF8).expect_err("a file");
+    assert_eq!(read(&dir.join("x")), b"old");
+    assert_eq!(names(&dir), ["l", "x"]);
+}
+
+// ADR-0034 keeps the lexical join on Unix because the kernel resolves a
+// path through `/proc` magic links (`/proc/<pid>/root`, `/proc/<pid>/cwd`,
+// `/proc/self/fd/N`) and mounts as it opens it, while `realpath(3)` reads a
+// magic link's target as text. No test here can show the difference: it
+// needs a mount namespace. Reproduced under `unshare -Urm`: make
+// `base/d/l -> x` and `base/d/x`, open `base/d` as descriptor 3, mount a
+// tmpfs over `base` holding another `base/d/x`, then save through
+// `/proc/self/fd/3/l`. The lexical join writes the hidden `x` that
+// `cat /proc/self/fd/3/l` reads; joining onto `realpath` of the link's
+// directory wrote the covering one.
 
 /// Modes and symbolic links: ADR-0025 allows `cfg(unix)` in these tests.
 #[cfg(unix)]
