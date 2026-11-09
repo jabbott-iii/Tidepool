@@ -23,7 +23,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, crates, unsafe-audit, headers, workflows, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, crates, features, unsafe-audit, headers, workflows, ucd
 cargo test -p tidepool-text
 ```
 
@@ -58,7 +58,8 @@ command, and what to run for each kind of change.
 | `crates/`, `xtask/`, `bench/` | The workspace; each member has a `README.md`, and copies of `LICENSE` and `NOTICE` |
 | `diagrams/` | C4, UML class, component and sequence, data-flow and state diagrams, in Mermaid |
 | `.claude/` | Claude Code settings, hook, subagents, path-scoped rules and skills |
-| `.github/` | CI and CodeQL workflows, Dependabot, the pull request template and issue form |
+| `.github/` | CI, CodeQL and Pages workflows, Dependabot, the pull request template and issue form |
+| `site/` | The demo page's template, stylesheet, script and `llms.txt`, which `cargo xtask site` fills (ADR-0030) |
 | `scripts/check-deps.sh` | Fallback dependency check for the Claude Code hook |
 
 ## The constraints that shape everything

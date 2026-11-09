@@ -8,7 +8,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M0.13 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -1810,13 +1810,15 @@ classDiagram
 Each `cargo xtask` check is a `Check`: a name, a step and a role. A step
 runs cargo with fixed arguments (`Cargo` and `Tests`), or one of `xtask`'s
 own checks (`Own`: `deps::run`, `layers::run`, `crates::run`,
-`unsafe_audit::run`, `headers::run`, `workflows::run`, `ucd::check` or
-`ucd::write`), which returns a `Report`. A `Compiles` step does not run
+`features::run`, `unsafe_audit::run`, `headers::run`, `workflows::run`,
+`ucd::check` or `ucd::write`), which returns a `Report`. A `Compiles` step does not run
 once a `Gate` step has failed; `deps` is the gate. `ci` runs the checks in
 order and ends with a summary table that also lists the `Later` commands
 it will run once they exist (those with `in_ci`: `tools` and `theme`).
 Every `Later` command exits 1 with "not yet implemented" until its task
-lands.
+lands. `run_gate` runs them and returns a `Gate`, each step's outcome and
+the tests counted; `run_ci` is its `passed`, and `site` keeps the rest
+(ADR-0030).
 
 ```mermaid
 classDiagram
@@ -1828,6 +1830,22 @@ classDiagram
         +LATER: Later slice
         +run_one(check, root, out) io Result~bool~
         +run_ci(checks, later, root, out) io Result~bool~
+        +run_gate(checks, later, root, out) io Result~Gate~
+    }
+    class Gate {
+        -outcomes: Vec~Outcome~
+        -tests: TestCounts
+        +passed() bool
+        +steps() usize, usize
+        +skipped() usize
+        +tests() TestCounts
+    }
+    class TestCounts["cargo::TestCounts"] {
+        +results: usize
+        +unreadable: usize
+        +passed: usize
+        +failed: usize
+        +ignored: usize
     }
     class Check {
         +name: str
@@ -1852,6 +1870,7 @@ classDiagram
         +violations: Vec~String~
         +stale_lockfiles: usize
         +skips: Skips
+        +tests: TestCounts
         +push_stale_lockfile(violation)
     }
     class Skips["cargo::Skips"] {
@@ -1886,6 +1905,7 @@ classDiagram
         Doc
         Output
         Write
+        Env
     }
     CheckFns "1" o-- "0..*" Check : COMMANDS, CI
     CheckFns "1" o-- "0..*" Later : LATER
@@ -1894,6 +1914,10 @@ classDiagram
     Step ..> Report : Own returns
     Step ..> XtaskError : Own fails with
     Report *-- Skips
+    Report *-- TestCounts
+    CheckFns ..> Gate : run_gate returns
+    Gate o-- CiOutcome : one per step
+    Gate *-- TestCounts
     CheckFns ..> CiOutcome : one per ci step
     CiOutcome *-- Status
     note for Skips "Tests that printed SKIPPED:<br/>did not run, and are never<br/>counted as passes"

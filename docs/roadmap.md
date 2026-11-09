@@ -7,6 +7,9 @@ How to use this file:
 - Tick a box only after its acceptance criteria are met **and** its
   verification commands were run and passed (see "Definition of done" in
   `AGENTS.md`).
+- From M0.14, ticking a box also brings the task's feature in
+  `docs/features.jsonc` up to date: its summary, and its `ticked` list.
+  `cargo xtask features` fails until it is (ADR-0030).
 - If a criterion needs an OS, tool or device you can't run, leave the box
   unchecked. Add an indented note saying exactly what remains:
   `  - ⏳ needs macOS: run the iOS sample through codesign --verify`.
@@ -577,10 +580,91 @@ enforced by tooling from day one.
       who may use `core`, `codec` and `tidepool-testkit`, the CLI errors'
       wording, and two docs rules, all fixed.
 
+- [ ] **M0.14 — site: the demo page at jabbott.dev/Tidepool/; `cargo xtask site` and `features`**
+  - Depends: M0.4, M0.7, M0.8, M0.9, M0.11, M1.3, M1.4, M1.7
+  - Decide first (ADR-0030):
+    - what the page's main panel shows while nothing draws;
+    - how the features are listed, and kept true as tasks are ticked;
+    - when the page is published, and how, in place of the README that
+      Pages serves at `/Tidepool/` today;
+    - how the page learns the commit's date and subject while `xtask`
+      starts only `cargo`;
+    - accept ADR-0030, which is `Proposed`.
+  - Do: per ADR-0030 and `docs/04-quality.md` → "Demo page":
+    - `docs/features.jsonc`, with every ticked task in a feature, and
+      `cargo xtask features`, a step of `ci` right after `crates`, ported
+      from Nadir's `xtask/src/features.rs` and reading the tasks with
+      `crates`' reader of this file. This task belongs to a feature too,
+      and ticking it adds it to that feature's `ticked` in the same change.
+    - The examples `crates/codec/examples/formats.rs` and
+      `crates/text/examples/editing.rs`, each on fixed inputs.
+    - `site/index.html`, `site/tidepool.css`, `site/tidepool.js` and
+      `site/llms.txt`, in jabbott.dev's markup, loading that site's
+      stylesheet and script.
+    - `cargo xtask site [--out DIR]`, ported from Nadir's
+      `xtask/src/site.rs` and `site/page.rs`, with the
+      `TIDEPOOL_SITE_*` variables and the reading of `.git` for a local
+      build.
+    - `cargo xtask headers` checks `.html`, `.css` and `.js` files.
+    - `.github/workflows/pages.yml`, and its row in `WORKFLOWS`
+      (`xtask/src/workflows.rs`). Look up each pin with `git ls-remote`
+      and record it in a task note.
+    - The docs that name `xtask`'s commands, its children, the workflows
+      and the header's file types: `AGENTS.md`, `CONTRIBUTING.md`,
+      `README.md`, `SECURITY.md`, `.claude/rules/ci-workflows.md` and
+      `docs-and-roadmap.md`, the READMEs of `xtask`, `tidepool-codec` and
+      `tidepool-text`, and `diagrams/`.
+  - Accept:
+    - `cargo xtask site` builds the page into `target/site`, running no
+      program but cargo and making no network calls. It fails, writing
+      nothing, when the features, a gate step or an example fail, and it
+      refuses an `--out` directory that is not new, empty or marked by an
+      earlier run.
+    - With the three `TIDEPOOL_SITE_*` variables, the page names the
+      commit, its date and its subject; with none, it names HEAD's hash
+      read from `.git` and says it is a local build; with one or two, or a
+      value that is not valid, `site` fails naming the variable.
+    - `cargo xtask features` is a step of `ci`, after `crates`. Fixtures
+      fail for each of its rules; the real repository passes.
+    - `headers` fixtures fail an HTML, a CSS and a JavaScript file without
+      the header, and pass each with it, an HTML file's after a doctype.
+    - `pages.yml` passes `cargo xtask workflows`, parses, and pauses
+      workflow commands in every `run:` step that reads the checkout or
+      runs its code.
+    - The built page passes a look in a browser at desktop and phone
+      widths, with jabbott.dev's stylesheet loaded (human).
+    - The page is published at <https://jabbott.dev/Tidepool/> once the
+      user has switched the Pages source (below).
+  - Verify: `cargo xtask ci`; `cargo xtask site`
+  - Note (2026-11-08): ADR-0030 answers the `Decide first` questions with
+    the options the user chose that day, each the recommended one: tabs of
+    the gate and two examples run on the commit; `docs/features.jsonc` and
+    its check; `pages.yml` after CI on `main`, replacing the README; and
+    the commit's facts passed in by the workflow, so `xtask` still starts
+    only `cargo`.
+  - Note (2026-11-08): the user accepted ADR-0030 as written, which
+    answers the `Decide first` line.
+  - Note (2026-11-08): `pages.yml`'s pins, each looked up with `git
+    ls-remote --tags https://github.com/actions/<name>` (all four are
+    lightweight tags, with no peeled `^{}` line), and the same as Nadir's:
+    `actions/checkout` v7.0.1 `3d3c42e5aac5ba805825da76410c181273ba90b1`,
+    `actions/cache` v6.1.0 `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
+    `actions/upload-pages-artifact` v5.0.0
+    `fc324d3547104276b827a68afc52ff2a11cc49c9`, `actions/deploy-pages`
+    v5.0.1 `368f82528645a54fb793d4d04e342629a3f51346`.
+  - Note (2026-11-08): a build with the three variables set from `git log
+    -1`, as `pages.yml` sets them, was looked at in a browser with
+    jabbott.dev's stylesheet and script loaded, at 1400 × 900 and at
+    375 × 812: no horizontal scroll at phone width, the tabs and the
+    feature filters work, and the diagrams' text fits their boxes.
+  - ⏳ needs the user: switch Settings → Pages → Source to GitHub Actions,
+    push, and see the page at <https://jabbott.dev/Tidepool/>.
+
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
-CI runners, with `headers`, `workflows` and `crates` among its steps.
-`Cargo.lock` contains zero third-party packages. CodeQL has run on `main`
-with pinned actions.
+CI runners, with `headers`, `workflows`, `crates` and `features` among its
+steps. `Cargo.lock` contains zero third-party packages. CodeQL has run on
+`main` with pinned actions. The demo page at <https://jabbott.dev/Tidepool/>
+is published from `main`.
 
 ---
 

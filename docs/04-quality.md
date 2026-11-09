@@ -284,11 +284,11 @@ The design is ADR-0027's; the engine's rustdoc
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
-| `cargo xtask headers` | A source file (Rust, shell script, workflow) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021) |
+| `cargo xtask headers` | A source file (Rust, shell script, workflow, HTML, CSS, JavaScript) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line or an HTML file's doctype), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021, ADR-0030) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
@@ -297,6 +297,8 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
 | `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
 | `cargo xtask crates` | A member of the root workspace does not inherit `edition`, `version` and `license` from the workspace (each only `workspace = true`), lacks `publish = false`, has a `[lints]` table that is missing or not only `workspace = true`, or has a target (`[lib]`, `[[bin]]`, `[[test]]`, `[[bench]]`, `[[example]]`) with an `edition` of its own; the root `Cargo.toml` does not set `edition = "2024"` in `[workspace.package]`; a member's `README.md` is missing, a symbolic link or reached through one, not a regular file, over 1 MiB or not UTF-8, does not start with the line `# <package name>`, lacks one of the lines `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License` outside code blocks, HTML blocks and comments, has one twice or out of that order, has `## Features` twice or anywhere but between `## Usage` and `## Documentation`, or names a task ID that `docs/roadmap.md` has no task for; a member's `LICENSE` or `NOTICE` is missing, a symbolic link or reached through one, not a regular file, over 1 MiB, not UTF-8 or not byte for byte the root's, or the root's is missing or cannot be read; a manifest that cargo loaded cannot be read or parsed here, or is not under the root; or `docs/roadmap.md` cannot be read or has no task, or `cargo metadata` fails (then it cannot run) (ADR-0023, ADR-0028) |
+| `cargo xtask features` | `docs/features.jsonc` is not one object whose only member is the array `features`, of entries each with a `name`, `area` and `summary` that are not blank and are one line of plain text (no control character, line or paragraph separator or bidirectional control), `tasks` (at least one task ID) and, if any were ticked, `ticked`, each given once, and nothing else; two features share a name; a feature names a task twice, or one `docs/roadmap.md` lacks; a feature's `ticked` names a task its `tasks` does not, or is not the tasks of its `tasks` that the roadmap ticks; a ticked task belongs to no feature; a line of the roadmap looks like a task's but is not one, or has a CR inside it, not ending it, and a part that looks like a task's, or two tasks share an ID; or either file cannot be read (ADR-0030, "`features`" below) |
+| `cargo xtask site [--out DIR]` | The output directory is not new, empty or marked by an earlier run, or is marked but holds a directory where `site` writes a file; the `TIDEPOOL_SITE_*` variables are not all three or none, or one is not valid; `features`, a step of the gate or an example fails, or an example's output is not UTF-8; the test step printed no `test result:` line, one whose counts cannot be read, or more `SKIPPED:` lines than tests libtest passed; or a file of `site/` cannot be read, or holds a placeholder `site` does not know. Then it writes nothing. Otherwise it builds the demo page ("Demo page", under "CI" below). Not a step of `ci` |
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
@@ -308,14 +310,21 @@ each member's `Cargo.toml`, `README.md`, `LICENSE` and `NOTICE`, and
 `docs/roadmap.md`. Its violations quote no line of them, only paths,
 package and target names, sections and task IDs;
 a failed `cargo metadata` is relayed as for the other checks ("Secrets in
-messages", below). It reads other files only
+messages", below). `features` reads `docs/features.jsonc` and
+`docs/roadmap.md`, and its violations quote only feature names, task IDs,
+task titles, the name of a member it does not know and the character a
+JSON parse error names, each escaped on one line. `site` reads `site/`, `rust-toolchain.toml`, `.git` only
+as far as HEAD's hash when the `TIDEPOOL_SITE_*` variables are not set,
+and its examples' output ("Demo page"). It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
 parses. The one file it writes in the repository is the generated Unicode
 tables, with `cargo xtask ucd` without `--check` (below), and the one it
 renames is a dead replay's `fuzz/crashes/<target>/.last-input`, to
 `died-<hash>`; the fuzz tests that `fuzz-smoke` runs save their findings
-to `fuzz/crashes/` ("Fuzz smoke"). It opens no sockets, and its cargo children run with
+to `fuzz/crashes/` ("Fuzz smoke"). Besides those, `site` writes the demo
+page into `target/site`, or its `--out` directory, and removes there only
+what an earlier run wrote. It opens no sockets, and its cargo children run with
 `CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
 so with a `TIDEPOOL_IT_*` variable set, a real-tool test may still reach the
 network through its tool.
@@ -325,9 +334,10 @@ network through its tool.
 **Command line**
 
 - `cargo xtask <command> [--root DIR]`. Every command takes no other
-  argument, except `ucd`, which also accepts `--check` (once), and
+  argument, except `ucd`, which also accepts `--check` (once);
   `fuzz-smoke`, which accepts `--secs N`, `--target T`, `--seed S` and
-  `--replay`, each once ("Fuzz smoke"). An unknown target, or a value that
+  `--replay`, each once ("Fuzz smoke"); and `site`, which accepts
+  `--out DIR` (once; "Demo page"). An unknown target, or a value that
   does not parse, is a usage error.
   `--root DIR` checks the repository
   at `DIR` instead of the one `xtask` was built from; xtask's own tests use
@@ -351,8 +361,9 @@ network through its tool.
   errors, and wherever it shows a package source, every URL has its user
   information replaced by `…` (`git+https://…@host/repo`). Not covered:
   cargo's message text can still name a value that is not a URL, such as a
-  `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps,
-  and `fuzz-smoke`'s tests, stream cargo's output as cargo prints it. So
+  `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
+  (and `site`'s run of them), and `fuzz-smoke`'s tests, stream cargo's
+  output as cargo prints it. So
   keep secrets out of the repository's cargo files; cargo reads
   credentials from `CARGO_HOME`.
 - Control characters in output (M0.10): nothing a check reads, a file
@@ -372,14 +383,16 @@ network through its tool.
     `  | `, which is not whitespace once GitHub Actions has trimmed the
     leading spaces it ignores. So every line starts with text `xtask`
     wrote.
-  - Not covered by `xtask`: `ci`'s fmt, clippy and test steps, and
+  - Not covered by `xtask`: `ci`'s fmt, clippy and test steps (and
+    `site`'s run of them), and
     `fuzz-smoke`'s tests, stream cargo's output as cargo prints it, and the
     code they build and test can print anything. And the runner also reads the older `##[command]`
     form anywhere in a line, so a path in a check's message can still hold
     one (actions/runner v2.338.2, `src/Runner.Common/ActionCommand.cs`:
     `TryParseV2` trims leading whitespace and needs `::` at the start;
     `TryParse` looks for `##[` anywhere). In CI the gate's step pauses
-    workflow commands, and so does the fuzz-smoke step, so neither acts as
+    workflow commands, and so do the fuzz-smoke step and `pages.yml`'s
+    build step, so none acts as
     one, though a paused line still shows in the log as printed (M0.11, "CI
     (GitHub Actions)"). Run locally, the streamed steps can still send
     escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
@@ -403,9 +416,13 @@ network through its tool.
   exception named in `AGENTS.md` rule 2, ADR-0017): the cargo that
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
   children are `cargo metadata`, `cargo locate-project`, `ci`'s fmt,
-  clippy and test steps, and `fuzz-smoke`'s `cargo test` of each target
-  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables. It runs no
-  other program; the parsers run in those test processes, never in
+  clippy and test steps, `fuzz-smoke`'s `cargo test` of each target
+  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables, and
+  `site`'s: the same steps as `ci`'s, run in-process, and `cargo run
+  --quiet -p <package> --example <name>` of each example the page shows
+  (ADR-0030). It runs no
+  other program; the parsers run in those test processes, and the
+  examples in their own, never in
   `xtask`. Each child is an argv vector, never a shell, and runs in the
   root with standard input closed and `CARGO_NET_OFFLINE=true`. `cargo
   metadata`, `cargo locate-project` and `fuzz-smoke`'s tests, whose output
@@ -500,10 +517,11 @@ network through its tool.
   - A linked `Cargo.toml` is not a manifest to the walk, so the `target`
     beside it is searched, and cargo is not asked about its directory.
   - The files a check reads by a fixed name, `xtask/deps-allowlist.txt`
-    for `deps`, `docs/01-architecture.md` for `layers`, and
+    for `deps`, `docs/01-architecture.md` for `layers`,
     `docs/roadmap.md`, the root `Cargo.toml`, `LICENSE` and `NOTICE`, and
     each member's `Cargo.toml`, `README.md`, `LICENSE` and `NOTICE` for
-    `crates`, are not opened when they, or a directory on the way to them,
+    `crates`, and `docs/features.jsonc` and `docs/roadmap.md` for
+    `features`, are not opened when they, or a directory on the way to them,
     are links: the check fails, naming the link (for `crates`, a linked
     manifest, README or copy is one violation, and the check goes on).
   - Not covered: cargo follows links. `deps`, `layers`, `crates` and
@@ -521,7 +539,8 @@ network through its tool.
   `cargo.toml`, so that workspace fails closed.
 - Committed test data is checked as the real thing: a file named
   `Cargo.toml` or `Cargo.lock`, `config` or `config.toml` in a `.cargo`
-  directory, a file ending in `.rs` (or, for `headers`, `.sh`), or one
+  directory, a file ending in `.rs` (or, for `headers`, `.sh`, `.html`,
+  `.css` or `.js`), or one
   named or starting like a compiled artifact (`deps`), in any case. Give samples another suffix
   (`.rs.txt`), or generate them at test time under `<root>/target` or a
   build directory outside the repository. xtask's fixtures use
@@ -805,6 +824,54 @@ network through its tool.
     passes;
   - races, as in "Files searched".
 
+**`features`**
+
+- Ported from Nadir's check (Nadir's ADR-0029); the rules are ADR-0030's.
+  `docs/features.jsonc` lists Tidepool's features as the demo page shows
+  them, each with the roadmap tasks it needs. The page marks a feature
+  shipped when all of them are ticked, in progress when some are, and
+  planned when none are.
+- The tasks are the roadmap's task lines as `crates` reads them, with the
+  same reader (`- [ ] **M<n>.<m> — ` and `- [x] **M<n>.<m> — `, above).
+  A line that looks like a task's but that reader does not take (a list
+  item, indented, quoted or numbered or not, with a checkbox of one
+  character and the start of a task ID after it, such as `M5.3` or
+  `m5.3`, outside a longer word) is a violation, since a task it misses
+  would escape the check; so are two tasks with one ID. So is a line that
+  still holds a CR once its LF or CR LF ending is taken off, when a part
+  of it between CRs looks like a task's: a renderer starts a new line at
+  that CR, where the reader does not, so the task a reader sees may be one
+  the check misses.
+- The file is read as JSONC (`tidepool_codec::json`): one object whose
+  only member is `features`, an array of objects. Each has `name`, `area`
+  and `summary`, strings that are not blank once trimmed and are one line
+  of plain text, with no character that `xtask` escapes in what it prints
+  (a control character, a line or paragraph separator or a bidirectional
+  control: "Control characters in output", above), so the page shows
+  each on one line; `tasks`, an array of at least one task ID; and
+  `ticked`, an array of task IDs, left out when none was ticked. Any other
+  member fails, and so does a member given twice, since Tidepool's JSON
+  parser keeps both. The comment at the top of the file gives the areas
+  and how to write a summary; the check does not read it.
+- Violations: two features with one name; a feature that names a task
+  twice, or one the roadmap does not have; a `ticked` that names a task
+  twice, or one its feature's `tasks` does not; a feature whose `ticked`
+  is not the tasks of its `tasks` that the roadmap ticks (the summary was
+  written for other ticks: rewrite it, then set `ticked`); and a ticked
+  task that no feature needs. So the task that ships something adds it to
+  a feature, or describes a new one, and brings the summary up to date.
+- Both files are read whole as UTF-8, each a regular file reached through
+  no link ("Files searched"). A file that cannot be read stops the check:
+  `features: FAILED: <reason>`.
+- Violations quote feature names, task IDs and task titles, the name of a
+  member it does not know, and the character a JSON parse error names,
+  each escaped on one line, newlines and tabs too. Notes give how many
+  features are shipped, in progress
+  and planned, and how many of the roadmap's tasks are ticked.
+- Not covered: whether a summary says what its ticked tasks built, which
+  only review sees; the check sees only that `ticked` moved with the
+  ticks.
+
 **`unsafe-audit`**
 
 - Reads every `.rs` file under the root with its own small lexer. The lexer
@@ -889,26 +956,36 @@ network through its tool.
 **`headers`**
 
 - Source files, found as "Files searched" says: a Rust file (`.rs`), a
-  shell script (`.sh`) and a workflow (`.yml` or `.yaml` directly in
-  `.github/workflows/`, where GitHub reads them), the extension in any
-  case. Configuration and data carry no header (ADR-0021): TOML, Markdown,
-  JSON and JSONC, other YAML (`dependabot.yml`, the issue forms, YAML in a
-  folder below `.github/workflows/`), test vectors, the Unicode data,
-  `LICENSE` and `NOTICE`.
+  shell script (`.sh`), a workflow (`.yml` or `.yaml` directly in
+  `.github/workflows/`, where GitHub reads them), and an HTML (`.html`),
+  CSS (`.css`) or JavaScript (`.js`) file, such as the demo page's in
+  `site/` (ADR-0030, M0.14), the extension in any case. Configuration
+  and data carry no header (ADR-0021): TOML, Markdown, JSON and JSONC
+  (`docs/features.jsonc` among them), other YAML (`dependabot.yml`, the
+  issue forms, YAML in a folder below `.github/workflows/`), test vectors,
+  the Unicode data, `LICENSE` and `NOTICE`, and plain text that is served
+  as it is, such as `site/llms.txt`.
 - Each starts with the 13 lines of `LICENSE`'s appendix from its copyright
-  line, word for word: `// ` before each in Rust, `# ` in scripts and
-  workflows, and `//` or `#` alone on an empty one. A blank line follows,
-  unless the file ends there. The header starts on line 1, or in a script
-  on line 2 after a `#!` line. One leading UTF-8 byte-order mark is
+  line, word for word: `// ` before each in Rust and JavaScript, `# ` in
+  scripts and workflows, and `//` or `#` alone on an empty one. In HTML
+  and CSS they are one comment, as in Nadir's check: a line `<!--` (HTML)
+  or `/*` (CSS), the 13 lines each indented by two spaces (an empty one
+  left empty), then a line `-->` or `*/`. A blank line follows, unless the
+  file ends there. The header starts on line 1, or on line 2 after a
+  script's `#!` line or an HTML file's doctype (a first line that starts
+  `<!doctype`, in any case). One leading UTF-8 byte-order mark is
   skipped, as `deps` skips one. CR LF line endings, as a Windows checkout
   may have, are accepted; lone CR ones are not. Only those first lines of
   a file are read as lines.
 - A violation names the first line that is wrong and what it should be,
   never what it holds: `<file>:<line>: expected `<text>`, line N of the
-  Apache-2.0 header in `LICENSE`'s appendix`, or `<file>:<line>: expected
-  a blank line after the Apache-2.0 header`. A file over 8 MiB and a file
-  that isn't UTF-8 are violations too, and so is every symbolic link
-  (above). A file it cannot read stops the check: `headers: FAILED:
+  Apache-2.0 header in `LICENSE`'s appendix`; in HTML and CSS,
+  `<file>:<line>: expected `<!--`, the comment that holds the Apache-2.0
+  header` or `<file>:<line>: expected `-->`, the end of the comment that
+  holds the Apache-2.0 header` (`/*` and `*/` in CSS); or
+  `<file>:<line>: expected a blank line after the Apache-2.0 header`. A
+  file over 8 MiB and a file that isn't UTF-8 are violations too, and so
+  is every symbolic link (above). A file it cannot read stops the check: `headers: FAILED:
   <reason>`.
 - Exempt by path (`EXEMPT` in `xtask/src/headers.rs`, ADR-0021):
   `crates/text/src/pos/grapheme/tables.rs`, which `ucd` generates and
@@ -927,8 +1004,8 @@ network through its tool.
 - Ported from Nadir's check (Nadir's ADR-0032). The rules are ADR-0022's,
   against the table `WORKFLOWS` in `xtask/src/workflows.rs`, whose rows
   "CI (GitHub Actions)" below lists. A workflow is matched to its row by
-  its exact file name, so `CI.yml` has none. The release workflow adds its
-  row with M14.4.
+  its exact file name, so `CI.yml` has none. `pages.yml`'s row is
+  ADR-0030's (M0.14); the release workflow adds its row with M14.4.
 - The workflows are the `.yml` and `.yaml` files directly in
   `.github/workflows/`, the extension in any case, as `headers` finds them.
   A folder there, and a file with another extension, is not one: GitHub
@@ -1084,16 +1161,17 @@ network through its tool.
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd` (as
-  `ucd --check`). Each step
+  `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`,
+  `ucd` (as `ucd --check`). Each step
   starts with a `== <step>: ...` heading; the cargo steps print cargo's own
-  output.
+  output. `cargo xtask site` runs the same steps, in-process, for the demo
+  page ("Demo page", below).
 - It keeps going after a failure, so one run reports every problem, with
   one exception. Once `deps` has failed or could not run, clippy and test
   are not run, because they would build and run the code `deps` rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
-  runs. `layers`, `crates`, `unsafe-audit`, `headers`, `workflows` and
-  `ucd` are not gates, and run after clippy and test. So code that `deps` accepts but they reject,
+  runs. `layers`, `crates`, `features`, `unsafe-audit`, `headers`,
+  `workflows` and `ucd` are not gates, and run after clippy and test. So code that `deps` accepts but they reject,
   such as a vendored crate that cargo made a member, is still compiled, and
   its build scripts and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
@@ -1117,7 +1195,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 10 of 10 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 
@@ -1131,7 +1209,9 @@ network through its tool.
   passed), all three with workflow commands paused (below).
 - **Workflow commands are paused** (M0.11) in the toolchain step, whose
   rustup reads `rust-toolchain.toml` and can quote it, and in the gate's
-  and the fuzz-smoke steps, which run the repository's code. Each step
+  and the fuzz-smoke steps, which run the repository's code; and so in
+  `pages.yml`'s toolchain step and the step that reads the commit with
+  `git log` and runs `cargo xtask site` ("Demo page", below). Each step
   makes a token from 16 random bytes, and fails before running anything
   if that is not 32 lowercase hex digits. It joins its
   stderr to stdout (`exec 2>&1`), prints `::stop-commands::<token>`, runs
@@ -1164,7 +1244,8 @@ network through its tool.
     - Output from a process that outlives its step's commands can arrive
       after the resume, and is not paused.
     - The pause keeps text from acting as a command. It does not contain
-      the code the gate and the fuzz-smoke step build and test, or a
+      the code the gate, the fuzz-smoke step and `pages.yml`'s build step
+      build and test, or a
       `path` toolchain that `rust-toolchain.toml` names, which run as the
       job. That code can
       write the files the runner reads after a step, even one that failed
@@ -1176,16 +1257,22 @@ network through its tool.
       the job passwordless `sudo` on Linux and macOS, and run it as an
       administrator on Windows (GitHub's docs, "GitHub-hosted runners" →
       "Administrative privileges").
-- **Supply chain of CI itself** (ADR-0022): each workflow uses only the
-  actions its row allows (`ci.yml`: `actions/checkout`, `actions/cache`;
-  `codeql.yml`: `actions/checkout`, `github/codeql-action/init` and
-  `analyze`), each pinned by full commit SHA with its tag in a comment;
-  top-level permissions are `{}` or `contents: read`, and only CodeQL's
-  analysis job may write, to `security-events`; no `pull_request_target`;
-  every checkout sets `persist-credentials: false`. `cargo xtask workflows`
+- **Supply chain of CI itself** (ADR-0022, ADR-0030): each workflow uses
+  only the actions its row allows (`ci.yml`: `actions/checkout`,
+  `actions/cache`; `codeql.yml`: `actions/checkout`,
+  `github/codeql-action/init` and `analyze`; `pages.yml`:
+  `actions/checkout`, `actions/cache`, `actions/upload-pages-artifact` and
+  `actions/deploy-pages`), each pinned by full commit SHA with its tag in
+  a comment; top-level permissions are `{}` or `contents: read`, and only
+  two jobs may write: CodeQL's analysis job, to `security-events`, and
+  `pages.yml`'s deploy job, to `pages` and `id-token`; no
+  `pull_request_target`; every checkout sets `persist-credentials: false`.
+  A job may still be granted a read, such as `pages.yml`'s gate's
+  `actions: read`. `cargo xtask workflows`
   checks this in `ci` ("`workflows`" above). `codeql.yml`'s pins, and how
   they were looked up, are in roadmap M0.8's note; `ci.yml`'s
-  (`actions/checkout`, `actions/cache`) are in M0.4's.
+  (`actions/checkout`, `actions/cache`) are in M0.4's; `pages.yml`'s are
+  in M0.14's.
 - **Code scanning** (`.github/workflows/codeql.yml`, ADR-0022): CodeQL
   scans `rust` and `actions` (the workflows) with `build-mode: none` and the
   `security-extended` queries, on pushes to `main`, on pull requests,
@@ -1223,6 +1310,144 @@ network through its tool.
   pins and tag comments: `github-actions` only, weekly, for releases at
   least 7 days old (`cooldown`), with the week's updates in one pull
   request whose commits start `ci`. It has no `cargo` entry.
+- **Demo page** (`.github/workflows/pages.yml`, ADR-0030, M0.14):
+  publishes <https://jabbott.dev/Tidepool/> through GitHub Pages, whose
+  source must be "GitHub Actions" in the repository's settings. Until the
+  user switches it, Pages' Jekyll build serves the root `README.md` there
+  (`build_type` `legacy`, from `main`, `/`). Nadir's demo page
+  (<https://jabbott.dev/Nadir/>, its ADR-0029) is the model.
+  1. **When.** It runs after CI succeeds on a push to
+     `jabbott-iii/Tidepool`'s `main` (`workflow_run`), or by hand from
+     `main`. A first job, `gate`, which waits for nothing, stops there if
+     `main` has moved past the commit: that commit's own run publishes, so
+     the page never goes back to an older commit. A run by hand also stops
+     there unless CI has a successful run of a push of that commit to
+     `main` (`actions: read`). A run from a fork or a pull request never
+     gets past it. Only then does a run join the queues below, so a run
+     that will not publish never displaces one that will.
+     - The build and the deploy each have a queue of their own: one runs
+       at a time, and one that waits is replaced by the next one let
+       through, a newer commit's. The build checks `main` again when it
+       starts, since it may have waited.
+     - The build and the deploy run only in the attempt whose gate let
+       them through: a re-run of only the failed jobs, which keeps the
+       gate's old answer, skips them. "Re-run all jobs", which asks the
+       gate again, or a run by hand is how to retry. Each attempt uploads
+       an artifact of its own, `github-pages-<attempt>`, since an artifact
+       belongs to the whole run and `actions/deploy-pages` refuses two of
+       one name (Nadir's ADR-0029).
+     - When the newest commit fails CI, the page waits for the next one
+       that passes.
+  2. **The build**, on `ubuntu-latest` with `contents: read` and
+     `CARGO_NET_OFFLINE: "true"`, checks out the commit CI passed, with
+     `persist-credentials: false`, installs the pinned toolchain with
+     rustup, and restores its cache, which only `main`'s runs write: a
+     run on the default branch restores no pull request's cache (GitHub's
+     docs, "Dependency caching"). Then one step, with workflow commands
+     paused (above), reads the checked-out commit's hash (`%H`), committer
+     date (`%cs`) and subject (`%s`) with `git log -1`, and runs `cargo
+     xtask site` with them in `TIDEPOOL_SITE_COMMIT`, `TIDEPOOL_SITE_DATE`
+     and `TIDEPOOL_SITE_SUBJECT`, set for that command alone. They never go
+     through `$GITHUB_ENV` or `$GITHUB_OUTPUT`, where a subject could reach
+     later steps. `actions/upload-pages-artifact` uploads `target/site`.
+  3. **The deploy**, the only job with `pages: write` and `id-token:
+     write`, publishes the artifact with `actions/deploy-pages`. It checks
+     nothing out and runs none of the repository's code.
+
+  **`cargo xtask site [--out DIR]`** builds the page into `target/site`,
+  or `DIR`, made absolute as `--root` is. `DIR` must be new, empty, or
+  made by an earlier run, which leaves the mark `.tidepool-site`, and a
+  run removes only what an earlier one wrote (Nadir's `MARK` and
+  `WRITTEN`), so `--out` can never empty a directory of anything else.
+  `site` writes only files there, so a directory (not a link) at one of
+  those names is not its own: `site` fails, naming it, before anything
+  runs, and removes nothing. A link there is removed as a link, never
+  followed. It runs no program but `cargo` and makes no network calls;
+  the page loads jabbott.dev's files when it is viewed. In order:
+  1. It checks `docs/features.jsonc` as `features` does ("`features`"
+     above).
+  2. It runs the gate in-process: the steps of `ci`, in its order, with
+     the same rules and output. It records each step's verdict and time,
+     and the tests passed, failed and ignored, summed from libtest's `test
+     result:` lines, and the `SKIPPED:` lines, counted as `ci` counts
+     them. It keeps no other line of the output.
+  3. It runs each example the page shows, `cargo run --quiet -p <package>
+     --example <name>` (a cargo child as above), and keeps its standard
+     output: `tidepool-codec`'s `formats`
+     (`crates/codec/examples/formats.rs`) and `tidepool-text`'s `editing`
+     (`crates/text/examples/editing.rs`). An example runs on fixed inputs
+     written in its source and prints only what follows from them, never
+     the time, an absolute path or anything else of the machine or the
+     environment, so its tab says the same wherever the page is built. An exit
+     status other than 0, or output that is not UTF-8, fails the build.
+  4. It fills `site/index.html` and `site/llms.txt`, whose placeholders
+     are names in double braces, each defined in the comment at the top of
+     `site/index.html`, and copies `site/tidepool.css` and
+     `site/tidepool.js` beside them. Every value filled into the HTML is
+     escaped for HTML; into `llms.txt`, its control characters are escaped
+     as `xtask`'s messages escape them ("Control characters in output",
+     above).
+
+  If any of these fails, `site` fails and writes nothing, so the page
+  from an earlier run stays as it was.
+
+  **The commit's facts.** `xtask` starts only `cargo` (ADR-0017), so the
+  workflow reads them with `git` and passes them in:
+
+  | Variable | Holds | Valid |
+  | :- | :- | :- |
+  | `TIDEPOOL_SITE_COMMIT` | The commit's hash | 40 lowercase hex digits |
+  | `TIDEPOOL_SITE_DATE` | Its committer date | `YYYY-MM-DD` |
+  | `TIDEPOOL_SITE_SUBJECT` | Its subject line | One line, at most 200 characters once trimmed, no control characters (nor line or paragraph separators or bidirectional controls) |
+
+  All three are set, or none is. One or two, or a value that is not
+  valid, fails `site`, naming the variable and never showing the value
+  unescaped. With none, a local build, `site` reads HEAD's hash from
+  `.git` itself: `.git/HEAD`, then the loose ref it names or the ref's
+  line in `packed-refs`, without following a link and without running
+  `git`. The page then shows the hash, no date and no subject. The gate,
+  the examples, the features and the counts are the working tree's, which
+  may hold changes HEAD does not, so where a published page gives the
+  subject, a local one says "A local build of the working tree at HEAD; it
+  may hold changes HEAD does not.", and `llms.txt` says the same. It names
+  who ran the gate and the examples as "a local build of the working
+  tree", and marks the features from the ticks "at this build", not at the
+  hash. Where HEAD cannot be read that way, as in a linked worktree, whose
+  `.git` is a file, the page names the commit unknown and says "A local
+  build of the working tree; its HEAD could not be read from `.git`.",
+  and `site` prints why (ADR-0030). A blank subject, as `git commit
+  --allow-empty-message` makes, is shown as "a commit with no subject".
+
+  **The page.** Its main panel has three tabs: the gate (each step, its
+  verdict and time, and the counts, the skips apart from the passes; a
+  line saying where and by whom it ran, from `{{platform}}` and
+  `{{runner}}`, which in a published page name the Pages job's Linux
+  runner; and the caption's own sentence that the page is published only
+  from a commit of `main` that passed CI on Linux, macOS and Windows), and
+  what each example printed. Below them are the features from `docs/features.jsonc`, each marked
+  shipped, in progress or planned by the roadmap's ticks. `site/llms.txt`
+  says the same in plain text for language models, served as it is. The
+  page loads jabbott.dev's own stylesheet
+  (`https://jabbott.dev/assets/css/style.css`) and script
+  (`https://jabbott.dev/assets/js/site.js`) and Google Fonts as that site
+  does, and its header and footer repeat that site's, so a change to that
+  site's markup may need `site/index.html` to follow. `site/tidepool.css`
+  adds the page's own components with that site's tokens, and
+  `site/tidepool.js` its own behaviour, such as the tabs. jabbott.dev's
+  Deployments menu finds the page from GitHub by itself.
+
+  **What it publishes.** Everything on the page is public. The gate's tab
+  holds no line that cargo or a test printed, so a path, a user name or a
+  value printed during the gate is never published, and the examples
+  print only what their fixed inputs give. The subject is the one text
+  from outside the code: checked, then escaped. Visitors' browsers fetch
+  jabbott.dev's stylesheet and script and Google's fonts, with no
+  integrity hashes, since the page follows the live files.
+
+  Not covered: `cargo test` builds the examples but does not run them, so
+  one that fails when run fails only the Pages build, after CI passed;
+  and the build runs the gate a second time, on one OS, so the page shows
+  that run's times and counts, not CI's.
 - Goldens run on Linux CI only until M11/M12 add per-OS references for
   platform-specific scenes (the CPU rasterizer is deterministic, so shared
   scenes share references).

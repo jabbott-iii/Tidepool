@@ -36,7 +36,7 @@ Closes #
 you could not run, and why: a check that needs macOS or Windows, a real
 tool (rust-analyzer, the Android SDK, Xcode), or a display, for example. -->
 
-- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, layers, crates, unsafe-audit, headers, workflows, ucd)
+- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, layers, crates, features, unsafe-audit, headers, workflows, ucd)
 - [ ] `cargo xtask fuzz-smoke --target <target>`, for a parser change (from M1.6)
 - [ ] `cargo xtask golden`, for a change to what `gfx`, `font`, `ui`, `gui` or `tui` draw (from M2.4)
 - [ ] `cargo xtask bench <filter>`, for performance work (paste the numbers before and after; from M1.9)
@@ -67,7 +67,7 @@ paste output here
 - [ ] No `unwrap()` in library code, every `pub` item is documented, and no lint is weakened.
 - [ ] Tests cover the change. No test is deleted or ignored, no tolerance is raised and no golden image is re-blessed to make a check pass, unless the summary says why.
 - [ ] A change to a format Tidepool writes bumps its version, with a migration or a clear error for old files, and a fixture test.
-- [ ] Docs are updated where behavior or design changed: the subsystem spec, the crate's `README.md`, an ADR in `docs/decisions.md`, and for a roadmap task its tick.
+- [ ] Docs are updated where behavior or design changed: the subsystem spec, the crate's `README.md`, an ADR in `docs/decisions.md`, and for a roadmap task its tick and its feature in `docs/features.jsonc`.
 - [ ] New source files start with the license header (ADR-0021).
 - [ ] No secrets, keys, keystores, signing material, tokens or build output (`target/`) are included.
 - [ ] If a coding agent wrote part of this change, I have reviewed all of it, and the agent followed `AGENTS.md`.

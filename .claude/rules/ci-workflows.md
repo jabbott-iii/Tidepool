@@ -9,7 +9,9 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
 
 - **Allowed actions only.** `ci.yml` may use `actions/checkout` and
   `actions/cache`; `codeql.yml` may use `actions/checkout` and
-  `github/codeql-action/init` and `analyze`. Another action, or a new
+  `github/codeql-action/init` and `analyze`; `pages.yml` may use
+  `actions/checkout`, `actions/cache`, `actions/upload-pages-artifact` and
+  `actions/deploy-pages` (ADR-0030). Another action, or a new
   workflow, needs ADR-0022's table extended first (and its row in
   `WORKFLOWS`, `xtask/src/workflows.rs`): ask the user.
 - **Pin by commit SHA.** Every `uses:` names a full 40-hex commit SHA, with
@@ -20,7 +22,8 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
   it up in this session, write `# TODO(pin): <action>@<tag>` and say so.
 - **Least privilege.** Top-level `permissions:` is `{}` or
   `contents: read`. A job gets `write` only where ADR-0022's table says
-  (today, CodeQL's analysis job: `security-events`).
+  (today, CodeQL's analysis job: `security-events`; `pages.yml`'s deploy
+  job: `pages` and `id-token`, ADR-0030).
 - **Never** `pull_request_target`, and every `actions/checkout` sets
   `persist-credentials: false`.
 - **No untrusted input in scripts.** Never expand `${{ github.event.* }}`,
@@ -28,12 +31,17 @@ Read `docs/04-quality.md` → "CI" and ADR-0022 first.
   through `env:` and quote it.
 - **Commands stay paused.** Every `run:` step that reads or prints
   anything from the checkout (files, history, names) or runs the
-  repository's code (today the toolchain step and the gate's) runs its
+  repository's code (today `ci.yml`'s toolchain, gate and fuzz-smoke
+  steps, and `pages.yml`'s toolchain and build steps) runs its
   commands between `::stop-commands::<token>` and `::<token>::`, after
   `exec 2>&1` (`docs/04-quality.md` → "CI"). The step makes the token
   fresh, in a variable it unsets first and never exports, and fails
   before running anything unless it is 32 lowercase hex digits. Keep that
   when editing those steps, and do the same in a new one.
+- **Checkout values go to one command.** A value read from the
+  repository, such as `pages.yml`'s commit subject from `git log`, is set
+  inline for the one command that needs it, never written to
+  `$GITHUB_ENV` or `$GITHUB_OUTPUT`.
 - **One key a line.** `cargo xtask workflows` reads lines, not
   YAML, so it fails what it cannot read that way: a flow mapping other
   than `{}`, a quoted value or flow collection over several lines, an

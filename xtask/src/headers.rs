@@ -16,19 +16,25 @@
 //! header of `LICENSE`'s appendix, in its comment syntax (ADR-0021).
 //!
 //! Ported from nadir xtask `headers.rs`. Adapted for Tidepool: the kinds of
-//! source Tidepool has (Rust, shell scripts and workflows), files exempt by
-//! path, the walk that `deps` and `unsafe-audit` share ([`walk::scan`]),
-//! symbolic links reported instead of skipped, a size bound, and a
-//! leading byte-order mark skipped.
+//! source Tidepool has (Rust, shell scripts, workflows, and the demo page's
+//! HTML, CSS and JavaScript, ADR-0030), files exempt by path, the walk that
+//! `deps` and `unsafe-audit` share ([`walk::scan`]), symbolic links
+//! reported instead of skipped, a size bound, and a leading byte-order mark
+//! skipped.
 //!
 //! The check is specified in `docs/04-quality.md` → "`headers`". A source
-//! file ([`kind`]) is a Rust file (`.rs`), a shell script (`.sh`) or a
+//! file ([`kind`]) is a Rust file (`.rs`), a shell script (`.sh`), a
 //! workflow (`.yml` or `.yaml` directly in `.github/workflows/`, where
-//! GitHub reads them), with the extension in any case. Its header is
-//! [`HEADER`], `// ` or `# ` before each line (`//` or `#` alone on an
-//! empty one), then a blank line unless the file ends there. It starts on
-//! line 1, or in a shell script on line 2 after a `#!` line. A violation is
-//! reported for each of these:
+//! GitHub reads them), an HTML file (`.html`), a stylesheet (`.css`) or a
+//! script (`.js`), with the extension in any case. Its header is
+//! [`HEADER`], then a blank line unless the file ends there: `// ` or `# `
+//! before each line (`//` or `#` alone on an empty one), or, in CSS and
+//! HTML, one `/* */` or `<!-- -->` comment whose opening and closing are on
+//! lines of their own and whose lines are indented by two spaces (an empty
+//! one left empty), as Nadir's are. It starts on line 1, or on line 2 after
+//! a shell script's `#!` line or an HTML file's `<!doctype …>` line, if the
+//! file has one. `site/llms.txt`, the page as plain text, is not source and
+//! carries none. A violation is reported for each of these:
 //!
 //! - **A header missing, altered or out of place**: the first line that
 //!   differs, with what it should be and which line of the appendix that
@@ -81,6 +87,10 @@ enum Style {
     Slashes,
     /// `#` before each line.
     Hash,
+    /// One `/* */` comment, its lines indented by two spaces.
+    Block,
+    /// One `<!-- -->` comment, its lines indented by two spaces.
+    Markup,
 }
 
 /// What may come before the header, on line 1.
@@ -90,6 +100,8 @@ enum First {
     Nothing,
     /// A `#!` line, if the file has one.
     Shebang,
+    /// An HTML doctype, if the file has one.
+    Doctype,
 }
 
 /// Runs the check on the source files under `root`.
@@ -163,7 +175,7 @@ fn check_tree(root: &Path, limit: u64) -> Result<Report, Error> {
 /// which sees only the name. [`kind`] decides from the whole path.
 fn is_source_name(name: &str) -> bool {
     extension(name).is_some_and(|extension| {
-        ["rs", "sh", "yml", "yaml"]
+        ["rs", "sh", "yml", "yaml", "html", "css", "js"]
             .iter()
             .any(|known| extension.eq_ignore_ascii_case(known))
     })
@@ -183,8 +195,10 @@ fn kind(path: &str) -> Option<(Style, First)> {
     let name = path.rsplit('/').next().unwrap_or(path);
     let extension = extension(name)?.to_ascii_lowercase();
     match extension.as_str() {
-        "rs" => Some((Style::Slashes, First::Nothing)),
+        "rs" | "js" => Some((Style::Slashes, First::Nothing)),
         "sh" => Some((Style::Hash, First::Shebang)),
+        "css" => Some((Style::Block, First::Nothing)),
+        "html" => Some((Style::Markup, First::Doctype)),
         "yml" | "yaml"
             if path
                 .strip_prefix(".github/workflows/")
@@ -198,20 +212,36 @@ fn kind(path: &str) -> Option<(Style, First)> {
 
 /// The header's lines as `style` writes them.
 fn header(style: Style) -> Vec<String> {
-    let prefix = match style {
-        Style::Slashes => "//",
-        Style::Hash => "#",
+    let prefixed = |prefix: &str| -> Vec<String> {
+        HEADER
+            .iter()
+            .map(|line| {
+                if line.is_empty() {
+                    prefix.to_string()
+                } else {
+                    format!("{prefix} {line}")
+                }
+            })
+            .collect()
     };
-    HEADER
-        .iter()
-        .map(|line| {
+    let enclosed = |open: &str, close: &str| -> Vec<String> {
+        let mut lines = vec![open.to_string()];
+        lines.extend(HEADER.iter().map(|line| {
             if line.is_empty() {
-                prefix.to_string()
+                String::new()
             } else {
-                format!("{prefix} {line}")
+                format!("  {line}")
             }
-        })
-        .collect()
+        }));
+        lines.push(close.to_string());
+        lines
+    };
+    match style {
+        Style::Slashes => prefixed("//"),
+        Style::Hash => prefixed("#"),
+        Style::Block => enclosed("/*", "*/"),
+        Style::Markup => enclosed("<!--", "-->"),
+    }
 }
 
 /// Where `text`'s header is wrong, as `line: what`, or `None` if it is
@@ -221,24 +251,30 @@ fn problem(text: &str, style: Style, first: First) -> Option<String> {
     // and rustc skips, as `deps` does for the files it reads: it would
     // otherwise fail line 1 with nothing visible to show for it.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    // The `#!` line, the header and the blank line after it are all it
-    // reads, whatever the length of the file.
-    let lines: Vec<&str> = text.lines().take(HEADER.len() + 2).collect();
+    let expected = header(style);
+    // The `#!` or doctype line, the header and the blank line after it are
+    // all it reads, whatever the length of the file.
+    let lines: Vec<&str> = text.lines().take(expected.len() + 2).collect();
     let line_1 = lines.first().copied().unwrap_or_default();
     let start = match first {
         First::Nothing => 0,
         First::Shebang => usize::from(line_1.starts_with("#!")),
+        First::Doctype => usize::from(line_1.to_ascii_lowercase().starts_with("<!doctype")),
     };
-    let expected = header(style);
+    // CSS and HTML open and close their comment on lines of their own.
+    let opening = usize::from(matches!(style, Style::Block | Style::Markup));
     for (index, wanted) in expected.iter().enumerate() {
         let line = start + index;
         if lines.get(line) != Some(&wanted.as_str()) {
-            return Some(format!(
-                "{}: expected `{wanted}`, line {} of the Apache-2.0 header in `LICENSE`'s \
-                 appendix",
-                line + 1,
-                index + 1
-            ));
+            let which = match index.checked_sub(opening) {
+                None => "the comment that holds the Apache-2.0 header".to_string(),
+                Some(appendix) if appendix < HEADER.len() => format!(
+                    "line {} of the Apache-2.0 header in `LICENSE`'s appendix",
+                    appendix + 1
+                ),
+                Some(_) => "the end of the comment that holds the Apache-2.0 header".to_string(),
+            };
+            return Some(format!("{}: expected `{wanted}`, {which}", line + 1));
         }
     }
     let after = start + expected.len();
@@ -300,6 +336,10 @@ mod tests {
                 Some((Style::Slashes, First::Nothing)),
             ),
             ("xtask/src/main.RS", Some((Style::Slashes, First::Nothing))),
+            ("site/tidepool.js", Some((Style::Slashes, First::Nothing))),
+            ("site/tidepool.css", Some((Style::Block, First::Nothing))),
+            ("site/index.html", Some((Style::Markup, First::Doctype))),
+            ("site/PAGE.HTML", Some((Style::Markup, First::Doctype))),
             ("scripts/check-deps.sh", Some((Style::Hash, First::Shebang))),
             (
                 ".claude/hooks/deps-guard.sh",
@@ -328,6 +368,11 @@ mod tests {
             ("crates/codec/tests/json/settings.jsonc", None),
             ("crates/text/ucd/17.0.0/GraphemeBreakTest.txt", None),
             ("tests/sample.rs.txt", None),
+            // The page as plain text, served as it is, and the features.
+            ("site/llms.txt", None),
+            ("docs/features.jsonc", None),
+            ("site/index.htm", None),
+            ("site/tidepool.mjs", None),
             ("LICENSE", None),
             ("NOTICE", None),
             (".gitignore", None),
@@ -357,6 +402,20 @@ mod tests {
             "#     http://www.apache.org/licenses/LICENSE-2.0"
         );
         assert_eq!(header(Style::Hash).len(), HEADER.len());
+        let block = header(Style::Block);
+        assert_eq!(
+            [block[0].as_str(), block[1].as_str(), block[2].as_str()],
+            ["/*", "  Copyright 2026 Joseph Anthony Abbott III", ""]
+        );
+        assert_eq!(block.last().map(String::as_str), Some("*/"));
+        let markup = header(Style::Markup);
+        assert_eq!(markup.first().map(String::as_str), Some("<!--"));
+        assert_eq!(
+            markup[7].as_str(),
+            "      http://www.apache.org/licenses/LICENSE-2.0"
+        );
+        assert_eq!(markup.last().map(String::as_str), Some("-->"));
+        assert_eq!(markup.len(), HEADER.len() + 2);
     }
 
     #[test]
@@ -366,6 +425,10 @@ mod tests {
             (Style::Hash, First::Shebang, Some("#!/bin/sh")),
             (Style::Hash, First::Shebang, None),
             (Style::Hash, First::Nothing, None),
+            (Style::Block, First::Nothing, None),
+            (Style::Markup, First::Doctype, Some("<!doctype html>")),
+            (Style::Markup, First::Doctype, Some("<!DOCTYPE html>")),
+            (Style::Markup, First::Doctype, None),
         ] {
             let text = with_header(style, line_1, "rest");
             assert_eq!(problem(&text, style, first), None, "{text}");
@@ -410,6 +473,28 @@ mod tests {
         assert!(
             problem("#!/bin/sh\necho\n", Style::Hash, First::Shebang)
                 .is_some_and(|problem| problem.starts_with("2: expected `# Copyright"))
+        );
+        // After the doctype, a page needs the comment.
+        assert_eq!(
+            problem("<!doctype html>\n<html>\n", Style::Markup, First::Doctype).as_deref(),
+            Some("2: expected `<!--`, the comment that holds the Apache-2.0 header")
+        );
+        assert_eq!(
+            problem("body { margin: 0; }\n", Style::Block, First::Nothing).as_deref(),
+            Some("1: expected `/*`, the comment that holds the Apache-2.0 header")
+        );
+        assert!(
+            problem("'use strict';\n", Style::Slashes, First::Nothing)
+                .is_some_and(|problem| problem.starts_with("1: expected `// Copyright"))
+        );
+        // A stylesheet has no doctype: one there is not skipped.
+        let css = format!(
+            "<!doctype html>\n{}",
+            with_header(Style::Block, None, "a {}")
+        );
+        assert!(
+            problem(&css, Style::Block, First::Nothing)
+                .is_some_and(|problem| problem.starts_with("1: expected `/*`"))
         );
         // A Rust file's `#!` is not a script's: `#![...]` is an attribute.
         let attribute = format!("#![allow(x)]\n{}", with_header(Style::Slashes, None, ""));
@@ -462,6 +547,34 @@ mod tests {
             problem(&script, Style::Hash, First::Shebang).as_deref(),
             Some("15: expected a blank line after the Apache-2.0 header")
         );
+        // In CSS and HTML, the appendix's lines are counted inside the
+        // comment, and its end is a line of its own.
+        let css = with_header(Style::Block, None, "body {}").replace("2026", "2027");
+        assert_eq!(
+            problem(&css, Style::Block, First::Nothing).as_deref(),
+            Some(
+                "2: expected `  Copyright 2026 Joseph Anthony Abbott III`, line 1 of the \
+                 Apache-2.0 header in `LICENSE`'s appendix"
+            )
+        );
+        let unclosed =
+            with_header(Style::Markup, Some("<!doctype html>"), "<html>").replace("-->\n", "");
+        assert_eq!(
+            problem(&unclosed, Style::Markup, First::Doctype).as_deref(),
+            Some("16: expected `-->`, the end of the comment that holds the Apache-2.0 header")
+        );
+        let page = format!(
+            "<!doctype html>\n{}\n<html>\n",
+            header(Style::Markup).join("\n")
+        );
+        assert_eq!(
+            problem(&page, Style::Markup, First::Doctype).as_deref(),
+            Some("17: expected a blank line after the Apache-2.0 header")
+        );
+        // The comment's lines are indented by two spaces, not a tab.
+        let tabbed =
+            with_header(Style::Block, None, "a {}").replacen("  Copyright", "\tCopyright", 1);
+        assert!(problem(&tabbed, Style::Block, First::Nothing).is_some());
     }
 
     #[test]
@@ -484,6 +597,21 @@ mod tests {
         tree.write(".github/workflows/lint.yaml", &good_hash);
         tree.write(".github/workflows/data/matrix.yml", "os: [linux]\n");
         tree.write(".github/dependabot.yml", "version: 2\n");
+        // The demo page's files: the template after its doctype, the
+        // stylesheet and the script with theirs, and plain text without.
+        tree.write(
+            "site/index.html",
+            with_header(Style::Markup, Some("<!doctype html>"), "<html></html>\n"),
+        );
+        tree.write("site/page.css", with_header(Style::Block, None, "a {}\n"));
+        tree.write(
+            "site/page.js",
+            with_header(Style::Slashes, None, "'use strict';\n"),
+        );
+        tree.write("site/llms.txt", "# Tidepool\n");
+        tree.write("site/bad.html", "<!doctype html>\n<html></html>\n");
+        tree.write("site/bad.css", "a {}\n");
+        tree.write("site/bad.js", "'use strict';\n");
         // Hidden directories are searched; the root's `.git` is not.
         tree.write(".claude/hooks/hook.sh", "#!/bin/sh\necho\n");
         tree.write(".git/hooks/pre-commit.sh", "echo\n");
@@ -504,6 +632,10 @@ mod tests {
                  III`, line 1 of the Apache-2.0 header in `LICENSE`'s appendix",
                 ".github/workflows/codeql.yml:1: expected `# Copyright 2026 Joseph Anthony \
                  Abbott III`, line 1 of the Apache-2.0 header in `LICENSE`'s appendix",
+                "site/bad.css:1: expected `/*`, the comment that holds the Apache-2.0 header",
+                "site/bad.html:2: expected `<!--`, the comment that holds the Apache-2.0 header",
+                "site/bad.js:1: expected `// Copyright 2026 Joseph Anthony Abbott III`, line 1 \
+                 of the Apache-2.0 header in `LICENSE`'s appendix",
                 "src/LOUD.RS:1: expected `// Copyright 2026 Joseph Anthony Abbott III`, line 1 \
                  of the Apache-2.0 header in `LICENSE`'s appendix",
                 "src/bad.rs:1: expected `// Copyright 2026 Joseph Anthony Abbott III`, line 1 of \
@@ -516,7 +648,7 @@ mod tests {
         assert_eq!(
             report.notes,
             [
-                "source files checked: 8".to_string(),
+                "source files checked: 14".to_string(),
                 format!(
                     "exempt by path: {}, generated from the Unicode data, and keeps its notice \
                      (ADR-0018)",

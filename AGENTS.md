@@ -70,6 +70,7 @@ or file is there.
 | `.github/` (workflows, Dependabot, templates) | `docs/04-quality.md` ("CI"), ADR-0022 |
 | A crate's `README.md` | ADR-0023, ADR-0028 |
 | `diagrams/` | `diagrams/README.md`, ADR-0029 |
+| The demo page: `site/`, `docs/features.jsonc`, `.github/workflows/pages.yml` | `docs/04-quality.md` ("Demo page"), ADR-0030 |
 | `CONTRIBUTING.md`, `SECURITY.md` | This file; they summarize it for people |
 | Packaging Tidepool itself | `docs/05-release.md` |
 | `docs/roadmap.md` | Its "How to use this file", ADR-0024 |
@@ -155,7 +156,7 @@ or file is there.
 | `crates/tui` | `tidepool-tui` | Terminal frontend | deny |
 | `crates/app` | `tidepool` | The binary: main loop, wiring, startup, crash handling | deny |
 | `crates/testkit` | `tidepool-testkit` | Fake LSP server, fake tools, transcripts (dev-only) | deny |
-| `xtask` | `xtask` | CI checks, Unicode tables, fuzz smoke; later goldens, theme contrast, packaging | deny |
+| `xtask` | `xtask` | CI checks, Unicode tables, fuzz smoke, the demo page's build; later goldens, theme contrast, packaging | deny |
 | `bench` | `tidepool-bench` | Own benchmark harness and suites | deny |
 | `agents/` | (separate workspace, from M9.2) | Reference language agents: mock, local, Claude | deny |
 
@@ -165,10 +166,11 @@ These exist now:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
-| `cargo xtask deps` / `layers` / `crates` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028) |
+| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
+| `cargo xtask deps` / `layers` / `crates` / `features` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028); `features` checks that every ticked roadmap task belongs to a feature in `docs/features.jsonc`, and that each feature's `ticked` is what the roadmap ticks (ADR-0030) |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | Runs each fuzz target (or `T`) with mutated inputs for `N` seconds, 60 by default; fails on a panic, a hang, over-allocation or a process that died, and prints the replay command for a death (ADR-0027, `docs/04-quality.md` → "Fuzz smoke") |
+| `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`, or a new, empty or earlier `DIR`: runs the gate and the `tidepool-codec` and `tidepool-text` examples, and fills `site/`, starting only `cargo` and with no network. `pages.yml` publishes it at https://jabbott.dev/Tidepool/ after CI passes on `main` (ADR-0030) |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
 | `cargo tp` | Builds and runs the `tidepool` binary, which does nothing until M2.6 |
@@ -209,10 +211,10 @@ secrets or opens a socket (`docs/04-quality.md`).
 - **UI:** widgets use theme tokens, never literal colors; chrome labels are
   uppercase, user content never is.
 - **Docs:** every `pub` item has a doc comment.
-- **License header:** every source file (Rust, shell scripts, workflows)
-  starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its
-  comment syntax, then a blank line; after a `#!` line in a script
-  (ADR-0021). `cargo xtask headers` checks it, and lists the file it
+- **License header:** every source file (Rust, shell scripts, workflows,
+  and the demo page's HTML, CSS and JavaScript) starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its
+  comment syntax, then a blank line; after a `#!` line in a script, and
+  after the doctype in an HTML file (ADR-0021, ADR-0030). `cargo xtask headers` checks it, and lists the file it
   exempts by path: the generated grapheme tables, which keep the Unicode
   data's notice instead. The root `NOTICE` holds the project's name and
   copyright line.
@@ -240,7 +242,10 @@ secrets or opens a socket (`docs/04-quality.md`).
 4. Docs are updated where behavior or design changed: the subsystem spec,
    the crate's `README.md` status, the diagrams that draw it (`diagrams/`,
    ADR-0029), and this file for a new command, crate or rule. If a decision changed, add an ADR in `docs/decisions.md`
-   (`/record-decision`).
+   (`/record-decision`). A ticked task belongs to a feature in
+   `docs/features.jsonc`, which the demo page lists: add it to one, or
+   describe a new one, rewrite that feature's summary for what is built
+   now, and update its `ticked` (`cargo xtask features` checks).
 5. The final message summarizes:
    - changes and files affected
    - validation performed

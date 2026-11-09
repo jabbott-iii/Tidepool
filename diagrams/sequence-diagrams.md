@@ -7,7 +7,7 @@ saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
 the flows the specs plan, from startup to signing an Android package; none
 of their code exists yet.
 
-Drawn from the code and docs as of roadmap task M0.13 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -36,7 +36,7 @@ for one picture is drawn in numbered parts, read in order.
 
 ## 1. `cargo xtask ci`
 
-`run_ci` runs its ten steps in order and keeps going after a failure, so
+`run_ci` runs its eleven steps in order and keeps going after a failure, so
 one run reports every problem. `deps` is the gate: when it fails, `clippy`
 and `test`, which compile the workspace and run its code, are not run, and
 the summary lists them as "not run" (`xtask/src/check.rs`). `deps`,
@@ -49,7 +49,11 @@ with `# <package name>`, has its sections (Status, Usage, an optional
 Features, Documentation, Rules, Checks, License) once each and in that
 order, and names only task IDs that `docs/roadmap.md` has. It also checks
 that each member's copies of `LICENSE` and `NOTICE` are, byte for byte,
-the root's (`xtask/src/crates.rs`).
+the root's (`xtask/src/crates.rs`). `features` checks that every ticked
+task belongs to a feature in `docs/features.jsonc`, and that each
+feature's `ticked` is what the roadmap ticks (`xtask/src/features.rs`).
+`cargo xtask site` runs the same steps through the same runner,
+`run_gate` (ADR-0030).
 
 ```mermaid
 sequenceDiagram
@@ -88,6 +92,7 @@ sequenceDiagram
     Ci->>Own: crates::run: manifests,<br/>READMEs and LICENSE<br/>and NOTICE copies,<br/>the task IDs of<br/>docs/roadmap.md
     Own->>Cargo: cargo metadata --no-deps,<br/>the root workspace
     Cargo-->>Own: the members and<br/>their manifests
+    Ci->>Own: features::run: docs/features.jsonc<br/>against the task lines<br/>of docs/roadmap.md
     Ci->>Own: unsafe_audit::run:<br/>every .rs file<br/>and Cargo.toml
     Own->>Cargo: cargo metadata --no-deps,<br/>for each workspace
     Cargo-->>Own: each member's<br/>crate roots
@@ -101,9 +106,9 @@ sequenceDiagram
     Cli-->>Dev: exit status 0 if<br/>every step passed,<br/>1 if one failed<br/>or did not run
 ```
 
-A run that passes ends with `ci: ok: 10 of 10 steps passed; not yet
+A run that passes ends with `ci: ok: 11 of 11 steps passed; not yet
 implemented: tools, theme`; one whose gate failed, with `ci: FAILED: 1 of
-10 steps failed: deps; not run: clippy, test; not yet implemented: tools,
+11 steps failed: deps; not run: clippy, test; not yet implemented: tools,
 theme`.
 
 ## 2. `cargo xtask fuzz-smoke`: `xtask` and its children

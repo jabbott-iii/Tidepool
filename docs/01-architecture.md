@@ -109,12 +109,13 @@ policy approves it.
 ├── tests/golden/             # golden frames (.qoi) and TUI cell snapshots (.txt)
 ├── fuzz/corpus/              # seed inputs per parser
 ├── diagrams/                 # C4, UML class, component and sequence, data-flow and state diagrams (Mermaid, ADR-0029)
+├── site/                     # the demo page's template, stylesheet, script and llms.txt; cargo xtask site fills them (ADR-0030, M0.14)
 ├── scripts/check-deps.sh     # the hook's fallback dependency check when xtask cannot be built
 ├── .claude/                  # Claude Code settings, hook, subagents, path-scoped rules, skills
-├── .github/                  # CI and CodeQL workflows, Dependabot, PR template, issue form
+├── .github/                  # CI, CodeQL and Pages (M0.14) workflows, Dependabot, PR template, issue form
 ├── AGENTS.md, CLAUDE.md      # rules for coding agents; Claude Code specifics
 ├── CONTRIBUTING.md, SECURITY.md
-└── docs/
+└── docs/                     # the specs, ADRs, roadmap, and features.jsonc, which the demo page lists (M0.14)
 ```
 
 `.cargo/config.toml`:

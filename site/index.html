@@ -1,0 +1,427 @@
+<!doctype html>
+<!--
+  Copyright 2026 Joseph Anthony Abbott III
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<!--
+  The demo page's template (ADR-0030). `cargo xtask site` fills each
+  placeholder in double braces, escaped for HTML unless it says otherwise,
+  and writes the page into target/site beside tidepool.css, tidepool.js
+  and llms.txt. The header, footer and head metadata repeat jabbott.dev's,
+  whose stylesheet and script the page loads: keep them in step with that
+  site's. The two diagrams are drawn by hand in SVG after
+  diagrams/c4-architecture.md (sections 1.1 to 1.3, and section 2 with
+  docs/01-architecture.md's layers), and their solid and dashed parts are
+  status: a task that builds what they draw as planned changes them too.
+
+  Placeholders:
+  - commit, commit_short, commit_url: the commit (40 hex digits), its first
+    7, and its page on GitHub. repository_url: the repository on GitHub.
+  - build_kind: "Live build" when the workflow gave the commit's facts,
+    "Local build" otherwise. runner: who ran the gate and the examples,
+    "the job that published this page" or "a local build of the working tree".
+    platform: the OS and architecture they ran on, as "Linux x86_64".
+  - commit_date: the commit's date, YYYY-MM-DD, or "Not given" in a local
+    build. latest_change: HTML, a paragraph with the commit's subject, or
+    one that says a local build has none.
+  - toolchain: the pinned Rust, from rust-toolchain.toml. crates: the
+    workspace's members. third_party: "None", or the count of packages from
+    outside the workspace. tasks_done, tasks_total: the roadmap's ticked
+    and all tasks. milestones: HTML, an <li class="tp-milestone"> a
+    milestone, as in tidepool.css.
+  - gate_summary: the lines `cargo xtask ci` printed from "== summary" on.
+    gate_steps: "11 of 11". gate_tests: the tests that passed. gate_skipped:
+    the tests that printed SKIPPED. gate_time: how long the gate took.
+  - formats_output, editing_output: what the two examples printed.
+  - feature_filters, features: HTML, the filter chips and the feature
+    cards, as in tidepool.css. features_lede: a sentence on the features.
+  - structured_data: JSON-LD, escaped so that it cannot end its script.
+  - year: the commit's year, or the build's in a local build.
+
+  site/llms.txt, the page as plain text for language models, takes the
+  same names unescaped, with features and milestones as Markdown lists,
+  and two of its own: build_line, the roadmap's count and the commit with
+  its date and subject (or that it is a local build), and gate_line, the
+  gate's steps, tests, skipped tests and time, and the platform.
+-->
+<html lang="en-US" data-site-url="https://jabbott.dev" data-github="jabbott-iii">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0c0d">
+<script>document.documentElement.classList.add('js')</script>
+<title>Tidepool IDE demo | Joseph Abbott III</title>
+<meta name="description" content="Tidepool, a zero-dependency IDE written in Rust with no third-party crates: its gate and its libraries run on each commit, its architecture, and every feature with how far it has come.">
+<meta name="author" content="Joseph Abbott III">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<link rel="canonical" href="https://jabbott.dev/Tidepool/">
+<link rel="author" href="https://jabbott.dev/resume/">
+<link rel="me" href="https://github.com/jabbott-iii">
+<link rel="me" href="https://www.linkedin.com/in/josephabbottiii/">
+<link rel="me" href="https://x.com/jabbottiii">
+<meta property="og:site_name" content="Joseph Abbott III">
+<meta property="og:locale" content="en_US">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Tidepool IDE demo">
+<meta property="og:description" content="Tidepool, a zero-dependency IDE written in Rust with no third-party crates: its gate and its libraries run on each commit, its architecture, and every feature with how far it has come.">
+<meta property="og:url" content="https://jabbott.dev/Tidepool/">
+<meta property="og:image" content="https://avatars.githubusercontent.com/u/84321953?v=4">
+<meta property="og:image:alt" content="Joseph Abbott III">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@jabbottiii">
+<meta name="twitter:creator" content="@jabbottiii">
+<meta name="twitter:title" content="Tidepool IDE demo">
+<meta name="twitter:description" content="Tidepool, a zero-dependency IDE written in Rust with no third-party crates: its gate and its libraries run on each commit, its architecture, and every feature with how far it has come.">
+<meta name="twitter:image" content="https://avatars.githubusercontent.com/u/84321953?v=4">
+<script type="application/ld+json">
+{{structured_data}}
+</script>
+<link rel="icon" href="https://jabbott.dev/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&amp;family=Saira:wght@300;400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="https://jabbott.dev/assets/css/style.css">
+<link rel="stylesheet" href="tidepool.css?v={{commit_short}}">
+<script src="https://jabbott.dev/assets/js/site.js" defer></script>
+<script src="tidepool.js?v={{commit_short}}" defer></script>
+</head>
+<body class="page--default">
+<div class="space" aria-hidden="true">
+  <div class="space__planet"></div>
+  <div class="space__stars"></div>
+  <div class="space__stars space__stars--far"></div>
+  <div class="space__grid"></div>
+</div>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="brand" href="https://jabbott.dev/" aria-label="Joseph Abbott III, home">
+      <svg class="brand__mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><path d="M32 4 56 18v28L32 60 8 46V18Z" fill="none" stroke="currentColor" stroke-width="2.5" class="mark__hex"/><path d="M32 12 50 22.5v19L32 52 14 41.5v-19Z" fill="currentColor" opacity=".08"/><path d="M32 17 45 42h-7.2L32 30.6 26.2 42H19Z" fill="#eef2f3"/><path d="M28.6 46h6.8L32 52Z" fill="#f2c200"/></svg>
+      <span class="brand__text">
+        <span class="brand__name">JABBOTT<span class="brand__tld">.DEV</span></span>
+        <span class="brand__sub">Engineering Log</span>
+      </span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+      <span class="sr-only">Menu</span>
+      <span class="nav-toggle__bars" aria-hidden="true"></span>
+    </button>
+    <nav class="site-nav" id="site-nav" aria-label="Primary">
+      <div class="deploy" data-deploy>
+        <a class="btn btn--ghost deploy__toggle is-current" href="https://jabbott.dev/deployments/" aria-controls="deploy-panel" data-deploy-toggle>
+          <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><circle cx="12" cy="12" r="2"/><path d="M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14M8 16a5.5 5.5 0 0 1 0-8M16 8a5.5 5.5 0 0 1 0 8"/></svg>
+          <span>Deployments</span>
+          <svg class="icon deploy__chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M6 9l6 6 6-6"/></svg>
+        </a>
+        <div class="deploy__panel panel panel--brackets" id="deploy-panel" data-deploy-panel hidden>
+          <p class="deploy__heading">Deployed from repositories</p>
+          <ul class="deploy-list" data-deploy-list>
+            <li class="deploy-item" data-deploy-repo="jabbott-iii/tidepool">
+              <a class="deploy-item__link" href="https://jabbott.dev/Tidepool/" aria-current="page">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span class="deploy-item__name">Tidepool</span>
+                <span class="deploy-item__host">jabbott.dev/Tidepool/</span>
+              </a>
+              <a class="deploy-item__repo" href="{{repository_url}}" target="_blank" rel="noopener" aria-label="Tidepool repository on GitHub"><svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
+            </li>
+          </ul>
+          <p class="deploy__status" data-deploy-status hidden></p>
+          <a class="link-arrow link-arrow--sm" href="https://jabbott.dev/deployments/">All deployments <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M3 12h16M13 6l6 6-6 6"/></svg></a>
+        </div>
+      </div>
+      <a class="btn btn--amber" href="https://jabbott.dev/">
+        <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5.5h4V20"/></svg>
+        <span>Home</span>
+      </a>
+      <a class="btn btn--amber" href="https://jabbott.dev/log/">
+        <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 6h2M9 6h11M4 12h2M9 12h11M4 18h2M9 18h7"/></svg>
+        <span>Log</span>
+      </a>
+      <a class="btn btn--amber" href="https://jabbott.dev/resume/">
+        <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16c.6-1.3 1.6-2 3-2s2.4.7 3 2M14 10h4M14 13.5h4"/></svg>
+        <span>Resume</span>
+      </a>
+      <a class="btn btn--teal" href="https://github.com/jabbott-iii" rel="me noopener" target="_blank">
+        <svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+        <span class="sr-only">(opens in a new tab)</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="site-main">
+  <div class="container">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <ol>
+        <li><a href="https://jabbott.dev/">Home</a></li>
+        <li><a href="https://jabbott.dev/deployments/">Deployments</a></li>
+        <li aria-current="page">Tidepool</li>
+      </ol>
+    </nav>
+
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">IDE demo <span class="tp-sep">//</span> Rust</p>
+        <h1 class="section-title section-title--xl">Tidepool</h1>
+      </div>
+      <p class="page-head__lede">A zero-dependency IDE written in Rust from the ground up: a native GUI in jabbott.dev's style, a terminal UI with vim-style editing, first-class Rust and Markdown, managed toolchains, Android and iOS builds, and AI through plugged-in agents. It is still headless, so below are its gate and two of its libraries, run on the build named beside them.</p>
+    </header>
+
+    <div class="tp-demo">
+      <section class="tp-player panel panel--brackets" aria-labelledby="demo-title">
+        <div class="tp-player__head">
+          <p class="kicker" id="demo-title"><span class="status-dot" aria-hidden="true"></span> {{build_kind}} <span class="kicker__sep">//</span> <a class="tp-mono" href="{{commit_url}}">{{commit_short}}</a></p>
+          <div class="chips tp-tabs" role="tablist" aria-label="Choose a run" data-run-tabs hidden>
+            <button class="chip is-active" type="button" role="tab" id="tab-gate" aria-controls="run-gate" aria-selected="true">The gate</button>
+            <button class="chip" type="button" role="tab" id="tab-formats" aria-controls="run-formats" aria-selected="false" tabindex="-1">Formats</button>
+            <button class="chip" type="button" role="tab" id="tab-editing" aria-controls="run-editing" aria-selected="false" tabindex="-1">Text engine</button>
+          </div>
+        </div>
+
+        <figure class="tp-run" id="run-gate" aria-labelledby="title-gate" data-run="gate">
+          <div class="tp-term">
+            <p class="tp-term__bar"><span class="tp-term__lights" aria-hidden="true"><span></span><span></span><span></span></span><span>cargo xtask ci</span><span>{{platform}}</span></p>
+            <pre class="tp-term__screen" tabindex="0" aria-label="The gate's summary"><span class="tp-term__prompt">$</span> cargo xtask ci
+<span class="tp-term__elided">…each step's output…</span>
+{{gate_summary}}</pre>
+          </div>
+          <figcaption class="tp-run__caption">
+            <h2 class="tp-run__title" id="title-gate">The gate</h2>
+            <p class="tp-run__text">CI runs this gate on Linux, macOS and Windows for every pull request and every push to <code>main</code>, and this page is published only from a commit of <code>main</code> that passed it on all three. It refuses any crate from outside the workspace and any edge the layer matrix does not allow; it checks formatting, lints with warnings as errors and runs every test; and it checks the members' manifests and READMEs, the features below against the roadmap, every <code>unsafe</code> block, the license headers, the workflows' pinned actions and the generated Unicode tables.</p>
+            <dl class="spec tp-stats">
+              <div><dt>Steps</dt><dd>{{gate_steps}} passed</dd></div>
+              <div><dt>Tests</dt><dd>{{gate_tests}} passed</dd></div>
+              <div><dt>Skipped</dt><dd>{{gate_skipped}}</dd></div>
+              <div><dt>Time</dt><dd>{{gate_time}}</dd></div>
+            </dl>
+            <p class="tp-run__note">Run on {{platform}} by {{runner}}, with Rust {{toolchain}}. A skipped test printed <code>SKIPPED:</code> because what it needs is missing there: it did not pass.</p>
+          </figcaption>
+        </figure>
+
+        <figure class="tp-run" id="run-formats" aria-labelledby="title-formats" data-run="formats">
+          <div class="tp-term">
+            <p class="tp-term__bar"><span class="tp-term__lights" aria-hidden="true"><span></span><span></span><span></span></span><span>crates/codec/examples/formats.rs</span><span>{{platform}}</span></p>
+            <pre class="tp-term__screen" tabindex="0" aria-label="What the formats example printed"><span class="tp-term__prompt">$</span> cargo run -p tidepool-codec --example formats
+{{formats_output}}</pre>
+          </div>
+          <figcaption class="tp-run__caption">
+            <h2 class="tp-run__title" id="title-formats">Formats</h2>
+            <p class="tp-run__text">JSON and JSONC read and written, and TOML 1.1 read, by <code>tidepool-codec</code>'s own code, with no third-party crate. Every parser takes limits on size and depth, reports an error with its line and column, and never panics on input: each has a fuzz target that CI runs for every pull request and push to <code>main</code>.</p>
+            <p class="tp-run__note">Its output, as {{runner}} ran it on {{platform}}.</p>
+          </figcaption>
+        </figure>
+
+        <figure class="tp-run" id="run-editing" aria-labelledby="title-editing" data-run="editing">
+          <div class="tp-term">
+            <p class="tp-term__bar"><span class="tp-term__lights" aria-hidden="true"><span></span><span></span><span></span></span><span>crates/text/examples/editing.rs</span><span>{{platform}}</span></p>
+            <pre class="tp-term__screen" tabindex="0" aria-label="What the editing example printed"><span class="tp-term__prompt">$</span> cargo run -p tidepool-text --example editing
+{{editing_output}}</pre>
+          </div>
+          <figcaption class="tp-run__caption">
+            <h2 class="tp-run__title" id="title-editing">Text engine</h2>
+            <p class="tp-run__text">The engine every buffer will be held in, from <code>tidepool-text</code>: a rope with byte, character and UTF-16 positions, grapheme boundaries from Unicode's own data, selections and change sets applied through an undo tree, and decoding and saving that never leaves a half-written file.</p>
+            <p class="tp-run__note">Its output, as {{runner}} ran it on {{platform}}.</p>
+          </figcaption>
+        </figure>
+      </section>
+
+      <aside class="tp-build panel panel--brackets" aria-labelledby="build-title">
+        <h2 class="side-panel__title" id="build-title">This build</h2>
+        <dl class="spec tp-spec">
+          <div><dt>Commit</dt><dd><a class="tp-mono" href="{{commit_url}}">{{commit_short}}</a></dd></div>
+          <div><dt>Date</dt><dd>{{commit_date}}</dd></div>
+          <div><dt>Rust</dt><dd>{{toolchain}}</dd></div>
+          <div><dt>Crates</dt><dd>{{crates}} in the workspace</dd></div>
+          <div><dt>Third-party</dt><dd>{{third_party}}</dd></div>
+          <div><dt>Roadmap</dt><dd>{{tasks_done}} of {{tasks_total}} tasks</dd></div>
+        </dl>
+{{latest_change}}
+        <ol class="tp-milestones" aria-label="Roadmap milestones">
+{{milestones}}
+        </ol>
+        <div class="btn-row">
+          <a class="btn btn--ghost btn--sm" href="{{repository_url}}" target="_blank" rel="noopener"><svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>Repository</span></a>
+          <a class="btn btn--ghost btn--sm" href="{{repository_url}}/blob/{{commit}}/docs/roadmap.md" target="_blank" rel="noopener"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 6h2M9 6h11M4 12h2M9 12h11M4 18h2M9 18h7"/></svg><span>Roadmap</span></a>
+        </div>
+      </aside>
+    </div>
+
+    <section class="tp-arch" aria-labelledby="arch-title">
+      <div class="section-head">
+        <h2 class="section-title" id="arch-title">Architecture</h2>
+      </div>
+      <p class="tp-arch__lede">Tidepool in two views drawn by hand from its design: its programs among the people and systems around them, then its crates in their layers. Built from the bottom up, its foundations, formats and text engine come first, so most of what the binary will do is still dashed. Every module and edge is drawn in <a href="{{repository_url}}/tree/{{commit}}/diagrams">the repository's diagrams</a>.</p>
+      <figure class="tp-c4 panel panel--brackets" aria-labelledby="c4-containers-heading">
+        <figcaption>
+          <h3 class="tp-c4__title" id="c4-containers-heading">Containers</h3>
+          <p class="tp-c4__text">One binary for the developer, with a GUI and a terminal frontend, that drives managed tools as child processes and talks to language agents over stdio; the core binary opens no sockets. Its <code>main</code> is still empty, so every arrow from it is planned, labelled with the roadmap task that adds it.</p>
+        </figcaption>
+        <div class="tp-c4__scroll" tabindex="0" role="region" aria-labelledby="c4-containers-heading">
+<svg class="tp-c4__svg" viewBox="0 0 1280 880" width="1280" height="880" role="img" aria-labelledby="c4-containers-title c4-containers-desc">
+<title id="c4-containers-title">Tidepool's programs and files, and the people and systems around them: a C4 container diagram</title>
+<desc id="c4-containers-desc">The developer is to use Tidepool through its GUI frontend (planned M2.6) or its terminal UI (planned M7.1). Both belong to the tidepool binary, which is built but whose main is empty today (M0.1), so every arrow from it is planned: it is to draw frames in the GUI (M2.6) and cells in the TUI (M7.1), read and write its settings and other TOML files (M3.4, M4.7, M5.1), open, edit and save the developer's workspace folders (M4.7, M4.3), install and run managed tools such as curl, rustup and cargo, rust-analyzer, git, the Android SDK and Xcode (from M5.1), and speak the Tidepool Agent Protocol over stdio to the reference agents (M9.3), which reach model servers through curl or loopback HTTP (M9.6).</desc>
+<defs>
+<marker id="c4-containers-arrow" class="c4-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+<marker id="c4-containers-arrow-planned" class="c4-arrow c4-arrow--planned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z"/></marker>
+</defs>
+<g class="c4-boundary"><rect x="262" y="166" width="628" height="690" rx="10"/><text class="c4-boundary__title" x="282" y="194">Tidepool</text><text class="c4-boundary__type" x="282" y="212">SOFTWARE SYSTEM</text></g>
+<g class="c4-edges">
+<path class="c4-edge c4-edge--planned" d="M528 136L448 236" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M622 136L702 236" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M520 456L448 356" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M630 456L702 356" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M520 596L448 696" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M630 596L702 696" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M730 526L990 526" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M730 476L990 300" marker-end="url(#c4-containers-arrow-planned)"/>
+<path class="c4-edge c4-edge--planned" d="M860 756L990 756" marker-end="url(#c4-containers-arrow-planned)"/>
+</g>
+<g class="c4-node c4-node--person"><rect class="c4-shape" x="460" y="24" width="230" height="112" rx="22"/><text class="c4-type" text-anchor="middle"><tspan x="575" y="52.70">PERSON</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="575" y="69.60">Developer</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="575" y="87.30">edits Rust and Markdown,</tspan><tspan x="575" y="102.30">builds and signs Android</tspan><tspan x="575" y="117.30">and iOS apps</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="300" y="236" width="260" height="120" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="430" y="276.20">CONTAINER: PLANNED M2.6</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="430" y="293.10">GUI frontend</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="430" y="310.80">tidepool-gui: a native</tspan><tspan x="430" y="325.80">window in the jabbott.dev look</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="590" y="236" width="260" height="120" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="720" y="276.20">CONTAINER: PLANNED M7.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="720" y="293.10">Terminal UI</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="720" y="310.80">tidepool --tui, with</tspan><tspan x="720" y="325.80">vim-style modal editing</tspan></text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="420" y="456" width="310" height="140" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="575" y="498.70">CONTAINER: RUST BINARY</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="575" y="515.60">The tidepool binary</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="575" y="533.30">cargo tp. Its main is empty (M0.1);</tspan><tspan x="575" y="548.30">the libraries it will use</tspan><tspan x="575" y="563.30">are built first, from the bottom</tspan></text></g>
+<g class="c4-node c4-node--store c4-node--planned"><path class="c4-shape" d="M300 696v110a130 10 0 0 0 260 0v-110a130 10 0 0 0 -260 0z"/><path class="c4-shape c4-shape--rim" d="M300 696a130 10 0 0 0 260 0"/><text class="c4-type" text-anchor="middle"><tspan x="430" y="742.20">FILES: PLANNED M3.4, M5.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="430" y="759.10">Settings and TOML files</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="430" y="776.80">settings, keymaps, themes,</tspan><tspan x="430" y="791.80">language packs, tool records</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="590" y="696" width="270" height="120" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="725" y="736.20">CONTAINERS: PLANNED M9.2, M9.6</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="725" y="753.10">Reference agents</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="725" y="770.80">agents/: mock, local, Claude;</tspan><tspan x="725" y="785.80">never linked into Tidepool</tspan></text></g>
+<g class="c4-node c4-node--external"><path class="c4-shape" d="M990 236v110a133 10 0 0 0 266 0v-110a133 10 0 0 0 -266 0z"/><path class="c4-shape c4-shape--rim" d="M990 236a133 10 0 0 0 266 0"/><text class="c4-type" text-anchor="middle"><tspan x="1123" y="282.20">FILES</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1123" y="299.10">Workspace folders</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1123" y="316.80">the developer&#x27;s projects,</tspan><tspan x="1123" y="331.80">with .tidepool/settings.toml</tspan></text></g>
+<g class="c4-node c4-node--external"><rect class="c4-shape" x="990" y="456" width="266" height="140" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="1123" y="491.20">EXTERNAL SYSTEMS</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1123" y="508.10">Managed tools</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1123" y="525.80">curl, rustup and cargo,</tspan><tspan x="1123" y="540.80">rust-analyzer, git, the JDK,</tspan><tspan x="1123" y="555.80">Android SDK and NDK, Xcode,</tspan><tspan x="1123" y="570.80">a debug adapter</tspan></text></g>
+<g class="c4-node c4-node--external"><rect class="c4-shape" x="990" y="696" width="266" height="120" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="1123" y="736.20">EXTERNAL SYSTEMS</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1123" y="753.10">Model servers</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1123" y="770.80">Anthropic&#x27;s Messages API,</tspan><tspan x="1123" y="785.80">or a server on 127.0.0.1</tspan></text></g>
+<g class="c4-labels">
+<g class="c4-label c4-label--planned"><rect x="406.1" y="167.0" width="127.9" height="34" rx="3"/><text text-anchor="middle"><tspan x="470" y="182.0">planned M2.6, M4.2:</tspan><tspan x="470" y="196.0">edits in a window</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="618.0" y="167.0" width="127.9" height="34" rx="3"/><text text-anchor="middle"><tspan x="682" y="182.0">planned M7.1:</tspan><tspan x="682" y="196.0">edits in a terminal</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="416.4" y="389.0" width="91.3" height="34" rx="3"/><text text-anchor="middle"><tspan x="462" y="404.0">planned M2.6:</tspan><tspan x="462" y="418.0">draws frames</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="644.4" y="389.0" width="91.3" height="34" rx="3"/><text text-anchor="middle"><tspan x="690" y="404.0">planned M7.1:</tspan><tspan x="690" y="418.0">with --tui</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="398.1" y="629.0" width="127.9" height="34" rx="3"/><text text-anchor="middle"><tspan x="462" y="644.0">planned M3.4, M4.7,</tspan><tspan x="462" y="658.0">M5.1: reads, writes</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="641.3" y="629.0" width="97.4" height="34" rx="3"/><text text-anchor="middle"><tspan x="690" y="644.0">planned M9.3:</tspan><tspan x="690" y="658.0">TAP over stdio</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="802.0" y="371.0" width="127.9" height="34" rx="3"/><text text-anchor="middle"><tspan x="866" y="386.0">planned M4.7, M4.3:</tspan><tspan x="866" y="400.0">opens, edits, saves</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="805.1" y="521.0" width="121.8" height="34" rx="3"/><text text-anchor="middle"><tspan x="866" y="536.0">planned from M5.1:</tspan><tspan x="866" y="550.0">installs, runs</tspan></text></g>
+<g class="c4-label c4-label--planned"><rect x="876.3" y="739.0" width="97.4" height="34" rx="3"/><text text-anchor="middle"><tspan x="925" y="754.0">planned M9.6:</tspan><tspan x="925" y="768.0">curl, loopback</tspan></text></g>
+</g>
+</svg>
+        </div>
+        <p class="tp-c4__hint">Scroll sideways to see the whole diagram.</p>
+      </figure>
+      <figure class="tp-c4 panel panel--brackets" aria-labelledby="c4-layers-heading">
+        <figcaption>
+          <h3 class="tp-c4__title" id="c4-layers-heading">Crates by layer</h3>
+          <p class="tp-c4__text">The workspace's 26 crates in seven layers. A crate may use only crates below it, and only those its row of the dependency matrix names; the gate checks that on every push. Only <code>sys</code> and <code>platform</code> may hold <code>unsafe</code> code.</p>
+        </figcaption>
+        <div class="tp-c4__scroll" tabindex="0" role="region" aria-labelledby="c4-layers-heading">
+<svg class="tp-c4__svg" viewBox="0 0 1280 948" width="1280" height="948" role="img" aria-labelledby="c4-layers-title c4-layers-desc">
+<title id="c4-layers-title">Tidepool's 26 crates in their seven layers</title>
+<desc id="c4-layers-desc">Each crate may use only crates in the layers below it that its row of the dependency matrix names. Built: in layer 0, core (M0.2, M1.6) and the crate root of sys (M0.1); in layer 1, codec (M1.4, M1.7), text (M1.1 to M1.3) and the crate root of platform (M0.1); in layer 5, the tidepool binary with an empty main (M0.1); in layer 6, xtask (from M0.3). Every other crate is planned: regex M4.8, gfx M2.3, font M2.8 and markdown M6.5 in layer 1; rpc M6.1, toolchain M5.1, syntax M6.2, term M5.8, workspace M4.7 and ui M3.1 in layer 2; lang M6.7, vcs M8.1, agent M9.3 and mobile M10.2 in layer 3; editor M4.1, gui M2.6 and tui M7.1 in layer 4; bench M1.9 and testkit M5.1 in layer 6.</desc>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="24" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="68">LAYER 6</text><text class="c4-boundary__title" x="36" y="90">Tools,</text><text class="c4-boundary__title" x="36" y="110">dev-only</text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="232" y="36.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="64.20">BUILT M0.3 ON</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="81.10">xtask</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="98.80">the gate, the checks,</tspan><tspan x="300" y="113.80">fuzz smoke, this page</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="380" y="36.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="64.20">PLANNED M1.9</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="81.10">bench</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="98.80">benchmark harness</tspan><tspan x="448" y="113.80">and suites</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="528" y="36.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="596" y="64.20">PLANNED M5.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="596" y="81.10">testkit</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="596" y="98.80">fake tools, a</tspan><tspan x="596" y="113.80">fake LSP server</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="154" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="198">LAYER 5</text><text class="c4-boundary__title" x="36" y="220">Application</text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="232" y="166.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="194.20">BUILT M0.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="211.10">tidepool</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="228.80">the binary, cargo tp:</tspan><tspan x="300" y="243.80">an empty main</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="284" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="328">LAYER 4</text><text class="c4-boundary__title" x="36" y="350">Views and</text><text class="c4-boundary__title" x="36" y="370">frontends</text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="232" y="296.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="324.20">PLANNED M4.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="341.10">editor</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="358.80">editor view, vim</tspan><tspan x="300" y="373.80">mode, all panels</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="380" y="296.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="324.20">PLANNED M2.6</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="341.10">gui</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="358.80">the native window,</tspan><tspan x="448" y="373.80">jabbott.dev look</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="528" y="296.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="596" y="331.70">PLANNED M7.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="596" y="348.60">tui</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="596" y="366.30">the terminal UI</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="414" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="458">LAYER 3</text><text class="c4-boundary__title" x="36" y="480">Language and</text><text class="c4-boundary__title" x="36" y="500">tool features</text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="232" y="426.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="454.20">PLANNED M6.7</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="471.10">lang</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="488.80">LSP features,</tspan><tspan x="300" y="503.80">cargo tasks, DAP</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="380" y="426.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="454.20">PLANNED M8.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="471.10">vcs</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="488.80">git status, diff</tspan><tspan x="448" y="503.80">and blame</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="528" y="426.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="596" y="454.20">PLANNED M9.3</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="596" y="471.10">agent</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="596" y="488.80">agent host, TAP,</tspan><tspan x="596" y="503.80">predictive text</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="676" y="426.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="744" y="454.20">PLANNED M10.2</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="744" y="471.10">mobile</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="744" y="488.80">Android and iOS:</tspan><tspan x="744" y="503.80">build, sign, verify</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="544" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="588">LAYER 2</text><text class="c4-boundary__title" x="36" y="610">Services</text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="232" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="584.20">PLANNED M6.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="601.10">rpc</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="618.80">JSON-RPC: LSP,</tspan><tspan x="300" y="633.80">DAP and TAP</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="380" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="584.20">PLANNED M5.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="601.10">toolchain</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="618.80">managed tools,</tspan><tspan x="448" y="633.80">consented installs</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="528" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="596" y="584.20">PLANNED M6.2</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="596" y="601.10">syntax</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="596" y="618.80">lexers and</tspan><tspan x="596" y="633.80">language packs</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="676" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="744" y="584.20">PLANNED M5.8</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="744" y="601.10">term</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="744" y="618.80">VT parser and</tspan><tspan x="744" y="633.80">terminal grid</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="824" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="892" y="584.20">PLANNED M4.7</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="892" y="601.10">workspace</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="892" y="618.80">folders, trust,</tspan><tspan x="892" y="633.80">buffers, search</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="972" y="556.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="1040" y="584.20">PLANNED M3.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1040" y="601.10">ui</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1040" y="618.80">widgets, layout,</tspan><tspan x="1040" y="633.80">theme, a11y tree</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="674" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="718">LAYER 1</text><text class="c4-boundary__title" x="36" y="740">OS behavior,</text><text class="c4-boundary__title" x="36" y="760">formats, engines</text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="232" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="714.20">CRATE ROOT M0.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="731.10">platform</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="748.80">window, events, PTY</tspan><tspan x="300" y="763.80">planned from M2.2</tspan></text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="380" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="714.20">BUILT M1.4, M1.7</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="731.10">codec</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="748.80">JSON and JSONC,</tspan><tspan x="448" y="763.80">TOML 1.1</tspan></text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="528" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="596" y="714.20">BUILT M1.1 TO M1.3</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="596" y="731.10">text</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="596" y="748.80">rope, undo tree,</tspan><tspan x="596" y="763.80">encodings, save</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="676" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="744" y="714.20">PLANNED M4.8</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="744" y="731.10">regex</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="744" y="748.80">linear-time</tspan><tspan x="744" y="763.80">regex</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="824" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="892" y="714.20">PLANNED M2.3</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="892" y="731.10">gfx</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="892" y="748.80">CPU rasterizer,</tspan><tspan x="892" y="763.80">backdrop, damage</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="972" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="1040" y="714.20">PLANNED M2.8</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1040" y="731.10">font</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1040" y="748.80">TrueType, atlas,</tspan><tspan x="1040" y="763.80">text layout</tspan></text></g>
+<g class="c4-node c4-node--container c4-node--planned"><rect class="c4-shape" x="1120" y="686.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="1188" y="714.20">PLANNED M6.5</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="1188" y="731.10">markdown</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="1188" y="748.80">CommonMark</tspan><tspan x="1188" y="763.80">and GFM</tspan></text></g>
+<g class="tp-layer"><rect class="tp-layer__band" x="16" y="804" width="1248" height="120" rx="6"/><text class="c4-boundary__type" x="36" y="848">LAYER 0</text><text class="c4-boundary__title" x="36" y="870">Foundations</text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="232" y="816.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="300" y="844.20">BUILT M0.2, M1.6</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="300" y="861.10">core</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="300" y="878.80">errors, hashing, CLI,</tspan><tspan x="300" y="893.80">the fuzz engine</tspan></text></g>
+<g class="c4-node c4-node--container"><rect class="c4-shape" x="380" y="816.0" width="136" height="96" rx="4"/><text class="c4-type" text-anchor="middle"><tspan x="448" y="844.20">CRATE ROOT M0.1</tspan></text><text class="c4-title" text-anchor="middle"><tspan x="448" y="861.10">sys</tspan></text><text class="c4-desc" text-anchor="middle"><tspan x="448" y="878.80">hand-written FFI</tspan><tspan x="448" y="893.80">planned from M2.1</tspan></text></g>
+</svg>
+        </div>
+        <p class="tp-c4__hint">Scroll sideways to see the whole diagram.</p>
+      </figure>
+      <ul class="tp-c4-legend" aria-label="Key to the diagrams">
+        <li><span class="tp-c4-key tp-c4-key--person" aria-hidden="true"></span>A person</li>
+        <li><span class="tp-c4-key tp-c4-key--tidepool" aria-hidden="true"></span>Part of Tidepool, built</li>
+        <li><span class="tp-c4-key tp-c4-key--external" aria-hidden="true"></span>Outside Tidepool</li>
+        <li><span class="tp-c4-key tp-c4-key--files" aria-hidden="true"></span>A cylinder: files on disk</li>
+        <li><span class="tp-c4-key tp-c4-key--planned" aria-hidden="true"></span>Dashed: planned, with its task</li>
+      </ul>
+    </section>
+
+    <section class="tp-features" aria-labelledby="features-title">
+      <div class="section-head">
+        <h2 class="section-title" id="features-title">Features</h2>
+        <div class="chips" role="group" aria-label="Show features by status" data-feature-filters hidden>
+{{feature_filters}}
+        </div>
+      </div>
+      <p class="tp-features__lede">{{features_lede}}</p>
+      <div class="tp-feature-grid" data-features>
+{{features}}
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="https://jabbott.dev/">
+          <svg class="brand__mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><path d="M32 4 56 18v28L32 60 8 46V18Z" fill="none" stroke="currentColor" stroke-width="2.5" class="mark__hex"/><path d="M32 12 50 22.5v19L32 52 14 41.5v-19Z" fill="currentColor" opacity=".08"/><path d="M32 17 45 42h-7.2L32 30.6 26.2 42H19Z" fill="#eef2f3"/><path d="M28.6 46h6.8L32 52Z" fill="#f2c200"/></svg>
+          <span class="brand__text">
+            <span class="brand__name">JABBOTT<span class="brand__tld">.DEV</span></span>
+            <span class="brand__sub">Engineering Log</span>
+          </span>
+        </a>
+        <p>Engineering log of Joseph Abbott III, software engineer and U.S. Marine Corps veteran: release notes and project updates.</p>
+      </div>
+      <div>
+        <p class="footer-title">Navigate</p>
+        <ul class="footer-links">
+          <li><a href="https://jabbott.dev/">Home</a></li>
+          <li><a href="https://jabbott.dev/resume/">Resume</a></li>
+          <li><a href="https://jabbott.dev/log/">Engineering log</a></li>
+          <li><a href="https://jabbott.dev/deployments/">Deployments</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-title">Elsewhere</p>
+        <ul class="footer-links">
+          <li><a href="https://github.com/jabbott-iii" rel="me noopener">GitHub</a></li>
+          <li><a href="https://www.linkedin.com/in/josephabbottiii/" rel="me noopener">LinkedIn</a></li>
+          <li><a href="https://x.com/jabbottiii" rel="me noopener">X</a></li>
+          <li><a href="https://jabbott.dev/llms.txt">llms.txt</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-base">
+      <span>&copy; {{year}} Joseph Abbott III</span>
+      <span>Built from <a class="tp-mono" href="{{commit_url}}">{{commit_short}}</a> by <code class="tp-mono">cargo xtask site</code> &middot; <a href="llms.txt">llms.txt</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

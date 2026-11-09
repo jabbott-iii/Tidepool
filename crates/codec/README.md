@@ -131,6 +131,9 @@ fn main() -> Result<(), CodecError> {
 }
 ```
 
+`cargo run -p tidepool-codec --example formats` runs the example whose
+output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
+
 ## Documentation
 
 - Design: [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)

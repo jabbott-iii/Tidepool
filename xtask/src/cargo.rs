@@ -28,7 +28,8 @@
 //!
 //! The test step's output is passed on to the terminal as it comes, and
 //! also read for lines that start with `SKIPPED:`, which a test prints when
-//! it cannot run ([`run_scanning_skips`]). Cargo and the test binaries then
+//! it cannot run, and for libtest's `test result:` lines, whose counts `site`
+//! publishes ([`run_scanning_skips`], [`TestCounts`]). Cargo and the test binaries then
 //! write to a pipe rather than the terminal, so they print without colour.
 //! `fuzz-smoke`'s `cargo test` is passed on the same way, without colour
 //! ([`NO_COLOR`]), with the lines that hold what it asks for kept
@@ -59,6 +60,79 @@ const MAX_SKIP_REASONS: usize = 1000;
 /// The most lines [`SkipScan`] keeps for its prefixes; any more are
 /// dropped.
 const MAX_KEPT_LINES: usize = 1000;
+
+/// What starts the line libtest ends each run of a test binary with, and
+/// each crate's doc tests: `test result: ok. 4 passed; 0 failed; 1 ignored;
+/// 0 measured; 0 filtered out; finished in 0.01s`.
+const TEST_RESULT: &str = "test result: ";
+
+/// What the `test result:` lines a command printed add up to ([`TEST_RESULT`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TestCounts {
+    /// How many `test result:` lines there were.
+    pub(crate) results: usize,
+    /// How many of them did not give a number passed, failed and ignored;
+    /// the counts below leave those out.
+    pub(crate) unreadable: usize,
+    /// The tests that passed: a test that printed `SKIPPED:` and returned is
+    /// one of them, as far as libtest knows.
+    pub(crate) passed: usize,
+    /// The tests that failed.
+    pub(crate) failed: usize,
+    /// The tests marked `#[ignore]`, which did not run.
+    pub(crate) ignored: usize,
+}
+
+impl TestCounts {
+    /// Adds what another stream, or another step, saw.
+    pub(crate) fn add(&mut self, other: Self) {
+        self.results += other.results;
+        self.unreadable += other.unreadable;
+        self.passed += other.passed;
+        self.failed += other.failed;
+        self.ignored += other.ignored;
+    }
+
+    /// Counts the `test result:` line `result`, which starts with
+    /// [`TEST_RESULT`]: its numbers passed, failed and ignored, after the
+    /// verdict and its `. `, among parts separated by `;`.
+    fn read(&mut self, result: &str) {
+        self.results += 1;
+        let counts = result
+            .strip_prefix(TEST_RESULT)
+            .and_then(|rest| rest.split_once(". "))
+            .and_then(|(_, counts)| {
+                let mut found = [None; 3];
+                for part in counts.split(';') {
+                    let mut words = part.split_whitespace();
+                    let (Some(number), Some(word), None) =
+                        (words.next(), words.next(), words.next())
+                    else {
+                        continue;
+                    };
+                    let slot = match word {
+                        "passed" => 0,
+                        "failed" => 1,
+                        "ignored" => 2,
+                        _ => continue,
+                    };
+                    if found[slot].is_some() {
+                        return None;
+                    }
+                    found[slot] = Some(number.parse::<usize>().ok()?);
+                }
+                Some((found[0]?, found[1]?, found[2]?))
+            });
+        match counts {
+            Some((passed, failed, ignored)) => {
+                self.passed += passed;
+                self.failed += failed;
+                self.ignored += ignored;
+            }
+            None => self.unreadable += 1,
+        }
+    }
+}
 
 /// The `SKIPPED:` lines a command printed.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -92,6 +166,8 @@ struct SkipScan {
     prefixes: &'static [&'static str],
     /// The lines kept, from the prefix on, at most [`MAX_KEPT_LINES`].
     kept: Vec<String>,
+    /// What libtest's `test result:` lines say.
+    tests: TestCounts,
 }
 
 impl SkipScan {
@@ -132,6 +208,11 @@ impl SkipScan {
         {
             self.kept.push(line[at..].trim_end().to_string());
         }
+        // Looked for anywhere, as a kept line is: another write can start
+        // the same line.
+        if let Some(at) = line.find(TEST_RESULT) {
+            self.tests.read(line[at..].trim_end());
+        }
         self.line.clear();
     }
 }
@@ -161,13 +242,14 @@ fn tee(from: impl Read, to: &mut dyn Write) -> io::Result<Skips> {
 }
 
 /// Copies `from` to `to` as it arrives, and returns the `SKIPPED:` lines
-/// in it, and the lines that hold one of `prefixes`, from where it starts. If `to` stops accepting output, the rest is
+/// in it, the lines that hold one of `prefixes`, from where it starts, and
+/// what its `test result:` lines count. If `to` stops accepting output, the rest is
 /// still read (so the child never blocks on a full pipe) and scanned.
 fn tee_keeping(
     mut from: impl Read,
     to: &mut dyn Write,
     prefixes: &'static [&'static str],
-) -> io::Result<(Skips, Vec<String>)> {
+) -> io::Result<(Skips, Vec<String>, TestCounts)> {
     let mut scan = SkipScan {
         prefixes,
         ..SkipScan::default()
@@ -192,19 +274,24 @@ fn tee_keeping(
         scan.end_line();
     }
     let kept = std::mem::take(&mut scan.kept);
-    Ok((scan.finish(), kept))
+    let tests = scan.tests;
+    Ok((scan.finish(), kept, tests))
 }
 
 /// Runs `cargo <args>` in `root` with its output passed on to this
 /// process's standard output and error as it comes, as [`run`] does, and
-/// also read for `SKIPPED:` lines. Returns whether it succeeded and the
-/// lines it found, on either stream.
+/// also read for `SKIPPED:` lines and libtest's `test result:` lines.
+/// Returns whether it succeeded, the `SKIPPED:` lines it found, on either
+/// stream, and what the `test result:` lines count.
 ///
 /// # Errors
 ///
 /// [`Error::Spawn`] if cargo cannot be started or its output cannot be
 /// read.
-pub(crate) fn run_scanning_skips(root: &Path, args: &[&str]) -> Result<(bool, Skips), Error> {
+pub(crate) fn run_scanning_skips(
+    root: &Path,
+    args: &[&str],
+) -> Result<(bool, Skips, TestCounts), Error> {
     scan_skips(
         command(root, args),
         args,
@@ -237,7 +324,7 @@ pub(crate) fn run_keeping_lines(
     command.envs(env.iter().map(|(name, value)| (name, value)));
     // Last, so that nothing given or inherited turns colour back on.
     command.env(NO_COLOR.0, NO_COLOR.1);
-    let (passed, _, kept) = scan_output(command, args, out, err, prefixes)?;
+    let (passed, _, kept, _) = scan_output(command, args, out, err, prefixes)?;
     Ok((passed, kept))
 }
 
@@ -248,9 +335,9 @@ fn scan_skips(
     args: &[&str],
     out: &mut (dyn Write + Send),
     err: &mut (dyn Write + Send),
-) -> Result<(bool, Skips), Error> {
-    let (passed, skips, _) = scan_output(command, args, out, err, &[])?;
-    Ok((passed, skips))
+) -> Result<(bool, Skips, TestCounts), Error> {
+    let (passed, skips, _, tests) = scan_output(command, args, out, err, &[])?;
+    Ok((passed, skips, tests))
 }
 
 /// [`scan_skips`], also keeping the lines that hold one of `prefixes`,
@@ -261,7 +348,7 @@ fn scan_output(
     out: &mut (dyn Write + Send),
     err: &mut (dyn Write + Send),
     prefixes: &'static [&'static str],
-) -> Result<(bool, Skips, Vec<String>), Error> {
+) -> Result<(bool, Skips, Vec<String>, TestCounts), Error> {
     let spawn_error = |source| Error::Spawn {
         command: display(args),
         source,
@@ -275,13 +362,13 @@ fn scan_output(
     let (from_stdout, from_stderr) = thread::scope(|scope| {
         let out = scope.spawn(|| match stdout {
             Some(stdout) => tee_keeping(stdout, out, prefixes),
-            None => Ok((Skips::default(), Vec::new())),
+            None => Ok((Skips::default(), Vec::new(), TestCounts::default())),
         });
         let err = scope.spawn(|| match stderr {
             Some(stderr) => tee_keeping(stderr, err, prefixes),
-            None => Ok((Skips::default(), Vec::new())),
+            None => Ok((Skips::default(), Vec::new(), TestCounts::default())),
         });
-        type Scanned = io::Result<(Skips, Vec<String>)>;
+        type Scanned = io::Result<(Skips, Vec<String>, TestCounts)>;
         let joined = |handle: thread::ScopedJoinHandle<'_, Scanned>| {
             handle
                 .join()
@@ -292,11 +379,12 @@ fn scan_output(
     // Wait for the child even when reading failed, so it is not left
     // behind.
     let status = child.wait().map_err(spawn_error)?;
-    let (mut skips, mut kept) = from_stdout.map_err(spawn_error)?;
-    let (more_skips, more_kept) = from_stderr.map_err(spawn_error)?;
+    let (mut skips, mut kept, mut tests) = from_stdout.map_err(spawn_error)?;
+    let (more_skips, more_kept, more_tests) = from_stderr.map_err(spawn_error)?;
     skips.merge(more_skips);
     kept.extend(more_kept);
-    Ok((status.success(), skips, kept))
+    tests.add(more_tests);
+    Ok((status.success(), skips, kept, tests))
 }
 
 /// The variable, and its value, that keeps every cargo child off the
@@ -602,6 +690,67 @@ mod tests {
     }
 
     #[test]
+    fn test_result_lines_are_counted_on_either_stream_and_never_guessed() {
+        // As libtest 1.99 writes them: a test binary's, a failing one's, the
+        // doc tests', and one after another write on the same line.
+        let out = "running 2 tests\n\
+                   test a ... ok\n\
+                   test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; \
+                   finished in 0.01s\n\
+                   test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 0 filtered \
+                   out; finished in 0.20s\r\n\
+                   note: say test result: ok. 7 passed; 0 failed; 2 ignored; 0 measured\n\
+                   test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; \
+                   finished in 0.00s";
+        let mut scanned = Vec::new();
+        let (_, _, tests) = tee_keeping(out.as_bytes(), &mut scanned, &[]).unwrap();
+        assert_eq!(scanned, out.as_bytes(), "the output is passed on unchanged");
+        assert_eq!(
+            tests,
+            TestCounts {
+                results: 4,
+                unreadable: 0,
+                passed: 13,
+                failed: 3,
+                ignored: 3,
+            }
+        );
+        // A line whose numbers cannot all be read is counted as unreadable,
+        // and adds nothing.
+        let odd = "test result: ok. many passed; 0 failed; 0 ignored\n\
+                   test result: ok. 1 passed; 0 failed\n\
+                   test result: ok. 1 passed; 1 passed; 0 failed; 0 ignored\n\
+                   test result: ok\n";
+        let (_, _, mut tests) = tee_keeping(odd.as_bytes(), &mut Vec::new(), &[]).unwrap();
+        assert_eq!(
+            tests,
+            TestCounts {
+                results: 4,
+                unreadable: 4,
+                ..TestCounts::default()
+            }
+        );
+        // The two streams' counts add up.
+        tests.add(TestCounts {
+            results: 1,
+            unreadable: 0,
+            passed: 2,
+            failed: 0,
+            ignored: 1,
+        });
+        assert_eq!((tests.results, tests.passed, tests.ignored), (5, 2, 1));
+        // The words are looked for anywhere on a line, so a line that only
+        // mentions them is one that cannot be read: `site` then refuses to
+        // publish counts, rather than guess.
+        let (_, _, tests) =
+            tee_keeping(&b"the test result: was fine\n"[..], &mut Vec::new(), &[]).unwrap();
+        assert_eq!((tests.results, tests.unreadable), (1, 1));
+        let (_, _, tests) =
+            tee_keeping(&b"test results: none\n"[..], &mut Vec::new(), &[]).unwrap();
+        assert_eq!(tests, TestCounts::default());
+    }
+
+    #[test]
     fn scanning_is_bounded() {
         // A very long line is kept only up to the bound.
         let mut scan = SkipScan::default();
@@ -648,7 +797,7 @@ mod tests {
         let input = "running 1 test\n  fuzz-result: target=json \r\ntest json ... fuzz-result: x\n\
                      test result: ok.\nfuzz-result: split";
         let mut out = Vec::new();
-        let (skips, kept) = tee_keeping(
+        let (skips, kept, _) = tee_keeping(
             input.as_bytes(),
             &mut out,
             &["fuzz-result:", "test result:"],
@@ -674,7 +823,7 @@ mod tests {
         }
         assert_eq!(scan.kept.len(), MAX_KEPT_LINES);
         // Without prefixes, nothing is kept.
-        let (_, kept) = tee_keeping(&b"x\n"[..], &mut Vec::new(), &[]).unwrap();
+        let (_, kept, _) = tee_keeping(&b"x\n"[..], &mut Vec::new(), &[]).unwrap();
         assert!(kept.is_empty());
     }
 
@@ -684,7 +833,7 @@ mod tests {
         let mut command = command(root, &["--version"]);
         command.envs([("XTASK_TEST_VARIABLE", "1")]);
         let (mut out, mut err) = (Vec::new(), Vec::new());
-        let (passed, _, kept) =
+        let (passed, _, kept, _) =
             scan_output(command, &["--version"], &mut out, &mut err, &["cargo "])
                 .expect("cargo runs");
         assert!(passed);
@@ -712,9 +861,10 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let scanned = |args: &[&str]| {
             let (mut out, mut err) = (Vec::new(), Vec::new());
-            let (passed, skips) =
+            let (passed, skips, tests) =
                 scan_skips(command(root, args), args, &mut out, &mut err).expect("cargo runs");
             assert_eq!(skips, Skips::default());
+            assert_eq!(tests, TestCounts::default());
             (
                 passed,
                 String::from_utf8(out).unwrap(),

@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M0.13 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -149,7 +149,7 @@ flowchart LR
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
-    c_xtask["xtask<br/>dev-only: the checks,<br/>fuzz-smoke"]
+    c_xtask["xtask<br/>dev-only: the checks,<br/>fuzz-smoke, the demo page"]
 
     i_os_win(("window, events,<br/>present, terminal<br/>raw mode<br/>planned M2.2, M7.1"))
     i_text(("Rope, Transaction,<br/>History, file"))
@@ -931,6 +931,7 @@ flowchart TB
         c_deps["deps.rs"]
         c_layers["layers.rs"]
         c_crates["crates.rs"]
+        c_features["features.rs"]
         c_unsafe["unsafe_audit.rs"]
         c_headers["headers.rs"]
         c_workflows["workflows.rs"]
@@ -943,12 +944,14 @@ flowchart TB
     f_readmes[("docs/roadmap.md<br/>the root's Cargo.toml,<br/>LICENSE and NOTICE<br/>each member's<br/>Cargo.toml, README.md,<br/>LICENSE and NOTICE")]
     f_ucd[("crates/text/ucd/17.0.0<br/>and the grapheme<br/>tables")]
     f_workflows[(".github/workflows")]
+    f_features[("docs/features.jsonc")]
 
     p_dev -->|"cargo xtask"| c_main
     c_main -->|"each check of ci"| i_step
     i_step --- c_deps
     i_step --- c_layers
     i_step --- c_crates
+    i_step --- c_features
     i_step --- c_unsafe
     i_step --- c_headers
     i_step --- c_workflows
@@ -958,19 +961,23 @@ flowchart TB
     c_crates -->|"reads, and compares<br/>each copy<br/>with the root's"| f_readmes
     c_ucd -->|"reads, and writes<br/>the tables<br/>without --check"| f_ucd
     c_workflows -->|"reads"| f_workflows
+    c_features -->|"reads, with<br/>the roadmap's<br/>task lines"| f_features
 
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class p_dev person
-    class c_main,i_step,c_deps,c_layers,c_crates,c_unsafe,c_headers,c_workflows,c_ucd built
+    class c_main,i_step,c_deps,c_layers,c_crates,c_features,c_unsafe,c_headers,c_workflows,c_ucd built
     class c_later planned
-    class f_matrix,f_readmes,f_ucd,f_workflows store
+    class f_matrix,f_readmes,f_ucd,f_workflows,f_features store
 ```
 
 - `headers` and `unsafe-audit` also read the source files, and `deps` the
   manifests, lockfiles and cargo configuration; those files are left out.
+- `cargo xtask site` runs these same steps through `check::run_gate`,
+  then the two examples, and fills `site/` into `target/site` (6.2,
+  ADR-0030).
 - The commands still to come exit 1 with "not yet implemented". The table
   of them in `check.rs` still says `bench` has no roadmap task; M1.9 is
   that task.
@@ -989,6 +996,8 @@ flowchart TB
     c_crates["crates.rs"]
     c_unsafe["unsafe_audit.rs"]
     c_fuzz["fuzz.rs"]
+    c_site["site.rs, site/page.rs<br/>the demo page"]
+    i_gate(("check::run_gate,<br/>Gate"))
 
     i_meta(("metadata::load"))
     i_matrix(("matrix::parse,<br/>classify"))
@@ -1006,6 +1015,10 @@ flowchart TB
     c_crates -->|"which lines count"| i_matrix
     c_main -->|"fmt, clippy, test"| i_cargo
     c_fuzz -->|"cargo test of<br/>each target"| i_cargo
+    c_site -->|"the ci steps"| i_gate
+    i_gate --- c_main
+    c_site --> i_meta
+    c_site -->|"cargo run<br/>--example"| i_cargo
 
     i_meta --- c_meta
     i_matrix --- c_matrix
@@ -1015,8 +1028,8 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
-    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_meta,c_matrix,c_cargo built
-    class i_meta,i_matrix,i_cargo built
+    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_site,c_meta,c_matrix,c_cargo built
+    class i_meta,i_matrix,i_cargo,i_gate built
     class e_cargo external
 ```
 
@@ -1029,12 +1042,15 @@ flowchart LR
     c_fuzz["fuzz.rs"]
     c_meta["metadata.rs"]
     c_crates["crates.rs"]
+    c_features["features.rs"]
+    c_site["site.rs, site/page.rs"]
 
     i_cli(("core: cli::Args,<br/>CoreError"))
     i_hash(("core:<br/>hash::sha256,<br/>to_hex, fnv1a64"))
     i_fuzzapi(("core:<br/>testing::fuzz<br/>Summary, Stop,<br/>keep_died"))
     i_json(("codec:<br/>json::parse_bytes"))
     i_toml(("codec:<br/>toml::parse"))
+    i_civil(("core:<br/>civil::DateTime"))
 
     c_core["tidepool-core<br/>built M0.2, M1.6"]
     c_codec["tidepool-codec<br/>built M1.4, M1.7"]
@@ -1046,16 +1062,22 @@ flowchart LR
     c_fuzz -->|"reads each<br/>result line"| i_fuzzapi
     c_meta -->|"parses cargo<br/>metadata's output"| i_json
     c_crates -->|"members' manifests"| i_toml
+    c_features -->|"docs/features.jsonc,<br/>as JSONC"| i_json
+    c_site -->|"rust-toolchain.toml"| i_toml
+    c_site -->|"writes the JSON-LD"| i_json
+    c_site -->|"the year of<br/>a local build"| i_civil
+    c_site -->|"--out"| i_cli
 
     i_cli --- c_core
     i_hash --- c_core
     i_fuzzapi --- c_core
     i_json --- c_codec
     i_toml --- c_codec
+    i_civil --- c_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_core,c_codec built
-    class i_cli,i_hash,i_fuzzapi,i_json,i_toml built
+    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_features,c_site,c_core,c_codec built
+    class i_cli,i_hash,i_fuzzapi,i_json,i_toml,i_civil built
 ```
 
 ### 6.4 fuzz-smoke and the fuzz targets

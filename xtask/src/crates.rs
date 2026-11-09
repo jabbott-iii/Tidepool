@@ -78,10 +78,11 @@
 //!   member whose manifest is not under the root fails too, unchecked.
 //!
 //! The tasks are the roadmap's lines that start `- [ ] **M<n>.<m> — ` or
-//! `- [x] **M<n>.<m> — `. When the roadmap cannot be read, or has no such
-//! line, the check cannot run; nor can it when `cargo metadata` fails, as it
-//! does on a manifest that is not TOML or holds a value cargo rejects, in
-//! the root or any member. Every file is read as [`walk::read_unlinked`]
+//! `- [x] **M<n>.<m> — ` ([`task_line`], with which `features` reads them
+//! too). When the roadmap cannot be read, or has no such line, the check
+//! cannot run; nor can it when `cargo metadata` fails, as it does on a
+//! manifest that is not TOML or holds a value cargo rejects, in the root or
+//! any member. Every file is read as [`walk::read_unlinked`]
 //! reads one, and is first checked to be a regular file, so that a FIFO is
 //! never opened. A violation names a path, a package or target name, a
 //! section or a task ID, never a line of a file: the first-line rule says
@@ -136,7 +137,7 @@ use crate::metadata::{self, Metadata, Resolve};
 use crate::walk;
 
 /// The roadmap, whose task IDs are the only ones a README may name.
-const ROADMAP: &str = "docs/roadmap.md";
+pub(crate) const ROADMAP: &str = "docs/roadmap.md";
 
 /// A member's manifest, and the root workspace's.
 const MANIFEST: &str = "Cargo.toml";
@@ -145,7 +146,7 @@ const MANIFEST: &str = "Cargo.toml";
 const README: &str = "README.md";
 
 /// The largest roadmap read, in bytes.
-const MAX_ROADMAP_BYTES: u64 = 4 * 1024 * 1024;
+pub(crate) const MAX_ROADMAP_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The largest manifest read, in bytes.
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -389,7 +390,7 @@ fn shown(root: &Path, rel: &str) -> String {
 ///
 /// [`Error::Read`], naming the file: the OS error for one that is missing
 /// (or a directory on the way), and otherwise what is wrong.
-fn read_file(root: &Path, rel: &str, limit: u64) -> Result<String, Error> {
+pub(crate) fn read_file(root: &Path, rel: &str, limit: u64) -> Result<String, Error> {
     let path = root.join(rel);
     let parts: Vec<&str> = rel.split('/').collect();
     let mut at = root.to_path_buf();
@@ -725,31 +726,53 @@ fn unknown_ids<'t>(text: &'t str, tasks: &BTreeSet<String>) -> Vec<&'t str> {
     unknown
 }
 
+/// The lines of the roadmap `text`, each without its LF or CR LF ending: as
+/// [`roadmap_tasks`] and `features` read them. A lone CR does not end a
+/// line here.
+pub(crate) fn roadmap_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+}
+
+/// A task of the roadmap, as [`task_line`] reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TaskLine<'a> {
+    /// Its ID, such as `M1.3`.
+    pub(crate) id: &'a str,
+    /// Its title: what follows the ID's ` — `, up to the next `**`, or to
+    /// the end of the line if no `**` follows.
+    pub(crate) title: &'a str,
+    /// Whether its box is ticked (`[x]`).
+    pub(crate) done: bool,
+}
+
+/// The task on `line` of the roadmap ([`roadmap_lines`]), if it starts
+/// `- [ ] **M<n>.<m> — ` or `- [x] **M<n>.<m> — `, where the ID is a
+/// [`leading_id`]: the reading of a task line that `crates` and `features`
+/// share.
+pub(crate) fn task_line(line: &str) -> Option<TaskLine<'_>> {
+    let (done, rest) = match line.strip_prefix("- [ ] **") {
+        Some(rest) => (false, rest),
+        None => (true, line.strip_prefix("- [x] **")?),
+    };
+    let id = leading_id(rest)?;
+    let title = rest.get(id.len()..)?.strip_prefix(" \u{2014} ")?;
+    let title = title.split_once("**").map_or(title, |(title, _)| title);
+    Some(TaskLine { id, title, done })
+}
+
 /// The task IDs of the roadmap `text`: those of its lines that start
 /// `- [ ] **M<n>.<m> — ` or `- [x] **M<n>.<m> — ` (with LF or CR LF
-/// endings).
+/// endings), as [`task_line`] reads them.
 ///
 /// # Errors
 ///
 /// [`Error::Doc`] if it has none: then no README's task IDs can be checked.
 fn roadmap_tasks(text: &str) -> Result<BTreeSet<String>, Error> {
-    let mut tasks = BTreeSet::new();
-    for line in text.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        let Some(rest) = line
-            .strip_prefix("- [ ] **")
-            .or_else(|| line.strip_prefix("- [x] **"))
-        else {
-            continue;
-        };
-        if let Some(id) = leading_id(rest)
-            && rest
-                .get(id.len()..)
-                .is_some_and(|after| after.starts_with(" \u{2014} "))
-        {
-            tasks.insert(id.to_string());
-        }
-    }
+    let tasks: BTreeSet<String> = roadmap_lines(text)
+        .filter_map(task_line)
+        .map(|task| task.id.to_string())
+        .collect();
     if tasks.is_empty() {
         return Err(Error::Doc {
             path: ROADMAP.to_string(),

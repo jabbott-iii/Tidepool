@@ -42,8 +42,10 @@ done when:
    with its real result;
 3. its checkbox is ticked, and only then;
 4. the docs are up to date: the subsystem spec where behavior or design
-   changed, the crate's `README.md` where what it has built changed, and an
-   ADR where a decision changed.
+   changed, the crate's `README.md` where what it has built changed, an
+   ADR where a decision changed, and the task's feature in
+   [`docs/features.jsonc`](docs/features.jsonc), whose summary describes
+   what is built now (`cargo xtask features` checks the ticks).
 
 A criterion that needs an OS, a tool or a device you do not have stays
 unticked, with a `⏳ needs <OS or tool>: <the remaining check>` line under
@@ -129,15 +131,17 @@ Windows, and the same commands CI runs:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
+| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
 | `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks one of `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License`, has one twice or out of that order, or names a task the roadmap does not have; or its `LICENSE` or `NOTICE` is missing or not byte for byte the root's |
+| `cargo xtask features` | Fails if a ticked roadmap task belongs to no feature in `docs/features.jsonc`, a feature names a task the roadmap lacks, or a feature's `ticked` is not what the roadmap ticks |
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
+| `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`: runs the gate and the two library examples, and fills `site/`. Not part of `ci`; the Pages workflow runs it after CI passes on `main` and publishes https://jabbott.dev/Tidepool/ |
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
 On the way, each with its roadmap task: `bench` (M1.9), `golden` (M2.4),
@@ -173,6 +177,8 @@ Then, as the change needs:
   before and after in the pull request.
 - **Managed tools, git or mobile:** the fake-tool tests, and the gated
   real-tool tests if you have the tool.
+- **The demo page** (`site/`): `cargo xtask site --out <a new folder>`,
+  then open its `index.html` at desktop and phone widths.
 - **`.github/`:** parse the YAML you changed, and keep every action pinned
   by its full commit SHA with its tag in a comment
   ([`docs/04-quality.md`](docs/04-quality.md) → "CI").
@@ -239,15 +245,18 @@ Update the docs in the same pull request when the change affects them:
   `Status` line.
 - `docs/roadmap.md` for a roadmap task: its tick, and a `Note:` with
   anything worth keeping, such as measured numbers or versions checked.
+- `docs/features.jsonc` when a task is ticked: its feature's summary and
+  `ticked`, which the demo page shows (ADR-0030).
 - `AGENTS.md` for a new command, crate or rule.
 - This file, `SECURITY.md`, `.github/pull_request_template.md` and
   `.github/ISSUE_TEMPLATE/` when the workflow, the checks or the reporting
   process change.
 
-Two documents are also read by the checks, so keep their shape:
+Three documents are also read by the checks, so keep their shape:
 `cargo xtask layers` reads the dependency matrix from
-`docs/01-architecture.md`, and a test of `xtask` reads the table of
-reference agents in `docs/subsystems/agents.md`.
+`docs/01-architecture.md`, a test of `xtask` reads the table of
+reference agents in `docs/subsystems/agents.md`, and `cargo xtask
+features` reads `docs/features.jsonc` with the roadmap's task lines.
 
 ## Commits and pull requests
 
@@ -285,10 +294,11 @@ what is in scope.
 By contributing, you agree that your contributions are licensed under the
 Apache License 2.0 (see [`LICENSE`](LICENSE), section 5).
 
-Every source file (Rust, shell scripts, workflows) starts with the
-license notice from the appendix of `LICENSE`, in that file's comment
-syntax, followed by a blank line; in a script it goes after the `#!` line
-(ADR-0021), and `cargo xtask headers` checks it. Material that is not the
+Every source file (Rust, shell scripts, workflows, and the demo page's
+HTML, CSS and JavaScript) starts with the license notice from the
+appendix of `LICENSE`, in that file's comment syntax, followed by a blank
+line; in a script it goes after the `#!` line, and in an HTML file after
+its doctype (ADR-0021, ADR-0030), and `cargo xtask headers` checks it. Material that is not the
 project's own keeps its own license and notice beside it, as the Unicode
 data does in `crates/text/ucd/17.0.0/license.txt` and the RFC 8259 examples
 do in `crates/codec/tests/json.rs`. The files the check exempts are

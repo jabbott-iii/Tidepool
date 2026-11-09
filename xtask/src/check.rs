@@ -26,6 +26,10 @@
 //! by design when their tool is not there). When every violation a check
 //! found is an out-of-date lockfile, its last line says so in fixed words
 //! ([`ONLY_STALE_LOCKFILES`]).
+//!
+//! `ci` and `cargo xtask site` run the gate with one runner, [`run_gate`],
+//! on one list, [`CI`]: `site` keeps what it returns, each step's verdict
+//! and time and the test step's counts, besides what `ci` prints.
 
 use std::borrow::Cow;
 use std::fmt::Write as _;
@@ -33,9 +37,9 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::cargo::Skips;
+use crate::cargo::{Skips, TestCounts};
 use crate::error::Error;
-use crate::{cargo, crates, deps, headers, layers, ucd, unsafe_audit, walk, workflows};
+use crate::{cargo, crates, deps, features, headers, layers, ucd, unsafe_audit, walk, workflows};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -51,6 +55,9 @@ pub(crate) struct Report {
     /// The tests that printed `SKIPPED:` instead of running: never a pass,
     /// but not a violation either.
     pub(crate) skips: Skips,
+    /// What libtest's `test result:` lines counted, for the test step.
+    /// Nothing prints it; `site` publishes it ([`Gate::tests`]).
+    pub(crate) tests: TestCounts,
 }
 
 impl Report {
@@ -133,6 +140,15 @@ pub(crate) const CRATES: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask features`.
+pub(crate) const FEATURES: Check = Check {
+    name: "features",
+    about: "Every ticked roadmap task belongs to a feature in docs/features.jsonc, and each \
+            feature's `ticked` is what the roadmap ticks",
+    step: Step::Own(features::run),
+    role: Role::Independent,
+};
+
 /// `cargo xtask unsafe-audit`.
 pub(crate) const UNSAFE_AUDIT: Check = Check {
     name: "unsafe-audit",
@@ -192,8 +208,16 @@ const TEST: &[&str] = &["test", "--workspace"];
 
 /// The checks that are subcommands of their own. `ucd` is listed as its
 /// `--check` form; without `--check` it runs [`UCD_WRITE`].
-pub(crate) const COMMANDS: &[Check] =
-    &[DEPS, LAYERS, CRATES, UNSAFE_AUDIT, HEADERS, WORKFLOWS, UCD];
+pub(crate) const COMMANDS: &[Check] = &[
+    DEPS,
+    LAYERS,
+    CRATES,
+    FEATURES,
+    UNSAFE_AUDIT,
+    HEADERS,
+    WORKFLOWS,
+    UCD,
+];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
 /// dependency problem is reported, and nothing is compiled, before
@@ -220,6 +244,7 @@ pub(crate) const CI: &[Check] = &[
     },
     LAYERS,
     CRATES,
+    FEATURES,
     UNSAFE_AUDIT,
     HEADERS,
     WORKFLOWS,
@@ -275,8 +300,11 @@ fn run_step(step: Step, root: &Path) -> Result<Report, Error> {
             Skips::default(),
         )),
         Step::Tests(args) => {
-            let (passed, skips) = cargo::run_scanning_skips(root, args)?;
-            Ok(cargo_report(args, passed, skips))
+            let (passed, skips, tests) = cargo::run_scanning_skips(root, args)?;
+            Ok(Report {
+                tests,
+                ..cargo_report(args, passed, skips)
+            })
         }
         Step::Own(run) => run(root),
     }
@@ -312,7 +340,18 @@ fn skipped_suffix(skipped: usize) -> String {
 
 /// Runs one check and prints what it found. Returns whether it passed.
 pub(crate) fn run_one(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<bool> {
-    Ok(run_reported(check, root, out)?.0)
+    Ok(run_reported(check, root, out)?.passed)
+}
+
+/// What [`run_reported`] returns of a check besides what it prints.
+#[derive(Clone, Copy, Debug)]
+struct Ran {
+    /// Whether it passed.
+    passed: bool,
+    /// How many of its tests printed `SKIPPED:`.
+    skipped: usize,
+    /// What its `test result:` lines counted.
+    tests: TestCounts,
 }
 
 /// The last line of a check that ran ([`run_reported`]): `<name>: ok` or
@@ -340,14 +379,15 @@ fn verdict(name: &str, violations: usize, stale_lockfiles: usize, skipped: usize
     }
 }
 
-/// [`run_one`], also returning how many tests printed `SKIPPED:`.
+/// [`run_one`], also returning how many tests printed `SKIPPED:`, and what
+/// libtest counted.
 ///
 /// After the notes and the `violation:` lines, each skipped test gets a
 /// `skipped: <reason>` line, and the last line counts them:
 /// `test: ok (2 SKIPPED)` or `test: FAILED (1 violation; 2 SKIPPED)`. When
 /// every violation is an out-of-date lockfile, it reads `deps: FAILED (1
 /// violation; only out-of-date lockfiles)` ([`verdict`]).
-fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<(bool, usize)> {
+fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<Ran> {
     let name = check.name;
     match run_step(check.step, root) {
         Ok(report) => {
@@ -376,11 +416,19 @@ fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<(
                     skips.count
                 )
             )?;
-            Ok((report.violations.is_empty(), skips.count))
+            Ok(Ran {
+                passed: report.violations.is_empty(),
+                skipped: skips.count,
+                tests: report.tests,
+            })
         }
         Err(error) => {
             writeln!(out, "{name}: FAILED: {}", printable(&error.to_string()))?;
-            Ok((false, 0))
+            Ok(Ran {
+                passed: false,
+                skipped: 0,
+                tests: TestCounts::default(),
+            })
         }
     }
 }
@@ -426,7 +474,57 @@ pub(crate) fn run_ci(
     root: &Path,
     out: &mut dyn Write,
 ) -> io::Result<bool> {
+    Ok(run_gate(checks, later, root, out)?.passed())
+}
+
+/// How a run of the gate went: each step's verdict and time, and what the
+/// test step's `test result:` lines counted.
+#[derive(Debug)]
+pub(crate) struct Gate {
+    outcomes: Vec<Outcome<'static>>,
+    tests: TestCounts,
+}
+
+impl Gate {
+    /// Whether every step passed.
+    pub(crate) fn passed(&self) -> bool {
+        self.outcomes
+            .iter()
+            .all(|outcome| outcome.status == Status::Passed)
+    }
+
+    /// How many steps passed, and how many there were.
+    pub(crate) fn steps(&self) -> (usize, usize) {
+        let passed = self
+            .outcomes
+            .iter()
+            .filter(|outcome| outcome.status == Status::Passed)
+            .count();
+        (passed, self.outcomes.len())
+    }
+
+    /// How many tests printed `SKIPPED:`, in every step: as the summary's
+    /// last line counts them.
+    pub(crate) fn skipped(&self) -> usize {
+        self.outcomes.iter().map(|outcome| outcome.skipped).sum()
+    }
+
+    /// What libtest's `test result:` lines counted, in every step.
+    pub(crate) fn tests(&self) -> TestCounts {
+        self.tests
+    }
+}
+
+/// [`run_ci`], returning how the run went rather than only whether it
+/// passed: what `ci` and `site` share. It prints the same either way.
+pub(crate) fn run_gate(
+    checks: &[Check],
+    later: &[Later],
+    root: &Path,
+    out: &mut dyn Write,
+) -> io::Result<Gate> {
     let mut outcomes = Vec::with_capacity(checks.len());
+    let mut tests = TestCounts::default();
     let mut failed_gate = None;
     for check in checks {
         writeln!(out, "== {}: {}", check.name, check.about)?;
@@ -451,8 +549,9 @@ pub(crate) fn run_ci(
         // heading has to be out before they start.
         out.flush()?;
         let start = Instant::now();
-        let (passed, skipped) = run_reported(check, root, out)?;
-        let status = if passed {
+        let ran = run_reported(check, root, out)?;
+        tests.add(ran.tests);
+        let status = if ran.passed {
             Status::Passed
         } else {
             if check.role == Role::Gate {
@@ -464,15 +563,13 @@ pub(crate) fn run_ci(
             name: check.name,
             status,
             elapsed: start.elapsed(),
-            skipped,
+            skipped: ran.skipped,
         });
         out.flush()?;
     }
     let pending: Vec<&Later> = later.iter().filter(|later| later.in_ci).collect();
     out.write_all(summary(&outcomes, &pending).as_bytes())?;
-    Ok(outcomes
-        .iter()
-        .all(|outcome| outcome.status == Status::Passed))
+    Ok(Gate { outcomes, tests })
 }
 
 /// How one step of `ci` went.
@@ -484,6 +581,11 @@ struct Outcome<'a> {
     /// How many of its tests printed `SKIPPED:`.
     skipped: usize,
 }
+
+/// The line that starts the table ending a `ci` run ([`summary`]), which
+/// `site` publishes from: every line from it on is this tool's own, built
+/// from step names, verdicts, times and counts.
+pub(crate) const SUMMARY: &str = "== summary";
 
 /// Formats the table that ends a `ci` run.
 fn summary(outcomes: &[Outcome<'_>], pending: &[&Later]) -> String {
@@ -508,7 +610,7 @@ fn summary(outcomes: &[Outcome<'_>], pending: &[&Later]) -> String {
         .chain([6])
         .max()
         .unwrap_or(6);
-    let mut table = String::from("== summary\n");
+    let mut table = format!("{SUMMARY}\n");
     let mut failed = Vec::new();
     let mut not_run = Vec::new();
     let skipped: usize = outcomes.iter().map(|outcome| outcome.skipped).sum();
@@ -711,7 +813,12 @@ mod tests {
     fn output_of_ci(checks: &[Check], later: &[Later]) -> (bool, String) {
         let mut out = Vec::new();
         let passed = run_ci(checks, later, Path::new("."), &mut out).unwrap();
-        let text = String::from_utf8(out).unwrap();
+        (passed, untimed(&String::from_utf8(out).unwrap()))
+    }
+
+    /// `text`, the output of a run of the gate, with the measured times
+    /// replaced by `?`.
+    fn untimed(text: &str) -> String {
         let lines: Vec<String> = text
             .lines()
             .map(|line| match line.strip_suffix(" s") {
@@ -722,7 +829,7 @@ mod tests {
                 None => line.to_string(),
             })
             .collect();
-        (passed, lines.join("\n"))
+        lines.join("\n")
     }
 
     #[test]
@@ -1062,6 +1169,82 @@ mod tests {
         );
     }
 
+    /// Tests that ran and were counted by libtest, one of which printed
+    /// `SKIPPED:`, as the test step reports them.
+    fn counted(_: &Path) -> Result<Report, Error> {
+        Ok(Report {
+            skips: Skips {
+                reasons: vec!["needs_git: TIDEPOOL_IT_GIT is not set".to_string()],
+                count: 1,
+            },
+            tests: TestCounts {
+                results: 3,
+                unreadable: 0,
+                passed: 12,
+                failed: 0,
+                ignored: 2,
+            },
+            ..Report::default()
+        })
+    }
+
+    #[test]
+    fn the_gate_ci_runs_is_the_one_site_keeps() {
+        let checks = [
+            check("deps", passing),
+            check("test", counted),
+            check("layers", violating),
+        ];
+        let later = [Later {
+            name: "theme",
+            task: "roadmap M3.2",
+            in_ci: true,
+        }];
+        let (passed, printed) = output_of_ci(&checks, &later);
+        let mut out = Vec::new();
+        let gate = run_gate(&checks, &later, Path::new("."), &mut out).unwrap();
+        // The same lines, and the same verdict, from either.
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(untimed(&text), printed);
+        assert!(!passed);
+        assert_eq!(gate.passed(), passed);
+        assert_eq!(gate.steps(), (2, 3));
+        assert_eq!(gate.skipped(), 1);
+        assert_eq!(
+            gate.tests(),
+            TestCounts {
+                results: 3,
+                unreadable: 0,
+                passed: 12,
+                failed: 0,
+                ignored: 2,
+            }
+        );
+        // The summary starts at its heading, the line `site` publishes from.
+        let summary = &text[text.rfind(&format!("{SUMMARY}\n")).unwrap()..];
+        assert!(summary.starts_with("== summary\ndeps "), "{summary}");
+        assert!(
+            summary.ends_with(
+                "ci: FAILED (1 test SKIPPED): 1 of 3 steps failed: layers; not yet implemented: \
+                 theme\n"
+            ),
+            "{summary}"
+        );
+        // A step not run counts as one that did not pass.
+        let gated = [
+            with_role("deps", violating, Role::Gate),
+            with_role("test", counted, Role::Compiles),
+        ];
+        let gate = run_gate(&gated, &[], Path::new("."), &mut Vec::new()).unwrap();
+        assert!(!gate.passed());
+        assert_eq!(gate.steps(), (0, 2));
+        assert_eq!(gate.tests(), TestCounts::default());
+        let all_pass = [check("deps", passing), check("test", counted)];
+        let gate = run_gate(&all_pass, &[], Path::new("."), &mut Vec::new()).unwrap();
+        assert!(gate.passed());
+        assert_eq!(gate.steps(), (2, 2));
+    }
+
     #[test]
     fn the_summary_lines_up_names_results_and_times() {
         let outcome = |name, status, elapsed| Outcome {
@@ -1111,6 +1294,7 @@ mod tests {
                 ("test", Role::Compiles),
                 ("layers", Role::Independent),
                 ("crates", Role::Independent),
+                ("features", Role::Independent),
                 ("unsafe-audit", Role::Independent),
                 ("headers", Role::Independent),
                 ("workflows", Role::Independent),
@@ -1144,6 +1328,7 @@ mod tests {
             ("test", Some("cargo test --workspace")),
             ("layers", None),
             ("crates", None),
+            ("features", None),
             ("unsafe-audit", None),
             ("headers", None),
             ("workflows", None),
@@ -1178,6 +1363,7 @@ mod tests {
         let deps_run: fn(&Path) -> Result<Report, Error> = deps::run;
         let layers_run: fn(&Path) -> Result<Report, Error> = layers::run;
         let crates_run: fn(&Path) -> Result<Report, Error> = crates::run;
+        let features_run: fn(&Path) -> Result<Report, Error> = features::run;
         let audit_run: fn(&Path) -> Result<Report, Error> = unsafe_audit::run;
         let headers_run: fn(&Path) -> Result<Report, Error> = headers::run;
         let workflows_run: fn(&Path) -> Result<Report, Error> = workflows::run;
@@ -1186,6 +1372,7 @@ mod tests {
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
         assert!(std::ptr::fn_addr_eq(own("crates"), crates_run));
+        assert!(std::ptr::fn_addr_eq(own("features"), features_run));
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
         assert!(std::ptr::fn_addr_eq(own("headers"), headers_run));
         assert!(std::ptr::fn_addr_eq(own("workflows"), workflows_run));

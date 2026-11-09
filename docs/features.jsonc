@@ -1,0 +1,274 @@
+// Tidepool's features, as the demo page at https://jabbott.dev/Tidepool/
+// lists them below the gate's and the examples' output (ADR-0030).
+//
+// Each feature names the roadmap tasks it needs (`docs/roadmap.md`). The
+// page marks it shipped when all of them are ticked, in progress when some
+// are, and planned when none are. `cargo xtask features`, part of
+// `cargo xtask ci`, fails when a ticked task belongs to no feature, or when a
+// feature's `ticked` is not what the roadmap ticks: the task that ships
+// something adds it to a feature here, or describes a new one, and brings
+// its feature's summary up to date.
+//
+// - `name`: a few words.
+// - `area`: Quality, Core, Text, Formats, Platform, Rendering, UI, Editor,
+//   Languages, Toolchains, Terminal, Git, AI, Mobile or Release.
+// - `summary`: what it does, for a reader who has not seen the code, in a
+//   sentence or three. What the ticked tasks built is in the present tense,
+//   and what is still to come in the future tense, so a planned feature's
+//   summary says what it will do. A task that is ticked rewrites its
+//   feature's summary to match. Speak of future work only from the
+//   feature's own `tasks`, and give no count that another feature's tasks
+//   will change: the check cannot tell a summary that another feature's
+//   task was ticked.
+// - `tasks`: the roadmap task IDs.
+// - `ticked`: those of `tasks` that were ticked when `summary` was written;
+//   left out when none were. The check fails when it is not what the
+//   roadmap ticks, so ticking a task means rewriting its feature's summary.
+//
+// `name`, `area` and `summary` are each one line of plain text: the check
+// fails one that holds a control character, a line or paragraph separator
+// or a bidirectional control.
+{
+  "features": [
+    {
+      "name": "No third-party crates",
+      "area": "Quality",
+      "summary": "Tidepool is built from this repository's crates and Rust's standard library alone: no package comes from crates.io or anywhere else. The build fails if a workspace or its lockfile gains a package from outside the repository, and each crate may use only the crates that the dependency matrix in the architecture document allows, read from that document on every run.",
+      "tasks": ["M0.1", "M0.3"],
+      "ticked": ["M0.1", "M0.3"]
+    },
+    {
+      "name": "Guardrails on every change",
+      "area": "Quality",
+      "summary": "Every pull request and every push to main runs one gate on Linux, macOS and Windows: formatting, Clippy with warnings as errors, every test, and checks of the dependencies, the layering and unsafe code, which only the two crates that talk to the OS may hold, each block with a comment that says why it is sound. The gate escapes what it quotes from the repository, reports every symbolic link rather than following it, and pauses GitHub's workflow commands while it runs, so no file can forge a line of the log.",
+      "tasks": ["M0.3", "M0.4", "M0.10", "M0.11"],
+      "ticked": ["M0.3", "M0.4", "M0.10", "M0.11"]
+    },
+    {
+      "name": "Supply chain and headers",
+      "area": "Quality",
+      "summary": "Every action the CI workflows use is pinned to a full commit SHA, Dependabot proposes an update only once it is a week old, and a check fails a workflow that uses an action, or gives its token a permission, that the check's table does not allow. CodeQL scans the Rust code and the workflows, and every source file starts with the Apache-2.0 license header, which a check enforces too.",
+      "tasks": ["M0.7", "M0.8"],
+      "ticked": ["M0.7", "M0.8"]
+    },
+    {
+      "name": "Diagrams and crate READMEs",
+      "area": "Quality",
+      "summary": "Every crate has a README in one shape: what it is, where it fits, what it has built and with which task, and how to use and check it, and the Rust examples in them run as tests. A check holds that shape, the manifests and each crate's copy of the license, and diagrams in Mermaid draw the architecture and the code, what is built solid and what is planned dashed with its task. Guides for contributors and for security reports set out how work is proposed, reviewed and reported.",
+      "tasks": ["M0.6", "M0.9", "M0.12", "M0.13"],
+      "ticked": ["M0.6", "M0.9", "M0.12", "M0.13"]
+    },
+    {
+      "name": "Performance budgets",
+      "area": "Quality",
+      "summary": "The budgets Tidepool is held to are written down and agreed, with the machine they are to be met on, an i7-11800H laptop: a keystroke on screen within 16 ms, the first frame within 300 ms of a cold start, and no redraw and next to no CPU while idle. A benchmark harness of our own will measure the text engine against a baseline recorded on that machine.",
+      "tasks": ["M0.5", "M1.9"],
+      "ticked": ["M0.5"]
+    },
+    {
+      "name": "A demo page from each commit",
+      "area": "Quality",
+      "summary": "This page will be built from each commit on main once CI has passed on it: the verdicts and test counts of the gate run on that commit, the output of two example programs run on fixed inputs, and these features, checked against the roadmap's ticks.",
+      "tasks": ["M0.14"]
+    },
+    {
+      "name": "Foundations in core",
+      "area": "Core",
+      "summary": "The pieces every crate shares: errors, logging that redacts registered secrets before a line is written anywhere, a property-test harness that prints the seed of a failure to run it again, a PCG32 random generator, FNV-1a, CRC-32 and SHA-256 checked against their standard vectors, a command-line parser, UTC dates and times, geometry, colors, input events and cancellation. Path helpers will follow, to canonicalize paths and to show one that is not UTF-8 without hiding its bytes.",
+      "tasks": ["M0.2", "M1.8"],
+      "ticked": ["M0.2"]
+    },
+    {
+      "name": "JSON and JSONC",
+      "area": "Formats",
+      "summary": "A parser and writers for JSON, strict RFC 8259 by default, and JSONC, with comments and trailing commas, when the caller asks for it. Bad input gets an error with its line and column, never a panic, and limits on size, depth, strings, numbers and entries keep a hostile document from exhausting memory or the stack.",
+      "tasks": ["M1.4"],
+      "ticked": ["M1.4"]
+    },
+    {
+      "name": "TOML 1.1",
+      "area": "Formats",
+      "summary": "A TOML 1.1 parser into a tree whose keys and values keep their place in the text, passing every valid and invalid case on toml-test's 1.1 list, with errors that give the line and column and the same kind of limits as JSON's. A document model that keeps comments, order and formatting will let Tidepool change a value and write the file back, unchanged everywhere else.",
+      "tasks": ["M1.7", "M1.5"],
+      "ticked": ["M1.7"]
+    },
+    {
+      "name": "The rope and positions",
+      "area": "Text",
+      "summary": "Text lives in a rope, so an edit anywhere in a large file stays cheap. A position is a byte offset that converts to characters, lines and columns, and to UTF-16 for language servers; grapheme boundaries follow Unicode 17.0, from tables generated from the official data; and 10,000 random edit sequences are checked against a plain string.",
+      "tasks": ["M1.1"],
+      "ticked": ["M1.1"]
+    },
+    {
+      "name": "Selections and the undo tree",
+      "area": "Text",
+      "summary": "Selections with any number of cursors, edits as change sets that apply at every cursor at once, and an undo tree that keeps every branch, so an edit after an undo loses nothing. Random sequences of edits, undos and redos are checked step by step against a model that keeps every revision's text.",
+      "tasks": ["M1.2"],
+      "ticked": ["M1.2"]
+    },
+    {
+      "name": "Encodings and the atomic save",
+      "area": "Text",
+      "summary": "Files open as UTF-8, or as UTF-16 by their byte-order mark, and a file that is not valid UTF-8 opens read-only with every byte kept. A save writes a temporary file beside the original, syncs it and renames it over, so a crash mid-save leaves the original whole, and keeps the line endings, the trailing newline and the file's permissions.",
+      "tasks": ["M1.3"],
+      "ticked": ["M1.3"]
+    },
+    {
+      "name": "A fuzzer of our own",
+      "area": "Quality",
+      "summary": "A mutation fuzzer written here drives a target for each parser from hand-made seeds, and fails on a panic, a hang or, on Linux, memory use past a cap. A finding is saved whole, every test run replays the saved ones, and for every pull request and push to main CI fuzzes every target for 30 seconds on Linux.",
+      "tasks": ["M1.6"],
+      "ticked": ["M1.6"]
+    },
+    {
+      "name": "A window on Linux",
+      "area": "Platform",
+      "summary": "Tidepool will open its window on Linux through X11, loaded at run time and declared by hand, and through XWayland on a Wayland desktop: events, a waker other threads can use, presenting only what changed, the clipboard, and the folders the system expects.",
+      "tasks": ["M2.1", "M2.2", "M2.7"]
+    },
+    {
+      "name": "Our own rasterizer and fonts",
+      "area": "Rendering",
+      "summary": "A CPU rasterizer of our own will draw rectangles, cut corners, lines, images and glyphs with blending and clipping, redrawing only what changed. A TrueType parser and outline rasterizer will set Saira and JetBrains Mono, bundled with their licenses, from a glyph atlas, and the first window will show both over the jabbott.dev backdrop.",
+      "tasks": ["M2.3", "M2.8", "M2.5", "M2.6"]
+    },
+    {
+      "name": "Golden frames",
+      "area": "Quality",
+      "summary": "Drawn frames will be compared pixel for pixel with committed references, stored as QOI images by a codec of our own; a changed pixel will fail with images of the difference, and a reference will change only when it is updated on purpose.",
+      "tasks": ["M2.4"]
+    },
+    {
+      "name": "The UI toolkit in the jabbott.dev style",
+      "area": "UI",
+      "summary": "A widget toolkit of our own will lay out, focus and route input to the controls of jabbott.dev's design, from cut-corner buttons to the command palette, colored by theme tokens that a check holds to their contrast minimums, with an accessibility tree from the start. The shell will put the title strip, activity bar, side and bottom panels and status bar around the editor, and draw nothing while idle.",
+      "tasks": ["M3.1", "M3.2", "M3.5", "M3.6", "M3.3", "M3.4"]
+    },
+    {
+      "name": "Editing Tidepool with Tidepool",
+      "area": "Editor",
+      "summary": "The editor view will draw the text with cursors, selections, a gutter and soft wrap, and edit with many cursors at once, one undo step per command; keymaps will be TOML files, with your bindings over the defaults. Folders will open untrusted until you trust them, files will open in tabs and splits and reload when changed outside, and unsaved work will come back after a crash.",
+      "tasks": ["M4.1", "M4.6", "M4.2", "M4.7", "M4.3", "M4.5", "M4.9"]
+    },
+    {
+      "name": "Search",
+      "area": "Editor",
+      "summary": "A regex engine of our own will run in time linear in the text, whatever the pattern, with Unicode classes, behind find and replace, project search streamed from worker threads, and a fuzzy file finder.",
+      "tasks": ["M4.8", "M4.4"]
+    },
+    {
+      "name": "Managed toolchains",
+      "area": "Toolchains",
+      "summary": "Tidepool will find, install and update rustup, the Rust toolchain, rust-analyzer and git through their official channels: each install plan shown and confirmed before it runs, each download checked against a pinned SHA-256, and no secret on a command line or in a log. A Toolchains panel and a first-run checklist will take a new user to a working Rust setup without leaving the IDE.",
+      "tasks": ["M5.1", "M5.7", "M5.2", "M5.3", "M5.5", "M5.6"]
+    },
+    {
+      "name": "An integrated terminal",
+      "area": "Terminal",
+      "summary": "A terminal emulator of our own, with truecolor, wide characters, scrollback and reflow, will run shells and full-screen programs such as vim, less and htop in a panel, through a pseudo-terminal on Linux.",
+      "tasks": ["M5.8", "M5.9", "M5.4"]
+    },
+    {
+      "name": "Rust, first-class",
+      "area": "Languages",
+      "summary": "Tidepool will drive rust-analyzer through a JSON-RPC and LSP client of our own, for diagnostics, navigation, hover, completion, rename, formatting and code actions, with cargo's errors in a Problems panel. Incremental lexers will highlight Rust, Markdown and TOML, and an untrusted workspace will run no build script or proc macro.",
+      "tasks": ["M6.1", "M6.2", "M6.7", "M6.8", "M6.3", "M6.4"]
+    },
+    {
+      "name": "Markdown, first-class",
+      "area": "Languages",
+      "summary": "A CommonMark and GitHub Flavored Markdown parser of our own will drive a preview in jabbott.dev's prose style, an outline, and checks of relative links and anchors.",
+      "tasks": ["M6.5", "M6.6"]
+    },
+    {
+      "name": "The terminal UI and vim mode",
+      "area": "Terminal",
+      "summary": "tidepool --tui will run the IDE in a terminal, over SSH too, with vim-style modal editing: motions, operators, text objects, visual modes, registers, marks, macros, dot-repeat, search and ex commands, checked against Vim itself.",
+      "tasks": ["M7.1", "M7.2", "M7.3", "M7.4", "M7.5"]
+    },
+    {
+      "name": "Git without leaving Tidepool",
+      "area": "Git",
+      "summary": "Through the git command line, Tidepool will mark changed lines in the gutter, stage and unstage files and hunks, commit, switch branches and stash, each only when you ask, and show side-by-side and inline diffs, blame and file history.",
+      "tasks": ["M8.1", "M8.2", "M8.3"]
+    },
+    {
+      "name": "AI agents",
+      "area": "AI",
+      "summary": "Language agents will plug in as separate programs over the Tidepool Agent Protocol, starting with a mock, a local one and one for Claude. Tidepool will choose what an agent sees, with a deny-list and your consent, sending only the focused buffer from an untrusted workspace; chat will stream, and an edit will arrive as a diff to accept as one undo step or reject.",
+      "tasks": ["M9.1", "M9.2", "M9.3", "M9.5", "M9.6"]
+    },
+    {
+      "name": "Predictive text",
+      "area": "AI",
+      "summary": "Offline predictive text will complete as you type with no agent installed, merged with the language server's and the agents' suggestions in one popup and as ghost text, and never slowing a keystroke.",
+      "tasks": ["M9.4"]
+    },
+    {
+      "name": "Android apps",
+      "area": "Mobile",
+      "summary": "Tidepool will install the JDK, the Android SDK and NDK and bundletool, build Gradle projects and Gradle-free Java and Rust apps, and sign APKs with the SDK's apksigner and app bundles with the JDK's jarsigner, never with a password on a command line. Panels will manage the SDK and devices, show logcat, and run the apps on an emulator.",
+      "tasks": ["M10.1", "M10.3", "M10.4", "M10.5", "M10.6"]
+    },
+    {
+      "name": "Archives and images",
+      "area": "Formats",
+      "summary": "Inflate, deflate, PNG, ZIP and XML, each written here with a fuzz target of its own, will let Tidepool look inside what Android's tools build, refusing an archive entry that would land outside its folder.",
+      "tasks": ["M10.7", "M10.2"]
+    },
+    {
+      "name": "macOS",
+      "area": "Platform",
+      "summary": "Tidepool will run natively on macOS 13 and later through AppKit, declared by hand: windows, events, the clipboard, processes, terminals and file watching, passing the tests that Linux passes.",
+      "tasks": ["M11.7", "M11.8", "M11.1"]
+    },
+    {
+      "name": "iOS apps",
+      "area": "Mobile",
+      "summary": "On a Mac, or from Linux through a Mac reached over SSH, Tidepool will build and sign iOS apps from Xcode projects or plain Rust, verified with codesign and launched in the simulator, with panels for simulators and signing; and Tidepool itself will be packaged for macOS.",
+      "tasks": ["M11.2", "M11.3", "M11.4", "M11.5", "M11.6"]
+    },
+    {
+      "name": "Windows",
+      "area": "Platform",
+      "summary": "Tidepool will run on Windows 10 1809 and later through Win32, declared by hand, with high-DPI windows, ConPTY terminals, file watching and winget install plans, and the repository's own tooling will work there too.",
+      "tasks": ["M12.1", "M12.2", "M12.3", "M12.5"]
+    },
+    {
+      "name": "Debugging",
+      "area": "Languages",
+      "summary": "Rust programs will run under a managed lldb-dap or CodeLLDB, with breakpoints, stepping, the stack, variables, watches and a console.",
+      "tasks": ["M13.1"]
+    },
+    {
+      "name": "More languages",
+      "area": "Languages",
+      "summary": "Language packs will bring highlighting, and a managed language server where there is one, to C and C++, Python, JavaScript and TypeScript, Go, Java, Kotlin, Swift, shell, SQL, HTML and CSS, YAML, JSON, Dockerfiles and Makefiles, with their lexers written as rules in the pack.",
+      "tasks": ["M13.2", "M13.3"]
+    },
+    {
+      "name": "Image and hex viewers",
+      "area": "Editor",
+      "summary": "PNG files will open in an image viewer and binary files in a hex view, and a broken PNG will show an error.",
+      "tasks": ["M13.4"]
+    },
+    {
+      "name": "Screen readers",
+      "area": "UI",
+      "summary": "The accessibility tree will reach the screen readers of every desktop, through AT-SPI on Linux, NSAccessibility on macOS and UI Automation on Windows, so that a screen reader announces where the focus moves.",
+      "tasks": ["M14.2"]
+    },
+    {
+      "name": "Signed packages for every desktop",
+      "area": "Release",
+      "summary": "Tidepool will be packaged for Linux, macOS and Windows, signed and built from a tag by a release workflow, and each package will run a smoke test of itself before it ships.",
+      "tasks": ["M12.4", "M14.4"]
+    },
+    {
+      "name": "Release readiness",
+      "area": "Release",
+      "summary": "Before the first release, every parser will get a nightly fuzz campaign, every performance budget will be measured on the reference machine, a security review will cover the whole tree, users will get a guide, and a release-candidate dry run will walk the release checklist.",
+      "tasks": ["M14.1", "M14.3", "M14.7", "M14.5", "M14.6"]
+    }
+  ]
+}

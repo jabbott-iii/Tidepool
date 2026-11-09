@@ -98,7 +98,10 @@ part lands on the roadmap:
 - **Build automation and CI:** `xtask`, which must never reach the network
   or read secrets; the Claude Code hook in `.claude/hooks/`; and the
   workflows in `.github/workflows/`, such as script injection, an unpinned
-  action, or a token with more permissions than its job needs.
+  action, or a token with more permissions than its job needs; and the
+  demo page they publish at https://jabbott.dev/Tidepool/, such as
+  repository text reaching it unescaped, or a write token reaching the
+  repository's code.
 
 Out of scope:
 
@@ -131,7 +134,8 @@ are no dependency advisories to track beyond Rust's standard library.
   `cargo test` replays the seeds and the saved crashes (ADR-0027).
 - CI's workflows pin each action by its full commit SHA, and their
   tokens read the repository only, but for CodeQL's upload of its results
-  to code scanning. `cargo xtask workflows` checks the pins, and that no
+  to code scanning and the demo page's deploy job, which writes only to
+  Pages (ADR-0030). `cargo xtask workflows` checks the pins, and that no
   job writes beyond its workflow's row, on every push; CodeQL scans the
   Rust code and the workflows; and Dependabot proposes new pins once a
   release is a week old (ADR-0022).

@@ -26,6 +26,10 @@ processes. They are never linked, bundled or reimplemented.
 | A `cargo install`-ed tool that CI depends on | GitHub Actions used by CI, pinned by commit SHA (`docs/04-quality.md`; checked by `cargo xtask workflows`, ADR-0022) |
 | Bundling an outside program's binary in Tidepool's download (ADR-0002) | Code the owner wrote in another repository (such as Nadir), ported in with a note in the change |
 
+The demo page (ADR-0030) loads jabbott.dev's stylesheet and script and
+Google Fonts in its visitors' browsers. None of them is in the repository,
+the binary or `xtask`, so they are not dependencies.
+
 Reading a public specification (LSP, DAP, CommonMark, TrueType, ZIP,
 DEFLATE, PNG, QOI, TOML, JSON, VT/ECMA-48, the APK and AAB formats) and
 implementing it ourselves is **not** a dependency. That is the intended path.

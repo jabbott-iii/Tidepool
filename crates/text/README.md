@@ -151,6 +151,9 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+`cargo run -p tidepool-text --example editing` runs the example whose
+output Tidepool's demo page shows: positions, graphemes, undo and the save.
+
 ## Documentation
 
 - Design: [`docs/subsystems/text-and-formats.md`](../../docs/subsystems/text-and-formats.md)

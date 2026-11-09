@@ -310,7 +310,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0017 — `xtask` runs `cargo` itself, as a narrow exception to rule 2
 
-- **Status:** Accepted
+- **Status:** Accepted; extended by ADR-0030 (`cargo xtask site`'s children: the gate's steps, run in-process, and `cargo run --example` of one example each of `tidepool-codec` and `tidepool-text`)
 - **Date:** 2026-11-01
 - **Context:** `AGENTS.md` rule 2 says only `tidepool-toolchain` finds,
   installs, updates or spawns outside programs. `cargo xtask ci` (M0.3)
@@ -544,7 +544,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0021 — Every source file starts with the Apache-2.0 header of `LICENSE`'s appendix; `cargo xtask headers` checks it; the RFC 8259 examples keep the IETF Trust's notice
 
-- **Status:** Accepted
+- **Status:** Accepted; extended by ADR-0030 (HTML, CSS and JavaScript files carry the header too, as the demo page's do)
 - **Date:** 2026-11-02
 - **Context:**
   - On 2026-11-01, asked which of Nadir's conventions Tidepool should
@@ -626,7 +626,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0022 — CodeQL scans the Rust code and the workflows with pinned actions; Dependabot updates the pins; `cargo xtask workflows` enforces the CI supply-chain rules
 
-- **Status:** Accepted
+- **Status:** Accepted; extended by ADR-0030 (the `pages.yml` row: GitHub's two Pages actions besides checkout and cache, and the deploy job's `pages` and `id-token` writes)
 - **Date:** 2026-11-02
 - **Context:**
   - `docs/04-quality.md` → "CI" says every action is pinned by its full
@@ -1239,3 +1239,247 @@ decides; the roadmap task that first depends on one asks for the decision.
     GitHub draws their layout poorly.
 - **Revisit when:** a check can compare a diagram with the code (the crate
   graph with the dependency matrix, say), or GitHub stops drawing Mermaid.
+
+## ADR-0030 — The demo page at jabbott.dev/Tidepool/ shows the commit's gate and two library examples; a features file covers the roadmap; `pages.yml` publishes it after CI passes on `main`
+
+- **Status:** Accepted
+- **Date:** 2026-11-08
+- **Context:**
+  - On 2026-11-08 the user asked for a deployed demo page in the style of
+    <https://jabbott.dev/Nadir/>, which Nadir's ADR-0029 builds from the
+    Nadir repository, with <https://jabbott.dev/> as the primary site and
+    the source of its style, and for it to update by itself on push.
+  - <https://jabbott.dev/Tidepool/> already serves the root `README.md`,
+    rendered by GitHub Pages' Jekyll build: `gh api
+    repos/jabbott-iii/Tidepool/pages` gave `build_type` `legacy` and the
+    source `main`, `/`, on 2026-11-08. jabbott.dev's Deployments menu finds
+    Pages sites from GitHub by itself, so it links that address already.
+  - Tidepool is headless. Nothing draws before M2.6 (the GUI's first
+    frame) or M7.1 (the TUI), so there is nothing to record as Nadir
+    records its sandbox. What runs today is the gate (`cargo xtask ci`) and
+    the libraries: JSON, JSONC and TOML 1.1 in `tidepool-codec`; the rope,
+    positions, graphemes, selections, change sets, undo tree, encodings and
+    atomic save in `tidepool-text`.
+  - ADR-0017 lets `xtask` start only `cargo`, and lists its children
+    (ADR-0027 added `fuzz-smoke`'s). Rule 2 leaves every other program,
+    `git` among them, to `tidepool-toolchain`, which `xtask`'s matrix row
+    (`core`, `codec`) does not allow. `xtask` makes no network calls
+    (`docs/04-quality.md`).
+  - ADR-0021 puts the license header on Rust, shell and workflow files: a
+    new kind of source file joins the check when the first one appears.
+  - ADR-0022's table has rows for `ci.yml` and `codeql.yml` only, and only
+    CodeQL's analysis job may write. A Pages deployment from a workflow
+    needs GitHub's `actions/upload-pages-artifact` and
+    `actions/deploy-pages`, and a deploy job with at least `pages: write`
+    and `id-token: write` (GitHub's docs, "Using custom workflows with
+    GitHub Pages", read on 2026-11-08).
+  - Nadir's ADR-0029 and its code are the model: `xtask/src/site.rs`,
+    `site/page.rs` and `features.rs`, `docs/features.jsonc`, `site/` and
+    `.github/workflows/pages.yml`. It is the owner's code, which Tidepool
+    ports with a note (`docs/02-dependency-policy.md`).
+  - The user made the four choices below on 2026-11-08, each the
+    recommended option, in the session that asked for the page: the demo
+    panel, the features, publishing, and the commit's facts. They reached
+    this record through that session's design brief, so it stayed
+    `Proposed` until the user accepted it as written, on 2026-11-08.
+- **Decision:**
+  - **The commit's real output, not a recording or a web build.** The
+    page's main panel has three tabs, each made on the commit it names:
+    - **The gate:** the steps of `cargo xtask ci` as `site` ran them, each
+      with its verdict and time, and the tests passed, failed and ignored,
+      summed from libtest's `test result:` lines, with the `SKIPPED:` count
+      beside them and never among the passes (`AGENTS.md` rule 9). The page
+      says where it ran: on the Pages job's Linux runner, after CI passed
+      on Linux, macOS and Windows.
+    - **`tidepool-codec`:** what its example `formats`
+      (`crates/codec/examples/formats.rs`) prints.
+    - **`tidepool-text`:** what its example `editing`
+      (`crates/text/examples/editing.rs`) prints.
+
+    Each example runs on fixed inputs written in its source, and prints
+    only what follows from them: nothing of the clock, the machine or the
+    environment, such as an absolute path. So their tabs say the same
+    wherever the page is built.
+  - **`cargo xtask site [--out DIR]`** builds the page into `target/site`,
+    or into `DIR`, which must be new, empty, or marked by an earlier run
+    with the file `.tidepool-site`. A run removes only what an earlier one
+    wrote (Nadir's `MARK` and `WRITTEN`). It:
+    1. checks `docs/features.jsonc` as `cargo xtask features` does;
+    2. runs the gate in-process, the same steps `cargo xtask ci` runs,
+       recording each step's verdict and time and the counts above;
+    3. runs each example with `cargo run --quiet -p <package> --example
+       <name>`, reading its standard output, and fails on an exit status
+       other than 0 or output that is not UTF-8;
+    4. fills `site/index.html` and `site/llms.txt`, whose placeholders are
+       names in double braces that the comment at the top of
+       `site/index.html` defines, and copies `site/tidepool.css` and
+       `site/tidepool.js` beside them.
+
+    It fails, writing nothing, when the output directory or one of the
+    variables below is not valid, or the features, a gate step or an
+    example fail. It starts no program but `cargo`, makes no network
+    calls, and reads and writes only the workspace and its output
+    directory. What it fills into the page is escaped for HTML, and what it
+    fills into `llms.txt` has its control characters escaped as `xtask`
+    escapes its messages.
+  - **The commit's facts** (`xtask` still starts only `cargo`):
+    `pages.yml` reads the commit's hash, date and subject with `git log -1`
+    and passes them to `cargo xtask site` in three variables:
+    `TIDEPOOL_SITE_COMMIT` (40 lowercase hex digits),
+    `TIDEPOOL_SITE_DATE` (the committer date, `YYYY-MM-DD`) and
+    `TIDEPOOL_SITE_SUBJECT` (one line, at most 200 characters once
+    trimmed, with no control characters, line or paragraph separators or
+    bidirectional controls).
+    - All three or none. `site` checks each, and fails naming the variable
+      that is wrong, never echoing its value unescaped.
+    - With none, a local build, `site` reads HEAD's hash from `.git`
+      itself: `HEAD`, then the loose ref or `packed-refs`. It never runs
+      `git`. The page then shows no date or subject, and says it is a
+      local build.
+    - Where HEAD cannot be read that way, as in a linked worktree, whose
+      `.git` is a file, the page says the commit is unknown and `site`
+      prints why, rather than failing, since a local build is never
+      published.
+  - **`docs/features.jsonc`** lists the features in Nadir's format,
+    `{"features": [{"name", "area", "summary", "tasks", "ticked"}]}`, with
+    the comment that explains it at the top. Its areas are Quality, Core,
+    Text, Formats, Platform, Rendering, UI, Editor, Languages, Toolchains,
+    Terminal, Git, AI, Mobile and Release. The page marks each feature
+    shipped, in progress or planned from the roadmap's ticks.
+    - Each feature lists, as `ticked`, the tasks that were ticked when its
+      summary was written.
+    - **`cargo xtask features`**, a step of `ci` right after `crates`, is
+      Nadir's check ported. It fails when a ticked task belongs to no
+      feature, a feature names a task the roadmap lacks, or a feature's
+      `ticked` is not what the roadmap ticks: ticking a task means bringing
+      its feature's summary up to date.
+    - It reads the roadmap's tasks with `crates`' reader
+      (`xtask/src/crates.rs`), not a second one.
+  - **The page's files** are `site/index.html` (the template),
+    `site/tidepool.css`, `site/tidepool.js`, and `site/llms.txt`, a
+    template of the same in plain text for language models, served as it
+    is and so without a header. The page loads jabbott.dev's live
+    stylesheet (`https://jabbott.dev/assets/css/style.css`) and script
+    (`https://jabbott.dev/assets/js/site.js`) and Google Fonts, as Nadir's
+    does, and its header and footer repeat that site's. `tidepool.css` adds
+    the page's own components with that site's tokens. ADR-0004's bundled
+    fonts are the IDE's; the page is a page of jabbott.dev, in its fonts.
+  - **`.github/workflows/pages.yml`** has Nadir's three jobs, under
+    Tidepool's CI rules:
+    - It runs after CI succeeds on a push to `jabbott-iii/Tidepool`'s
+      `main` (`workflow_run`), or by hand from `main`, and publishes only
+      `main`'s newest commit.
+    - A gate job, which waits in no queue, skips a commit `main` has moved
+      past. A run by hand publishes only a commit whose push to `main` CI
+      passed; its gate has `actions: read` to find that run.
+    - The build and the deploy each wait in a queue of their own, so a run
+      that will not publish never displaces one that will. They run only
+      in the attempt whose gate let them through, and each attempt uploads
+      an artifact of its own, as in Nadir's.
+    - The build job, on `ubuntu-latest` with `contents: read`, checks
+      `main` again, checks out the commit with `persist-credentials:
+      false`, and runs `cargo xtask site` with `CARGO_NET_OFFLINE: "true"`
+      and the three variables set inline for that command only, never
+      through `$GITHUB_ENV`. It uploads `target/site`.
+    - Every `run:` step that reads the checkout or runs its code pauses
+      workflow commands with a fresh token (M0.11).
+    - Only the deploy job writes, to `pages` and `id-token`. It checks
+      nothing out and runs none of the repository's code.
+    - Top-level permissions are `{}`. Each action is pinned by its commit
+      SHA, with its tag in a comment.
+    - It replaces the README that Jekyll serves at `/Tidepool/`. The user
+      switches Settings → Pages → Source to "GitHub Actions".
+  - **Trust boundaries.**
+    - Whatever the page shows, it shows to everyone. The gate's tab gives
+      verdicts, times and counts, never a line that cargo or a test
+      printed, so no path, name or value printed during the gate is
+      published; the examples print only what their fixed inputs give.
+      The subject is the one text from outside the code that reaches the
+      page: checked, then escaped like everything filled in.
+    - The build runs `main`'s code, which CI has just run, with a token
+      that can only read the repository and is not left in `.git/config`.
+      The cache it restores is `main`'s: a run on the default branch
+      restores no pull request's cache (GitHub's docs, "Dependency
+      caching", read on 2026-11-08). No run from a fork or a pull request
+      reaches the build, since the gate takes only a successful CI run of a
+      push to this repository's `main`.
+    - The deploy job's write tokens never meet the repository's code.
+    - Visitors' browsers fetch jabbott.dev's stylesheet and script and
+      Google's fonts, with no integrity hashes, since the page follows the
+      live files.
+  - **This extends three ADRs:**
+    - ADR-0017: `site`'s children are the gate's (`cargo metadata`, `cargo
+      locate-project`, and the fmt, clippy and test steps), and `cargo run
+      --quiet -p tidepool-codec --example formats` and `cargo run --quiet
+      -p tidepool-text --example editing`. Each is an argv vector, run in
+      the root, offline, with standard input closed. Nothing but cargo
+      runs.
+    - ADR-0021: `headers` also checks `.html` files (an HTML comment, after
+      a `<!doctype html>` line if there is one), `.css` files (a `/* … */`
+      comment) and `.js` files (`//` lines), as Nadir's check does.
+      `site/llms.txt` and `docs/features.jsonc` are data, with no header.
+    - ADR-0022: `pages.yml` gets a row in `WORKFLOWS`: it may use
+      `actions/checkout`, `actions/cache`, `actions/upload-pages-artifact`
+      and `actions/deploy-pages`, and its deploy job may write `pages` and
+      `id-token`.
+  - Roadmap M0.14 is the task.
+- **Consequences:**
+  - Good:
+    - The page shows what the commit does, made on that commit: the gate's
+      verdicts and counts, and the libraries' own output. Only the
+      features' summaries are written by hand, and the check keeps them in
+      step with the ticks.
+    - Every ticked task describes what it ships, for the page and for
+      anyone reading `docs/features.jsonc`.
+    - No crate is added, `xtask` still starts only `cargo`, and nothing in
+      the libraries is there for the web.
+    - The address stays the same, so jabbott.dev's Deployments menu keeps
+      linking it.
+  - Bad:
+    - A publishing job holds write tokens, through two more actions.
+    - The build job runs the whole gate again, after CI has, so a push to
+      `main` costs a second Linux run of it before the page changes.
+    - An example that fails when run, rather than when built, fails only
+      the Pages build: `cargo test` builds the examples but does not run
+      them.
+    - The page depends on jabbott.dev's markup and class names, and on
+      Google Fonts when it is viewed.
+    - `/Tidepool/` no longer shows the README; GitHub's repository page
+      still does.
+    - When the newest commit fails CI, the page waits for the next one
+      that passes.
+    - A page built locally names its commit but not its date or subject.
+    - `docs/features.jsonc` is one more place that holds status, which
+      `features` checks against the ticks but not against the code.
+- **Alternatives considered:**
+  - A WASM build that runs in the browser: it needs a web platform layer,
+    a canvas and the browser's event loop, and there is nothing to draw
+    yet.
+  - Recording the TUI or the GUI, as Nadir records its sandbox: neither
+    exists before M7.1 and M2.6.
+  - Only the gate's run: it shows the checks, not what the libraries do.
+  - No demo panel, only the features: the page would show nothing the
+    commit did.
+  - Features made from the roadmap's milestones or task titles: they read
+    as a plan, not as what is built.
+  - Letting `xtask` run `git` for the commit's facts: rejected. Rule 2
+    stays as ADR-0017 left it; `git` is a managed tool, and `toolchain`
+    is outside `xtask`'s matrix row.
+  - Publishing on every push: a push that fails CI, or to another branch,
+    would replace the page, and the page could go back to an older commit.
+  - Pushing the page to a `gh-pages` branch with `contents: write`: that
+    token could write any branch, where the Pages deployment's can write
+    only Pages.
+  - A copy of jabbott.dev's stylesheet in the repository: it would not
+    follow that site's changes.
+  - Keeping the README at `/Tidepool/` and the demo at a subpath: Pages
+    serves one source a repository, so the workflow would have to render
+    the Markdown too.
+  - Downloading CI's results as an artifact instead of running the gate
+    again in the Pages job: one more action, and a page built from another
+    run's files, which a later job then trusts; the second run costs only
+    time.
+- **Revisit when:** the TUI (M7.1) or the GUI (M2.6) can be recorded; a
+  WASM or web build becomes a goal; jabbott.dev changes its markup or
+  class names; the Pages job takes more than 15 minutes; or DEFLATE in
+  `codec` (M10.7) lets `xtask` read the commit's objects itself.

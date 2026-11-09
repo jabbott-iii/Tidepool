@@ -10,6 +10,7 @@ paths:
   - "xtask/README.md"
   - "bench/README.md"
   - "diagrams/**"
+  - "site/**"
 ---
 
 # Rules for docs, the roadmap and READMEs
@@ -27,12 +28,17 @@ paths:
     the task lines of `docs/roadmap.md` (`- [ ] **M1.3 — ` and
     `- [x] **M1.3 — `), and reads each crate README (below). Run it after
     editing a README or a task line.
-- **Status lives in five places:** the roadmap's ticks, the status
+  - `cargo xtask features` reads `docs/features.jsonc` and the roadmap's
+    task lines: ticking a task updates its feature's summary and `ticked`
+    in the same change. Run it after editing either.
+- **Status lives in seven places:** the roadmap's ticks, the status
   paragraph of `AGENTS.md`, the status line of the root `README.md`, the
   `## Status` section (and the `## Usage` line of a crate with nothing to
-  use yet) of each crate's `README.md`, and what `diagrams/` draws solid or
-  dashed (ADR-0029). Keep them in agreement, and do not add status to other
-  docs.
+  use yet) of each crate's `README.md`, what `diagrams/` draws solid or
+  dashed (ADR-0029), the features' `ticked` lists and summaries in
+  `docs/features.jsonc`, and what the demo page's two diagrams in
+  `site/index.html` draw solid or dashed (ADR-0030). Keep them in
+  agreement, and do not add status to other docs.
 - **Write what exists in the present tense, and what does not with its
   task:** "`core::path` lands in M1.8". Never describe a command, crate,
   module or file as existing before it does.

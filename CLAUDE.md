@@ -26,7 +26,7 @@ coding agent. This section covers only what is specific to Claude Code.
 | `language-support` | `syntax`, `markdown`, `rpc`, `lang`, language packs |
 | `mobile-toolchain` | `toolchain` (all managed tools), `mobile` |
 | `ai-agents` | `agent`, TAP, predictive text, `agents/` |
-| `test-engineer` | `testkit`, harnesses, `xtask`, `bench`, CI workflows |
+| `test-engineer` | `testkit`, harnesses, `xtask`, `bench`, CI workflows, the demo page (`site/`, `pages.yml`) |
 | `security-reviewer` | Read-only review; mandatory for `sys`/`platform`, `toolchain`, `mobile`, `vcs`, `agent`, parser and workflow changes |
 
 Each owner also keeps the `README.md` of the crates it changes true
@@ -43,7 +43,7 @@ matching files:
 | `toolchains-and-secrets.md` | `toolchain`, `mobile`, `vcs`, `toolchains/` |
 | `ai-context.md` | `agent`, `agents/` |
 | `ui-style.md` | `ui`, `gui`, `tui`, `editor`, `themes/`, `assets/` |
-| `docs-and-roadmap.md` | `docs/`, `diagrams/`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, crate READMEs |
+| `docs-and-roadmap.md` | `docs/`, `diagrams/`, `site/`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, crate READMEs |
 | `ci-workflows.md` | `.github/` |
 
 **Permissions and hooks:**

@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, and the benchmark and fake
 tool crates still to come.
 
-Drawn from the code and docs as of roadmap task M0.13 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -169,21 +169,27 @@ flowchart TB
 GitHub Actions. It starts no program but `cargo` (ADR-0017, ADR-0027).
 
 - `xtask` runs as `cargo xtask` with one of `ci`, `deps`, `layers`,
-  `crates`, `unsafe-audit`, `headers`, `workflows`, `ucd` and
-  `fuzz-smoke`. It starts `cargo` for `fmt`, `clippy`, `test`, `metadata`,
-  `locate-project`, and a `cargo test` per fuzz target.
+  `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd`,
+  `fuzz-smoke` and `site`. It starts `cargo` for `fmt`, `clippy`, `test`,
+  `metadata`, `locate-project`, a `cargo test` per fuzz target, and
+  `site`'s two `cargo run --example` (ADR-0030).
 - `ci.yml` runs `cargo xtask ci` on Linux, macOS and Windows, then
   `cargo xtask fuzz-smoke --secs 30` on Linux.
+- `pages.yml` runs `cargo xtask site` once CI has passed on a push to
+  `main`, and deploys the page it builds to GitHub Pages, at
+  <https://jabbott.dev/Tidepool/> once the repository's Pages source is
+  "GitHub Actions" (ADR-0030).
 - `cargo` is the pinned toolchain, 1.99.0, from `rust-toolchain.toml`.
 
 ```mermaid
 flowchart TB
     p_contrib(["Contributor<br/>works on Tidepool"])
-    e_gha["GitHub Actions<br/>ci.yml on Linux, macOS<br/>and Windows"]
+    e_gha["GitHub Actions<br/>ci.yml on Linux, macOS<br/>and Windows; pages.yml"]
     e_cargo["cargo<br/>the pinned toolchain,<br/>1.99.0"]
+    e_pages["GitHub Pages<br/>jabbott.dev/Tidepool/"]
 
     subgraph b_dev["Dev-only, in the repository"]
-        c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>unsafe-audit, headers,<br/>workflows, ucd,<br/>fuzz-smoke"]
+        c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd,<br/>fuzz-smoke, site"]
         c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and suites<br/>planned M1.9"]
         c_testkit["tidepool-testkit<br/>planned: fake tools M5.1,<br/>fake LSP server M6.1"]
         s_baseline[("bench/baseline.json<br/>planned M1.9")]
@@ -191,7 +197,8 @@ flowchart TB
 
     p_contrib -->|"runs cargo xtask"| c_xtask
     p_contrib -->|"runs cargo test,<br/>cargo tp"| e_cargo
-    e_gha -->|"ci.yml: cargo xtask ci,<br/>then fuzz-smoke"| c_xtask
+    e_gha -->|"ci.yml: cargo xtask ci,<br/>then fuzz-smoke;<br/>pages.yml: cargo xtask site"| c_xtask
+    e_gha -->|"pages.yml deploys<br/>target/site"| e_pages
     c_xtask -->|"starts only cargo"| e_cargo
     c_xtask -.->|"planned M1.9:<br/>cargo xtask bench"| c_bench
     c_bench -.->|"planned M1.9:<br/>writes, compares"| s_baseline
@@ -205,7 +212,7 @@ flowchart TB
     class p_contrib person
     class c_xtask built
     class c_bench,c_testkit,s_baseline planned
-    class e_gha,e_cargo external
+    class e_gha,e_cargo,e_pages external
 ```
 
 - Which crates' tests may use `tidepool-testkit` is decided in M5.1: today
@@ -216,8 +223,9 @@ flowchart TB
 
 `xtask` reads the repository's files and changes only two things: the
 generated grapheme tables, and, after a replay that died, the name of the
-input the replay died on. `codeql.yml` analyzes the Rust code and the
-workflows.
+input the replay died on. `site` also writes the demo page into
+`target/site`, or the directory `--out` names. `codeql.yml` analyzes the
+Rust code and the workflows.
 
 ```mermaid
 flowchart LR
@@ -230,6 +238,8 @@ flowchart LR
         s_ucd[("crates/text/ucd/17.0.0<br/>the Unicode data files")]
         s_tables[("crates/text/src/pos/<br/>grapheme/tables.rs<br/>the generated tables")]
         s_fuzz[("fuzz/corpus/TARGET<br/>the seeds<br/>fuzz/crashes/TARGET<br/>the saved crashes")]
+        s_site[("site/ the templates,<br/>docs/features.jsonc")]
+        s_out[("target/site<br/>the demo page")]
     end
 
     e_gha -->|"codeql.yml:<br/>analyzes the Rust<br/>and the workflows"| s_repo
@@ -238,12 +248,14 @@ flowchart LR
     c_xtask -->|"ucd writes it,<br/>--check compares"| s_tables
     c_xtask -->|"fuzz-smoke: checks<br/>its table against them,<br/>keeps died-HASH"| s_fuzz
     e_cargo -->|"cargo test runs<br/>the fuzz targets:<br/>reads the seeds,<br/>replays, saves crashes"| s_fuzz
+    c_xtask -->|"features checks it;<br/>site fills the templates"| s_site
+    c_xtask -->|"site writes it"| s_out
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class c_xtask built
-    class s_repo,s_ucd,s_tables,s_fuzz store
+    class s_repo,s_ucd,s_tables,s_fuzz,s_site,s_out store
     class e_gha,e_cargo external
 ```
 
@@ -520,33 +532,39 @@ check reads, runs and writes.
 
 ### 3.1 Modules: the commands and the checks
 
-`main.rs` runs `ci`, one check or `fuzz-smoke`, and exits 0, 1 or 2.
-`check` holds the `ci` steps in order, and in its `LATER` table the
-commands still to come.
+`main.rs` runs `ci`, one check, `fuzz-smoke` or `site`, and exits 0, 1
+or 2. `check` holds the `ci` steps in order, and in its `LATER` table the
+commands still to come; `site` runs the same steps through `check`'s one
+runner (ADR-0030).
 
 ```mermaid
 flowchart LR
-    m_main["main.rs<br/>parses the command line<br/>with core::cli::Args<br/>runs ci, one check or<br/>fuzz-smoke, exits 0, 1 or 2"]
-    m_check["check<br/>the ci steps: deps, fmt,<br/>clippy, test, layers, crates,<br/>unsafe-audit, headers,<br/>workflows, ucd --check<br/>LATER: tools, theme,<br/>golden, bench, package"]
+    m_main["main.rs<br/>parses the command line<br/>with core::cli::Args<br/>runs ci, one check,<br/>fuzz-smoke or site,<br/>exits 0, 1 or 2"]
+    m_check["check<br/>the ci steps: deps, fmt,<br/>clippy, test, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd --check<br/>LATER: tools, theme,<br/>golden, bench, package"]
     subgraph b_checks["The checks"]
         m_deps["deps<br/>no third-party code<br/>unless approved"]
         m_layers["layers<br/>only the matrix's edges"]
         m_crates["crates<br/>the members' manifests,<br/>READMEs, and copies<br/>of LICENSE and NOTICE"]
+        m_features["features<br/>every ticked task<br/>in a feature"]
         m_unsafe["unsafe_audit<br/>unsafe only in sys and<br/>platform, documented"]
         m_headers["headers<br/>the Apache-2.0 header<br/>on every source file"]
         m_workflows["workflows<br/>allowed actions, SHA pins,<br/>token permissions"]
         m_ucd["ucd<br/>the grapheme tables<br/>from the Unicode data"]
     end
     m_fuzz["fuzz<br/>fuzz-smoke: the TARGETS<br/>table, a cargo test per<br/>target, the verdict"]
+    m_site["site, with site::page<br/>the demo page: the gate,<br/>two examples, the features,<br/>into target/site"]
     m_cargo["cargo<br/>the module that<br/>starts cargo"]
     k_core["tidepool-core"]
 
     m_main --> m_check
     m_main -->|"fuzz-smoke"| m_fuzz
+    m_main -->|"site"| m_site
+    m_site -->|"run_gate: the<br/>ci steps"| m_check
     m_main -->|"cli::Args"| k_core
     m_check --> m_deps
     m_check --> m_layers
     m_check --> m_crates
+    m_check --> m_features
     m_check --> m_unsafe
     m_check --> m_headers
     m_check --> m_workflows
@@ -554,7 +572,7 @@ flowchart LR
     m_check -->|"fmt, clippy, test"| m_cargo
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class m_main,m_check,m_deps,m_layers,m_crates,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_cargo,k_core built
+    class m_main,m_check,m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_site,m_cargo,k_core built
 ```
 
 - `bench`, `golden`, `theme`, `tools` and `package` are names in `check`'s
@@ -581,7 +599,7 @@ flowchart LR
     m_metadata["metadata<br/>cargo metadata,<br/>read with codec::json"]
     m_matrix["matrix<br/>the dependency matrix,<br/>parsed from<br/>docs/01-architecture.md"]
     m_lexer["lexer<br/>just enough of a Rust<br/>lexer for the audit"]
-    m_cargo["cargo<br/>argv only, stdin closed,<br/>CARGO_NET_OFFLINE=true<br/>reads SKIPPED: lines"]
+    m_cargo["cargo<br/>argv only, stdin closed,<br/>CARGO_NET_OFFLINE=true<br/>reads SKIPPED: and<br/>test result: lines"]
     m_error["error<br/>the Error type"]
     k_core["tidepool-core"]
     k_codec["tidepool-codec"]
@@ -611,13 +629,42 @@ flowchart LR
     class e_cargo external
 ```
 
+`features` and `site` (ADR-0030) build on the modules above. `site` runs
+the steps of `ci` through `check::run_gate`, the runner `ci` itself uses,
+and starts the two examples through `cargo::capture`.
+
+```mermaid
+flowchart LR
+    m_site["site, with site::page<br/>the demo page"]
+    m_check["check<br/>run_gate, CI, LATER"]
+    m_features["features"]
+    m_crates["crates<br/>task_line, read_file"]
+    m_metadata["metadata"]
+    m_cargo["cargo<br/>capture"]
+    k_core["tidepool-core"]
+    k_codec["tidepool-codec"]
+
+    m_site -->|"the ci steps"| m_check
+    m_site -->|"parse, tasks,<br/>status"| m_features
+    m_site -->|"read_file"| m_crates
+    m_site -->|"the members"| m_metadata
+    m_site -->|"the examples"| m_cargo
+    m_site -->|"toml, json"| k_codec
+    m_site -->|"civil, cli::Args"| k_core
+    m_features -->|"task_line,<br/>read_file"| m_crates
+    m_features -->|"json: JSONC"| k_codec
+
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class m_site,m_check,m_features,m_crates,m_metadata,m_cargo,k_core,k_codec built
+```
+
 ### 3.3 What each check reads, runs and writes
 
 The checks find and read their files through `walk`, which never follows a
 symbolic link and asks `cargo locate-project` which directories are
 workspace roots; `ucd` and `fuzz` also look at their own directories
 without following a link. Only `ucd` and `fuzz` change anything in the
-repository.
+repository; `site` writes only its output directory.
 
 ```mermaid
 flowchart LR
@@ -625,11 +672,13 @@ flowchart LR
         m_deps["deps"]
         m_layers["layers"]
         m_crates["crates"]
+        m_features["features"]
         m_unsafe["unsafe_audit"]
         m_headers["headers"]
         m_workflows["workflows"]
         m_ucd["ucd"]
         m_fuzz["fuzz"]
+        m_site["site"]
         m_steps["check: the fmt, clippy and test steps of ci"]
     end
     e_cargo["cargo"]
@@ -641,7 +690,11 @@ flowchart LR
     s_readmes[("Each member's README.md")]
     s_license[("LICENSE and NOTICE<br/>the root's, and the copies<br/>beside each member's<br/>Cargo.toml")]
     s_rs[("Every .rs file")]
-    s_source[("Source files: .rs, .sh, .github/workflows YAML")]
+    s_source[("Source files: .rs, .sh, .github/workflows YAML,<br/>.html, .css, .js")]
+    s_features[("docs/features.jsonc")]
+    s_site[("site/: index.html, llms.txt,<br/>tidepool.css, tidepool.js;<br/>rust-toolchain.toml")]
+    s_git[(".git: HEAD, its loose ref<br/>or packed-refs")]
+    s_out[("target/site, or --out DIR,<br/>marked .tidepool-site")]
     s_wf[(".github/workflows YAML files")]
     s_ucd[("crates/text/ucd/17.0.0")]
     s_tables[("crates/text/src/pos/grapheme/tables.rs")]
@@ -658,6 +711,12 @@ flowchart LR
     m_crates -->|"compares each member's<br/>copies with the root's,<br/>byte for byte"| s_license
     m_crates -->|"reads the task IDs"| s_roadmap
     m_crates -->|"cargo metadata --offline --no-deps"| e_cargo
+    m_features -->|"reads"| s_features
+    m_features -->|"reads the task lines"| s_roadmap
+    m_site -->|"reads the templates,<br/>copies the two files"| s_site
+    m_site -->|"reads HEAD's hash<br/>in a local build"| s_git
+    m_site -->|"writes the page,<br/>removes only what<br/>it wrote before"| s_out
+    m_site -->|"the ci steps, then<br/>cargo run --example, twice"| e_cargo
     m_unsafe -->|"lexes"| s_rs
     m_unsafe -->|"cargo metadata --offline --no-deps, the crate roots"| e_cargo
     m_headers -->|"checks the header at the top of each"| s_source
@@ -671,8 +730,8 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class m_deps,m_layers,m_crates,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_steps built
-    class s_manifests,s_allow,s_every,s_arch,s_roadmap,s_readmes,s_license,s_rs,s_source,s_wf,s_ucd,s_tables,s_fuzz store
+    class m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_site,m_steps built
+    class s_manifests,s_allow,s_every,s_arch,s_roadmap,s_readmes,s_license,s_rs,s_source,s_wf,s_ucd,s_tables,s_fuzz,s_features,s_site,s_git,s_out store
     class e_cargo external
 ```
 
@@ -835,7 +894,7 @@ examples as doc tests (M0.13); the table leaves those out.
 | `tidepool-gui` | `crates/gui` | 4, views and frontends | deny | nothing | M2.6, M3.5 | none |
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
 | `tidepool` (app) | `crates/app` | 5, application | deny | an empty `main` (M0.1) | M2.6, M3.4, M4.9, M7.1, M7.5, M14.4 | none |
-| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6) | `bench` (M1.9), `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
+| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page) | `bench` (M1.9), `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
 | `tidepool-bench` | `bench` | 6, tools | deny | nothing | M1.9 | none |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 

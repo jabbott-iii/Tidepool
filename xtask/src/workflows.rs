@@ -92,12 +92,15 @@ struct Workflow {
 
 /// The action that checks the repository out, which every workflow uses.
 const CHECKOUT: &str = "actions/checkout";
-/// The action that caches cargo's files in `ci.yml`.
+/// The action that caches cargo's files in `ci.yml` and `pages.yml`.
 const CACHE: &str = "actions/cache";
+/// GitHub's actions that upload and publish a Pages site, in `pages.yml`.
+const UPLOAD_PAGES_ARTIFACT: &str = "actions/upload-pages-artifact";
+const DEPLOY_PAGES: &str = "actions/deploy-pages";
 
-/// Every workflow, and what it may use (ADR-0022, and `docs/04-quality.md`
-/// → "CI (GitHub Actions)"). A new workflow adds its row here first; the
-/// release workflow's comes with roadmap M14.4.
+/// Every workflow, and what it may use (ADR-0022, ADR-0030, and
+/// `docs/04-quality.md` → "CI (GitHub Actions)"). A new workflow adds its
+/// row here first; the release workflow's comes with roadmap M14.4.
 const WORKFLOWS: &[Workflow] = &[
     Workflow {
         file: "ci.yml",
@@ -112,6 +115,11 @@ const WORKFLOWS: &[Workflow] = &[
             "github/codeql-action/analyze",
         ],
         writes: &[("analyze", &["security-events"])],
+    },
+    Workflow {
+        file: "pages.yml",
+        actions: &[CHECKOUT, CACHE, UPLOAD_PAGES_ARTIFACT, DEPLOY_PAGES],
+        writes: &[("deploy", &["pages", "id-token"])],
     },
 ];
 
@@ -1254,6 +1262,40 @@ mod tests {
     }
 
     #[test]
+    fn the_pages_workflow_may_use_github_s_two_pages_actions_and_no_other_may() {
+        let upload = format!(
+            "      - uses: actions/upload-pages-artifact@{SHA} # v5.0.0\n        with:\n          \
+             path: target/site\n"
+        );
+        let publish = format!("      - uses: actions/deploy-pages@{SHA} # v5.0.1\n");
+        let cache = format!("      - uses: actions/cache@{SHA} # v6.1.0\n");
+        let steps = checkout() + &cache + &upload + &publish;
+        assert_eq!(violations("pages.yml", &ci(&steps)), Vec::<String>::new());
+        assert_eq!(
+            violations("ci.yml", &ci(&steps)),
+            [
+                ".github/workflows/ci.yml:15: `actions/upload-pages-artifact` is not an action \
+                 this workflow may use (ADR-0022)",
+                ".github/workflows/ci.yml:18: `actions/deploy-pages` is not an action this \
+                 workflow may use (ADR-0022)",
+            ]
+        );
+        assert_eq!(violations("codeql.yml", &ci(&steps)).len(), 3);
+        // Pinned like any other: by a full SHA with its tag.
+        let tagged = checkout() + "      - uses: actions/deploy-pages@v5\n";
+        assert_eq!(
+            violations("pages.yml", &ci(&tagged)),
+            [
+                ".github/workflows/pages.yml:14: `actions/deploy-pages@v5` is not pinned by a full \
+              commit SHA"
+            ]
+        );
+        // Its checkout keeps no credentials, as every workflow's.
+        let kept = format!("      - uses: actions/checkout@{SHA} # v7.0.1\n");
+        assert_eq!(violations("pages.yml", &ci(&kept)).len(), 1);
+    }
+
+    #[test]
     fn a_workflow_with_no_row_fails() {
         for name in ["deploy.yml", "CI.yml", "ci.yaml"] {
             assert_eq!(
@@ -1450,6 +1492,43 @@ mod tests {
             violations("codeql.yml", wide),
             [".github/workflows/codeql.yml:5: the job `analyze` may not grant `contents: write`"]
         );
+        // The demo page's deploy job may write `pages` and `id-token`, and
+        // nothing else; its other jobs may write nothing; and no other
+        // workflow's job named `deploy` may write either (ADR-0030).
+        let deploy = |permission: &str| {
+            format!(
+                "  deploy:\n    runs-on: ubuntu-latest\n    permissions:\n      \
+                 {permission}: write\n    steps:\n      - run: true\n"
+            )
+        };
+        let publish = format!(
+            "{}  deploy:\n    permissions:\n      pages: write\n      id-token: write\n",
+            ci(&checkout())
+        );
+        assert_eq!(violations("pages.yml", &publish), Vec::<String>::new());
+        assert_eq!(violations("ci.yml", &publish).len(), 2);
+        assert_eq!(violations("codeql.yml", &publish).len(), 2);
+        for (name, permission) in [
+            ("deploy", "contents"),
+            ("deploy", "actions"),
+            ("deploy", "security-events"),
+            ("build", "pages"),
+            ("gate", "id-token"),
+        ] {
+            let text =
+                ci(&checkout()) + &deploy(permission).replace("deploy:", &format!("{name}:"));
+            assert_eq!(
+                violations("pages.yml", &text),
+                [format!(
+                    ".github/workflows/pages.yml:17: the job `{name}` may not grant \
+                     `{permission}: write`"
+                )]
+            );
+        }
+        // A read is not a write: the gate may read `actions`.
+        let gate = ci(&checkout())
+            + "  gate:\n    permissions:\n      contents: read\n      actions: read\n";
+        assert_eq!(violations("pages.yml", &gate), Vec::<String>::new());
         // A block in no job may not write at all.
         let stray = "permissions: {}\non:\n  push:\n    permissions:\n      contents: write\n";
         assert_eq!(

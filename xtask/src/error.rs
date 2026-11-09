@@ -18,7 +18,8 @@
 //! dependency-matrix document and for commands that are not implemented
 //! yet. Nadir's file-writing variant, [`Error::Write`], is ported for `ucd`
 //! (roadmap M1.1); its fuzzing variants stay in Nadir until their roadmap
-//! task.
+//! task. [`Error::Env`] is for `site`'s `TIDEPOOL_SITE_*` variables
+//! (roadmap M0.14).
 
 use std::fmt;
 use std::io;
@@ -93,6 +94,14 @@ pub(crate) enum Error {
         /// What the OS reported.
         source: io::Error,
     },
+    /// An environment variable a command reads is not valid. The message
+    /// names the variable and what it must be, never its value.
+    Env {
+        /// The variable.
+        variable: &'static str,
+        /// What is wrong, as a phrase after the variable's name.
+        problem: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -130,6 +139,7 @@ impl fmt::Display for Error {
             Self::Write { path, source } => {
                 write!(f, "cannot write `{}`: {source}", walk::shown(path))
             }
+            Self::Env { variable, problem } => write!(f, "`{variable}` {problem}"),
         }
     }
 }
@@ -145,7 +155,8 @@ impl std::error::Error for Error {
             | Self::NotImplemented { .. }
             | Self::CommandFailed { .. }
             | Self::UnexpectedOutput { .. }
-            | Self::Doc { .. } => None,
+            | Self::Doc { .. }
+            | Self::Env { .. } => None,
         }
     }
 }
@@ -202,6 +213,16 @@ mod tests {
             "{message}"
         );
         assert!(write.source().is_some());
+
+        let env = Error::Env {
+            variable: "TIDEPOOL_SITE_DATE",
+            problem: "is not a date written YYYY-MM-DD".to_string(),
+        };
+        assert_eq!(
+            env.to_string(),
+            "`TIDEPOOL_SITE_DATE` is not a date written YYYY-MM-DD"
+        );
+        assert!(env.source().is_none());
 
         let later = Error::NotImplemented {
             command: "tools",

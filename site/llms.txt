@@ -1,0 +1,67 @@
+# Tidepool
+
+> Tidepool is a zero-dependency IDE for software developers, written in Rust from the ground up by Joseph Abbott III, with no third-party crates: its own OS bindings, rasterizer, font renderer, UI toolkit, text engine, parsers, protocols and terminal emulator. https://jabbott.dev/Tidepool/ shows its gate and two example programs of its libraries, run on each commit of `main` that passes CI, its architecture, and its features with how far each has come.
+
+Key facts:
+
+- Status: in development, at version 0.1, and still headless: nothing opens a window yet. {{build_line}}
+- Language: Rust {{toolchain}}, edition 2024; {{crates}} crates in the workspace; third-party crates: {{third_party}}
+- Planned: a native GUI in jabbott.dev's design language and a terminal UI with vim-style modal editing; first-class Rust (rust-analyzer, cargo) and Markdown; managed toolchains (rust-analyzer, git, the JDK, the Android SDK and NDK, bundletool, Xcode) installed and driven through their official channels; Android and iOS builds, signed and verified; AI through language agents speaking the Tidepool Agent Protocol, and offline predictive text
+- Targets: Linux x86_64 (X11 and XWayland), macOS 13 and later (universal), Windows 10 1809 and later (x86_64)
+- License: Apache-2.0
+- Source: {{repository_url}}
+- Author: Joseph Abbott III, software engineer (https://jabbott.dev/resume/)
+
+## Pages
+
+- [IDE demo](https://jabbott.dev/Tidepool/): the gate's run, the two examples' output, this build, the roadmap's milestones, two architecture diagrams and every feature
+- [Repository]({{repository_url}}): the source, with the design in docs/
+
+## The gate
+
+`cargo xtask ci`, which CI runs on Linux, macOS and Windows for every pull request and every push to `main`; this page is published only from a commit of `main` that passed it on all three. Here: {{gate_line}}. Its summary:
+
+```
+{{gate_summary}}
+```
+
+## Formats
+
+What `cargo run -p tidepool-codec --example formats` printed:
+
+```
+{{formats_output}}
+```
+
+## Text engine
+
+What `cargo run -p tidepool-text --example editing` printed:
+
+```
+{{editing_output}}
+```
+
+## Architecture
+
+The page draws two views, which {{repository_url}}/blob/{{commit}}/diagrams/c4-architecture.md also draws, with every module and edge:
+
+- Containers: the developer is to use Tidepool through its GUI frontend (roadmap M2.6) or its terminal UI (M7.1), both parts of the tidepool binary, whose main is empty today (M0.1). The binary is to read and write its settings and other TOML files (M3.4, M4.7, M5.1), open, edit and save the developer's workspace folders (M4.7, M4.3), install and run managed tools such as curl, rustup and cargo, rust-analyzer, git, the Android SDK and Xcode as child processes (from M5.1), and speak the Tidepool Agent Protocol over stdio to language agents (M9.3); the reference agents reach model servers through curl or loopback HTTP (M9.6). The core binary opens no sockets.
+- Crates by layer: 26 crates in seven layers, each using only crates below it that its row of the dependency matrix names. Built: core (M0.2, M1.6) and the crate root of sys (M0.1) in layer 0; codec (M1.4, M1.7), text (M1.1 to M1.3) and the crate root of platform (M0.1) in layer 1; the binary with an empty main in layer 5 (M0.1); xtask in layer 6 (from M0.3). Only sys and platform may hold unsafe code.
+
+## Features
+
+{{features_lede}}
+
+{{features}}
+
+## Roadmap milestones
+
+{{milestones}}
+
+## Optional
+
+- [Roadmap]({{repository_url}}/blob/{{commit}}/docs/roadmap.md): every task, with its acceptance criteria
+- [Architecture]({{repository_url}}/blob/{{commit}}/docs/01-architecture.md): the crates, their layers and dependency matrix
+- [Decisions]({{repository_url}}/blob/{{commit}}/docs/decisions.md): the architecture decision records
+- [Diagrams]({{repository_url}}/tree/{{commit}}/diagrams): C4 views of the system, its programs and its crates, components, classes, sequences, data flow and states
+- [jabbott.dev](https://jabbott.dev/llms.txt): the author's site: resume, engineering log and other projects

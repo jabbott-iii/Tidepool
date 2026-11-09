@@ -72,6 +72,18 @@ const ROADMAP: &str = "# Roadmap (fixture)\n\
     - [x] **M0.1 — fixture: the first task**\n\
     - [ ] **M0.2 — fixture: the second task**\n";
 
+/// The fixture's features: one for each task of [`ROADMAP`], in the format
+/// of `docs/features.jsonc`, so that `features` passes.
+const FEATURES: &str = "// The fixture's features.\n\
+    {\n\
+      \"features\": [\n\
+        { \"name\": \"The first\", \"area\": \"Quality\", \"summary\": \"It is built.\", \
+          \"tasks\": [\"M0.1\"], \"ticked\": [\"M0.1\"] },\n\
+        { \"name\": \"The second\", \"area\": \"Quality\", \"summary\": \"It will be built.\", \
+          \"tasks\": [\"M0.2\"] }\n\
+      ]\n\
+    }\n";
+
 /// The README of the fixture's package `name`, in the shape `crates`
 /// checks (ADR-0023, ADR-0028), naming the tasks of [`ROADMAP`].
 fn readme_of(name: &str) -> String {
@@ -147,6 +159,23 @@ const RUST_HEADER: &str = "// Copyright 2026 Joseph Anthony Abbott III\n\
     // See the License for the specific language governing permissions and\n\
     // limitations under the License.\n\
     \n";
+
+/// [`RUST_HEADER`] as one comment from `open` to `close`, each on a line of
+/// its own, with the header's lines indented by two spaces (an empty one
+/// left empty), then a blank line: as a stylesheet (`/* */`) or an HTML
+/// file (`<!-- -->`) writes it.
+fn enclosed_header(open: &str, close: &str) -> String {
+    let mut text = format!("{open}\n");
+    for line in RUST_HEADER.lines().take_while(|line| !line.is_empty()) {
+        let line = line.strip_prefix("//").unwrap_or(line);
+        match line.strip_prefix(' ') {
+            Some(rest) => text.push_str(&format!("  {rest}\n")),
+            None => text.push('\n'),
+        }
+    }
+    text.push_str(&format!("{close}\n\n"));
+    text
+}
 
 /// [`RUST_HEADER`] as a shell script or a workflow writes it, with `#` for
 /// the `//` that starts each line (not the one in the URL).
@@ -373,8 +402,9 @@ impl Fixture {
     /// follow [`MATRIX`], each with its README ([`readme_of`]), copies of
     /// [`LICENSE`] and [`NOTICE`] and a manifest that inherits from the
     /// workspace, the two unsafe crate roots, the real allowlist, `LICENSE`
-    /// and `NOTICE` at the root, a roadmap ([`ROADMAP`]), a lockfile, and
-    /// the two workflows ([`CI_WORKFLOW`], [`CODEQL_WORKFLOW`]).
+    /// and `NOTICE` at the root, a roadmap ([`ROADMAP`]) and its features
+    /// ([`FEATURES`]), a lockfile, and the two workflows ([`CI_WORKFLOW`],
+    /// [`CODEQL_WORKFLOW`]).
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
         fixture.write(
@@ -400,6 +430,7 @@ impl Fixture {
         fixture.write("NOTICE", NOTICE);
         fixture.write("docs/01-architecture.md", MATRIX);
         fixture.write("docs/roadmap.md", ROADMAP);
+        fixture.write("docs/features.jsonc", FEATURES);
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
         fixture.workflow("ci.yml", CI_WORKFLOW);
         fixture.workflow("codeql.yml", CODEQL_WORKFLOW);
@@ -2960,13 +2991,32 @@ fn headers_passes_on_the_unbroken_fixture_and_after_a_shebang() {
         ".github/workflows/ci.yml",
         &format!("{}name: CI\n", hash_header()),
     );
-    // Configuration and data carry none.
+    // The demo page's: HTML after its doctype or without one, CSS and
+    // JavaScript (ADR-0030).
+    fixture.write(
+        "site/index.html",
+        &format!(
+            "<!doctype html>\n{}<html></html>\n",
+            enclosed_header("<!--", "-->")
+        ),
+    );
+    fixture.write(
+        "site/part.HTML",
+        &format!("{}<p>part</p>\n", enclosed_header("<!--", "-->")),
+    );
+    fixture.write(
+        "site/page.css",
+        &format!("{}body {{ margin: 0; }}\n", enclosed_header("/*", "*/")),
+    );
+    fixture.write("site/page.js", &format!("{RUST_HEADER}'use strict';\n"));
+    // Configuration and data carry none, nor does the page as plain text.
     fixture.write(".github/dependabot.yml", "version: 2\n");
+    fixture.write("site/llms.txt", "# Tidepool\n");
     let run = fixture.run("headers");
     run.expect_code(0);
     assert!(
         run.stdout
-            .ends_with("source files checked: 7\nheaders: ok\n"),
+            .ends_with("source files checked: 11\nheaders: ok\n"),
         "{}",
         run.stdout
     );
@@ -2995,6 +3045,15 @@ fn headers_fails_on_each_kind_of_violation() {
     // A script without it after its `#!` line, and a workflow without it.
     fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
     fixture.write(".github/workflows/ci.yml", "name: CI\n");
+    // The demo page's files without it: HTML after a doctype, CSS and
+    // JavaScript, and HTML with a CSS file's comment.
+    fixture.write("site/index.html", "<!doctype html>\n<html></html>\n");
+    fixture.write("site/page.css", "body { margin: 0; }\n");
+    fixture.write("site/page.js", "'use strict';\n");
+    fixture.write(
+        "site/other.html",
+        &format!("{}<p></p>\n", enclosed_header("/*", "*/")),
+    );
 
     let run = fixture.run("headers");
     run.expect_code(1);
@@ -3013,10 +3072,17 @@ fn headers_fails_on_each_kind_of_violation() {
                 .to_string(),
             format!("crates/text/src/missing.rs:1: expected `// {first}`, {appendix}"),
             format!("scripts/tool.sh:2: expected `# {first}`, {appendix}"),
+            "site/index.html:2: expected `<!--`, the comment that holds the Apache-2.0 header"
+                .to_string(),
+            "site/other.html:1: expected `<!--`, the comment that holds the Apache-2.0 header"
+                .to_string(),
+            "site/page.css:1: expected `/*`, the comment that holds the Apache-2.0 header"
+                .to_string(),
+            format!("site/page.js:1: expected `// {first}`, {appendix}"),
         ]
     );
     assert!(
-        run.stdout.ends_with("headers: FAILED (6 violations)\n"),
+        run.stdout.ends_with("headers: FAILED (10 violations)\n"),
         "{}",
         run.stdout
     );
@@ -3434,6 +3500,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "test",
             "layers",
             "crates",
+            "features",
             "unsafe-audit",
             "headers",
             "workflows",
@@ -3457,6 +3524,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("test", "ok"),
             ("layers", "ok"),
             ("crates", "ok"),
+            ("features", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -3470,7 +3538,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     );
     assert!(
         summary.ends_with(
-            "ci: FAILED: 1 of 10 steps failed: fmt; not yet implemented: tools, theme\n"
+            "ci: FAILED: 1 of 11 steps failed: fmt; not yet implemented: tools, theme\n"
         ),
         "{summary}"
     );
@@ -3511,6 +3579,14 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     fixture.lock();
     // crates: a member without its README.
     fs::remove_file(fixture.root.join("crates/platform/README.md")).expect("the README exists");
+    // features: the ticked task in no feature.
+    fixture.write(
+        "docs/features.jsonc",
+        &FEATURES.replace(
+            "[\"M0.1\"], \"ticked\": [\"M0.1\"]",
+            "[\"M0.2\"], \"ticked\": []",
+        ),
+    );
     // headers: a script without one.
     fixture.write("scripts/tool.sh", "#!/bin/sh\necho tool\n");
     // workflows: an action pinned by its tag.
@@ -3535,6 +3611,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("test", "FAILED"),
             ("layers", "FAILED"),
             ("crates", "FAILED"),
+            ("features", "FAILED"),
             ("unsafe-audit", "FAILED"),
             ("headers", "FAILED"),
             ("workflows", "FAILED"),
@@ -3548,8 +3625,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 9 of 10 steps failed: fmt, clippy, test, layers, crates, unsafe-audit, \
-         headers, workflows, ucd; not yet implemented: tools, theme"
+        "ci: FAILED: 10 of 11 steps failed: fmt, clippy, test, layers, crates, features, \
+         unsafe-audit, headers, workflows, ucd; not yet implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -3558,6 +3635,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "planted failure",
         "violation: tidepool-sys -> tidepool-core not allowed (dev-dependency)",
         "violation: crates/platform/README.md is missing",
+        "violation: docs/roadmap.md: M0.1 (fixture: the first task) is ticked, but no feature in \
+         docs/features.jsonc needs it",
         "violation: crates/core/src/lib.rs:16: `allow(unsafe_code)` is only allowed",
         "violation: scripts/tool.sh:2: expected `# Copyright 2026 Joseph Anthony Abbott III`",
         "violation: .github/workflows/ci.yml:34: `actions/cache@v6` is not pinned by a full commit \
@@ -3603,6 +3682,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("test", "not"),
             ("layers", "FAILED"),
             ("crates", "ok"),
+            ("features", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -3616,7 +3696,7 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 10 steps failed: deps, layers; not run: clippy, test; not yet \
+        "ci: FAILED: 2 of 11 steps failed: deps, layers; not run: clippy, test; not yet \
          implemented: tools, theme"
     );
     assert!(
@@ -3718,6 +3798,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("test", "ok"),
             ("layers", "ok"),
             ("crates", "ok"),
+            ("features", "ok"),
             ("unsafe-audit", "ok"),
             ("headers", "ok"),
             ("workflows", "ok"),
@@ -3745,7 +3826,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 10 of 10 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -3829,6 +3910,332 @@ fn a_relative_root_is_made_absolute() {
     }
 }
 
+// --- site ---
+
+/// The variables `site` reads the commit's facts from.
+const SITE_VARIABLES: [&str; 3] = [
+    "TIDEPOOL_SITE_COMMIT",
+    "TIDEPOOL_SITE_DATE",
+    "TIDEPOOL_SITE_SUBJECT",
+];
+
+/// The commit a fixture's page names.
+const SITE_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// An example program, printing `text`, as rustfmt writes it.
+fn example(text: &str) -> String {
+    format!("//! An example.\n\nfn main() {{\n    println!(\"{text}\");\n}}\n")
+}
+
+impl Fixture {
+    /// The fixture with what `site` reads too: a `tidepool-codec` with
+    /// the example `formats` and the matrix row it needs, `tidepool-text`'s
+    /// example `editing` and tests that print `SKIPPED:`
+    /// ([`SKIPPING_TESTS`]), the real repository's `site/` and
+    /// `rust-toolchain.toml`, and a `.git` whose HEAD is [`SITE_COMMIT`].
+    fn with_site(self) -> Self {
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let manifest = fs::read_to_string(self.root.join("Cargo.toml")).expect("the manifest");
+        self.write(
+            "Cargo.toml",
+            &manifest.replace("\"crates/text\"]", "\"crates/text\", \"crates/codec\"]"),
+        );
+        self.write(
+            "docs/01-architecture.md",
+            &MATRIX.replace(
+                "| `tidepool-text` | `core` |\n",
+                "| `tidepool-text` | `core` |\n| `tidepool-codec` | — |\n",
+            ),
+        );
+        self.package("codec", "", "//! Codec.\n");
+        self.source(
+            "crates/codec/examples/formats.rs",
+            &example("formats <ok> & 🌊"),
+        );
+        self.source("crates/text/src/lib.rs", SKIPPING_TESTS);
+        self.source(
+            "crates/text/examples/editing.rs",
+            &example("editing │ café"),
+        );
+        for file in [
+            "rust-toolchain.toml",
+            "site/index.html",
+            "site/llms.txt",
+            "site/tidepool.css",
+            "site/tidepool.js",
+        ] {
+            let text = fs::read_to_string(real.join(file)).expect("the repository's file");
+            write(&self.root.join(file), &text);
+        }
+        write(&self.root.join(".git/HEAD"), &format!("{SITE_COMMIT}\n"));
+        self.lock();
+        self
+    }
+
+    /// Runs `xtask site --out <out> --root <the fixture>` with `env`; the
+    /// variables of [`SITE_VARIABLES`] that `env` does not set are removed.
+    fn site(&self, out: &Path, env: &[(&str, &str)]) -> Run {
+        let root = self.root.to_string_lossy().into_owned();
+        let out = out.to_string_lossy().into_owned();
+        let mut vars: Vec<(&str, Option<&str>)> =
+            SITE_VARIABLES.iter().map(|name| (*name, None)).collect();
+        vars.extend(env.iter().map(|(name, value)| (*name, Some(*value))));
+        xtask_with(
+            &["site", "--out", &out, "--root", &root],
+            Some(&self.case.join("target")),
+            &vars,
+        )
+    }
+}
+
+/// The files of the page in `dir`, and their bytes.
+fn page_files(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = fs::read_dir(dir)
+        .expect("the page's directory")
+        .map(|entry| {
+            let entry = entry.expect("an entry");
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).expect("a file of the page"),
+            )
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
+    let fixture = Fixture::passing("site").with_ucd().with_site();
+    let out = fixture.case.join("page");
+    let live = [
+        ("TIDEPOOL_SITE_COMMIT", SITE_COMMIT),
+        ("TIDEPOOL_SITE_DATE", "2026-11-08"),
+        ("TIDEPOOL_SITE_SUBJECT", "site: the <page> & \"more\""),
+    ];
+
+    // A live build: the workflow's facts.
+    let run = fixture.site(&out, &live);
+    run.expect_code(0);
+    // The gate printed as `ci` prints it, before the page was written.
+    assert!(run.stdout.contains("\n== deps: "), "{}", run.stdout);
+    assert!(
+        run.stdout.contains(
+            "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.contains("site: wrote "), "{}", run.stdout);
+    let names: Vec<String> = page_files(&out).into_iter().map(|(name, _)| name).collect();
+    assert_eq!(
+        names,
+        [
+            ".tidepool-site",
+            "index.html",
+            "llms.txt",
+            "tidepool.css",
+            "tidepool.js"
+        ]
+    );
+    let html = fs::read_to_string(out.join("index.html")).expect("the page");
+    assert!(!html.contains("{{"), "a placeholder is left");
+    for expected in [
+        "Live build <span class=\"kicker__sep\">//</span> <a class=\"tp-mono\" \
+         href=\"https://github.com/jabbott-iii/Tidepool/commit/\
+         0123456789abcdef0123456789abcdef01234567\">0123456</a>",
+        "<dd>2026-11-08</dd>",
+        "Latest change: <span class=\"tp-mono\">site: the &lt;page&gt; &amp; \
+         &quot;more&quot;</span>",
+        // Four tests passed, three of which printed `SKIPPED:`: one pass.
+        "<dd>1 passed</dd>",
+        "<div><dt>Skipped</dt><dd>3</dd></div>",
+        "<dd>11 of 11 passed</dd>",
+        "<dd>5 in the workspace</dd>",
+        "<dd>1 of 2 tasks</dd>",
+        "--example formats\nformats &lt;ok&gt; &amp; 🌊</pre>",
+        "--example editing\nediting │ café</pre>",
+        "</span>\n== summary\ndeps ",
+        "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, \
+         theme</pre>",
+    ] {
+        assert!(html.contains(expected), "missing {expected:?}");
+    }
+    // Nothing that cargo or a test printed reaches the page: not the skip
+    // reasons `ci` lists, nor libtest's lines.
+    for printed in ["needs_git", "TIDEPOOL_IT_GIT", "test result:", "Compiling"] {
+        assert!(!html.contains(printed), "{printed} is on the page");
+    }
+    let text = fs::read_to_string(out.join("llms.txt")).expect("the page as text");
+    assert!(
+        text.contains("at commit 0123456 of 2026-11-08 (site: the <page> & \"more\")."),
+        "{text}"
+    );
+    assert!(!text.contains("needs_git"), "{text}");
+    for name in ["tidepool.css", "tidepool.js"] {
+        assert_eq!(
+            fs::read(out.join(name)).expect("a copy"),
+            fs::read(fixture.root.join("site").join(name)).expect("the original"),
+        );
+    }
+
+    // A local build into the same directory: HEAD from `.git`.
+    fs::write(out.join("notes.txt"), "kept").expect("a file of the user's");
+    let run = fixture.site(&out, &[]);
+    run.expect_code(0);
+    let html = fs::read_to_string(out.join("index.html")).expect("the page");
+    assert!(html.contains("Local build <span"), "{html}");
+    assert!(html.contains(">0123456</a>"));
+    assert!(html.contains("<dd>Not given</dd>"));
+    assert!(!html.contains("Latest change"));
+    // Built from the working tree, which may differ from HEAD.
+    assert!(
+        html.contains(
+            "A local build of the working tree at HEAD; it may hold changes HEAD does not."
+        ),
+        "{html}"
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("notes.txt")).expect("kept"),
+        "kept"
+    );
+    let built = page_files(&out);
+
+    // One or two of the variables, or one not valid: refused before
+    // anything runs, naming the variable and not its value.
+    let run = fixture.site(&out, &live[..1]);
+    run.expect_code(1);
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        "xtask: `TIDEPOOL_SITE_DATE` is not set, but TIDEPOOL_SITE_COMMIT is: set all three of \
+         TIDEPOOL_SITE_COMMIT, TIDEPOOL_SITE_DATE and TIDEPOOL_SITE_SUBJECT, or none\n"
+    );
+    let bad = [
+        live[0],
+        live[1],
+        ("TIDEPOOL_SITE_SUBJECT", "two\nlines ::error::x"),
+    ];
+    let run = fixture.site(&out, &bad);
+    run.expect_code(1);
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr
+            .starts_with("xtask: `TIDEPOOL_SITE_SUBJECT` holds a control character"),
+        "{}",
+        run.stderr
+    );
+    assert!(!run.stderr.contains("::error::"), "{}", run.stderr);
+    let bad = [live[0], ("TIDEPOOL_SITE_DATE", "2026-02-30"), live[2]];
+    let run = fixture.site(&out, &bad);
+    run.expect_code(1);
+    assert!(
+        run.stderr
+            .starts_with("xtask: `TIDEPOOL_SITE_DATE` is not a date written YYYY-MM-DD"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(page_files(&out), built);
+
+    // A directory `site` did not make is refused, and left alone.
+    let other = fixture.case.join("other");
+    write(&other.join("index.html"), "mine");
+    let run = fixture.site(&other, &[]);
+    run.expect_code(2);
+    assert!(
+        run.stderr
+            .contains("is not empty, and `cargo xtask site` did not make it")
+    );
+    assert_eq!(
+        fs::read_to_string(other.join("index.html")).expect("mine"),
+        "mine"
+    );
+    // So is one `site` made that holds a directory where it writes a file:
+    // before anything runs, and nothing in it is removed.
+    let marked = fixture.case.join("marked");
+    write(&marked.join(".tidepool-site"), "x");
+    write(&marked.join("llms.txt"), "old");
+    write(&marked.join("index.html").join("keep.txt"), "mine");
+    let run = fixture.site(&marked, &[]);
+    run.expect_code(2);
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr.contains(
+            "index.html` is a directory, where `cargo xtask site` writes a file: move it, or \
+             give a new or empty directory\n"
+        ),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(marked.join("index.html").join("keep.txt")).expect("mine"),
+        "mine"
+    );
+    assert_eq!(
+        fs::read_to_string(marked.join("llms.txt")).expect("old"),
+        "old"
+    );
+
+    // The features failing: nothing runs, nothing is written.
+    let features = fs::read_to_string(fixture.root.join("docs/features.jsonc")).expect("them");
+    fixture.write(
+        "docs/features.jsonc",
+        &features.replace("\"ticked\": [\"M0.1\"]", "\"ticked\": []"),
+    );
+    let run = fixture.site(&out, &[]);
+    run.expect_code(1);
+    assert!(
+        run.stdout.ends_with(
+            "site: FAILED: docs/features.jsonc does not pass `features`, so no page was written\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("== deps"), "{}", run.stdout);
+    fixture.write("docs/features.jsonc", &features);
+    assert_eq!(page_files(&out), built);
+
+    // A step of the gate failing: no example runs, nothing is written.
+    fixture.source(
+        "crates/codec/src/lib.rs",
+        "//! Codec.\npub fn badly( )->u8{1}\n",
+    );
+    let run = fixture.site(&out, &[]);
+    run.expect_code(1);
+    assert!(
+        run.stdout
+            .ends_with("site: FAILED: the gate failed, so no page was written\n"),
+        "{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("running `cargo run"), "{}", run.stdout);
+    fixture.source("crates/codec/src/lib.rs", "//! Codec.\n");
+    assert_eq!(page_files(&out), built);
+
+    // An example that fails when it runs, after the gate passed: nothing
+    // is written.
+    fixture.source(
+        "crates/text/examples/editing.rs",
+        "//! An example.\n\nfn main() {\n    std::process::exit(3);\n}\n",
+    );
+    let run = fixture.site(&out, &[]);
+    run.expect_code(1);
+    assert!(
+        run.stdout
+            .contains("ci: ok (3 tests SKIPPED): 11 of 11 steps passed"),
+        "{}",
+        run.stdout
+    );
+    // The gate's cargo output comes first on standard error.
+    assert!(
+        run.stderr
+            .contains("\nxtask: `cargo run --quiet -p tidepool-text --example editing` failed ("),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(page_files(&out), built);
+}
+
 // --- the real repository and the command line ---
 
 #[test]
@@ -3867,10 +4274,10 @@ fn the_real_repository_s_crates_pass() {
 
 #[test]
 fn the_real_repository_s_workflows_pass() {
-    // Both of them: `ci.yml` and `codeql.yml`, each with its row.
+    // All three: `ci.yml`, `codeql.yml` and `pages.yml`, each with its row.
     let run = xtask(&["workflows"], None);
     run.expect_code(0);
-    assert_eq!(run.stdout, "workflows checked: 2\nworkflows: ok\n");
+    assert_eq!(run.stdout, "workflows checked: 3\nworkflows: ok\n");
 }
 
 #[test]

@@ -13,8 +13,9 @@
 // limitations under the License.
 
 //! Project automation for the Tidepool repository: the checks behind
-//! `cargo xtask ci`, and `cargo xtask fuzz-smoke`. Later roadmap tasks add
-//! goldens, theme contrast, tool descriptors, benchmarks and packaging.
+//! `cargo xtask ci`, `cargo xtask fuzz-smoke`, and `cargo xtask site`, which
+//! builds the demo page. Later roadmap tasks add goldens, theme contrast,
+//! tool descriptors, benchmarks and packaging.
 //!
 //! Specification: `docs/04-quality.md` → "`xtask` checks". Run it as
 //! `cargo xtask <command>`; `cargo xtask --help` lists the commands.
@@ -28,12 +29,16 @@
 //! is never shipped in Tidepool, and it never uploads, publishes, signs,
 //! reads secrets or calls the network (`docs/04-quality.md`). The one file
 //! it writes in the repository is the generated Unicode tables, with `cargo
-//! xtask ucd` (without `--check`).
+//! xtask ucd` (without `--check`); `cargo xtask site` writes the demo page
+//! into `target/site`, or the directory `--out` names.
 //!
 //! The one outside program it starts is `cargo`, which `cargo xtask ci`
 //! exists to run (`cargo fmt`, clippy, the tests, `cargo metadata`, `cargo
-//! locate-project`), and `cargo xtask fuzz-smoke` too (`cargo test` of each
-//! fuzz target, ADR-0027). That is the documented role of `xtask`, so it spawns
+//! locate-project`), `cargo xtask fuzz-smoke` too (`cargo test` of each
+//! fuzz target, ADR-0027), and `cargo xtask site`, which runs the gate's
+//! steps and `cargo run --example` of two examples (ADR-0030); it reads the
+//! commit's facts from the environment or from `.git`, and never runs
+//! `git`. That is the documented role of `xtask`, so it spawns
 //! cargo itself, with `std::process::Command`, rather than through
 //! `tidepool-toolchain` (`AGENTS.md` rule 2), which manages the tools
 //! Tidepool drives and which the dependency matrix does not let `xtask`
@@ -57,12 +62,14 @@ mod check;
 mod crates;
 mod deps;
 mod error;
+mod features;
 mod fuzz;
 mod headers;
 mod layers;
 mod lexer;
 mod matrix;
 mod metadata;
+mod site;
 mod ucd;
 mod unsafe_audit;
 mod walk;
@@ -147,8 +154,11 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
         out.flush().map_err(Error::Output)?;
         return Ok(passed);
     }
-    // Only `ucd` and `fuzz-smoke` take options of their own; for any other
-    // command `--check` is left for `finish` to reject.
+    if command == "site" {
+        return site::command(args, &root, out);
+    }
+    // Only `ucd`, `fuzz-smoke` and `site` take options of their own; for
+    // any other command `--check` is left for `finish` to reject.
     let check_only = command == "ucd" && args.flag("--check");
     let extra = args.finish().map_err(usage_error)?;
     if let Some(argument) = extra.first() {
@@ -219,7 +229,14 @@ fn usage() -> String {
     let commands = [("ci", ci_about.as_str())]
         .into_iter()
         .chain(COMMANDS.iter().map(|check| (check.name, check.about)))
-        .chain([("fuzz-smoke", fuzz_about.as_str())]);
+        .chain([
+            ("fuzz-smoke", fuzz_about.as_str()),
+            (
+                "site",
+                "Build the demo page into target/site, or --out DIR: run the gate as ci does \
+                 and two examples, then fill site/ (not a step of ci)",
+            ),
+        ]);
     // Writing to a `String` cannot fail.
     for (name, about) in commands {
         let _ = writeln!(text, "  {name:<12}  {about}");
@@ -238,6 +255,8 @@ fn usage() -> String {
          from the clock)\n  \
          --replay      fuzz-smoke only: save each input before it runs and check memory after \
          each, to name the one that kills the process or reserves too much\n  \
+         --out DIR     site only: build the page into DIR, which is new, empty or made by an \
+         earlier run\n  \
          --help        Show this text\n\
          \n\
          Exit status: 0 if every check passed, 1 if a check failed or could not run,\n\
@@ -277,6 +296,7 @@ mod tests {
             "deps",
             "layers",
             "crates",
+            "features",
             "unsafe-audit",
             "headers",
             "workflows",
@@ -285,6 +305,7 @@ mod tests {
             "ucd",
             "golden",
             "fuzz-smoke",
+            "site",
             "bench",
             "package",
         ] {
@@ -295,8 +316,8 @@ mod tests {
             );
         }
         assert!(text.contains(
-            "  ci            Run deps, fmt, clippy, test, layers, crates, unsafe-audit, headers, \
-             workflows, ucd in that order"
+            "  ci            Run deps, fmt, clippy, test, layers, crates, features, unsafe-audit, \
+             headers, workflows, ucd in that order"
         ));
         assert!(text.contains(
             "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
@@ -325,6 +346,15 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("  tools         roadmap M5.1\n"));
+        assert!(
+            text.contains("\n  site          Build the demo page into target/site, or --out DIR"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n  --out DIR     site only: build the page into DIR"),
+            "{text}"
+        );
+        assert!(!later.contains("site"), "{later}");
     }
 
     #[test]
@@ -353,6 +383,10 @@ mod tests {
         assert_eq!(
             usage_error(&["crates", "extra"]),
             "`crates` takes no arguments, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["features", "extra"]),
+            "`features` takes no arguments, but got `extra`"
         );
         assert_eq!(
             usage_error(&["ucd", "--check", "extra"]),
@@ -459,6 +493,35 @@ mod tests {
         assert_eq!(
             usage_error(&["deps", "--secs", "5"]),
             "unexpected argument `--secs` (argument 2)"
+        );
+    }
+
+    #[test]
+    fn site_takes_only_its_option() {
+        assert_eq!(
+            usage_error(&["site", "extra"]),
+            "`site` takes only `--out DIR`, but got `extra`"
+        );
+        assert_eq!(
+            usage_error(&["site", "--out"]),
+            "option `--out` (argument 2) needs a value"
+        );
+        assert_eq!(
+            usage_error(&["site", "--out="]),
+            "option `--out` needs a directory, not an empty value"
+        );
+        assert_eq!(
+            usage_error(&["site", "--out", "a", "--out", "b"]),
+            "unexpected argument `--out` (argument 4)"
+        );
+        assert_eq!(
+            usage_error(&["site", "--check"]),
+            "unexpected argument `--check` (argument 2)"
+        );
+        // Its option belongs to it alone.
+        assert_eq!(
+            usage_error(&["deps", "--out", "x"]),
+            "unexpected argument `--out` (argument 2)"
         );
     }
 
