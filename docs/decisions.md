@@ -865,7 +865,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0025 — Saving follows symbolic links to their target; the temp file starts private and loses setuid and setgid through one `cfg(unix)` in `text::file`; what a rename changes is documented, and `buffers` checks it
 
-- **Status:** Accepted
+- **Status:** Accepted; ADR-0032 adds a second exception to rule 5: `cfg(unix)` and `cfg(windows)` in `core::path`'s tests
 - **Date:** 2026-11-03
 - **Context:**
   - M1.3 builds `text::file`'s atomic save: a temp file in the same
@@ -1547,3 +1547,178 @@ decides; the roadmap task that first depends on one asks for the decision.
     breaks the byte-for-byte promise for text the edit did not touch.
 - **Revisit when:** a TOML release after 1.1 (ADR-0026's trigger), or a
   report that a TOML file Tidepool wrote back was rejected by a TOML tool.
+
+## ADR-0032 — `core::path` shows a path's bytes that are not UTF-8 as `\xNN` and escapes control characters; rule 5 allows `cfg(unix)` and `cfg(windows)` in `core::path`'s tests
+
+- **Status:** Accepted; ADR-0033 adds the bidirectional controls and the line and paragraph separators to what the display escapes
+- **Date:** 2026-11-08
+- **Context:**
+  - M1.8 builds `core::path`: UTF-8 path helpers, canonicalization and
+    the display of paths that are not UTF-8 (`docs/subsystems/core.md`).
+    Its acceptance line asks that "a path that is not UTF-8 displays
+    without hiding which bytes it holds (tested on Unix with bytes built
+    in the test)".
+  - `docs/03-platforms.md`'s cross-platform invariants said such paths
+    "are displayed lossily and opened by their original bytes". A lossy
+    display, U+FFFD for each bad sequence as `to_string_lossy` gives,
+    hides the bytes, so two different files can look the same.
+  - A path's bytes are reachable without platform `cfg`: `std`'s
+    `OsStr::as_encoded_bytes` gives them on every OS. On Unix they are the
+    name's raw bytes; on Windows they are WTF-8, where an unpaired UTF-16
+    surrogate is three bytes that are not UTF-8.
+  - Building a path that is not UTF-8 needs either `unsafe`
+    (`OsStr::from_encoded_bytes_unchecked`), which `core` denies, or
+    `std::os::unix::ffi::OsStrExt` or `std::os::windows::ffi::OsStringExt`
+    behind a platform `cfg`, which `AGENTS.md` rule 5 does not allow in
+    `core`. ADR-0025's exception covers only `tidepool-text`.
+  - A file name may hold control characters (a newline, ESC), which can
+    forge a log line or drive a terminal; `core::log` already escapes
+    them in its records.
+  - On 2026-11-08 the user chose both recommended options: `cfg(unix)`
+    and `cfg(windows)` in `core::path`'s tests, and `\xNN` for each byte
+    that is not UTF-8.
+- **Decision:**
+  - **The display shows every byte.** `core::path`'s display of a path
+    writes its valid UTF-8 as it is and each byte that is not part of
+    valid UTF-8 as `\xNN` (two uppercase hex digits), as Python's
+    `backslashreplace` does: `/home/me/caf\xE9.txt`. Control characters
+    (U+0000 to U+001F, U+007F, and U+0080 to U+009F) are escaped as well,
+    so a file name cannot drive a terminal or start a new line. A UTF-8
+    path with no control characters displays unchanged. On Windows an
+    unpaired surrogate shows as the three WTF-8 bytes `std` holds for it
+    (`\xED\xA0\x80` for U+D800), the same on every OS.
+  - **Paths are opened by what they are.** The display is for people and
+    logs only; a path is opened, compared and passed to a child process by
+    its `Path` or `OsStr`, never by its display.
+  - **Rule 5 gains one exception.** `#[cfg(unix)]` and `#[cfg(windows)]`
+    may appear in `core::path`'s tests, to build paths that are not UTF-8
+    (`OsStrExt::from_bytes` on Unix, `OsStringExt::from_wide` with an
+    unpaired surrogate on Windows), and nowhere else in `core`.
+    `core::path`'s library code has no platform `cfg`.
+  - `docs/03-platforms.md`'s invariant now reads that such paths are
+    displayed with their bytes shown and opened by their original bytes.
+- **Consequences:**
+  - Two files whose names differ only in bytes that are not UTF-8 display
+    differently, and a log line names the file a person can find.
+  - A UTF-8 name holding a literal `\x` followed by two hex digits
+    displays the same as a name holding that byte: the display is for
+    reading, not for parsing back.
+  - Each OS's CI tests its own kind of bad name.
+  - `AGENTS.md` rule 5 and `CONTRIBUTING.md` name the new exception.
+- **Alternatives considered:**
+  - A lossy display with the bytes in hex after it: longer, and the first
+    part still hides the bytes.
+  - A Rust `Debug` string (`"caf\xE9.txt"` with quotes and `\\`): escapes
+    every Windows separator.
+  - Only `cfg(unix)` in the tests: Windows' unpaired surrogates would be
+    covered by reasoning alone.
+  - No `cfg` at all, testing the escaping on byte strings only: no test
+    would build a path that is not UTF-8, which the acceptance line asks
+    for.
+- **Revisit when:** `std` gives a safe, portable way to build an `OsStr`
+  from bytes that are not UTF-8, so the tests need no `cfg`; or a caller
+  needs to parse a displayed path back.
+
+## ADR-0033 — `core::path::canonicalize` drops Windows' `\\?\` where Win32 reads the plain form back; `resolve` and `under` are part of M1.8; the display also escapes bidirectional controls and line separators
+
+- **Status:** Accepted; its consequence that paths below a name needing the verbatim form stay verbatim is wrong, as M1.8's review found: a name below one is plain wherever the whole plain path reads back unchanged, so forms can alternate down a tree, and an ancestor must be canonicalized itself, never taken with `Path::parent()`. The decision is unchanged
+- **Date:** 2026-11-08
+- **Context:**
+  - M1.8's design (`docs/subsystems/core.md` → "Public API names",
+    `path`) was merged from three independent ones. Three of its choices
+    go beyond ADR-0032, and two of them shape keys that later tasks keep:
+    M4.7's trust store and M4.3's buffers key on canonical paths.
+  - On Windows `std::fs::canonicalize` returns a verbatim path, from
+    `GetFinalPathNameByHandleW`: `\\?\C:\Users\me\x.rs`, or
+    `\\?\UNC\server\share\…` for a share. Before std passes a directory to
+    a child as its current directory, it drops the prefix only when
+    `GetFullPathNameW` reads the plain form back unchanged
+    (`is_absolute_exact` in std's `process_windows.rs`). That test keeps a
+    name that only the verbatim form can reach, such as `nul` (which Win32
+    maps to `\\.\NUL`) or one with a trailing dot or space. Without a
+    platform `cfg` it is `std::path::absolute(&plain) == plain`.
+  - A length rule (plain below 260 UTF-16 units) would give a root and
+    the deep files under it different forms.
+  - M4.3 opens buffers for files that do not exist yet, and M4.7 checks
+    whether a path is inside a trusted root and matches ignore rules.
+    `Path::starts_with` is lexical (`/w/../etc` starts with `/w`), and a
+    plain and a verbatim path to one volume compare unequal.
+  - ADR-0032 escapes control characters (Unicode's Cc). A file name can
+    also hold bidirectional controls: U+202E makes `txt.exe` look like
+    `exe.txt`. It can hold U+2028 or U+2029 as well, which some views draw
+    as line breaks. `xtask` already escapes both kinds in its messages
+    (`is_escaped` in `xtask/src/walk.rs`).
+  - On 2026-11-08 the user chose the recommended option of three
+    questions: "Plain where Win32 agrees", "Add resolve and under", and
+    "Escape them too".
+- **Decision:**
+  - **`canonicalize(path)`** is `fs::canonicalize`. When the result starts
+    with `\\?\C:\` or `\\?\UNC\server\share\`, the prefix is dropped
+    (giving `C:\…` or `\\server\share\…`) exactly when
+    `std::path::absolute` returns the plain form unchanged. Otherwise the
+    verbatim form stays. There is no length rule. The library tells the
+    forms apart by `Component::Prefix`, which only Windows' path parsing
+    yields, so it has no platform `cfg`. On Unix the result is
+    `realpath(3)`'s, unchanged.
+  - **`resolve(path)`** is `canonicalize` for a path whose end need not
+    exist yet:
+    - the longest part that exists is canonicalized;
+    - a link that leads nowhere is followed, as `text::file::save` follows
+      it, through at most 40 links (ADR-0025's limit);
+    - a `..` after a name that does not exist cancels that name, one per
+      pass, since what follows may exist.
+
+    `resolve(p)` equals `canonicalize(p)` when `p` exists, and once the
+    missing names of `p` are made.
+  - **`under(path, root)`** returns the part of `path` inside `root`,
+    comparing component by component. It does no I/O and folds no case.
+    It is `None` when either path is relative or holds `.` or `..`, and a
+    plain and a verbatim prefix of one volume count as equal. Both sides
+    must come from `canonicalize` or `resolve`.
+  - **The display's escaped set is `xtask`'s:**
+    - ADR-0032's control characters, plus U+061C, U+200E, U+200F,
+      U+202A to U+202E, U+2066 to U+2069, U+2028 and U+2029;
+    - each is written as `core::log` writes an escape, `\u{1b}`, tab and
+      newline included, so a display is always one line;
+    - C1 controls are `\u{80}` to `\u{9f}`, so `\x` always means a byte
+      that is not UTF-8;
+    - a backslash and quotes are never escaped.
+
+    A UTF-8 name with none of these characters still shows unchanged.
+  - **Tests branch at runtime, not on `cfg`.** A test of Windows' prefixes
+    asks whether std parses `C:\` as a prefix. A test that needs a
+    symbolic link prints `SKIPPED: <reason>` where one cannot be made or
+    followed. ADR-0032's `cfg(unix)` and `cfg(windows)` stay in
+    `core::path`'s unit tests.
+- **Consequences:**
+  - A path's form does not depend on its depth, and the common case reads
+    as people write paths: `C:\Users\me\x.rs`.
+  - Below a name that needs the verbatim form, paths stay verbatim. A tree
+    can mix forms, which `under` handles and `==` and `starts_with` do
+    not; the rustdoc says so.
+  - One file can still have two canonical paths: through hard links, bind
+    mounts, a case-folding directory, or a missing tail typed in another
+    case. M4.3 needs file identity through `platform` to merge such
+    buffers. For trust this fails closed.
+  - `resolve` and `under` are checks, not a sandbox: a link changed after
+    them escapes them. On Windows, canonicalizing through a link to
+    `\\host\share` makes Windows authenticate to that host, which M4.7's
+    security review must weigh before it resolves links in an untrusted
+    workspace.
+  - The Windows and macOS behavior is tested only by the CI jobs on those
+    OSes.
+  - A name from an untrusted workspace cannot disguise itself through
+    bidirectional controls in a display or a log.
+- **Alternatives considered:**
+  - Always verbatim: one rule, but every path shows as `\\?\C:\…`, and
+    some children fail to parse it.
+  - Plain below 260 units: old tools can open the result, but forms differ
+    by depth.
+  - Only `display`, `to_utf8` and `canonicalize` in M1.8: smaller now, but
+    M4.3 and M4.7 would each change `core` too.
+  - ADR-0032's control characters only: leaves the bidirectional controls
+    to every view that shows a path.
+- **Revisit when:** a Windows CI run or a report shows a plain path that
+  opens a different file from its verbatim form; or
+  `io::ErrorKind::FilesystemLoop` becomes stable, so a link loop can
+  report its own kind.

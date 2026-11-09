@@ -14,7 +14,7 @@
 
 //! Tidepool foundations: errors, logging, the test harness, RNG, hashing
 //! (including SHA-256 for downloads), CLI parsing, time, geometry, color and
-//! input types.
+//! input types, and path helpers.
 //!
 //! Specification: `docs/subsystems/core.md`.
 //!
@@ -31,6 +31,7 @@ pub mod geom;
 pub mod hash;
 pub mod input;
 pub mod log;
+pub mod path;
 pub mod rng;
 pub mod testing;
 

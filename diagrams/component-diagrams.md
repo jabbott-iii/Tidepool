@@ -1054,7 +1054,7 @@ flowchart LR
     i_toml(("codec:<br/>toml::parse"))
     i_civil(("core:<br/>civil::DateTime"))
 
-    c_core["tidepool-core<br/>built M0.2, M1.6"]
+    c_core["tidepool-core<br/>built M0.2, M1.6, M1.8"]
     c_codec["tidepool-codec<br/>built M1.4, M1.5, M1.7"]
 
     c_main -->|"the command line"| i_cli

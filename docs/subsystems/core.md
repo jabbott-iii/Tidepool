@@ -18,7 +18,7 @@ owner); port the code, don't depend on the crate.
 | `input` | `Key` (physical keys), `Modifiers`, `MouseButton`, `InputEvent`, shared by `platform`, `ui`, `editor` and both frontends |
 | `geom` | `Point`, `Size`, `Rect` in logical units (`f32`) and device pixels (`i32`), scale conversion |
 | `color` | `Color` (sRGB `u8` RGBA), premultiplied blending, hex parsing (`#5ccbcb`, `rgba(…)` for theme files) |
-| `path` | UTF-8 path helpers, canonicalization, display of non-UTF-8 paths |
+| `path` | UTF-8 path helpers, canonicalization, containment, display of non-UTF-8 paths |
 | `cancel` | `CancelToken` (`Arc<AtomicBool>`) and `Deadline` |
 
 ## Public API names
@@ -98,6 +98,102 @@ is the reference.
   at most 9 places, becoming `round(A × 255)`, halves up), with optional
   ASCII whitespace; at most `MAX_COLOR_LEN` (64) bytes; errors carry the
   byte offset and what was expected.
+- `path` (M1.8; ADR-0032, ADR-0033):
+  - **`display(&path)`** returns `PathDisplay`, for people and logs only.
+    - Valid UTF-8 is written as it is.
+    - Each byte that is not part of valid UTF-8 is written as `\xNN`, with
+      uppercase hex. On Windows an unpaired surrogate shows as its WTF-8
+      bytes, `\xED\xA0\x80` for U+D800, the same on every OS.
+    - Each control character (U+0000–U+001F, U+007F, U+0080–U+009F, tab
+      and newline included), bidirectional control (U+061C, U+200E,
+      U+200F, U+202A–U+202E, U+2066–U+2069) and line or paragraph
+      separator (U+2028, U+2029) is written as `core::log` writes an
+      escape, `\u{1b}`. That is `xtask`'s set (ADR-0033), so a display is
+      one line and cannot reorder how the rest of its line is drawn.
+    - Nothing else is escaped, a backslash and quotes included.
+    - `Debug` is the same text in double quotes.
+    - It borrows, never allocates, and ignores width, fill and precision.
+    - A path is opened, compared and passed to a child by its `Path`,
+      never by its display.
+  - **`to_utf8(&path)`** returns `Result<&str, PathError>`: the path as
+    text, for what holds only text (TOML, JSON, URIs, the UI). `NotUtf8`
+    names the path by its display.
+  - **`canonicalize(path)`** is for a path that exists.
+    - The result is absolute, with every link and every `.` and `..`
+      resolved as the OS resolves them (`fs::canonicalize`).
+    - On Windows the `\\?\` prefix is dropped exactly when Win32 reads the
+      plain form back unchanged (`std::path::absolute(plain) == plain`).
+      That is std's own test before it passes a directory to a child.
+      There is no length rule, and a name that is not valid UTF-16 is
+      tested like any other.
+    - Win32 rewrites a path's last name (a trailing dot or space, a device
+      name) and drops one final dot from each name inside it, but keeps a
+      space inside it. So `\\?\` stays for any path Win32 reads otherwise:
+      `\\?\C:\w\space ` and `\\?\C:\w\dir.\a.txt` stay verbatim, while
+      `C:\w\space \a.txt` is plain. Forms can alternate down a tree, so an
+      ancestor of a canonical path is taken by canonicalizing it, never
+      with `Path::parent`.
+    - A relative path starts at the process's current directory.
+  - **`resolve(path)`** is the same, except that the end of the path need
+    not exist yet.
+    - The OS canonicalizes the whole path first; if it exists, that is the
+      answer. Otherwise the path is walked from its root one name at a
+      time, each name looked at once with `fs::symlink_metadata`, so the
+      work is one look per name of the path and of the link targets it
+      follows, besides the canonicalization at the start and the end. No
+      part in the middle is canonicalized: that would repeat the OS's work,
+      and on Windows it would open a directory that may only be passed
+      through.
+    - A link is followed as the OS follows it, from the link's own
+      directory, whether it leads anywhere or not, and its target is walked
+      the same way (an absolute one from its root). On Windows a relative
+      target's `..` are applied to its text first. An empty target (macOS
+      and the BSDs allow one) is `NotFound`, as those OSes answer.
+    - A name below a missing name is missing too, and a `..` after a
+      missing name cancels it, one for one, without asking the file system
+      again.
+    - A final separator, or on Unix a final `/.`, asks for a directory:
+      after a file it is `NotADirectory`, and a missing last name is
+      planned as a directory. On Windows so does a separator left once
+      Win32 trims a final space or dot (`file.txt\ `).
+    - `resolve` follows 40 links at most, counting every link it follows
+      across the call: when the whole path does not exist, every link on
+      the path and in the targets it follows, as the OS counts them. So
+      `TooManyLinks` comes on any OS for a chain or loop through names that
+      do not exist yet. Once a path is made, the OS's limit decides (32 on
+      macOS, 63 on Windows).
+    - On Windows its probes use the verbatim spelling of the path, `\\.\`
+      paths included, so Win32 cannot read a leading part again (a
+      trailing space, a device name).
+      A name Windows reads as a drive (`c:x`, a stream), a `.` a verbatim
+      path keeps, and a link target that is neither relative nor absolute
+      are `InvalidInput`. Paths are built by appending text, never by
+      pushing components.
+    - `resolve(p)` equals `canonicalize(p)` once `p`'s missing names have
+      been made.
+  - **`under(path, root)`** returns `Option<&Path>`: the part of `path`
+    inside `root`, compared component by component. It is `Some("")` when
+    they are equal.
+    - It returns `None` when either path is relative or holds `.` or `..`.
+    - A plain and a verbatim Windows prefix for the same volume count as
+      equal. A root that is a bare verbatim prefix (`\\?\C:`, or
+      `\\?\UNC\srv\share` with no `\` after it) holds nothing.
+    - Every part of the answer is one name that `std` reads back as
+      itself, so a part such as `c:x` gives `None`, and `root.join(part)`
+      has `path`'s names. It names the same file only when `root` has
+      `path`'s form or `path` is plain: a verbatim `path` under a plain
+      `root` joins to the plain form Win32 reads as something else (a
+      device, a name without its trailing space or dot). Callers keep
+      `path`, or canonicalize or resolve the join again.
+    - It does no I/O and folds no case, so both sides must come from
+      `canonicalize` or `resolve`.
+  - **`PathError`** has the variants `Empty`, `NotUtf8 { path }`,
+    `Io { path, source }` and `TooManyLinks { path }`, plus a `kind()`
+    method (`TooManyLinks` is `Other`, since the kind for a link loop is
+    not stable). Messages name the path by its display, as
+    ``cannot resolve `<path>`: <OS error>``.
+  - `canonicalize` and `resolve` block on the file system and run on
+    workers, never on the main thread (rule 6).
 - `input`: `Key` (`Key::ALL`, `usage`), `Modifiers` (`SHIFT`, `CTRL`,
   `ALT`, `SUPER`), `MouseButton`, `ScrollDelta`, `InputEvent`.
 - `cancel`: `CancelToken::{new, cancel, is_cancelled}`;
@@ -112,6 +208,18 @@ is the reference.
 - `Pcg32` output is identical across OSes for the same seed.
 - Log redaction removes every registered secret from every sink before it
   is written.
+- A path's display holds no character of the escaped set and shows every
+  byte that is not part of valid UTF-8. A UTF-8 path with none of those
+  characters displays unchanged.
+- For a path that exists, `resolve(p) == canonicalize(p)`. For one that
+  does not, `resolve(p)` is what `canonicalize(p)` gives once the missing
+  names exist: directories, then the last name as a file (as a directory
+  if the path ends in a separator), and a dangling link's target.
+- On Linux neither function rewrites a name. On macOS `realpath(3)` gives
+  each name that exists as the file system stores it (its case, and on
+  HFS+ its decomposed form), which `core::path` keeps unchanged. It
+  refuses a path over 1,024 bytes, so both functions fail for one there.
+  `core::path`'s library code has no platform `cfg`.
 
 ## Tests
 
@@ -119,3 +227,20 @@ is the reference.
 - SHA-256 and CRC-32 test vectors.
 - Logger rotation in a temp directory under `target/`.
 - `civil` against known timestamps, including leap years.
+- The display of bytes that are not UTF-8 is tested with paths built in
+  the test: `cfg(unix)` builds the bytes and `cfg(windows)` builds an
+  unpaired surrogate. Every such `cfg` lives in `src/path/tests.rs`
+  (ADR-0032); the tests of Windows' prefixes ask at run time whether `std`
+  parses them (ADR-0033).
+- `canonicalize` and `resolve` are tested in a temporary directory under
+  `target/`, covering file and directory links, links that lead nowhere,
+  loops, the 40-link limit, a missing tail, `..`, a final separator and
+  relative paths. A plan from `resolve` is made, then compared with
+  `canonicalize`. Three tests bound the time: of 2,000 names and `..`
+  (missing or not), of 40 links through missing names, and of 40 absolute
+  links into a tree 300 deep against `canonicalize` of the made path.
+- Windows' names (a trailing space inside a path, `c:x`, a verbatim `.`,
+  a `\\.\` spelling, a final `\ `) are tested where `std` parses
+  Windows' prefixes, asked at run time.
+- Each link test prints `SKIPPED:` where the OS or the account cannot make
+  or follow the link.

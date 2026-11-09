@@ -8,7 +8,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M1.5 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M1.8 (2026-11-09, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -113,7 +113,7 @@ classDiagram
     Rope ..> TextError : fails with
 ```
 
-## 2. core: errors, the command line and cancellation
+## 2. core: errors, the command line, cancellation and paths
 
 `CoreError` shows the pattern every crate follows: one error enum that
 implements `Display` and `std::error::Error`. `ErrorContext` adds
@@ -201,6 +201,50 @@ classDiagram
     Args ..> CoreError : fails with
     note for CancelToken "Clones share one flag, across threads"
     note for Deadline "None means never, and so does<br/>a deadline too far away to represent"
+```
+
+`core::path` (M1.8) shows a path to people and logs without hiding a byte
+or letting a name drive a terminal (ADR-0032, ADR-0033), gives a path as
+text, and canonicalizes it. `resolve` does so for a path whose end does not
+exist yet, and `under` checks containment component by component. Its
+error keeps the `std::io::Error` that caused it.
+
+```mermaid
+classDiagram
+    direction LR
+    class PathFns["core::path"] {
+        <<module>>
+        +display(path) PathDisplay
+        +to_utf8(path) Result~str~
+        +canonicalize(path) Result~PathBuf~
+        +resolve(path) Result~PathBuf~
+        +under(path, root) Option~Path~
+    }
+    class PathDisplay {
+        -bytes: u8 slice
+    }
+    class PathError {
+        <<enumeration>>
+        Empty
+        NotUtf8
+        Io
+        TooManyLinks
+        +kind() ErrorKind
+    }
+    class Display["std::fmt::Display"] {
+        <<trait>>
+    }
+    class StdError["std::error::Error"] {
+        <<trait>>
+    }
+    class IoError["std::io::Error"]
+    PathFns ..> PathDisplay : display returns
+    PathFns ..> PathError : fails with
+    Display <|.. PathDisplay
+    Display <|.. PathError
+    StdError <|.. PathError
+    PathError *-- IoError : Io
+    note for PathDisplay "Borrows the path's bytes<br/>and writes without allocating"
 ```
 
 ## 3. core: random numbers, hashes and time
@@ -2206,6 +2250,13 @@ classDiagram
         UnexpectedArgument
     }
     class WithContext["core::error::WithContext"]
+    class PathError["core::path::PathError"] {
+        <<enumeration>>
+        Empty
+        NotUtf8
+        Io
+        TooManyLinks
+    }
     class FuzzError["core::testing::fuzz::FuzzError"] {
         <<enumeration>>
         Var
@@ -2238,6 +2289,8 @@ classDiagram
     StdError <|.. CoreError
     Display <|.. WithContext
     StdError <|.. WithContext
+    Display <|.. PathError
+    StdError <|.. PathError
     Display <|.. FuzzError
     StdError <|.. FuzzError
     Display <|.. CodecError
@@ -2248,6 +2301,7 @@ classDiagram
     StdError <|.. XtaskError
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
+    PathError *-- IoError : Io
     FuzzError *-- IoError : Read, Write
     TextError *-- IoError : Io, NotWritable
     XtaskError *-- IoError : Read, Spawn, Output, Write
@@ -2260,9 +2314,6 @@ Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
 
-- `tidepool-core`: path helpers in `core::path` (UTF-8 paths,
-  canonicalization, the display of paths that are not UTF-8), planned
-  (M1.8). The spec names no types.
 - `tidepool-platform`: `Window` (`Window::open(config)`), `wait_events`
   filling a `Vec<Event>`, the `Waker` that interrupts it from any thread,
   and `present(&Framebuffer, &[DamageRect])`, planned (M2.2); `Pty`
@@ -2295,10 +2346,11 @@ The main files these diagrams were drawn from:
   `hash.rs`, `hash/sha256.rs`, `civil.rs`, `geom.rs`, `color.rs`,
   `input.rs`, `log.rs`, `log/file.rs`, `log/redact.rs`, `log/writer.rs`,
   `testing.rs`, `testing/fuzz.rs`, `testing/fuzz/engine.rs`,
-  `testing/fuzz/mutate.rs`, `testing/fuzz/paths.rs`
+  `testing/fuzz/mutate.rs`, `testing/fuzz/paths.rs`, `path.rs`
 - `crates/codec/src/lib.rs`, `limits.rs`, `error.rs`, `json.rs`,
   `json/number.rs`, `json/parse.rs`, `json/write.rs`, `toml.rs`,
-  `toml/table.rs`, `toml/datetime.rs`, `toml/parse.rs`
+  `toml/table.rs`, `toml/datetime.rs`, `toml/parse.rs`,
+  `toml/document.rs`, `toml/write.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`
 - `crates/text/src/lib.rs`, `rope.rs`, `rope/node.rs`, `rope/iter.rs`,
   `pos.rs`, `pos/grapheme.rs`, `selection.rs`, `transaction.rs`,

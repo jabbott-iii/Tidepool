@@ -962,7 +962,7 @@ is published from `main`.
     - **Not run here:** macOS and Windows. CI runs these tests there on
       the next push.
 
-- [ ] **M1.8 — core: path helpers**
+- [x] **M1.8 — core: path helpers**
   - Depends: M0.2
   - Do: `core::path` per `docs/subsystems/core.md`: UTF-8 path helpers,
     canonicalization and the display of paths that are not UTF-8. M0.2's
@@ -971,6 +971,58 @@ is published from `main`.
     holds (tested on Unix with bytes built in the test); canonicalization
     is tested in a temp directory under `target/`.
   - Verify: `cargo test -p tidepool-core`
+  - Note (2026-11-08): the user chose `\xNN` for each byte that is not
+    UTF-8, with control characters escaped too, and `cfg(unix)` and
+    `cfg(windows)` in `core::path`'s tests to build such paths (ADR-0032).
+  - Note (2026-11-08): from the merged design, the user chose that
+    `canonicalize` drops Windows' `\\?\` where Win32 reads the plain form
+    back, that `resolve` and `under` are part of this task, and that the
+    display also escapes bidirectional controls and line separators
+    (ADR-0033).
+  - Note (2026-11-09): done.
+    - **Built:** `core::path`: `display` (`PathDisplay`), `to_utf8`,
+      `canonicalize`, `resolve`, `under` and `PathError`, with no platform
+      `cfg` in the library. The design was merged from three independent
+      ones; `docs/subsystems/core.md` → "Public API names" summarizes the
+      rustdoc.
+    - **Verified:** `cargo test -p tidepool-core` passes: 276 unit tests,
+      20 in `tests/path.rs`, 24 in `tests/log.rs`, 2 in `tests/seed.rs`,
+      1 in `tests/fuzz_memory.rs` and 19 doc tests, with no `SKIPPED:`
+      line on Linux. The unit test that builds a path that is not UTF-8
+      from bytes runs here; canonicalization is tested in directories
+      under `target/`. `cargo clippy` with `-D warnings` is clean for the
+      Windows and macOS targets too, which compiles their `cfg` tests.
+      `cargo xtask ci` passes 11 of 11 steps, with 1,211 tests passed in
+      66 binaries and none skipped.
+    - **Review:** two rounds. The first (six lenses, among them
+      `security-reviewer` and one predicting the Windows and macOS CI
+      runs) checked the display against an independent decoder over more
+      than 300 million inputs and found nothing there. It found `resolve`
+      cubic in time on `missing/..` pairs (a 16 KB path took 197 s), a
+      Windows name such as `c:x` read as a drive, probes of plain prefixes
+      that Win32 rewrites, a final separator lost, a race giving
+      `InvalidInput`, the 40-link limit untested, and wrong docs;
+      `resolve` was rewritten as one canonicalization and otherwise a walk
+      from the root. The second found absolute link targets still costing
+      about 30 times `canonicalize`, `\\.\` paths probed as Win32 rewrites
+      them, empty link targets, and Windows' trimmed final separators; all
+      fixed. A randomized checker against the kernel agrees on 45,000
+      trees over three seeds, and 40 chained absolute links in a tree
+      1,000 deep take 1.1 s where `canonicalize` takes 0.5 s.
+    - **Not run here:** macOS and Windows, which CI runs on the next push.
+      Only those runs confirm the Windows prefix rules (U7, U9, U10, U13,
+      the trimmed names), the case and `/private` forms on macOS, and the
+      loop errors' kinds. Expected `SKIPPED:` lines: on macOS, the name
+      that is not UTF-8 (APFS refuses it) and the 2,000-pair timing test
+      (`realpath` refuses paths over 1,024 bytes); on Windows, the cases
+      that list a directory through a link.
+    - **For later tasks:** `under` and `resolve` are checks, not a
+      sandbox: a link changed after them escapes them, and on Windows
+      canonicalizing through a link to `\\host\share` authenticates to that
+      host. M4.7's security review weighs both. The review also found that
+      on Windows `text::file::save` joins a relative link target onto the
+      link's lexical parent, where the OS uses the link's own directory
+      (reasoned from std's sources, not run).
 
 - [ ] **M1.9 — bench: harness, `cargo xtask bench` and the text suites**
   - Depends: M0.3, M1.2, M0.5

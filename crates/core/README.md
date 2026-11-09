@@ -3,9 +3,10 @@
 Tidepool's foundations, which every other crate uses: errors with context,
 logging with secret redaction, the property-test harness and the fuzzer
 behind each parser crate's fuzz targets, a seeded RNG, hashing (SHA-256 for
-download integrity only), argument parsing, UTC time, and the geometry,
+download integrity only), argument parsing, UTC time, the geometry,
 color and input types that `platform`, `ui`, `editor` and both frontends
-share. It has no dependencies, no `unsafe` and no OS-specific code.
+share, and path helpers: a display that hides no byte, canonical paths and
+containment. It has no dependencies, no `unsafe` and no OS-specific code.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
 for Linux, macOS and Windows, written in Rust with no third-party crates.
@@ -38,11 +39,15 @@ Built, with the roadmap task that built it:
   that leaves the input a process died on for `fuzz-smoke` to keep as
   `died-<hash>`, and no symbolic link followed on the way. Ported in part
   from Nadir's fuzzer — M1.6.
+- `path`: `display`, which shows each byte that is not UTF-8 as `\xNN`
+  and escapes control and bidirectional characters; `to_utf8`;
+  `canonicalize`, in Windows' plain form wherever Win32 reads it back
+  unchanged; `resolve`, the spelling a path will have once its missing
+  names are made, found by a walk that looks at each name once; and
+  `under`, containment compared component by component (ADR-0032,
+  ADR-0033) — M1.8.
 
-Not yet, with the roadmap task that adds it:
-
-- `path`: UTF-8 path helpers, canonicalization, and the display of paths
-  that are not UTF-8 — M1.8.
+All of the crate's planned modules exist.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -166,12 +171,41 @@ fn main() -> Result<(), CoreError> {
 }
 ```
 
+Show a path to people and in logs, and plan where a file that does not
+exist yet will be. The display hides no byte and escapes control and
+bidirectional characters; `resolve` gives the path `canonicalize` will give
+once the file is made; `under` checks containment by components, so `..`
+cannot fool it.
+Both `canonicalize` and `resolve` read the file system, so callers run them
+on a worker:
+
+```rust
+use std::io;
+use std::path::Path;
+use tidepool_core::path::{self, PathError};
+
+fn main() -> Result<(), PathError> {
+    assert_eq!(path::display("notes\tdraft.md").to_string(), r"notes\u{9}draft.md");
+
+    let root = path::canonicalize(".")?;
+    let planned = path::resolve(root.join("not-yet/../created.txt"))?;
+    assert_eq!(planned, root.join("created.txt"));
+    assert_eq!(path::under(&planned, &root), Some(Path::new("created.txt")));
+
+    let error = path::canonicalize(root.join("not-yet")).expect_err("nothing made it");
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    Ok(())
+}
+```
+
 ## Documentation
 
 - Design: [`docs/subsystems/core.md`](../../docs/subsystems/core.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0016
   (SHA-256 for downloads only); ADR-0027 (the fuzz targets and their
-  engine).
+  engine); ADR-0032 (the display of paths that are not UTF-8, and the
+  `cfg` in `path`'s tests); ADR-0033 (`path::canonicalize`'s Windows
+  form, `resolve` and `under`, and the characters the display escapes).
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"), which
   summarizes `testing::fuzz`; its rustdoc is authoritative.
 - API reference: `cargo doc -p tidepool-core --open`
@@ -184,6 +218,12 @@ fn main() -> Result<(), CoreError> {
   `/proc/self/status` cannot be read, and skips the memory checks, saying
   so. Like the rest of the crate it never prints; it reports through its
   return values and panic messages.
+- `#[cfg(unix)]` and `#[cfg(windows)]` appear only in `src/path/tests.rs`,
+  to build paths that are not UTF-8 (ADR-0032). `path`'s library code has
+  no platform `cfg`, and its other tests ask at run time whether `std`
+  parses Windows' prefixes (ADR-0033).
+- `path::canonicalize` and `path::resolve` block on the file system, so
+  they run on workers, never on the main thread (`AGENTS.md` rule 6).
 - `tests/fuzz_memory.rs` holds the one test of the reserved-memory check,
   in a process of its own: the check sees the whole process, and the unit
   tests' threads would move it.
@@ -196,6 +236,10 @@ fn main() -> Result<(), CoreError> {
 ```bash
 cargo test -p tidepool-core
 ```
+
+The tests of `path` work in directories under `target/`. Those that need a
+symbolic link, or a file name the file system may refuse, print
+`SKIPPED: <reason>` where the OS or the account cannot make it.
 
 `cargo xtask ci` runs the whole gate.
 

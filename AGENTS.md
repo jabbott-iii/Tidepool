@@ -11,7 +11,7 @@ verified.
   diagrams of the design and the code in `diagrams/` (M0.12),
   the CI supply chain and its check (M0.8), license headers on the
   source files and their check (M0.7), the foundations in `tidepool-core`
-  (M0.2), JSON and JSONC (M1.4), TOML 1.1 (M1.7) and its document model,
+  (M0.2) and its path helpers (M1.8), JSON and JSONC (M1.4), TOML 1.1 (M1.7) and its document model,
   which writes edits back and keeps the rest (M1.5), in `tidepool-codec`,
   and in `tidepool-text` the rope, positions and grapheme boundaries
   (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
@@ -105,8 +105,10 @@ or file is there.
    appears only in `sys`, `platform`, `toolchain` install plans and `xtask`
    packaging. The one exception is a `#[cfg(unix)]` in `text::file` that
    creates the save's temp file private and clears setuid and setgid, plus
-   `cfg(unix)` in `text`'s tests of modes and links (ADR-0025). No check
-   enforces this yet; review does.
+   `cfg(unix)` in `text`'s tests of modes and links (ADR-0025), and
+   `cfg(unix)` and `cfg(windows)` in `core::path`'s tests, which build
+   paths that are not UTF-8 (ADR-0032). No check enforces this yet; review
+   does.
 6. **The main thread never waits** on I/O, a child process, an LSP server or
    an agent. Results carry buffer versions; stale ones are dropped.
 7. **Secrets never leak.** Keystore passwords, signing identities and API

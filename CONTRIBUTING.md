@@ -79,7 +79,8 @@ up on:
 - **Platform `cfg` stays in a few places:** `#[cfg(target_os = ...)]`
   appears only in `sys`, `platform`, `toolchain`'s install plans and
   `xtask`'s packaging, apart from one `#[cfg(unix)]` in `text::file`
-  (ADR-0025). Everything above them is the same on every OS.
+  (ADR-0025) and the tests of `core::path` (ADR-0032). Everything above
+  them is the same on every OS.
 - **The main thread never waits** on a file, a child process, a language
   server or an agent.
 - **Secrets never leak.** Keystore passwords, signing identities and API

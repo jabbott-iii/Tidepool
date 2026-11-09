@@ -161,8 +161,15 @@ task that needs another OS leaves its box unchecked with a
 
 - The same keystroke sequence produces the same buffer on every OS.
 - Line endings and encodings round-trip byte-for-byte on save.
-- Paths are UTF-8 internally; non-UTF-8 paths on Linux are displayed lossily
-  and opened by their original bytes.
+- Paths are UTF-8 internally; a path that is not UTF-8 is displayed with
+  each byte that is not UTF-8 shown as `\xNN`, and opened by its original
+  bytes (ADR-0032).
+- A file's canonical path (`core::path::canonicalize`) is `realpath(3)`'s
+  on Linux and macOS (on macOS each name that exists as the file system
+  stores it, and `/tmp` is `/private/tmp`), and `C:\…` or
+  `\\server\share\…` on Windows, keeping `\\?\` only where Win32 would
+  read the plain form differently, so forms can alternate down a tree
+  (ADR-0033).
 - Child processes never outlive Tidepool; shutdown kills stragglers.
 - Every managed install asks first, shows its source, and verifies what it
   downloaded.

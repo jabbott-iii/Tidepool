@@ -46,7 +46,7 @@ What `cargo run -p tidepool-text --example editing` printed:
 The page draws two views, which {{repository_url}}/blob/{{commit}}/diagrams/c4-architecture.md also draws, with every module and edge:
 
 - Containers: the developer is to use Tidepool through its GUI frontend (roadmap M2.6) or its terminal UI (M7.1), both parts of the tidepool binary, whose main is empty today (M0.1). The binary is to read and write its settings and other TOML files (M3.4, M4.7, M5.1), open, edit and save the developer's workspace folders (M4.7, M4.3), install and run managed tools such as curl, rustup and cargo, rust-analyzer, git, the Android SDK and Xcode as child processes (from M5.1), and speak the Tidepool Agent Protocol over stdio to language agents (M9.3); the reference agents reach model servers through curl or loopback HTTP (M9.6). The core binary opens no sockets.
-- Crates by layer: 26 crates in seven layers, each using only crates below it that its row of the dependency matrix names. Built: core (M0.2, M1.6) and the crate root of sys (M0.1) in layer 0; codec (M1.4 to M1.7), text (M1.1 to M1.3) and the crate root of platform (M0.1) in layer 1; the binary with an empty main in layer 5 (M0.1); xtask in layer 6 (from M0.3). Only sys and platform may hold unsafe code.
+- Crates by layer: 26 crates in seven layers, each using only crates below it that its row of the dependency matrix names. Built: core (M0.2, M1.6, M1.8) and the crate root of sys (M0.1) in layer 0; codec (M1.4 to M1.7), text (M1.1 to M1.3) and the crate root of platform (M0.1) in layer 1; the binary with an empty main in layer 5 (M0.1); xtask in layer 6 (from M0.3). Only sys and platform may hold unsafe code.
 
 ## Features
 

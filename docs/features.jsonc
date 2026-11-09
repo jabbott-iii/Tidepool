@@ -74,9 +74,9 @@
     {
       "name": "Foundations in core",
       "area": "Core",
-      "summary": "The pieces every crate shares: errors, logging that redacts registered secrets before a line is written anywhere, a property-test harness that prints the seed of a failure to run it again, a PCG32 random generator, FNV-1a, CRC-32 and SHA-256 checked against their standard vectors, a command-line parser, UTC dates and times, geometry, colors, input events and cancellation. Path helpers will follow, to canonicalize paths and to show one that is not UTF-8 without hiding its bytes.",
+      "summary": "The pieces every crate shares: errors, logging that redacts registered secrets before a line is written anywhere, a property-test harness that prints the seed of a failure to run it again, a PCG32 random generator, FNV-1a, CRC-32 and SHA-256 checked against their standard vectors, a command-line parser, UTC dates and times, geometry, colors, input events and cancellation; and path helpers, which show a path that is not UTF-8 without hiding its bytes or letting a file name drive a terminal, give each path one canonical spelling on Linux, macOS and Windows, and say where a new file will land before it exists.",
       "tasks": ["M0.2", "M1.8"],
-      "ticked": ["M0.2"]
+      "ticked": ["M0.2", "M1.8"]
     },
     {
       "name": "JSON and JSONC",
