@@ -14,9 +14,39 @@
 
 //! Tidepool's own benchmark harness and suites.
 //!
-//! Specification: `docs/04-quality.md`.
+//! Specification: `docs/04-quality.md` → "Benchmarks", and ADR-0035 for
+//! the command line and the baseline. `cargo xtask bench [FILTER]` builds
+//! this crate's binary in the release profile and runs it.
+//!
+//! - [`harness`]: a [`Suite`] sets up untimed and hands the [`Bencher`] one
+//!   routine; the bencher warms it up, batches it if it is fast, takes
+//!   samples within a time budget but never fewer than a minimum, and
+//!   reports the median and p95 per iteration ([`Summary`]).
+//! - [`baseline`]: `bench/baseline.json`, the machine it was recorded on
+//!   and each suite's numbers, read and written with
+//!   `tidepool_codec::json`.
+//! - [`cli`]: the command line, `[FILTER] [--save --machine NAME]`, and the
+//!   report, which compares each median with the baseline's where the
+//!   baseline was recorded on a machine like this one.
+//! - [`suites`]: the suites, by crate; today `text`'s.
+//!
+//! It starts no program and opens no file but the baseline and, for the
+//! CPU's model, `/proc/cpuinfo`.
+
+pub mod baseline;
+pub mod cli;
+mod error;
+pub mod harness;
+pub mod suites;
+
+#[cfg(test)]
+mod testing;
 
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
+
+pub use baseline::{Baseline, Entry, Facts, Machine};
+pub use error::{BenchError, printable};
+pub use harness::{Bencher, Settings, Suite, Summary, run_suite};

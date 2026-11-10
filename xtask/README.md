@@ -1,8 +1,8 @@
 # xtask
 
 Project automation, run as `cargo xtask <command>`: the checks behind the
-pull request gate, the fuzz smoke and the demo page's build, and later
-goldens, benchmarks, theme contrast and packaging. It never ships, never
+pull request gate, the fuzz smoke, the demo page's build and the benchmark
+runner, and later goldens, theme contrast and packaging. It never ships, never
 uploads, publishes or signs, reads no secrets, and opens no sockets.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
@@ -59,10 +59,13 @@ Built, with the roadmap task that built it:
   `TIDEPOOL_SITE_*` variables, or HEAD's hash from `.git`; ported from
   Nadir — M0.14, which is not finished: Pages has yet to be switched to
   GitHub Actions and the page published.
+- `bench [args]`, which runs `cargo run --release --quiet -p
+  tidepool-bench` with every argument after `bench` passed on unchanged,
+  `--help` and `--root` included, and exits with its success; not a step
+  of `ci` — M1.9.
 
 Not yet, with the roadmap task that adds it:
 
-- `bench` — M1.9.
 - `golden` — M2.4.
 - `theme` — M3.2.
 - `tools` — M5.1.
@@ -84,12 +87,14 @@ cargo xtask workflows       # the CI workflows' actions, pins and token permissi
 cargo xtask ucd [--check]   # write the grapheme tables, or with --check compare them
 cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]    # fuzz each target, 60 s by default
 cargo xtask site [--out DIR]    # build the demo page into target/site, running the gate first
+cargo xtask bench [FILTER] [--save --machine NAME]    # the benchmarks, in release (tidepool-bench)
 cargo xtask --help          # the commands and their options
 ```
 
 A command exits 0 when its checks pass, 1 when one fails or cannot run, and
-2 when the command line is not understood. `bench` (M1.9), `golden` (M2.4),
-`theme` (M3.2), `tools` (M5.1) and `package <os>` (M11.6, M12.4, M14.4) are
+2 when the command line is not understood; `bench` exits 0 when
+`tidepool-bench` succeeded and 1 otherwise. `golden` (M2.4), `theme`
+(M3.2), `tools` (M5.1) and `package <os>` (M11.6, M12.4, M14.4) are
 planned; until its task lands, each exits 1 with "not yet implemented".
 
 ## Documentation
@@ -104,7 +109,8 @@ planned; until its task lands, each exits 1 with "not yet implemented".
   (the fuzz targets live in the parser crates, and `fuzz-smoke`'s only
   child is `cargo test`); ADR-0030 (the demo page that `site` builds and
   `.github/workflows/pages.yml` publishes, and the features file that
-  `features` checks).
+  `features` checks); ADR-0035 (`bench`'s child, `cargo run --release
+  --quiet -p tidepool-bench`).
 - API reference: `cargo doc -p xtask --open`
 
 ## Rules

@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M1.5 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M1.9 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -910,10 +910,11 @@ flowchart LR
 
 ## 6. xtask and the dev tools
 
-Everything in this section is built except `tidepool-bench`,
-`tidepool-testkit` and the `xtask` commands still to come. `xtask` is
-dev-only and never shipped. It uses `core` and `codec`, the two crates its
-matrix row allows, and starts one program, `cargo` (ADR-0017).
+Everything in this section is built except `tidepool-testkit` and the
+`xtask` commands still to come. `xtask` is dev-only and never shipped. It
+uses `core` and `codec`, the two crates its matrix row allows, and starts
+one program, `cargo` (ADR-0017); `cargo xtask bench` has cargo build and
+run `tidepool-bench` (ADR-0035).
 
 ### 6.1 xtask: the checks of ci
 
@@ -928,7 +929,7 @@ flowchart TB
 
     subgraph sg_xtask["xtask"]
         c_main["main.rs, check.rs<br/>the command line,<br/>ci and its steps"]
-        c_later["bench, golden, theme,<br/>tools, package<br/>not yet implemented<br/>planned M1.9, M2.4,<br/>M3.2, M5.1, M11.6,<br/>M12.4, M14.4"]
+        c_later["golden, theme,<br/>tools, package<br/>not yet implemented<br/>planned M2.4, M3.2,<br/>M5.1, M11.6,<br/>M12.4, M14.4"]
         i_step(("Step::Own:<br/>run, returning<br/>a Report"))
         c_deps["deps.rs"]
         c_layers["layers.rs"]
@@ -980,9 +981,9 @@ flowchart TB
 - `cargo xtask site` runs these same steps through `check::run_gate`,
   then the two examples, and fills `site/` into `target/site` (6.2,
   ADR-0030).
-- The commands still to come exit 1 with "not yet implemented". The table
-  of them in `check.rs` still says `bench` has no roadmap task; M1.9 is
-  that task.
+- The commands still to come exit 1 with "not yet implemented".
+- `cargo xtask bench` is not a step of `ci`: `main.rs` hands every
+  argument after `bench` to `bench.rs` before parsing (6.2).
 
 ### 6.2 xtask: the shared modules
 
@@ -999,6 +1000,7 @@ flowchart TB
     c_unsafe["unsafe_audit.rs"]
     c_fuzz["fuzz.rs"]
     c_site["site.rs, site/page.rs<br/>the demo page"]
+    c_bench["bench.rs<br/>cargo xtask bench"]
     i_gate(("check::run_gate,<br/>Gate"))
 
     i_meta(("metadata::load"))
@@ -1021,6 +1023,7 @@ flowchart TB
     i_gate --- c_main
     c_site --> i_meta
     c_site -->|"cargo run<br/>--example"| i_cargo
+    c_bench -->|"cargo run --release<br/>-p tidepool-bench"| i_cargo
 
     i_meta --- c_meta
     i_matrix --- c_matrix
@@ -1030,7 +1033,7 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
-    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_site,c_meta,c_matrix,c_cargo built
+    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_site,c_bench,c_meta,c_matrix,c_cargo built
     class i_meta,i_matrix,i_cargo,i_gate built
     class e_cargo external
 ```
@@ -1153,18 +1156,22 @@ flowchart TB
 `core`'s property harness, its `Pcg32` and its fuzz engine (6.4) are the
 only code from `core` that the tests of `codec` and `text` use, and neither
 library uses `core`. `xtask` also uses `core`'s `cli`, `hash` and
-`testing::fuzz` in its own code (6.3).
+`testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
+measures `text`'s library with inputs drawn from `Pcg32`, and keeps its
+baseline with `codec`'s JSON and `text`'s atomic save.
 
 ```mermaid
 flowchart TB
     c_ctests["codec tests<br/>json.rs, toml.rs"]
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
-    c_bench["tidepool-bench<br/>an empty library<br/>harness and text suites<br/>planned M1.9"]
+    c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
     i_pcg(("rng: Pcg32"))
     i_cparse(("json::parse_bytes,<br/>toml::parse_bytes"))
     i_tall(("Rope, ChangeSet,<br/>Selection, History"))
+    i_bjson(("json::parse_bytes,<br/>to_string_pretty"))
+    i_save(("file::save"))
 
     subgraph sg_core["tidepool-core"]
         c_testing["testing<br/>the property harness, M0.2"]
@@ -1182,20 +1189,25 @@ flowchart TB
     c_ttests --> i_check
     c_ttests --> i_pcg
     c_ttests -->|"against<br/>String models"| i_tall
-    c_bench -.->|"text suites,<br/>planned M1.9"| i_tall
+    c_bench -->|"the text suites"| i_tall
+    c_bench -->|"inputs"| i_pcg
+    c_bench -->|"baseline.json"| i_bjson
+    c_bench -->|"writes the<br/>baseline"| i_save
 
     i_check --- c_testing
     c_testing -->|"seeded cases"| i_pcg
     i_pcg --- c_rng
     i_cparse --- c_codec
+    i_bjson --- c_codec
     i_tall --- c_text
+    i_save --- c_text
     i_fakes -.- c_testkit
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_testing,c_rng,c_codec,c_text built
-    class i_check,i_pcg,i_cparse,i_tall built
-    class c_bench,c_testkit,i_fakes planned
+    class c_ctests,c_ttests,c_bench,c_testing,c_rng,c_codec,c_text built
+    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save built
+    class c_testkit,i_fakes planned
 ```
 
 - `testkit`'s fakes have no arrow into them: the matrix lets only
@@ -1212,7 +1224,7 @@ Docs:
   `languages.md`, `toolchains.md`, `mobile.md`, `agents.md`.
 - `docs/04-quality.md`: own harnesses, fakes, fuzz smoke, `xtask` checks.
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
-  ADR-0017, ADR-0027, ADR-0028, ADR-0029.
+  ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1231,4 +1243,6 @@ Code:
   `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
-  `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`.
+  `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`.
+- `bench/src/`: `lib.rs`, `main.rs`, `harness.rs`, `baseline.rs`,
+  `cli.rs`, `suites.rs`, `suites/text.rs`.

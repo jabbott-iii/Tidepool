@@ -5,5 +5,14 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+# Its row of the dependency matrix (docs/01-architecture.md) allows any
+# workspace crate: `core` parses the command line and makes the inputs,
+# `codec` reads and writes the baseline, and `text` is what the suites
+# measure, and saves the baseline atomically.
+[dependencies]
+tidepool-core = { path = "../crates/core" }
+tidepool-codec = { path = "../crates/codec" }
+tidepool-text = { path = "../crates/text" }
+
 [lints]
 workspace = true

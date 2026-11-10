@@ -310,7 +310,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0017 — `xtask` runs `cargo` itself, as a narrow exception to rule 2
 
-- **Status:** Accepted; extended by ADR-0030 (`cargo xtask site`'s children: the gate's steps, run in-process, and `cargo run --example` of one example each of `tidepool-codec` and `tidepool-text`)
+- **Status:** Accepted; extended by ADR-0030 (`cargo xtask site`'s children: the gate's steps, run in-process, and `cargo run --example` of one example each of `tidepool-codec` and `tidepool-text`); extended by ADR-0035 (`cargo xtask bench`'s child: `cargo run --release --quiet -p tidepool-bench`)
 - **Date:** 2026-11-01
 - **Context:** `AGENTS.md` rule 2 says only `tidepool-toolchain` finds,
   installs, updates or spawns outside programs. `cargo xtask ci` (M0.3)
@@ -1823,3 +1823,94 @@ decides; the roadmap task that first depends on one asks for the decision.
   `core::path::resolve` and `save`'s own link following can go; or a
   Windows CI run shows a save through links landing elsewhere than the OS
   opens.
+
+## ADR-0035 — `cargo xtask bench` starts one more cargo child, a release build and run of `tidepool-bench`; only `--save` writes `bench/baseline.json`, which names its machine and the facts the harness reads
+
+- **Status:** Accepted
+- **Date:** 2026-11-10
+- **Context:**
+  - M1.9 builds `tidepool-bench` per `docs/04-quality.md` →
+    "Benchmarks": warm-up, N samples, median and p95, and a JSON baseline
+    in `bench/baseline.json` written with `codec::json`. `cargo xtask
+    bench [filter]` runs it and reports only.
+  - `xtask` may use only `core` and `codec` (`docs/01-architecture.md`),
+    so it cannot link the suites, which measure `text` now and the editor,
+    search and predictive text later (M4.1, M4.2, M4.4, M9.4). ADR-0017
+    lets `xtask` start only `cargo`, with a listed set of children
+    (extended by ADR-0027 and ADR-0030); M1.9's `Decide first` asks to
+    extend it for `bench`.
+  - The numbers only mean something on one machine: the reference machine
+    of `docs/00-overview.md` (M0.5), an MSI Pulse GL66 11UGKV with an
+    i7-11800H, 16 threads. M1.9 accepts when two runs there agree within
+    10% on every median and the baseline is committed with the machine
+    named.
+  - On 2026-11-10 the user chose the recommended option of each question:
+    a release build through `cargo run`, a `--save` flag that alone writes
+    the baseline, and a machine named by the user and described by the
+    facts the harness reads.
+- **Decision:**
+  - **One more child, under ADR-0017's rules.** `cargo xtask bench
+    [args]` runs `cargo run --release --quiet -p tidepool-bench -- [args]`
+    and passes its arguments on unchanged, as an argv vector, never a
+    shell. The child runs in the root, with standard input closed and
+    `CARGO_NET_OFFLINE=true`, and its output goes straight to the
+    terminal. `xtask`'s exit status is the child's success. The suites run
+    in the `release` profile, the one that ships (thin LTO, one codegen
+    unit). Nothing but cargo runs, and `tidepool-bench` starts no program.
+  - **`tidepool-bench` is a binary with a library.** The harness and the
+    suites are in its library; `src/main.rs` parses the arguments, runs
+    the suites whose names contain the filter (all of them without one, an
+    error when none matches), and prints each suite's median and p95.
+  - **A run compares and reports only.** Where the baseline has a suite
+    and was recorded on a machine with the same detected facts, the report
+    shows the change in the median, and marks a median more than 10%
+    slower, which `docs/04-quality.md` says a change must explain. A
+    slower suite never fails the run: it exits 1 only when an argument, a
+    suite or the baseline file is wrong.
+  - **Only `--save` writes the baseline.** `--save` needs `--machine
+    "<name>"`. It writes the suites the run measured into
+    `bench/baseline.json` and keeps the file's other suites, dropping any
+    whose name no longer exists. It refuses to merge into a file recorded
+    on another machine (a different name or different detected facts), so
+    one file never mixes machines; the file is moved aside to record on a
+    new one.
+  - **The file**, written with `codec::json`, sorted, has a format
+    version, the machine, and per suite its median and p95 in whole
+    nanoseconds and its number of samples. The machine is the name given
+    and what the harness reads itself: the OS and architecture
+    (`std::env::consts`), the thread count
+    (`std::thread::available_parallelism`), and the CPU's model from the
+    first `model name` line of `/proc/cpuinfo`, read as a plain file with
+    no platform `cfg`, and empty where it cannot be read.
+- **Consequences:**
+  - The first `cargo xtask bench` builds `tidepool-bench` and what it
+    measures with LTO, about a minute or two; later runs rebuild only what
+    changed.
+  - `bench` is no longer listed as not yet implemented, and it stays out
+    of `ci`: timings on CI runners are not comparable with the reference
+    machine's.
+  - A run on any other machine reports its numbers and says the baseline
+    does not apply. A CPU with the same model name but different cooling,
+    power settings or turbo behaves differently, and the facts cannot
+    tell; the name the user gives is the record of which machine it was.
+  - Each later task that adds suites (M4.1, M4.2, M4.4, M9.4, M14.3) adds
+    them to the baseline with `--save` on the reference machine.
+- **Alternatives considered:**
+  - A `cargo bench` target with `harness = false`: the same profile
+    (`bench` inherits `release`), but a second way in, and cargo's
+    `--bench` argument to accept.
+  - Linking the suites into `xtask`: no new child, but `xtask`'s matrix row
+    would grow to every crate a suite measures, and the hook would build
+    them after every manifest edit.
+  - A new file for every run, copied over the baseline by hand: no flag,
+    but files to manage, and no rule against mixing machines.
+  - Failing a run on a median more than 10% slower: against the
+    roadmap's "reports only", and a laptop's timings are noisy enough to
+    fail by chance.
+  - The name alone, or the detected facts alone: the first compares
+    silently against another machine's numbers; the second cannot name the
+    laptop on every OS.
+- **Revisit when:** a run on the reference machine cannot hold its medians
+  within 10% of each other; or a suite needs a profile other than
+  `release`; or benchmarks are to run in CI, which needs a runner whose
+  timings are stable.

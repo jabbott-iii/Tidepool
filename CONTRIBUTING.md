@@ -143,11 +143,12 @@ Windows, and the same commands CI runs:
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
+| `cargo xtask bench [FILTER] [--save --machine NAME]` | Runs the benchmark suites whose names contain `FILTER` in a release build, and reports each median and p95 against `bench/baseline.json` when that was recorded on a machine like yours. Not part of `ci`; only `--save` writes the baseline (ADR-0035) |
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`: runs the gate and the two library examples, and fills `site/`. Not part of `ci`; the Pages workflow runs it after CI passes on `main` and publishes https://jabbott.dev/Tidepool/ |
 | `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
 
-On the way, each with its roadmap task: `bench` (M1.9), `golden` (M2.4),
-`theme` (M3.2), `tools` (M5.1) and `package` (M11.6, M12.4, M14.4).
+On the way, each with its roadmap task: `golden` (M2.4), `theme` (M3.2),
+`tools` (M5.1) and `package` (M11.6, M12.4, M14.4).
 `AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
@@ -175,8 +176,10 @@ Then, as the change needs:
   M2.4, `cargo xtask golden`. Re-bless a reference only when the change
   means to alter what is drawn, after you have looked at the diff images,
   and say why in the pull request.
-- **Performance:** from M1.9, `cargo xtask bench <filter>`, with the numbers
-  before and after in the pull request.
+- **Performance:** `cargo xtask bench <filter>`, with the numbers before
+  and after in the pull request. A median more than 10% slower than the
+  baseline needs a reason there; the baseline compares only on the machine
+  it was recorded on (ADR-0035).
 - **Managed tools, git or mobile:** the fake-tool tests, and the gated
   real-tool tests if you have the tool.
 - **The demo page** (`site/`): `cargo xtask site --out <a new folder>`,

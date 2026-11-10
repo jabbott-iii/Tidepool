@@ -11,8 +11,9 @@ containment. It has no dependencies, no `unsafe` and no OS-specific code.
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
 for Linux, macOS and Windows, written in Rust with no third-party crates.
 Every other member but `tidepool-sys` may use it: today `xtask` parses its command line,
-checks the Unicode data's SHA-256 and runs the fuzz targets with it, and the
-tests of `codec` and `text` use its property harness and fuzzer.
+checks the Unicode data's SHA-256 and runs the fuzz targets with it,
+`tidepool-bench` parses its command line and draws its inputs with it, and
+the tests of `codec` and `text` use its property harness and fuzzer.
 
 Layer 0, foundations. It may use no workspace crate, as its row of the
 dependency matrix in

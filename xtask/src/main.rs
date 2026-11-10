@@ -13,9 +13,10 @@
 // limitations under the License.
 
 //! Project automation for the Tidepool repository: the checks behind
-//! `cargo xtask ci`, `cargo xtask fuzz-smoke`, and `cargo xtask site`, which
-//! builds the demo page. Later roadmap tasks add goldens, theme contrast,
-//! tool descriptors, benchmarks and packaging.
+//! `cargo xtask ci`, `cargo xtask fuzz-smoke`, `cargo xtask site`, which
+//! builds the demo page, and `cargo xtask bench`, which runs the
+//! benchmarks. Later roadmap tasks add goldens, theme contrast, tool
+//! descriptors and packaging.
 //!
 //! Specification: `docs/04-quality.md` → "`xtask` checks". Run it as
 //! `cargo xtask <command>`; `cargo xtask --help` lists the commands.
@@ -35,8 +36,10 @@
 //! The one outside program it starts is `cargo`, which `cargo xtask ci`
 //! exists to run (`cargo fmt`, clippy, the tests, `cargo metadata`, `cargo
 //! locate-project`), `cargo xtask fuzz-smoke` too (`cargo test` of each
-//! fuzz target, ADR-0027), and `cargo xtask site`, which runs the gate's
-//! steps and `cargo run --example` of two examples (ADR-0030); it reads the
+//! fuzz target, ADR-0027), `cargo xtask site`, which runs the gate's
+//! steps and `cargo run --example` of two examples (ADR-0030), and `cargo
+//! xtask bench`, which runs `cargo run --release --quiet -p tidepool-bench`
+//! with every argument after `bench` (ADR-0035); it reads the
 //! commit's facts from the environment or from `.git`, and never runs
 //! `git`. That is the documented role of `xtask`, so it spawns
 //! cargo itself, with `std::process::Command`, rather than through
@@ -55,8 +58,10 @@
 //!
 //! 0 when every check that ran passed, 1 when a check failed or could not
 //! run (including a command that is not implemented yet), 2 when the
-//! command line was not understood.
+//! command line was not understood. `bench` parses no argument of its own:
+//! it exits 0 when its child succeeded and 1 otherwise.
 
+mod bench;
 mod cargo;
 mod check;
 mod crates;
@@ -90,9 +95,37 @@ use crate::error::Error;
 const EXIT_USAGE: u8 = 2;
 
 fn main() -> ExitCode {
-    let args = Args::from_env().map_err(|error| Error::Usage(error.to_string()));
-    let result = args.and_then(|args| run(args, &repository_root(), &mut io::stdout()));
+    // An argument that is not valid Unicode has its invalid parts replaced
+    // with U+FFFD, as `Args::from_env` does.
+    let command_line = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let result = dispatch(
+        command_line,
+        &repository_root(),
+        &mut io::stdout(),
+        bench::run,
+    );
     exit(result, &mut io::stderr())
+}
+
+/// Runs `command_line`, the arguments without the program's name, on the
+/// repository at `default_root`: `bench`, with every argument after it
+/// passed on unchanged, through `bench` (`--help` and `--root` included,
+/// which go to `tidepool-bench`), and any other command through [`run`].
+/// Returns whether it passed.
+fn dispatch(
+    command_line: Vec<String>,
+    default_root: &Path,
+    out: &mut dyn Write,
+    bench: fn(&Path, &[String]) -> Result<bool, Error>,
+) -> Result<bool, Error> {
+    if let Some(rest) = bench::arguments(&command_line) {
+        return bench(default_root, rest);
+    }
+    let args = Args::new(command_line).map_err(|error| Error::Usage(error.to_string()))?;
+    run(args, default_root, out)
 }
 
 /// Turns the result of [`run`] into the exit status, writing any error to
@@ -236,6 +269,12 @@ fn usage() -> String {
                 "Build the demo page into target/site, or --out DIR: run the gate as ci does \
                  and two examples, then fill site/ (not a step of ci)",
             ),
+            (
+                bench::NAME,
+                "Build tidepool-bench in release and run its suites, passing every argument \
+                 after bench on: [FILTER] [--save --machine NAME]; bench --help lists the \
+                 suites (not a step of ci)",
+            ),
         ]);
     // Writing to a `String` cannot fail.
     for (name, about) in commands {
@@ -260,7 +299,8 @@ fn usage() -> String {
          --help        Show this text\n\
          \n\
          Exit status: 0 if every check passed, 1 if a check failed or could not run,\n\
-         2 if the command line was not understood.\n",
+         2 if the command line was not understood. bench exits 0 if tidepool-bench\n\
+         succeeded and 1 otherwise, a bad argument to it included.\n",
     );
     text
 }
@@ -355,6 +395,80 @@ mod tests {
             "{text}"
         );
         assert!(!later.contains("site"), "{later}");
+        // `bench` is implemented (roadmap M1.9), and not a step of `ci`.
+        assert!(!later.contains("bench"), "{later}");
+        assert!(
+            text.contains(
+                "\n  bench         Build tidepool-bench in release and run its suites, passing \
+                 every argument after bench on: [FILTER] [--save --machine NAME]; bench --help \
+                 lists the suites (not a step of ci)\n"
+            ),
+            "{text}"
+        );
+        assert!(!CI.iter().any(|check| check.name == "bench"));
+        assert!(
+            text.ends_with(
+                "\nExit status: 0 if every check passed, 1 if a check failed or could not run,\n\
+                 2 if the command line was not understood. bench exits 0 if tidepool-bench\n\
+                 succeeded and 1 otherwise, a bad argument to it included.\n"
+            ),
+            "{text}"
+        );
+    }
+
+    /// The arguments a fake `bench` child was given, on this test's thread.
+    fn fake_bench(root: &Path, rest: &[String]) -> Result<bool, Error> {
+        BENCH_CALLS.with(|calls| calls.borrow_mut().push((root.to_path_buf(), rest.to_vec())));
+        // Like `tidepool-bench`, it fails for a filter that matches nothing.
+        Ok(rest.first().map(String::as_str) != Some("nosuchsuite"))
+    }
+
+    thread_local! {
+        static BENCH_CALLS: std::cell::RefCell<Vec<(PathBuf, Vec<String>)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[test]
+    fn bench_passes_every_argument_on_and_exits_with_its_child() {
+        let dispatched = |args: &[&str]| {
+            let mut out = Vec::new();
+            let line = args.iter().map(ToString::to_string).collect();
+            let result = dispatch(line, Path::new("/repo"), &mut out, fake_bench);
+            let calls = BENCH_CALLS.with(|calls| std::mem::take(&mut *calls.borrow_mut()));
+            (result, out, calls)
+        };
+        // Every argument after `bench`, xtask's own options included, goes
+        // to the child unchanged, and xtask prints nothing itself.
+        let (result, out, calls) =
+            dispatched(&["bench", "text", "--help", "--root", "x", "--", "--save"]);
+        assert!(result.unwrap());
+        assert!(out.is_empty());
+        assert_eq!(
+            calls,
+            [(
+                PathBuf::from("/repo"),
+                ["text", "--help", "--root", "x", "--", "--save"]
+                    .map(String::from)
+                    .to_vec()
+            )]
+        );
+        // The child's failure is xtask's: exit status 1.
+        let (result, _, calls) = dispatched(&["bench", "nosuchsuite"]);
+        assert!(!result.as_ref().unwrap());
+        assert_eq!(exit(result, &mut Vec::new()), ExitCode::FAILURE);
+        assert_eq!(calls.len(), 1);
+        let (result, _, calls) = dispatched(&["bench"]);
+        assert!(result.unwrap());
+        assert_eq!(calls, [(PathBuf::from("/repo"), Vec::new())]);
+        // `bench` is a command only as the first argument, as every
+        // command is; anything else goes through `run`.
+        let (result, out, calls) = dispatched(&["--help"]);
+        assert!(result.unwrap());
+        assert_eq!(String::from_utf8(out).unwrap(), usage());
+        assert!(calls.is_empty());
+        let (result, _, calls) = dispatched(&["--root", "x", "bench"]);
+        assert!(matches!(result, Err(Error::Usage(_))), "{result:?}");
+        assert!(calls.is_empty());
     }
 
     #[test]
@@ -437,11 +551,6 @@ mod tests {
             (&["tools"][..], "tools", "roadmap M5.1"),
             (&["theme"], "theme", "roadmap M3.2"),
             (&["golden", "--bless", "scene"], "golden", "roadmap M2.4"),
-            (
-                &["bench", "search"],
-                "bench",
-                "no roadmap task yet; first needed by M4.1",
-            ),
             (
                 &["package", "linux"],
                 "package",

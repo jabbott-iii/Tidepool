@@ -1032,7 +1032,7 @@ is published from `main`.
       link's lexical parent, where the OS uses the link's own directory
       (reasoned from std's sources, not run).
 
-- [ ] **M1.9 — bench: harness, `cargo xtask bench` and the text suites**
+- [x] **M1.9 — bench: harness, `cargo xtask bench` and the text suites**
   - Depends: M0.3, M1.2, M0.5
   - Decide first: extend ADR-0017 for the child `cargo xtask bench` starts
     (a release build and run of `tidepool-bench` through cargo).
@@ -1049,6 +1049,32 @@ is published from `main`.
   - Accept: two runs on the reference machine agree within 10% on every
     median; the baseline is committed with the machine named.
   - Verify: `cargo xtask bench text`
+  - Note (2026-11-10): ADR-0035 answers the `Decide first` line. The child
+    is `cargo run --release --quiet -p tidepool-bench`; only `--save`
+    writes the baseline, and it needs `--machine`; the file also records
+    the OS, architecture, thread count and CPU model the harness reads.
+  - Note (2026-11-10): done. On the reference machine (performance
+    governor, on AC, load about 1.3 from the desktop), with both binaries
+    built first, `cargo xtask bench text --save --machine "MSI Pulse GL66
+    11UGKV, the reference machine of docs/00-overview.md"` and then
+    `cargo xtask bench text` ran back to back, 50 s each. Every median of
+    the second run was within −2.2% to +6.4% of the first's, which is the
+    baseline. Medians of the baseline:
+    - rope edits about 9.3–11.1 µs; position conversions 681–727 ns on
+      100 MB;
+    - a 10,000-caret keystroke 1.79 ms on 400 KB (undo 817 µs, redo
+      972 µs) and 115 ms on 100 MB; typing into 100 MB 11.3 µs a char;
+    - grapheme queries on the crafted 100 MB lines 524 ms to 1.03 s.
+    These agree with M1.1's and M1.2's hand measurements. The review
+    found that a suite run alone could swing 25–35% with the allocator's
+    page faults, so a run first primes the allocator
+    (`harness::prime_allocator`). After that, eight runs of
+    `text/history/keystroke_10k_carets/400kb` alone had the same page
+    faults (about 2,156) but medians of 1.71–2.10 ms, −4% to +17% of the
+    baseline's, so two of them were marked slower; four kept on one core
+    (`taskset -c 4`) held 1.94–2.00 ms. The spread follows the core the
+    process lands on, not the allocator. Whole runs, as the baseline was
+    recorded, agreed.
 
 **Exit criteria (M1):** the text engine (files included) and JSON and TOML
 (preserving writes included) pass their property tests and fuzz smoke, and

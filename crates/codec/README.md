@@ -9,7 +9,8 @@ It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
 for Linux, macOS and Windows, written in Rust with no third-party crates.
 Its library uses no other crate (its tests use `core`'s harness), and today
 `xtask` reads `cargo metadata` with its `json` and the members' manifests
-with its `toml`; `rpc`, `toolchain`, `syntax`, `workspace` and every crate
+with its `toml`, and `tidepool-bench` reads and writes its baseline with its
+`json`; `rpc`, `toolchain`, `syntax`, `workspace` and every crate
 above them but `vcs` and `tui` may use it, as their rows of the matrix
 allow.
 

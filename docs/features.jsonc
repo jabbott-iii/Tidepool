@@ -61,9 +61,9 @@
     {
       "name": "Performance budgets",
       "area": "Quality",
-      "summary": "The budgets Tidepool is held to are written down and agreed, with the machine they are to be met on, an i7-11800H laptop: a keystroke on screen within 16 ms, the first frame within 300 ms of a cold start, and no redraw and next to no CPU while idle. A benchmark harness of our own will measure the text engine against a baseline recorded on that machine.",
+      "summary": "The budgets Tidepool is held to are written down and agreed, with the machine they are to be met on, an i7-11800H laptop: a keystroke on screen within 16 ms, the first frame within 300 ms of a cold start, and no redraw and next to no CPU while idle. A benchmark harness of our own, run with cargo xtask bench, measures the text engine against a baseline recorded on that machine: rope edits, position conversions, a 10,000-caret keystroke on 400 KB and on 100 MB, typing into 100 MB, and grapheme queries on crafted 100 MB lines, each with its median and p95, and a mark on any median more than 10% slower.",
       "tasks": ["M0.5", "M1.9"],
-      "ticked": ["M0.5"]
+      "ticked": ["M0.5", "M1.9"]
     },
     {
       "name": "A demo page from each commit",

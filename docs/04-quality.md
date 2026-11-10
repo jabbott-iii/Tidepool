@@ -268,11 +268,55 @@ The design is ADR-0027's; the engine's rustdoc
 
 ### Benchmarks — `tidepool-bench`
 
-- Warm-up, N samples, median and p95, JSON baseline in `bench/baseline.json`.
-- Suites: rope edits, position conversion, highlighting a 10k-line file,
-  project search, frame build + raster at 1080p, glyph atlas fill, startup.
+- **Method** (`tidepool-bench`'s `harness`; its rustdoc has the details):
+  each suite sets up untimed, then hands the harness one routine, which a
+  warm-up runs at least once. Then:
+  - a fast routine runs in batches of about 2 ms a sample, so that
+    `Instant` is accurate;
+  - samples are taken for 1 s, but never fewer than 10, so a 3 s query
+    still gets 10;
+  - a routine that changes its input gets a new one for every iteration,
+    made and dropped outside the timing;
+  - inputs and outputs go through `std::hint::black_box`.
+
+  The report is each suite's median and p95 (nearest rank) per iteration,
+  in nanoseconds.
+- **Priming the allocator** (`harness::prime_allocator`): before the first
+  suite, a run allocates and frees one 31 MiB block that it never writes.
+  This targets glibc's malloc, which unmaps or trims freed memory until
+  freeing a large block raises its dynamic mmap and trim thresholds. So a
+  suite run alone or first could fault fresh pages in inside its timing:
+  on the reference machine the 10,000-caret keystroke on 400 KB was 1.9
+  or 2.2–2.6 ms from run to run, with about 42,000 or 285,000 page faults,
+  and never faulted after a 100 MB suite. The block sets both thresholds
+  where such a suite leaves them, so every suite's numbers are the same in
+  any order (about 2,200 faults every run). It is plain `std` code with
+  no `cfg`; with another allocator it is one untouched allocation and one
+  free, and harmless. It does nothing about the CPU's clocks: with it, on
+  the reference machine, that suite's median still went from 1.71 to
+  2.10 ms over eight runs left to the scheduler, and from 1.91 to 1.95 ms
+  over eight kept on one core (`taskset -c 4`).
+- **Running and comparing:** `cargo xtask bench [FILTER] [--save --machine
+  NAME]` runs, in the release profile, the suites whose names contain the
+  filter. Names are hierarchical, the first part naming the crate measured
+  (`text/history/keystroke_10k_carets/100mb`), and `cargo xtask bench
+  --help` lists them. ADR-0035 decides the rest: the child `xtask` starts,
+  the arguments, when a run compares with the baseline and marks a slower
+  median, and when it exits 1.
+- **Baseline:** `bench/baseline.json`, which only `--save` writes. Its
+  format, and the rule that one file never mixes machines, are ADR-0035's;
+  the `baseline` module's rustdoc shows the file.
+- **Suites:** rope edits, position conversions, a 10,000-caret keystroke
+  with its undo and redo, typing into 100 MB, and grapheme queries on
+  crafted 100 MB lines (M1.9). Highlighting a 10k-line file, project
+  search, frame build + raster at 1080p, glyph atlas fill and startup come
+  with their tasks, which record them with `--save` on the reference
+  machine (ADR-0035).
 - A change that slows a suite by more than 10% against the baseline must
-  say so and why.
+  say so and why. Repeat a run that marks a suite before reading it as a
+  slowdown: the baseline was recorded from a whole run, and a suite run
+  alone, left to the scheduler, landed from −4% to +17% of its baseline
+  median over eight runs on the reference machine (roadmap M1.9's note).
 
 ### Responsiveness
 
@@ -294,7 +338,7 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
 | `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/` is a link or not a directory, a directory in `fuzz/corpus/` or `fuzz/crashes/` has no row in its table, or a row has no seeds (then nothing runs); or a target panics, hangs, takes the written or the reserved memory past its cap, fails its own check, reports another seed or too few seconds, or its test fails, does not build, does not run or dies, or cargo fails before it runs ("Fuzz smoke", above). Not a step of `ci` |
-| `cargo xtask bench [filter]` | Not yet implemented (M1.9). Planned: reports only |
+| `cargo xtask bench [filter] [--save --machine NAME]` | Reports only, and is not a step of `ci`: it fails only when cargo cannot build or start `tidepool-bench`, or that binary exits 1 for a bad argument, a filter that matches no suite, a failed suite, or a baseline that cannot be read, parsed or written (or, with `--save`, was recorded on another machine). A median more than 10% slower than the baseline's is marked, not failed ("Benchmarks", ADR-0035) |
 | `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
 | `cargo xtask crates` | A member of the root workspace does not inherit `edition`, `version` and `license` from the workspace (each only `workspace = true`), lacks `publish = false`, has a `[lints]` table that is missing or not only `workspace = true`, or has a target (`[lib]`, `[[bin]]`, `[[test]]`, `[[bench]]`, `[[example]]`) with an `edition` of its own; the root `Cargo.toml` does not set `edition = "2024"` in `[workspace.package]`; a member's `README.md` is missing, a symbolic link or reached through one, not a regular file, over 1 MiB or not UTF-8, does not start with the line `# <package name>`, lacks one of the lines `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License` outside code blocks, HTML blocks and comments, has one twice or out of that order, has `## Features` twice or anywhere but between `## Usage` and `## Documentation`, or names a task ID that `docs/roadmap.md` has no task for; a member's `LICENSE` or `NOTICE` is missing, a symbolic link or reached through one, not a regular file, over 1 MiB, not UTF-8 or not byte for byte the root's, or the root's is missing or cannot be read; a manifest that cargo loaded cannot be read or parsed here, or is not under the root; or `docs/roadmap.md` cannot be read or has no task, or `cargo metadata` fails (then it cannot run) (ADR-0023, ADR-0028) |
 | `cargo xtask features` | `docs/features.jsonc` is not one object whose only member is the array `features`, of entries each with a `name`, `area` and `summary` that are not blank and are one line of plain text (no control character, line or paragraph separator or bidirectional control), `tasks` (at least one task ID) and, if any were ticked, `ticked`, each given once, and nothing else; two features share a name; a feature names a task twice, or one `docs/roadmap.md` lacks; a feature's `ticked` names a task its `tasks` does not, or is not the tasks of its `tasks` that the roadmap ticks; a ticked task belongs to no feature; a line of the roadmap looks like a task's but is not one, or has a CR inside it, not ending it, and a part that looks like a task's, or two tasks share an ID; or either file cannot be read (ADR-0030, "`features`" below) |
@@ -322,7 +366,8 @@ parses. The one file it writes in the repository is the generated Unicode
 tables, with `cargo xtask ucd` without `--check` (below), and the one it
 renames is a dead replay's `fuzz/crashes/<target>/.last-input`, to
 `died-<hash>`; the fuzz tests that `fuzz-smoke` runs save their findings
-to `fuzz/crashes/` ("Fuzz smoke"). Besides those, `site` writes the demo
+to `fuzz/crashes/` ("Fuzz smoke"), and `bench`'s child writes
+`bench/baseline.json`, only with `--save` ("Benchmarks"). Besides those, `site` writes the demo
 page into `target/site`, or its `--out` directory, and removes there only
 what an earlier run wrote. It opens no sockets, and its cargo children run with
 `CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
@@ -338,7 +383,10 @@ network through its tool.
   `fuzz-smoke`, which accepts `--secs N`, `--target T`, `--seed S` and
   `--replay`, each once ("Fuzz smoke"); and `site`, which accepts
   `--out DIR` (once; "Demo page"). An unknown target, or a value that
-  does not parse, is a usage error.
+  does not parse, is a usage error. `bench` is the exception: when it is
+  the first argument, `xtask` parses nothing after it and passes every
+  argument on to `tidepool-bench`, `--help` and `--root` included
+  ("Benchmarks", ADR-0035).
   `--root DIR` checks the repository
   at `DIR` instead of the one `xtask` was built from; xtask's own tests use
   it on generated fixtures. A relative `DIR` is made absolute against the
@@ -346,7 +394,8 @@ network through its tool.
   (`std::path::absolute`). Links are not resolved, and `..` is kept except
   on Windows. `--help`, `-h` or `help` lists the commands.
 - Exit status: 0 if every check that ran passed; 1 if a check failed or
-  could not run (for `fuzz-smoke`, a target that did not run clean); 2 if
+  could not run (for `fuzz-smoke`, a target that did not run clean; for
+  `bench`, if its child failed, a bad argument to it included); 2 if
   the command line was not understood (no or unknown command, a stray
   argument, `--root` without a value or with an empty one).
 - A check prints its notes, one `violation:` line per problem, then
@@ -363,7 +412,9 @@ network through its tool.
   cargo's message text can still name a value that is not a URL, such as a
   `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
   (and `site`'s run of them), and `fuzz-smoke`'s tests, stream cargo's
-  output as cargo prints it. So
+  output as cargo prints it, and `bench`'s child passes on as printed both
+  cargo's build output and `tidepool-bench`'s own, a panicking suite's
+  message included (ADR-0035). So
   keep secrets out of the repository's cargo files; cargo reads
   credentials from `CARGO_HOME`.
 - Control characters in output (M0.10): nothing a check reads, a file
@@ -386,7 +437,11 @@ network through its tool.
   - Not covered by `xtask`: `ci`'s fmt, clippy and test steps (and
     `site`'s run of them), and
     `fuzz-smoke`'s tests, stream cargo's output as cargo prints it, and the
-    code they build and test can print anything. And the runner also reads the older `##[command]`
+    code they build and test can print anything. `bench`'s child does the
+    same with cargo's build output and `tidepool-bench`'s own, which
+    escapes the names it reads from the baseline and the command line but
+    not a panicking suite's message, printed by the panic hook as it is
+    (ADR-0035). And the runner also reads the older `##[command]`
     form anywhere in a line, so a path in a check's message can still hold
     one (actions/runner v2.338.2, `src/Runner.Common/ActionCommand.cs`:
     `TryParseV2` trims leading whitespace and needs `::` at the start;
@@ -394,8 +449,8 @@ network through its tool.
     workflow commands, and so do the fuzz-smoke step and `pages.yml`'s
     build step, so none acts as
     one, though a paused line still shows in the log as printed (M0.11, "CI
-    (GitHub Actions)"). Run locally, the streamed steps can still send
-    escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
+    (GitHub Actions)"). Run locally, the streamed steps and `bench` can
+    still send escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
     line in its own messages is escaped, as any check's message is.
 - When every violation `deps` found is an out-of-date lockfile (below), its
   last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
@@ -405,8 +460,7 @@ network through its tool.
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
 - Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
-  (M2.4), `bench` (M1.9; its message still says it has no task, which
-  M1.9 corrects) and `package` (M11.6, M12.4, M14.4).
+  (M2.4) and `package` (M11.6, M12.4, M14.4).
   Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
@@ -417,12 +471,15 @@ network through its tool.
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
   children are `cargo metadata`, `cargo locate-project`, `ci`'s fmt,
   clippy and test steps, `fuzz-smoke`'s `cargo test` of each target
-  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables, and
+  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables,
   `site`'s: the same steps as `ci`'s, run in-process, and `cargo run
   --quiet -p <package> --example <name>` of each example the page shows
-  (ADR-0030). It runs no
+  (ADR-0030), and `bench`'s `cargo run --release --quiet -p
+  tidepool-bench -- <args>`, given every argument after `bench`
+  unchanged, `--help` and `--root` included, and whose success is
+  `xtask`'s (ADR-0035). It runs no
   other program; the parsers run in those test processes, and the
-  examples in their own, never in
+  examples and the suites in their own, never in
   `xtask`. Each child is an argv vector, never a shell, and runs in the
   root with standard input closed and `CARGO_NET_OFFLINE=true`. `cargo
   metadata`, `cargo locate-project` and `fuzz-smoke`'s tests, whose output

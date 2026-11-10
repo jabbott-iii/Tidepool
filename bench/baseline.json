@@ -1,0 +1,102 @@
+{
+  "machine": {
+    "arch": "x86_64",
+    "cpu": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz",
+    "name": "MSI Pulse GL66 11UGKV, the reference machine of docs/00-overview.md",
+    "os": "linux",
+    "threads": 16
+  },
+  "suites": {
+    "text/grapheme/combining_marks/100mb": {
+      "median_ns": 1027676828,
+      "p95_ns": 1043626173,
+      "samples": 10
+    },
+    "text/grapheme/one_cluster/100mb": {
+      "median_ns": 958843791,
+      "p95_ns": 970764048,
+      "samples": 10
+    },
+    "text/grapheme/regional_indicators/100mb": {
+      "median_ns": 523874932,
+      "p95_ns": 535582337,
+      "samples": 10
+    },
+    "text/history/keystroke_10k_carets/100mb": {
+      "median_ns": 115354498,
+      "p95_ns": 116526578,
+      "samples": 10
+    },
+    "text/history/keystroke_10k_carets/400kb": {
+      "median_ns": 1788552,
+      "p95_ns": 1880486,
+      "samples": 267
+    },
+    "text/history/redo_10k_carets/400kb": {
+      "median_ns": 972274,
+      "p95_ns": 1003985,
+      "samples": 337
+    },
+    "text/history/type/100mb": {
+      "median_ns": 11315,
+      "p95_ns": 11484,
+      "samples": 471
+    },
+    "text/history/undo_10k_carets/400kb": {
+      "median_ns": 817455,
+      "p95_ns": 833251,
+      "samples": 400
+    },
+    "text/pos/byte_to_line_col/byte/100mb": {
+      "median_ns": 681,
+      "p95_ns": 714,
+      "samples": 500
+    },
+    "text/pos/byte_to_line_col/char/100mb": {
+      "median_ns": 694,
+      "p95_ns": 718,
+      "samples": 503
+    },
+    "text/pos/byte_to_line_col/utf16/100mb": {
+      "median_ns": 686,
+      "p95_ns": 708,
+      "samples": 500
+    },
+    "text/pos/line_col_to_byte/byte/100mb": {
+      "median_ns": 721,
+      "p95_ns": 742,
+      "samples": 499
+    },
+    "text/pos/line_col_to_byte/char/100mb": {
+      "median_ns": 727,
+      "p95_ns": 750,
+      "samples": 506
+    },
+    "text/pos/line_col_to_byte/utf16/100mb": {
+      "median_ns": 714,
+      "p95_ns": 745,
+      "samples": 495
+    },
+    "text/rope/insert/100mb": {
+      "median_ns": 10275,
+      "p95_ns": 11062,
+      "samples": 493
+    },
+    "text/rope/insert/400kb": {
+      "median_ns": 9298,
+      "p95_ns": 10290,
+      "samples": 595
+    },
+    "text/rope/remove_line/100mb": {
+      "median_ns": 11059,
+      "p95_ns": 11713,
+      "samples": 463
+    },
+    "text/rope/remove_line/400kb": {
+      "median_ns": 9944,
+      "p95_ns": 10381,
+      "samples": 460
+    }
+  },
+  "version": 1
+}

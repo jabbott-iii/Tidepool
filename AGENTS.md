@@ -15,9 +15,11 @@ verified.
   which writes edits back and keeps the rest (M1.5), in `tidepool-codec`,
   and in `tidepool-text` the rope, positions and grapheme boundaries
   (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
-  loading and the atomic save (M1.3); and the fuzzer, with `cargo xtask
-  fuzz-smoke` and targets for JSON, TOML and the text decoder (M1.6).
-- **Not built:** everything else. 22 of the 26 workspace members are empty
+  loading and the atomic save (M1.3); the fuzzer, with `cargo xtask
+  fuzz-smoke` and targets for JSON, TOML and the text decoder (M1.6); and
+  the benchmark harness, with `cargo xtask bench`, the text engine's
+  suites and their baseline on the reference machine (M1.9).
+- **Not built:** everything else. 21 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
   add the rest.
@@ -161,7 +163,7 @@ or file is there.
 | `crates/tui` | `tidepool-tui` | Terminal frontend | deny |
 | `crates/app` | `tidepool` | The binary: main loop, wiring, startup, crash handling | deny |
 | `crates/testkit` | `tidepool-testkit` | Fake LSP server, fake tools, transcripts (dev-only) | deny |
-| `xtask` | `xtask` | CI checks, Unicode tables, fuzz smoke, the demo page's build; later goldens, theme contrast, packaging | deny |
+| `xtask` | `xtask` | CI checks, Unicode tables, fuzz smoke, the demo page's build, running the benchmarks; later goldens, theme contrast, packaging | deny |
 | `bench` | `tidepool-bench` | Own benchmark harness and suites | deny |
 | `agents/` | (separate workspace, from M9.2) | Reference language agents: mock, local, Claude | deny |
 
@@ -175,17 +177,16 @@ These exist now:
 | `cargo xtask deps` / `layers` / `crates` / `features` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028); `features` checks that every ticked roadmap task belongs to a feature in `docs/features.jsonc`, and that each feature's `ticked` is what the roadmap ticks (ADR-0030) |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | Runs each fuzz target (or `T`) with mutated inputs for `N` seconds, 60 by default; fails on a panic, a hang, over-allocation or a process that died, and prints the replay command for a death (ADR-0027, `docs/04-quality.md` → "Fuzz smoke") |
+| `cargo xtask bench [FILTER] [--save --machine NAME]` | Builds `tidepool-bench` in the release profile and runs the suites whose names contain `FILTER`, reporting each median and p95 against `bench/baseline.json` where that was recorded on a machine like this one; a median more than 10% slower is marked, and never fails the run. `--save` writes the measured suites into the baseline, naming the machine. Not a step of `ci` (ADR-0035) |
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`, or a new, empty or earlier `DIR`: runs the gate and the `tidepool-codec` and `tidepool-text` examples, and fills `site/`, starting only `cargo` and with no network. `pages.yml` publishes it at https://jabbott.dev/Tidepool/ after CI passes on `main` (ADR-0030) |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
 | `cargo tp` | Builds and runs the `tidepool` binary, which does nothing until M2.6 |
 
-Planned. Until its task lands, each exits 1 with "not yet implemented"
-(`bench`'s message still says it has no task; M1.9 corrects it):
+Planned. Until its task lands, each exits 1 with "not yet implemented":
 
 | Command | Task |
 | :- | :- |
-| `cargo xtask bench [filter]` | M1.9 |
 | `cargo xtask golden [--bless]` | M2.4 |
 | `cargo xtask theme` | M3.2 |
 | `cargo xtask tools` | M5.1 |

@@ -39,7 +39,7 @@ tool (rust-analyzer, the Android SDK, Xcode), or a display, for example. -->
 - [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, layers, crates, features, unsafe-audit, headers, workflows, ucd)
 - [ ] `cargo xtask fuzz-smoke --target <target>`, for a parser change (from M1.6)
 - [ ] `cargo xtask golden`, for a change to what `gfx`, `font`, `ui`, `gui` or `tui` draw (from M2.4)
-- [ ] `cargo xtask bench <filter>`, for performance work (paste the numbers before and after; from M1.9)
+- [ ] `cargo xtask bench <filter>`, for performance work (paste the numbers before and after)
 - [ ] Gated real-tool tests (`TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`, `TIDEPOOL_IT_ANDROID`, `TIDEPOOL_IT_IOS`): say which, and that none printed `SKIPPED:`
 - [ ] `cargo tp`, checked by hand (describe what you saw below)
 

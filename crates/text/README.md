@@ -8,10 +8,11 @@ Positions are byte offsets, and a bad position is an error, never a panic.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
 for Linux, macOS and Windows, written in Rust with no third-party crates.
-Its library uses no other crate (its tests use `core`'s harness); `syntax`,
-`workspace`, `lang`, `vcs`, `agent` and `editor` may build their buffers,
-edits and saves on it, as their rows of the matrix allow, and none does
-yet.
+Its library uses no other crate (its tests use `core`'s harness).
+`tidepool-bench` measures it, and saves its baseline with `file::save`;
+`syntax`, `workspace`, `lang`, `vcs`, `agent` and `editor` may build their
+buffers, edits and saves on it, as their rows of the matrix allow, and none
+does yet.
 
 Layer 1, OS behavior, formats and pure engines. It may use `core` (its tests
 use `core`'s property harness), as its row of the dependency matrix in
