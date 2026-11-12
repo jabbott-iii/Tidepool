@@ -112,10 +112,10 @@ or file is there.
      tests, which the workspace lint does not reach:
      `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036). Their doc-test
      code may not hold the word `unsafe` at all, and there are no
-     proc-macro crates (ADR-0037). No exported macro, in any crate, may
-     put a caller's `tt` or `ident` right before braces, `fn`, `impl`,
-     `trait`, `extern` or `static` it writes, and no macro may define a
-     macro (ADR-0038).
+     proc-macro crates (ADR-0037). An exported macro outside the two
+     crates may not put a caller's `tt` or `ident` right before braces,
+     `fn`, `impl`, `trait`, `extern` or `static` it writes, and no macro
+     may define a macro (ADR-0038).
    - `cargo xtask unsafe-audit` enforces this.
 5. **Platform `cfg` lives in few places:** `#[cfg(target_os = ...)]`
    appears only in `sys`, `platform`, `toolchain` install plans and `xtask`

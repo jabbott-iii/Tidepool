@@ -1991,7 +1991,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0037 — `cargo xtask unsafe-audit` bans proc-macro crates, and reads the doc-test code of every crate but `sys` and `platform` for `unsafe`
 
-- **Status:** Accepted; extended by ADR-0038 (the macro shape that hides `unsafe` from the lint is banned at its source, in every crate; the doc reader is a second layer)
+- **Status:** Accepted; extended by ADR-0038 (the macro shape that hides `unsafe` from the lint is banned at its source; the doc reader is a second layer)
 - **Date:** 2026-11-11
 - **Context:**
   - M0.15's test of ADR-0036 found two ways past the
@@ -2078,7 +2078,7 @@ decides; the roadmap task that first depends on one asks for the decision.
   compiles; or rustc lints `unsafe` blocks whose braces come from an
   external macro.
 
-## ADR-0038 — No exported macro may let a caller's `unsafe` reach braces or an item it writes, and no macro may define a macro; ADR-0037's doc reader becomes a second layer
+## ADR-0038 — No exported macro outside `sys` and `platform` may let a caller's `unsafe` reach braces or an item it writes, and no macro may define a macro; ADR-0037's doc reader becomes a second layer
 
 - **Status:** Accepted
 - **Date:** 2026-11-11
@@ -2114,12 +2114,12 @@ decides; the roadmap task that first depends on one asks for the decision.
     define an exported wrapper of caller tokens through the `$` token
     trick, which the exported-macro rule did not see.
   - The user chose this on 2026-11-11, over fixing all 18 places with or
-    without a macro rule. The question put it for crates other than `sys`
-    and `platform`. Testing then showed that their own rule fires only on
-    a macro that holds `unsafe`, which a pass-through macro does not, so
-    the rule covers them too, before this ADR was committed.
+    without a macro rule. On 2026-11-12, shown that `sys`'s and
+    `platform`'s own macro rule fires only on a macro that holds `unsafe`,
+    which a pass-through macro does not, the user kept the rule to the
+    other crates.
 - **Decision:**
-  - In every crate, `sys` and `platform` included, an exported
+  - In a crate other than `sys` and `platform`, an exported
     (`#[macro_export]`) `macro_rules!` fails `unsafe-audit` if, in any
     transcriber, a `tt` or `ident` metavariable, or a repetition that
     holds one, comes right before a token the macro writes itself and
@@ -2149,8 +2149,7 @@ decides; the roadmap task that first depends on one asks for the decision.
   - The `unsafe` keyword in a doc test outside `sys` and `platform` can
     reach the compiler only through code the doc test writes itself,
     which `forbid` checks, or through a macro of `sys` or `platform`,
-    whose rule covers every form of `unsafe` a macro writes, and which
-    this rule covers like any other. No proc macro exists (ADR-0037), and no
+    whose rule covers every form of `unsafe` a macro writes. No proc macro exists (ADR-0037), and no
     workspace macro can pass `unsafe` into braces or an item it writes. A
     place where the reader misreads Markdown no longer opens a way
     around the rule; it only means the reader misses text the compiler
@@ -2160,6 +2159,11 @@ decides; the roadmap task that first depends on one asks for the decision.
   - A future exported macro that names a caller's identifier before
     braces it writes, as `$name { field: ... }` does, uses `$name:path`.
   - Macros cannot generate macros anywhere in the workspace.
+  - Not covered: a pass-through macro exported from `sys` or `platform`,
+    which holds no `unsafe` and so passes their own rule; a doc test of
+    another crate could pass `unsafe` through it, with only the doc
+    reader to see it. Neither crate exports a macro today, and review
+    keeps one that does.
 - **Alternatives considered:**
   - The macro rule plus all 18 reader fixes: the most code, for gaps the
     rule already makes harmless.
@@ -2175,4 +2179,5 @@ decides; the roadmap task that first depends on one asks for the decision.
   - a stable rustdoc can write out the doc tests it compiles, which would
     let the audit read them exactly;
   - a task needs a macro-defining macro, or a `tt` or `ident` fragment
-    before braces or an item it writes.
+    before braces or an item it writes;
+  - `sys` or `platform` exports a macro.

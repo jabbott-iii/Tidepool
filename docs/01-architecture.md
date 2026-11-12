@@ -152,9 +152,10 @@ lints to doc tests, so every other library's crate root forbids
 `unsafe_code` there with `#![doc(test(attr(forbid(unsafe_code))))]`, and
 the audit checks that line too (ADR-0036). The audit also reads their
 doc-test code for `unsafe`, and fails any proc-macro crate, whose output
-the lint cannot see (ADR-0037), and any macro that could carry a caller's
-`unsafe` into braces or an item it writes, where the lint does not look,
-or that defines a macro (ADR-0038).
+the lint cannot see (ADR-0037), any macro outside `sys` and `platform`
+that could carry a caller's `unsafe` into braces or an item it writes,
+where the lint does not look, and any macro that defines a macro
+(ADR-0038).
 
 ## The main loop
 

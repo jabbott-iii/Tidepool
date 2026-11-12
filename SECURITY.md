@@ -128,8 +128,9 @@ are no dependency advisories to track beyond Rust's standard library.
   fails any `unsafe` block in their source without a `// SAFETY:`
   comment. Every other library forbids `unsafe` in its doc tests too
   (ADR-0036), the audit reads their doc-test code for it, no crate may be
-  a proc macro (ADR-0037), and no macro may carry a caller's `unsafe` into
-  braces or an item it writes, or define a macro (ADR-0038); review checks the `// SAFETY:` comments
+  a proc macro (ADR-0037), no macro outside the two crates may carry a
+  caller's `unsafe` into braces or an item it writes, and no macro may
+  define a macro (ADR-0038); review checks the `// SAFETY:` comments
   in the two crates' own doc tests.
 - `cargo xtask deps` fails the build if a workspace gains a package from
   outside the repository, and the Claude Code hook runs it after every

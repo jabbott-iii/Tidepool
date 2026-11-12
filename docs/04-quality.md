@@ -331,7 +331,7 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
-| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro in any crate, `sys`/`platform` included, that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
+| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro outside `sys`/`platform` that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
 | `cargo xtask headers` | A source file (Rust, shell script, workflow, HTML, CSS, JavaScript) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line or an HTML file's doctype), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021, ADR-0030) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
@@ -1014,8 +1014,8 @@ network through its tool.
     `unsafe_code` lint, and the audit reads only the string. It is this
     violation alone: a proc macro is no library, so the doc-test attribute
     rule above does not ask it for the line.
-  - In every crate, `sys` and `platform` included, an exported
-    `macro_rules!` (`#[macro_export]`, also under `cfg_attr`) in which, in any
+  - Outside `sys` and `platform`, an exported `macro_rules!`
+    (`#[macro_export]`, also under `cfg_attr`) in which, in any
     transcriber, a `tt` or `ident` metavariable, or a repetition that holds
     one, comes right before a token the macro writes itself that `unsafe`
     can come before: `{`, `fn`, `impl`, `trait`, `extern` or `static`; or
@@ -1032,11 +1032,7 @@ network through its tool.
     there, or the end of a group, ends that path. The fix is a fragment
     that cannot be `unsafe` (`path`, `ty`, `vis`), or leaving the `unsafe` to
     the caller. Core's log macros and `assert_approx!` pass: their `tt`
-    fragments sit inside `format_args!(...)`. In `sys` and `platform` this
-    is besides the rule above for their exported macros that hold `unsafe`:
-    a macro of that shape holds none. A macro that is not exported, such as
-    `sys`'s `dynlib!`, is no other crate's, and the lint sees what it
-    expands.
+    fragments sit inside `format_args!(...)`.
   - A `macro_rules!` whose body holds `macro_rules`, in any crate, `sys` and
     `platform` included (ADR-0038): a macro it makes, as through the `$`
     token trick, is never written out for a rule to read. So is
@@ -1157,6 +1153,13 @@ network through its tool.
   the doc test's own `unsafe` into braces or an item it writes, which the
   macro rule above fails; otherwise the attribute's `forbid` sees the
   `unsafe` the doc test writes.
+- Also not covered: a pass-through macro exported from `sys` or
+  `platform`, such as `k1`'s shape, which puts a `tt` or `ident` before
+  braces or an item it writes but holds no `unsafe` itself. The two crates'
+  exported-macro rule looks for `unsafe` in the macro, and ADR-0038 scopes
+  the rule for that shape to the other crates, so such a macro is left to
+  review (ADR-0038). The documentation reader still reads a doc test of
+  another crate that calls one. Neither crate exports a macro today.
 - Also not covered: a path package that is not a member of its workspace,
   such as one under a workspace root's `target/`, which the walk skips.
   Neither the walk nor the crate-root rules read it; `cargo xtask deps`

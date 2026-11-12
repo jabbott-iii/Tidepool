@@ -30,7 +30,7 @@ Built, with the roadmap task that built it:
   of the documentation outside those two crates, which it reads from doc
   comments, doc attributes and the files they include; no exported macro
   in them that takes its caller's tokens and holds `unsafe` in any form
-  (ADR-0037); no exported macro in any crate that lets a `tt` or `ident`
+  (ADR-0037); no exported macro elsewhere that lets a `tt` or `ident`
   fragment reach braces or an item it writes, no macro that defines a
   macro, and no `include_str` of a crate's own, with the documentation
   reader kept as a second layer (ADR-0038); and a lexer that skips a

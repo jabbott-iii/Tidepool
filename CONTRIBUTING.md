@@ -80,8 +80,8 @@ up on:
   since the workspace lint does not reach doc tests (ADR-0036). Doc-test
   code outside the two crates may not hold the word `unsafe` at all, even
   in an `ignore` block, and there are no proc-macro crates (ADR-0037).
-  No exported macro, in any crate, may put a caller's `tt` or `ident`
-  right before braces, `fn`, `impl`, `trait`, `extern` or `static`
+  An exported macro outside the two crates may not put a caller's `tt` or
+  `ident` right before braces, `fn`, `impl`, `trait`, `extern` or `static`
   it writes (use `path`, `ty` or `vis`), and no macro may define a macro
   (ADR-0038).
   `cargo xtask unsafe-audit` enforces this.

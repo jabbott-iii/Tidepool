@@ -75,13 +75,12 @@
 //!   string. That is its only violation: a proc macro is no library, so the
 //!   rule above does not ask it for the attribute.
 //! - **An exported macro that lets its caller's `unsafe` reach braces or an
-//!   item it writes** (ADR-0038), in every crate, the two included: in a
-//!   transcriber, a `tt` or `ident` metavariable, or a repetition that
-//!   holds one, right before a `{`, `fn`, `impl`, `trait`, `extern` or
-//!   `static` the macro writes, or as the name of an attribute it writes
+//!   item it writes** (ADR-0038), outside the two crates: in a transcriber,
+//!   a `tt` or `ident` metavariable, or a repetition that holds one, right
+//!   before a `{`, `fn`, `impl`, `trait`, `extern` or `static` the macro
+//!   writes, or as the name of an attribute it writes
 //!   ([`File::caller_unsafe`]). rustc skips the `unsafe_code` lint for
-//!   braces or an item from another crate's macro. In the two crates this
-//!   is besides the rule above: a macro of that shape holds no `unsafe`.
+//!   braces or an item from another crate's macro.
 //! - **A macro that defines a macro** (ADR-0038), in any crate: a body that
 //!   holds `macro_rules`, or `macro_rules` passed to a macro. What such a
 //!   macro makes is never written out for a rule here to read.
@@ -434,13 +433,13 @@ impl Audit {
         file.forbids_unsafe_in_doc_tests()
     }
 
-    /// The rules for the `macro_rules` at `index` of the file at `path`, in
-    /// every crate: no macro defines a macro, and no exported macro lets its
-    /// caller's `unsafe` reach braces or an item it writes
-    /// ([`File::caller_unsafe`]) (ADR-0038). In the two crates
-    /// (`in_unsafe_crate`), also no exported macro that takes its caller's
-    /// tokens holds `unsafe` ([`File::exported_unsafe_wrappers`]). A macro
-    /// named `include_str` is the rule of [`Audit::file`] on that name.
+    /// The rules for the `macro_rules` at `index` of the file at `path`:
+    /// anywhere, no macro defines a macro (ADR-0038); in the two crates
+    /// (`in_unsafe_crate`), no exported macro that takes its caller's tokens
+    /// holds `unsafe` ([`File::exported_unsafe_wrappers`]); elsewhere, no
+    /// exported macro lets its caller's `unsafe` reach braces or an item it
+    /// writes ([`File::caller_unsafe`]). A macro named `include_str` is the
+    /// rule of [`Audit::file`] on that name.
     fn macro_rules(
         &mut self,
         path: &str,
@@ -483,6 +482,7 @@ impl Audit {
                      `unsafe` to the caller"
                 ));
             }
+            return;
         }
         if definition.exported {
             for (line, variable, fragment, place) in file.caller_unsafe(&definition) {
@@ -2265,29 +2265,28 @@ mod tests {
             )]),
             Vec::<String>::new()
         );
+        // In sys and platform, whose exported macros have their own rule
+        // (ADR-0038 scopes this one to the other crates).
+        let k1 =
+            "#[macro_export]\nmacro_rules! k1 {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n";
+        assert_eq!(platform(k1), Vec::<String>::new());
+        assert_eq!(sys(k1), Vec::<String>::new());
     }
 
     #[test]
-    fn a_k1_shaped_macro_exported_from_sys_or_platform_fails() {
-        // It holds no `unsafe`, so the two crates' wrapper rule has nothing
-        // to see, but a doc test of a crate that uses it could pass its own
-        // `unsafe` through: the rule for that shape applies there too.
+    fn a_k1_shaped_macro_exported_from_sys_or_platform_passes_as_documented() {
+        // The documented limit (ADR-0038; `docs/04-quality.md`, "Also not
+        // covered"): the rule for that shape is the other crates', and the
+        // two crates' own rule looks for `unsafe` in the macro, of which a
+        // `k1` has none. Review keeps such a macro out.
         let k1 =
             "#[macro_export]\nmacro_rules! k1 {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n";
-        let in_file = |path: &str| {
-            passes_unsafe_on(3, "k1", "k", "tt", &before("{")).replacen(
-                "crates/text/src/lib.rs",
-                path,
-                1,
-            )
-        };
-        assert_eq!(platform(k1), [in_file("crates/platform/src/window.rs")]);
-        assert_eq!(sys(k1), [in_file("crates/sys/src/linux/x11.rs")]);
-        // A macro of the two crates that is not exported is no other
-        // crate's, as sys's `dynlib!` is not.
+        assert_eq!(platform(k1), Vec::<String>::new());
+        assert_eq!(sys(k1), Vec::<String>::new());
+        // In any other crate it fails.
         assert_eq!(
-            sys("macro_rules! dynlib {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n"),
-            Vec::<String>::new()
+            violations(&[("crates/text/src/lib.rs", k1)]),
+            [passes_unsafe_on(3, "k1", "k", "tt", &before("{"))]
         );
     }
 
