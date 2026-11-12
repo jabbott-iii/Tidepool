@@ -210,7 +210,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0010 — Linux GUI: X11 through `dlopen`'d libX11; Wayland through XWayland
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** Nadir already ships hand-written, `dlopen`-loaded X11
   bindings that work; native Wayland needs xdg-shell and keymap handling

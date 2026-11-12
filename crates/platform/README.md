@@ -46,7 +46,7 @@ in M2.2.
   [`docs/subsystems/sys-and-platform.md`](../../docs/subsystems/sys-and-platform.md)
 - Platforms: [`docs/03-platforms.md`](../../docs/03-platforms.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0010 (X11
-  through `dlopen`, Proposed); ADR-0012 (the main loop, Proposed).
+  through `dlopen`); ADR-0012 (the main loop, Proposed).
 - API reference: `cargo doc -p tidepool-platform --open`
 
 ## Rules

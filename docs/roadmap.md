@@ -1087,7 +1087,7 @@ the text suites have a recorded baseline.
 **Goal:** a Linux window that shows Saira and JetBrains Mono text, drawn by
 our own rasterizer.
 
-- [ ] **M2.1 — sys: dynlib, libc and X11 declarations**
+- [x] **M2.1 — sys: dynlib, libc and X11 declarations**
   - Depends: M0.1
   - Decide first: accept ADR-0010 (X11 through `dlopen`'d libX11; Wayland
     through XWayland), which is `Proposed`.
@@ -1098,14 +1098,39 @@ our own rasterizer.
   - Accept: layout asserts for every struct; each declaration cites its
     header.
   - Verify: `cargo build -p tidepool-sys`; `cargo xtask unsafe-audit`
+  - Note (2026-11-10): the user accepted ADR-0010 as written, which
+    answers the `Decide first` line.
+  - Note (2026-11-10): done. `dynlib` is ported from nadir-sys; a table is
+    written `struct Name: unsafe extern "C" { ... }`, which
+    `unsafe-audit` reads as an `unsafe extern` block. `linux::libc` has the
+    loader (no `dlclose`), `poll`, and `pipe2` with `O_CLOEXEC` and
+    `O_NONBLOCK` for the waker's self-pipe: `std::io::pipe` cannot be made
+    non-blocking without the variadic `fcntl`, and a socket pair would be
+    a socket of Tidepool's own, against rule 8. `linux::x11` declares the
+    types, events and the `Xlib` table of 31 functions M2.2's window,
+    events and surface are to call. Typed text (`XOpenIM`, the variadic
+    `XCreateIC`), the keyboard map and the waker's `write(2)` are left to
+    M2.2, the clipboard's calls to M2.7.
+  - Note (2026-11-10): a C program built from the declarations with gcc
+    13.3.0 and `-Werror` against glibc 2.39 and libX11 1.8.7 headers on
+    x86_64 checks all 191 layout assertions, 59 constants, 36 prototypes
+    and 175 field and typedef types. The numbers hold on aarch64 Linux,
+    whose clippy run evaluates the same assertions; `linux.rs` fails the
+    build on any other Linux target. A test loads the whole
+    `Xlib` table from the installed `libX11.so.6`, opening no display.
 
 - [ ] **M2.2 — platform: window, events, waker, present (Linux)**
   - Depends: M2.1, M0.2
   - Decide first: where the Xvfb test's read-back with `XGetImage` lives.
-    `unsafe` compiles only in the library targets of `sys` and `platform`,
-    so an integration test cannot make the call (`docs/04-quality.md` →
+    `unsafe` compiles only in the library targets of `sys` and `platform`
+    (and in doc tests, a gap `docs/04-quality.md` records), so an
+    integration test cannot make the call (`docs/04-quality.md` →
     `unsafe-audit`): a `#[cfg(test)]` test inside `platform`'s library, or
-    a safe read-back function that `platform` exports for tests.
+    a safe read-back function that `platform` exports for tests. Also,
+    from M2.1's review (the Note below): whether Xlib's connection to the
+    X server is `AGENTS.md` rule 8's one exception, and whether TCP
+    displays are accepted; and whether the key map reads key codes or
+    `XLookupKeysym`.
   - Do: `window`, `events` (poll on the X fd and a self-pipe), `surface`
     (`XPutImage` of damage rects), per `docs/03-platforms.md` → Linux.
   - Accept: under Xvfb, a test opens a window, presents a framebuffer,
@@ -1113,6 +1138,18 @@ our own rasterizer.
     thread interrupts `wait_events` within 5 ms.
   - Verify: `xvfb-run cargo test -p tidepool-platform`;
     `cargo xtask unsafe-audit`
+  - Note (2026-11-10): M2.1's review raised two more questions to answer
+    before M2.2's code. First, `XOpenDisplay` connects a socket in the
+    core binary: a Unix one for `:N`, falling back to TCP on localhost
+    when that fails (`unix:N` never uses TCP), and TCP when `DISPLAY`
+    names a host; it sends the Xauthority cookie for that display if the
+    authority file has one. `AGENTS.md` rule 8 records no exception for
+    the X connection that ADR-0010 implies: whether it is the rule's one
+    exception, and whether TCP displays are accepted.
+    Second, `docs/03-platforms.md` → Input maps keys with `XLookupKeysym`,
+    but `core::input::Key` names a physical key (M0.2), which a key code
+    gives (the evdev code plus 8 under XWayland and the evdev and libinput
+    drivers) and a keysym does not: which source the key map uses.
 
 - [ ] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8

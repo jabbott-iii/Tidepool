@@ -4,10 +4,10 @@ These diagrams follow Tidepool's flows through time: who calls whom, in
 what order, and what comes back. Sections 1 to 7 are read from the code:
 `cargo xtask ci`, `cargo xtask fuzz-smoke` and its engine, and loading,
 saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
-the flows the specs plan, from startup to signing an Android package; none
-of their code exists yet.
+the flows the specs plan, from startup to signing an Android package; most
+of their code does not exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M0.14 (2026-11-08, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -447,7 +447,7 @@ sequenceDiagram
     participant Plat as platform window<br/>and events (M2.2)
     participant Disp as X server,<br/>through XWayland
 
-    Note over User,Disp: planned M2.1, M2.2, M2.3, M2.5, M2.6, M3.4.<br/>Only core's Args and InputEvent are built (M0.2).
+    Note over User,Disp: planned M2.2, M2.3, M2.5, M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>and sys's Xlib declarations (M2.1).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: Config::load(args)
@@ -457,7 +457,7 @@ sequenceDiagram
     else the GUI, by default
         Cli->>Fe: Frontend::open(config, mode)
         Fe->>Plat: Window::open(config)
-        Plat->>Disp: libX11.so.6 through<br/>dlopen (sys, M2.1),<br/>one Display,<br/>XCreateWindow
+        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table (built),<br/>one Display,<br/>XCreateWindow
         Plat->>Plat: the scale<br/>from Xft.dpi
         Fe->>Fe: font (M2.5): load<br/>Saira and JetBrains Mono<br/>from assets/fonts/
         Fe->>Fe: gfx (M2.3): a Framebuffer<br/>at device resolution,<br/>the backdrop layers built

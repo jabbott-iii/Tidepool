@@ -9,18 +9,24 @@ patterns to port.
 
 - **Contains only:** `#[repr(C)]` types, constants, `unsafe extern` blocks,
   function-pointer type aliases, `dlopen` symbol tables, and layout tests.
-- **No behavior:** no wrappers, loops or allocation. The only functions are
-  the generated symbol-table loaders.
+- **No behavior:** no wrappers or loops. The only code is the generated
+  symbol-table loaders and the message of the error they return; a loader
+  allocates only to list the symbols a library lacks.
 
 ```
 crates/sys/src/
 ├── lib.rs                # #![allow(unsafe_code)], cfg-gated modules
-├── dynlib.rs             # dynlib! macro: struct of fn pointers + load(&dyn Library)
+├── dynlib.rs             # dynlib! macro (crate-private): struct of fn pointers + load(&dyn Library),
+│                         # MissingSymbols naming every symbol a library lacks
+├── linux.rs              # the Linux modules; fails the build on a Linux target but x86_64 or aarch64
 ├── linux/
-│   ├── libc.rs           # poll, pipe2, read/write, ioctl (TIOCGWINSZ, TIOCSCTTY), termios,
-│   │                     # posix_openpt/grantpt/unlockpt/ptsname_r, fork/execve/setsid/waitpid,
-│   │                     # kill, sigaction, inotify_*, dlopen/dlsym/dlerror, errno
-│   └── x11.rs            # Display, Window, XEvent (192-byte union), XImage, atoms… (dynlib!)
+│   ├── libc.rs           # dlopen/dlsym/dlerror (no dlclose), poll, pipe2 (O_CLOEXEC, O_NONBLOCK);
+│   │                     # later write (M2.2, M7.1), inotify_* (M4.5), fork/execve/setsid/
+│   │                     # waitpid, kill (M5.7),
+│   │                     # posix_openpt/grantpt/unlockpt/ptsname_r, ioctl TIOCSCTTY (M5.9),
+│   │                     # termios, ioctl TIOCGWINSZ, sigaction (M7.1)
+│   └── x11.rs            # Display, Window, XEvent (192-byte union), XImage, error handlers,
+│                         # font cursors, atoms… and the Xlib table (dynlib!)
 ├── macos/
 │   ├── objc.rs           # objc_* runtime, Class/Sel/Id/BOOL, msg_send! macro
 │   ├── foundation.rs appkit.rs coregraphics.rs quartzcore.rs coreservices.rs
@@ -33,14 +39,32 @@ crates/sys/src/
 ### Rules
 
 - Declare **only what is called**, each citing a header or doc URL.
+- Declare nothing `std` already gives: `errno` is read with
+  `io::Error::last_os_error`, each descriptor Tidepool owns is wrapped
+  in `OwnedFd` (one a library owns, such as Xlib's connection, is only
+  borrowed, as a `BorrowedFd`, and never closed), and `read` and `write`
+  go through `File`. The exception is code that
+  must be async-signal-safe, which `std` does not promise for
+  `<&File as Write>::write`: for a signal handler and `Waker::wake`,
+  `sys` declares `write(2)` in the task that calls it (M2.2 for the
+  waker, M7.1 for the handler). A self-pipe comes from `pipe2` with
+  `O_CLOEXEC | O_NONBLOCK`: `std::io::pipe` cannot make its ends
+  non-blocking without `fcntl`, which is variadic, and a socket pair
+  would be a socket of Tidepool's own, against `AGENTS.md` rule 8.
 - Every struct gets `const _: () = assert!(size_of::<T>() == N && align_of::<T>() == A);`
-  per target.
+  per target, and `offset_of!` for its fields. An opaque type, which only
+  the OS looks inside or which is only passed by pointer (`Display`, `_XGC`),
+  has no fields and nothing to assert. The Linux numbers are measured on
+  x86_64 and hold on aarch64; `linux.rs` fails the build on any other
+  Linux target.
 - `extern "system"` for Win32, `extern "C"` elsewhere; edition 2024
   `unsafe extern` blocks.
 - `msg_send!` transmutes to the exact signature; never call `objc_msgSend`
   through a varargs prototype.
 - Prefer `dlopen`/`LoadLibraryW` for anything not guaranteed present
-  (libX11), so Tidepool reports a clear error.
+  (libX11), so Tidepool reports a clear error. A loaded library is never
+  closed (`dlclose` is not declared), so a table's function pointers never
+  dangle.
 
 ## `tidepool-platform`: safe behavior
 

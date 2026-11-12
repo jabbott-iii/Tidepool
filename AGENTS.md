@@ -16,10 +16,15 @@ verified.
   and in `tidepool-text` the rope, positions and grapheme boundaries
   (M1.1), selections, change sets and the undo tree (M1.2), and encodings,
   loading and the atomic save (M1.3); the fuzzer, with `cargo xtask
-  fuzz-smoke` and targets for JSON, TOML and the text decoder (M1.6); and
+  fuzz-smoke` and targets for JSON, TOML and the text decoder (M1.6);
   the benchmark harness, with `cargo xtask bench`, the text engine's
-  suites and their baseline on the reference machine (M1.9).
-- **Not built:** everything else. 21 of the 26 workspace members are empty
+  suites and their baseline on the reference machine (M1.9); and in
+  `tidepool-sys` the first declarations for the Linux window, its events
+  and its presentation: the loader, `poll` and `pipe2` from libc, and
+  Xlib's types and a table of its functions to be loaded at run time
+  (M2.1), to which M2.2 adds typed text, the key lookup and the waker's
+  `write(2)`.
+- **Not built:** everything else. 20 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
   add the rest.

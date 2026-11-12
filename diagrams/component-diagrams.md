@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M1.9 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -45,9 +45,9 @@ Drawn from the code and docs as of roadmap task M1.9 (2026-11-10, version 0.1). 
 The subsystems and the main interfaces between them, from the top layer
 down: 1.1 what the app, the frontends and the editor use, 1.2 what the
 agents, languages and toolchains offer one another, and 1.3 what all of
-them stand on. Only formats and text (`codec` and `text`) and `xtask` have
-code behind their interfaces; the app and the OS layer are their crate
-roots (M0.1). Each arrow names the crate in its group that will use an
+them stand on. Only formats and text (`codec` and `text`), `xtask` and
+`sys`'s Linux declarations (M2.1) have code behind their interfaces; the
+app and `platform` are their crate roots (M0.1). Each arrow names the crate in its group that will use an
 interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -159,7 +159,7 @@ flowchart LR
     i_os_proc(("process, PTY<br/>planned M5.7, M5.9"))
 
     c_fmt["Formats and text<br/>tidepool-codec: json, toml<br/>tidepool-text: rope to<br/>atomic save<br/>tidepool-regex:<br/>planned M4.8"]
-    c_os["OS layer<br/>tidepool-sys<br/>tidepool-platform<br/>crate roots today, M0.1<br/>modules planned M2.1, M2.2"]
+    c_os["OS layer<br/>tidepool-sys: dynlib,<br/>libc and x11, built M2.1<br/>tidepool-platform: the<br/>crate root today, M0.1<br/>modules planned M2.2"]
     e_os["OS libraries<br/>libc and libX11,<br/>AppKit and Win32 later"]
     e_cargo["cargo"]
 
@@ -184,7 +184,7 @@ flowchart LR
     i_regex -.- c_fmt
     i_os_watch -.- c_os
     i_os_proc -.- c_os
-    c_os -.->|"sys:<br/>planned M2.1"| e_os
+    c_os -->|"sys declares,<br/>built M2.1"| e_os
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
@@ -368,9 +368,9 @@ flowchart TB
 
 ## 3. The OS layer and rendering
 
-Only the crate roots of `sys` and `platform` are built (M0.1), so they are
-drawn solid with their planned modules in their labels; `gfx`, `font` and
-`ui` are empty libraries.
+`sys` has its Linux declarations (M2.1) and `platform` only its crate
+root (M0.1), so both are drawn solid with their planned modules in their
+labels; `gfx`, `font` and `ui` are empty libraries.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -392,8 +392,8 @@ flowchart TB
     i_terminal(("terminal:<br/>raw mode guard<br/>planned M7.1"))
 
     c_platform["tidepool-platform<br/>the crate root today, M0.1<br/>modules planned M2.2 on"]
-    i_decl(("dynlib, libc,<br/>x11 declarations<br/>planned M2.1"))
-    c_sys["tidepool-sys<br/>the crate root today, M0.1<br/>declarations planned M2.1"]
+    i_decl(("dynlib, libc,<br/>x11 declarations<br/>built M2.1"))
+    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, built M2.1<br/>more planned M2.2 on"]
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
     c_gui -.->|"planned M2.6"| i_window
@@ -409,15 +409,15 @@ flowchart TB
     i_terminal -.- c_platform
 
     c_platform -.->|"planned M2.2"| i_decl
-    i_decl -.- c_sys
-    c_sys -.->|"binds, planned M2.1"| e_os
+    i_decl --- c_sys
+    c_sys -->|"declares, built M2.1"| e_os
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_platform,c_sys built
+    class c_platform,c_sys,i_decl built
     class c_gui,c_tui planned
-    class i_window,i_events,i_surface,i_clip,i_terminal,i_decl planned
+    class i_window,i_events,i_surface,i_clip,i_terminal planned
     class e_os external
 ```
 
@@ -1224,7 +1224,7 @@ Docs:
   `languages.md`, `toolchains.md`, `mobile.md`, `agents.md`.
 - `docs/04-quality.md`: own harnesses, fakes, fuzz smoke, `xtask` checks.
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
-  ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035.
+  ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1232,6 +1232,8 @@ Code:
 - Manifests: `crates/*/Cargo.toml`, `xtask/Cargo.toml`, `bench/Cargo.toml`.
 - The crate roots: `crates/sys/src/lib.rs`, `crates/platform/src/lib.rs`,
   `crates/app/src/main.rs`.
+- `crates/sys/src/`: `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
+  `linux/x11.rs`.
 - `crates/codec/src/`: `lib.rs`, `limits.rs`, `error.rs`, `json.rs`,
   `json/parse.rs`, `json/write.rs`, `toml.rs`, `toml/parse.rs`,
   `toml/table.rs`.

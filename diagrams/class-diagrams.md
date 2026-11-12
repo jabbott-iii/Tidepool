@@ -1,21 +1,22 @@
 # UML class diagrams
 
 These diagrams show the types the built crates have: `tidepool-core`,
-`tidepool-codec`, `tidepool-text` and `xtask`. Each shows what a type owns,
+`tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench` and
+`tidepool-sys`. Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
 how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M1.8 (2026-11-09, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 23, and drawn in the other files of `diagrams/` under the names
+section 25, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -31,6 +32,7 @@ their specs give.
 | `<<enumeration>>` | An enum; the box lists its variants, and some of its methods |
 | `<<trait>>` | A trait |
 | `<<alias>>` | A type alias |
+| `<<union>>` | A C union, `#[repr(C)] union` |
 | `<<module>>` | A module's free functions and constants, in one box |
 | A name such as `core::cli::Args` | A type from another crate or module, shown for context |
 
@@ -47,6 +49,8 @@ dev-dependency, and make one `core::testing::fuzz::Target` per fuzz target.
 `xtask` uses `core` and `codec`, as the dependency matrix allows: it reads
 `cargo metadata` with `codec::json`, manifests with `codec::toml`, and the
 fuzz targets' result lines with `core::testing::fuzz::Summary`.
+`tidepool-bench` uses `core::cli::Args`, `codec::json` and the types of
+`text` (section 22), and `tidepool-sys` no workspace crate (section 23).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2227,12 +2231,286 @@ classDiagram
     note for Pin "deps reads one per line<br/>of xtask/deps-allowlist.txt"
 ```
 
-## 22. Error enums across crates
+## 22. bench: the harness and the baseline
+
+`tidepool-bench` is a library and a binary (ADR-0035). A `Suite` is a
+name and a function that measures one routine through the `Bencher` it is
+given; `run_suite` makes the `Bencher` from `Settings` and returns the
+`Summary` it recorded. `cli::run` runs the suites `Options` select,
+compares each `Summary` with the `Entry` of the same name in a `Baseline`
+recorded on a `Machine` with the same `Facts`, and with `--save` writes the
+merged `Baseline` back. `suites::all` lists the 18 text suites, which use
+`tidepool-text`'s `Rope` and `History`.
+
+```mermaid
+classDiagram
+    direction LR
+    class HarnessFns["harness"] {
+        <<module>>
+        +MAX_BATCH: usize
+        +PRIME_BYTES: usize
+        +run_suite(suite, settings) Result~Summary~
+        +prime_allocator()
+        +median(sorted) Option~f64~
+        +p95(sorted) Option~f64~
+    }
+    class Suite {
+        +name: str
+        +run: fn(Bencher) Result
+    }
+    class Bencher {
+        -settings: Settings
+        -summary: Option~Summary~
+        +new(settings) Bencher
+        +iter(routine)
+        +iter_batched(setup, routine)
+    }
+    class Settings {
+        +warm_up: Duration
+        +sample_target: Duration
+        +budget: Duration
+        +min_samples: usize
+        +max_samples: usize
+        +DEFAULT: Settings
+    }
+    class Summary {
+        +median_ns: u64
+        +p95_ns: u64
+        +samples: usize
+        +batch: usize
+        +of(per_iteration_ns, batch) Option~Summary~
+    }
+    class CliFns["cli"] {
+        <<module>>
+        +SLOWER_PERCENT: u64
+        +run(options, suites, settings, path, facts, out) Result
+        +select(suites, filter) Result~Vec~Suite~~
+        +is_slower(baseline_ns, now_ns) bool
+    }
+    class Options {
+        +filter: Option~String~
+        +save: bool
+        +machine: Option~String~
+        +help: bool
+        +parse(args) Result~Options~
+    }
+    class Args["core::cli::Args"]
+    class SuitesFns["suites"] {
+        <<module>>
+        +all() Vec~Suite~
+    }
+    class Baseline {
+        +machine: Machine
+        +suites: BTreeMap~String, Entry~
+        +read(path) Result~Option~Baseline~~
+        +parse(bytes) Result~Baseline~
+        +to_json() String
+        +write(path) Result
+        +merge(existing, machine, measured, known) Result~Baseline~
+        +check_machine(machine) Result
+    }
+    class Machine {
+        +name: String
+        +facts: Facts
+    }
+    class Facts {
+        +os: String
+        +arch: String
+        +threads: u64
+        +cpu: String
+        +detect() Facts
+        +describe() String
+    }
+    class Entry {
+        +median_ns: u64
+        +p95_ns: u64
+        +samples: u64
+    }
+    class Json["codec::json"]
+    class Save["text::file::save"]
+
+    HarnessFns ..> Bencher : makes
+    HarnessFns ..> Summary : returns
+    Suite ..> Bencher : runs through
+    Bencher *-- Settings
+    Bencher *-- "0..1" Summary
+    SuitesFns ..> Suite : makes
+    CliFns ..> Options
+    CliFns ..> HarnessFns : run_suite
+    CliFns ..> Baseline : reads, merges, writes
+    Options ..> Args : parses
+    Baseline *-- Machine
+    Baseline *-- "0..*" Entry
+    Machine *-- Facts
+    Entry ..> Summary : from
+    Baseline ..> Json : parses, writes
+    Baseline ..> Save : write
+```
+
+- `iter_batched` makes a batch's inputs with `setup` before the timing
+  starts and drops the outputs after it stops, so neither is timed.
+- `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
+  → "Benchmarks").
+- `BenchError` is in section 24.
+
+## 23. sys: symbol tables and the Linux declarations
+
+`tidepool-sys` declares and does nothing else (ADR-0001). `dynlib!`, a
+macro private to the crate, makes a table: a struct with one function
+pointer for each C function, under its C name, and `load`, which looks
+each one up through a `Library` and names every one it cannot find in a
+`MissingSymbols`. `linux::x11::Xlib` is the only table so far: 31
+functions of `libX11.so.6` that the window, its events and its
+presentation are to call, loading it with `dlopen` (M2.2, ADR-0010);
+M2.2 adds typed text and the key lookup.
+`linux::libc` links what it declares from the C library: the dynamic
+loader, `poll` and `pipe2`. Each struct has every field of its header,
+and `XEvent` the members Tidepool reads and the header's `pad`, each
+with its layout asserted; `Display`, `Visual`, `XGCValues` and the
+graphics context behind `GC` are opaque, and have no fields. The boxes show
+only some fields, and four of `Xlib`'s functions.
+
+```mermaid
+classDiagram
+    direction TB
+    class Library {
+        <<trait>>
+        +symbol(name) address
+    }
+    class MissingSymbols {
+        +names: Vec~str~
+    }
+    class Xlib["linux::x11::Xlib"] {
+        +XOpenDisplay: fn
+        +XNextEvent: fn
+        +XPutImage: fn
+        +XGetImage: fn
+        +load(library) Result~Xlib~
+    }
+    class LibcFns["linux::libc"] {
+        <<module>>
+        +dlopen(filename, flags) handle
+        +dlsym(handle, symbol) address
+        +dlerror() message
+        +poll(fds, nfds, timeout) c_int
+        +pipe2(pipefd, flags) c_int
+    }
+    class pollfd {
+        +fd: c_int
+        +events: c_short
+        +revents: c_short
+    }
+    class Display["linux::x11::Display"]
+    class XEvent {
+        <<union>>
+        +type_: c_int
+        +pad: 24 longs
+    }
+    class XAnyEvent {
+        +type_: c_int
+        +window: Window
+    }
+    class XKeyEvent {
+        +state: c_uint
+        +keycode: c_uint
+    }
+    class XButtonEvent {
+        +x: c_int
+        +y: c_int
+        +button: c_uint
+    }
+    class XMotionEvent {
+        +x: c_int
+        +y: c_int
+    }
+    class XFocusChangeEvent {
+        +mode: c_int
+    }
+    class XExposeEvent {
+        +x: c_int
+        +width: c_int
+        +count: c_int
+    }
+    class XConfigureEvent {
+        +width: c_int
+        +height: c_int
+    }
+    class XClientMessageEvent {
+        +message_type: Atom
+        +format: c_int
+        +data: XClientMessageData
+    }
+    class XClientMessageData {
+        <<union>>
+        +l: 5 longs
+    }
+    class XImage {
+        +width: c_int
+        +data: char pointer
+        +bytes_per_line: c_int
+        +f: XImageFuncs
+    }
+    class XImageFuncs {
+        +destroy_image: Option~fn~
+    }
+    class XSetWindowAttributes {
+        +background_pixel: c_ulong
+        +colormap: Colormap
+    }
+    class XVisualInfo {
+        +visual: Visual pointer
+        +depth: c_int
+    }
+    class XErrorHandler {
+        <<alias>>
+        Option~fn~
+    }
+    class XErrorEvent {
+        +error_code: c_uchar
+        +request_code: c_uchar
+    }
+
+    Xlib ..> Library : load looks up through
+    Xlib ..> MissingSymbols : load fails with
+    Xlib ..> Display : XOpenDisplay makes
+    Xlib ..> XEvent : XNextEvent fills
+    Xlib ..> XImage : XInitImage, XPutImage,<br/>XGetImage
+    Xlib ..> XSetWindowAttributes : XCreateWindow
+    Xlib ..> XVisualInfo : XMatchVisualInfo fills
+    Xlib ..> XErrorHandler : XSetErrorHandler
+    LibcFns ..> pollfd : poll
+    XEvent *-- XAnyEvent : xany
+    XEvent *-- XKeyEvent : xkey
+    XEvent *-- XButtonEvent : xbutton
+    XEvent *-- XMotionEvent : xmotion
+    XEvent *-- XFocusChangeEvent : xfocus
+    XEvent *-- XExposeEvent : xexpose
+    XEvent *-- XConfigureEvent : xconfigure
+    XEvent *-- XClientMessageEvent : xclient
+    XClientMessageEvent *-- XClientMessageData
+    XImage *-- XImageFuncs : f
+    XErrorHandler ..> XErrorEvent : takes
+```
+
+- An image that `XGetImage` returns is Xlib's, with its pixels, and is
+  freed through its own `f.destroy_image`, which is what C's
+  `XDestroyImage` macro calls; an `XImage` that Tidepool fills in over a
+  frame and passes to `XInitImage` is Tidepool's, and is never freed
+  through it.
+- A table's function pointers stay valid because no library is ever
+  closed: `dlclose` is not declared.
+- `MissingSymbols` is in section 24.
+
+## 24. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
-`std::error::Error`; those of code that does I/O keep the `std::io::Error`
-that caused the failure. No error wraps another crate's: `xtask` turns a `CoreError` into the text
-of `Error::Usage`. The boxes list only some variants.
+`std::error::Error`, except `tidepool-sys`, whose one error is a struct,
+`MissingSymbols`. Those of code that does I/O keep the `std::io::Error`
+that caused the failure, except `BenchError::Write`, which keeps the
+failed save's message as text. Only `BenchError` wraps another crate's: its
+`Text` holds the `TextError` of a text operation a suite runs. `xtask`
+turns a `CoreError` into the text of `Error::Usage`. The boxes list only
+some variants.
 
 ```mermaid
 classDiagram
@@ -2285,6 +2563,16 @@ classDiagram
         Spawn
         Output
     }
+    class MissingSymbols["sys::dynlib::MissingSymbols"]
+    class BenchError["bench::BenchError"] {
+        <<enumeration>>
+        Usage
+        Text
+        Suite
+        Read
+        OtherMachine
+        Output
+    }
     Display <|.. CoreError
     StdError <|.. CoreError
     Display <|.. WithContext
@@ -2299,17 +2587,23 @@ classDiagram
     StdError <|.. TextError
     Display <|.. XtaskError
     StdError <|.. XtaskError
+    Display <|.. BenchError
+    StdError <|.. BenchError
+    Display <|.. MissingSymbols
+    StdError <|.. MissingSymbols
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
     PathError *-- IoError : Io
     FuzzError *-- IoError : Read, Write
     TextError *-- IoError : Io, NotWritable
     XtaskError *-- IoError : Read, Spawn, Output, Write
+    BenchError *-- TextError : Text
+    BenchError *-- IoError : Read, Output
 ```
 
-## 23. Planned types
+## 25. Planned types
 
-The other 22 members are empty crates, so they have no class diagram yet.
+The other 20 members are empty crates, so they have no class diagram yet.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
@@ -2358,10 +2652,17 @@ The main files these diagrams were drawn from:
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `error.rs`, `fuzz.rs`,
   `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`, `crates.rs`,
   `ucd.rs`, `Cargo.toml`
-- `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`
+- `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
+  `suites.rs`, `suites/text.rs`
+- `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
+  `linux/x11.rs`
+- `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
+  `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
-  `docs/decisions.md` (ADR-0013, ADR-0019, ADR-0020, ADR-0027, ADR-0029)
+  `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0013, ADR-0019, ADR-0020,
+  ADR-0027, ADR-0029, ADR-0035)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
-- The `README.md` of `crates/core`, `crates/codec` and `crates/text`
+- The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
+  `crates/sys` and `bench`

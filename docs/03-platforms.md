@@ -32,8 +32,12 @@ task that needs another OS leaves its box unchecked with a
 
 ### Window and event loop (X11 via `dlopen("libX11.so.6")`)
 
-- One `Display` connection, opened on the main thread. `XInitThreads` is
-  not used; only main calls Xlib.
+- One `Display` connection, opened on the main thread. Tidepool does not
+  call `XInitThreads`; only main calls Xlib, any Xlib function, so that
+  use is sound whether or not Xlib locks. From 1.8 on, libX11 as
+  normally built calls `XInitThreads` itself when the library is loaded;
+  a build without that option, like any earlier version, does no
+  locking.
 - `wait_events(deadline)` uses `poll` on two fds: the X connection
   (`ConnectionNumber`) and a self-pipe the `Waker` writes to. It drains
   `XPending` before and after polling.

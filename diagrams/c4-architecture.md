@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, the benchmark harness, and
 the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M1.9 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -24,7 +24,8 @@ Drawn from the code and docs as of roadmap task M1.9 (2026-11-10, version 0.1). 
 A crate that has code is drawn solid even where most of it is still
 planned; its label says which parts are which. So `sys`, `platform` and
 the binary are solid: M0.1 gave the first two a crate root that allows
-`unsafe_code`, and the binary an empty `main`. A crate that is only its doc
+`unsafe_code`, and the binary an empty `main`, and M2.1 gave `sys` its
+Linux declarations. A crate that is only its doc
 comment, and for a library the `ReadmeDoctests` item that runs its README's
 examples (M0.13), is drawn planned, with the task that gives it code first.
 
@@ -280,8 +281,9 @@ use. The diagrams run left to right, from a crate to the crates it uses.
 
 ### 2.1 Layers 0 and 1: foundations, OS behavior, formats and engines
 
-`core`, `codec` and `text` are built; `sys` and `platform` are their crate
-roots, the two that allow `unsafe_code`. The other four crates are empty.
+`core`, `codec` and `text` are built, and `sys` has its Linux declarations
+(M2.1); `platform` is its crate root. Those two allow `unsafe_code`. The
+other four crates are empty.
 
 ```mermaid
 flowchart LR
@@ -296,7 +298,7 @@ flowchart LR
     end
     subgraph L0["Layer 0: foundations"]
         k_core["tidepool-core<br/>error, log, testing, rng,<br/>hash with sha256, cli,<br/>civil, input, geom,<br/>color, cancel (M0.2)<br/>testing::fuzz (M1.6)<br/>path (M1.8)"]
-        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>planned M2.1: the dynlib<br/>macro, linux::libc,<br/>linux::x11"]
+        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>dynlib, linux::libc,<br/>linux::x11 and its<br/>Xlib table (M2.1)<br/>planned: typed text, the<br/>waker's write(2) and the<br/>key lookup M2.2,<br/>clipboard M2.7,<br/>inotify M4.5, processes<br/>and PTY M5.7, M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, Windows<br/>M12.1, M12.2"]
     end
 
     k_platform -.->|"planned M2.2"| k_core
@@ -889,7 +891,7 @@ examples as doc tests (M0.13); the table leaves those out.
 | Package | Path | Layer | `unsafe` | Built (task) | Planned (tasks) | Declared workspace dependencies |
 | :- | :- | :- | :- | :- | :- | :- |
 | `tidepool-core` | `crates/core` | 0, foundations | deny | `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`, `color`, `cancel` (M0.2); `testing::fuzz` (M1.6); `path` (M1.8) | — | none |
-| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1) | M2.1, M5.7, M5.9, M11.7, M11.8, M12.1, M12.2 | none |
+| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1) | M2.2 (typed text, the waker's `write(2)`, the key lookup), M2.7, M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
 | `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1) | M2.2, M2.7, M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | none |
 | `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6) | M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
@@ -926,7 +928,8 @@ examples as doc tests (M0.13); the table leaves those out.
   `memory.rs`, `mutate.rs` and `paths.rs`
 - `crates/codec/src/lib.rs`, `crates/codec/tests/fuzz.rs`
 - `crates/text/src/lib.rs`, `crates/text/tests/fuzz.rs`
-- `crates/sys/src/lib.rs`, `crates/platform/src/lib.rs`,
+- `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
+  `linux/x11.rs`; `crates/platform/src/lib.rs`,
   `crates/app/src/main.rs`, every file in `bench/src/`, `crates/testkit/src/lib.rs`
 - `xtask/Cargo.toml` and every file in `xtask/src/`
 - `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`
@@ -936,5 +939,5 @@ examples as doc tests (M0.13); the table leaves those out.
 - `docs/subsystems/toolchains.md`, `agents.md`, `languages.md`,
   `editor.md`, `frontends.md`, `ui-and-theme.md`, `rendering.md`,
   `sys-and-platform.md` and `mobile.md`
-- `docs/decisions.md`: ADR-0002, ADR-0003, ADR-0008, ADR-0009, ADR-0017,
-  ADR-0018, ADR-0027, ADR-0028 and ADR-0029
+- `docs/decisions.md`: ADR-0002, ADR-0003, ADR-0008, ADR-0009, ADR-0010,
+  ADR-0017, ADR-0018, ADR-0027, ADR-0028 and ADR-0029

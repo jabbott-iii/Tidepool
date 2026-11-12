@@ -951,9 +951,10 @@ network through its tool.
     whose `unsafe_code = "deny"` every member inherits, or `RUSTFLAGS`;
     review keeps both. So, while that table denies it, `unsafe`
     compiles only in the library targets of `sys` and `platform` (their
-    `#[cfg(test)]` modules included). Their
+    `#[cfg(test)]` modules included), and in doc tests. Their
     integration tests, benches, examples and binaries are crates of their
-    own, under the workspace's `deny`. This is provisional: M2.2's Xvfb test
+    own, under the workspace's `deny`. Doc tests are crates of their own
+    too, but not under it (Also not covered, below). This is provisional: M2.2's Xvfb test
     reads pixels back with `XGetImage`, and where that FFI call may live is
     an open question.
   - A function written `pub` or `pub(...)` `unsafe fn` (also `const`,
@@ -1005,6 +1006,14 @@ network through its tool.
   set to 2024, no target of a member sets an edition of its own, and each
   member inherits the workspace's lints, though no check reads what
   `[workspace.lints]` holds (ADR-0023, "`crates`" above).
+- Also not covered: `unsafe` in doc tests. Cargo passes the workspace's
+  lints to rustdoc, but rustdoc does not apply them to the doc tests it
+  compiles, so an `unsafe` block in any crate's README example (run
+  through its `ReadmeDoctests` item) or `///` example compiles, and
+  `cargo test` runs it. The audit reads no README and lexes doc comments
+  as comments, so it does not see one either. Only `tidepool-sys`'s README
+  has `unsafe` in an example (M2.1), which rule 4 allows; review keeps the
+  other crates' doc tests free of it.
 - Notes list the `unsafe` uses per crate (review any growth), the files
   scanned and the crate roots checked.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).

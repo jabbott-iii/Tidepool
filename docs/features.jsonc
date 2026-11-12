@@ -123,8 +123,9 @@
     {
       "name": "A window on Linux",
       "area": "Platform",
-      "summary": "Tidepool will open its window on Linux through X11, loaded at run time and declared by hand, and through XWayland on a Wayland desktop: events, a waker other threads can use, presenting only what changed, the clipboard, and the folders the system expects.",
-      "tasks": ["M2.1", "M2.2", "M2.7"]
+      "summary": "The first libc and X11 declarations for a Linux window are written by hand, the layout of each struct whose fields are declared checked against the C headers, and Xlib's functions form a table to be loaded from libX11 at run time, which fails with one error that names every function the library lacks. On that, Tidepool will open its window through X11, and through XWayland on a Wayland desktop: events, a waker other threads can use, presenting only what changed, the clipboard, and the folders the system expects.",
+      "tasks": ["M2.1", "M2.2", "M2.7"],
+      "ticked": ["M2.1"]
     },
     {
       "name": "Our own rasterizer and fonts",
