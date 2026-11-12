@@ -5,7 +5,8 @@ opens a window yet. `docs/roadmap.md` ticks each task once it is done and
 verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
-  M0.9–M0.11), the performance budgets, confirmed on the reference machine
+  M0.9–M0.11), with doc tests that forbid `unsafe` outside `sys` and
+  `platform` (M0.15), the performance budgets, confirmed on the reference machine
   (M0.5), the contribution workflow and a README in every member (M0.6),
   in Nadir's shape with copies of `LICENSE` and `NOTICE` (M0.13),
   diagrams of the design and the code in `diagrams/` (M0.12),
@@ -107,6 +108,14 @@ or file is there.
    - Every `unsafe` block carries a `// SAFETY:` comment.
    - Every `pub unsafe fn` has a `# Safety` doc section.
    - Raw OS declarations live only in `tidepool-sys`.
+   - Every other library's crate root forbids `unsafe_code` in its doc
+     tests, which the workspace lint does not reach:
+     `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036). Their doc-test
+     code may not hold the word `unsafe` at all, and there are no
+     proc-macro crates (ADR-0037). No exported macro, in any crate, may
+     put a caller's `tt` or `ident` right before braces, `fn`, `impl`,
+     `trait`, `extern` or `static` it writes, and no macro may define a
+     macro (ADR-0038).
    - `cargo xtask unsafe-audit` enforces this.
 5. **Platform `cfg` lives in few places:** `#[cfg(target_os = ...)]`
    appears only in `sys`, `platform`, `toolchain` install plans and `xtask`

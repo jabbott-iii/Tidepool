@@ -23,6 +23,18 @@ Built, with the roadmap task that built it:
 
 - `deps`, `layers`, `unsafe-audit` and `ci`; the Claude Code hook builds and
   runs it — M0.3.
+- `unsafe-audit`'s rules for doc tests and macros: the crate root of every
+  library but `tidepool-sys`'s and `tidepool-platform`'s forbids `unsafe`
+  in its doc tests with `#![doc(test(attr(forbid(unsafe_code))))]`, written
+  exactly so (ADR-0036); no proc-macro crate; no `unsafe` in any code block
+  of the documentation outside those two crates, which it reads from doc
+  comments, doc attributes and the files they include; no exported macro
+  in them that takes its caller's tokens and holds `unsafe` in any form
+  (ADR-0037); no exported macro in any crate that lets a `tt` or `ident`
+  fragment reach braces or an item it writes, no macro that defines a
+  macro, and no `include_str` of a crate's own, with the documentation
+  reader kept as a second layer (ADR-0038); and a lexer that skips a
+  shebang line and reads white space and words as rustc does — M0.15.
 - `ucd [--check]`, which generates `tidepool-text`'s grapheme tables — M1.1.
 - `headers`, which checks the license header of the source files — M0.7;
   of HTML, CSS and JavaScript files too — M0.14.
@@ -110,7 +122,12 @@ planned; until its task lands, each exits 1 with "not yet implemented".
   child is `cargo test`); ADR-0030 (the demo page that `site` builds and
   `.github/workflows/pages.yml` publishes, and the features file that
   `features` checks); ADR-0035 (`bench`'s child, `cargo run --release
-  --quiet -p tidepool-bench`).
+  --quiet -p tidepool-bench`); ADR-0036 (doc tests forbid `unsafe_code`,
+  which `unsafe-audit` checks in each library's crate root); ADR-0037 (no
+  proc-macro crates, and `unsafe-audit` reads the doc-test code of every
+  crate but `sys` and `platform` for `unsafe`); ADR-0038 (the macro shape
+  that hides `unsafe` from the lint is banned at its source, no macro
+  defines a macro, and the doc reader is a second layer).
 - API reference: `cargo doc -p xtask --open`
 
 ## Rules

@@ -213,8 +213,9 @@ fn main() -> Result<(), PathError> {
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - No OS-specific code: `testing::fuzz` learns it is not on Linux when
   `/proc/self/status` cannot be read, and skips the memory checks, saying
   so. Like the rest of the crate it never prints; it reports through its

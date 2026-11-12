@@ -40,9 +40,9 @@
     {
       "name": "Guardrails on every change",
       "area": "Quality",
-      "summary": "Every pull request and every push to main runs one gate on Linux, macOS and Windows: formatting, Clippy with warnings as errors, every test, and checks of the dependencies, the layering and unsafe code, which only the two crates that talk to the OS may hold, each block with a comment that says why it is sound. The gate escapes what it quotes from the repository, reports every symbolic link rather than following it, and pauses GitHub's workflow commands while it runs, so no file can forge a line of the log.",
-      "tasks": ["M0.3", "M0.4", "M0.10", "M0.11"],
-      "ticked": ["M0.3", "M0.4", "M0.10", "M0.11"]
+      "summary": "Every pull request and every push to main runs one gate on Linux, macOS and Windows: formatting, Clippy with warnings as errors, every test, and checks of the dependencies, the layering and unsafe code, which only the two crates that talk to the OS may hold, each block with a comment that says why it is sound; every other library forbids unsafe code in its documentation's examples, which the compiler's usual check does not reach, and the gate reads those examples for it too, allows no procedural macros, and refuses a macro that could hide a caller's unsafe code from the compiler's check. The gate escapes what it quotes from the repository, reports every symbolic link rather than following it, and pauses GitHub's workflow commands while it runs, so no file can forge a line of the log.",
+      "tasks": ["M0.3", "M0.4", "M0.10", "M0.11", "M0.15"],
+      "ticked": ["M0.3", "M0.4", "M0.10", "M0.11", "M0.15"]
     },
     {
       "name": "Supply chain and headers",

@@ -331,7 +331,7 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
-| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that wraps its caller's tokens in `unsafe`, or one of the listed ways of bringing in code it did not read |
+| `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro in any crate, `sys`/`platform` included, that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
 | `cargo xtask headers` | A source file (Rust, shell script, workflow, HTML, CSS, JavaScript) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line or an HTML file's doctype), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021, ADR-0030) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
@@ -346,7 +346,9 @@ The design is ADR-0027's; the engine's rustdoc
 
 `xtask` never uploads, publishes or signs with real credentials. `deps`
 never opens a file named like a secret (below); `unsafe-audit` reads every
-`.rs` file, whatever the rest of its name, and `headers` every source file
+`.rs` file, whatever the rest of its name, and each file a `doc =
+include_str!` names inside its package unless it is named like a secret
+(ADR-0037), and `headers` every source file
 it checks, though it never prints a line of one. `workflows` reads each
 workflow, and quotes only the part of a line it rejects, such as an action's
 reference or a permission. `crates` reads the root `Cargo.toml`, `LICENSE` and `NOTICE`,
@@ -935,11 +937,23 @@ network through its tool.
   tells code from comments and from string, raw string, byte, C string and
   character literals; it is not a parser. It never fails or panics: text
   that isn't valid Rust still gets an answer, and the compiler reports it.
-  A raw identifier (`r#unsafe`) is a name, never a keyword. Because it reads
-  text, it covers every `cfg` branch and code in macros.
+  A raw identifier (`r#unsafe`) is a name, never a keyword. Like rustc, it
+  skips a leading byte-order mark and then a shebang line (`#!` not
+  followed by `[`), and its white space is rustc's, vertical tab included;
+  read as code, a shebang line could hide what follows it or pass for an
+  attribute (M0.15). Every other character outside ASCII is part of a
+  word, as rustc either takes it into an identifier or rejects the file:
+  `unsafe\u{301}` is no keyword, and a combining mark after `unsafe_code`
+  makes the doc-test attribute below an unknown lint, which the audit then
+  does not match (ADR-0037). Because it reads text, it covers every `cfg`
+  branch and code in macros.
 - Violations:
   - `unsafe` in any form (block, `fn`, `impl`, `trait`, `extern`,
-    `#[unsafe(...)]`) outside `crates/sys/` and `crates/platform/`.
+    `#[unsafe(...)]`) outside `crates/sys/` and `crates/platform/`. A
+    package nested in either directory (a `Cargo.toml` under it other than
+    the crate's own) is no part of the crate: its files are outside, for
+    this rule and every rule below that names the two crates (ADR-0038).
+    Every file is read with its CR LF line breaks as LF, as rustc reads it.
   - In those two, an `unsafe` block or `unsafe impl` with no `//` comment
     starting `SAFETY:` between the end of the previous statement (`;`, `{`
     or `}`) and the keyword. Doc comments and `/* */` don't count.
@@ -951,10 +965,13 @@ network through its tool.
     whose `unsafe_code = "deny"` every member inherits, or `RUSTFLAGS`;
     review keeps both. So, while that table denies it, `unsafe`
     compiles only in the library targets of `sys` and `platform` (their
-    `#[cfg(test)]` modules included), and in doc tests. Their
-    integration tests, benches, examples and binaries are crates of their
-    own, under the workspace's `deny`. Doc tests are crates of their own
-    too, but not under it (Also not covered, below). This is provisional: M2.2's Xvfb test
+    `#[cfg(test)]` modules included), and in those two crates' doc tests.
+    Their integration tests, benches, examples and binaries are crates of
+    their own, under the workspace's `deny`. Doc tests are crates of their
+    own too, but rustdoc does not apply the workspace's lints to them:
+    every other library's crate root forbids `unsafe` in its doc tests
+    instead (below), and `sys`'s and `platform`'s may use it, as their code
+    may (ADR-0036). This is provisional: M2.2's Xvfb test
     reads pixels back with `XGetImage`, and where that FFI call may live is
     an open question.
   - A function written `pub` or `pub(...)` `unsafe fn` (also `const`,
@@ -965,9 +982,123 @@ network through its tool.
   - An `extern` block outside `tidepool-sys`, or one in it not written
     `unsafe extern`.
   - In those two crates, a `#[macro_export]` `macro_rules!` (also through
-    `cfg_attr`) with an `unsafe` block or `unsafe impl` that holds a
-    metavariable other than `$crate`: in a calling crate, the caller's
-    tokens would run as `unsafe` that neither its lint nor the audit sees.
+    `cfg_attr`) whose body holds a metavariable other than `$crate` and
+    `unsafe` in any form: a block, `fn`, `impl`, `trait`, `extern` block,
+    the attribute form (`#[unsafe(no_mangle)]`) or a bare keyword. Each
+    `unsafe` is a violation, wherever the metavariable is. In a calling
+    crate, the caller's tokens could run as `unsafe` that neither its lint
+    nor the audit sees. A body that does not close runs to the end of the
+    file.
+  - A crate root of a library target (`[lib]`, of any crate type: `lib`,
+    `rlib`, `dylib`, `cdylib` or `staticlib`, as `cargo metadata --offline
+    --no-deps` reports it) of a member of any workspace
+    under the root, other than `tidepool-sys`'s and `tidepool-platform`'s
+    (known by package name and directory both), without
+    `#![doc(test(attr(forbid(unsafe_code))))]` as an inner attribute at
+    crate level (ADR-0036). rustdoc puts it at the top of every doc test
+    of the crate, README examples (through `ReadmeDoctests`) and `///` and
+    `//!` examples alike, in place of its default `#![allow(unused)]`, and
+    as `forbid`, a doc test's own `allow` is error E0453. The audit matches it token for token at nesting depth 0,
+    so whitespace and comments between the tokens don't matter, and any
+    other spelling counts as missing: under `cfg_attr`, with another lint
+    in the same `attr`, `deny` for `forbid`, as an outer attribute, inside
+    a `mod`, or with a raw identifier. Cargo runs no doc tests of a library
+    that is only `dylib`, `cdylib` or `staticlib`, but one more crate type
+    would start them, so those need the attribute too, as does a library
+    with `doctest = false`. Binaries have no doc tests and need nothing.
+    The violation names the crate root and the line to add. A crate root
+    the audit did not read is reported as that (below), not as this.
+  - A target of kind `proc-macro` in any workspace under the root, `sys`
+    and `platform` included (ADR-0037): a proc macro can make the
+    `unsafe` keyword from a string, with a span for which rustc skips the
+    `unsafe_code` lint, and the audit reads only the string. It is this
+    violation alone: a proc macro is no library, so the doc-test attribute
+    rule above does not ask it for the line.
+  - In every crate, `sys` and `platform` included, an exported
+    `macro_rules!` (`#[macro_export]`, also under `cfg_attr`) in which, in any
+    transcriber, a `tt` or `ident` metavariable, or a repetition that holds
+    one, comes right before a token the macro writes itself that `unsafe`
+    can come before: `{`, `fn`, `impl`, `trait`, `extern` or `static`; or
+    names an attribute it writes (`#[$k ...]`, `#![$k]`, `#[$($k)* ...]`, or
+    what a `cfg_attr` in it applies) (ADR-0038). The caller could pass
+    `unsafe` there, and rustc skips the `unsafe_code` lint for braces or an
+    item from another crate's macro, in doc tests and in code. Each
+    metavariable's fragment comes from the matchers; one that no matcher
+    declares, or that arms declare differently, is a `tt`. The next token
+    is found in every expansion: into a repetition (`$(`), past it when it
+    can be empty (`*`, `?`), past the `)` that ends one to what follows or to
+    its start again, through its separator, which it writes between rounds,
+    and past a `vis` metavariable, which can be empty. Another metavariable
+    there, or the end of a group, ends that path. The fix is a fragment
+    that cannot be `unsafe` (`path`, `ty`, `vis`), or leaving the `unsafe` to
+    the caller. Core's log macros and `assert_approx!` pass: their `tt`
+    fragments sit inside `format_args!(...)`. In `sys` and `platform` this
+    is besides the rule above for their exported macros that hold `unsafe`:
+    a macro of that shape holds none. A macro that is not exported, such as
+    `sys`'s `dynlib!`, is no other crate's, and the lint sees what it
+    expands.
+  - A `macro_rules!` whose body holds `macro_rules`, in any crate, `sys` and
+    `platform` included (ADR-0038): a macro it makes, as through the `$`
+    token trick, is never written out for a rule to read. So is
+    `macro_rules` passed to a macro (`make!(macro_rules, ...)`), which could
+    make one with it; the word as any other name is fine.
+  - Outside `sys` and `platform`, `include_str` as a name of its own, not
+    followed by `!`: `macro_rules! include_str`, `use ... as include_str`,
+    `use ...::include_str` (ADR-0038). A macro of that name would take the
+    standard one's place in `doc = include_str!(...)`, and the audit would
+    read another file than rustdoc does.
+  - `unsafe` in a code block of the documentation of a file outside
+    `crates/sys/` and `crates/platform/` (ADR-0037), the scope by path of
+    the first rule. The attribute above leaves the compiler blind to one
+    case: a doc test that passes its own `unsafe` to another crate's
+    exported macro, which writes the braces after it, as
+    `($k:tt, $($t:tt)*) => { $k { $($t)* } }` does. ADR-0038 bans that
+    macro shape at its source (above), so this reader is a second layer: a
+    place where it misreads Markdown misses only text that the compiler,
+    through the attribute above, already checks. It reads the text rustdoc
+    makes doc tests of:
+    - doc comments: `///`, `//!`, `/** */` and `/*! */`, a block comment's
+      `*` decoration removed as rustdoc removes it;
+    - the string of `#[doc = "..."]` and `#![doc = "..."]`, raw or not,
+      with its escapes decoded, also under `cfg_attr`;
+    - the file `doc = include_str!("...")` names (also through `std::` or
+      `core::`), by a relative path from the `.rs` file's directory, with
+      `..` allowed, that stays in the package directory of the member that
+      holds the file. The path follows the rules of `#[path]` below (no
+      `:`, no hidden or `target` component, no `\` or `~`, no escapes), and
+      the file must be UTF-8, at most 8 MiB, not reached through a symbolic
+      link, and not named like a secret, which `xtask` never opens
+      (`AGENTS.md` rule 7). `ReadmeDoctests`' `../README.md` is such a path. A
+      violation names the `.rs` file, the line and why.
+    - Any other `doc =` value is a violation, as one the audit cannot read:
+      a macro's `$x`, `concat!`, `env!`, `stringify!`, or `include_str!` of
+      anything but a plain string literal. So is `doc` followed by `$` in an
+      attribute, which a macro completes.
+    - `doc = "..."` outside an attribute, as in the arguments of a macro
+      that makes an attribute of them (`m!(doc = "...")` for `#[$m]`), is
+      read as an item of its own.
+    An item's pieces are those with only attributes between them, and an
+    item's outer docs join the inner docs of the `mod name {` they precede.
+    Each item is unindented as rustdoc unindents it, then read as CommonMark
+    is, closely enough: every fenced block (three or more backticks or
+    tildes, whatever its info string, `ignore`, `text` and `compile_fail`
+    too) and every indented one is lexed with the audit's lexer, and each
+    `unsafe` word in its code is a violation, on the line of the `.rs` file
+    or of the included file and the line that includes it. Hidden `# `
+    lines are code. Indented blocks are found as CommonMark finds them: four
+    columns past the content of the list item they are in, never
+    interrupting a paragraph, so a list item's continuation lines and a
+    nested item's are prose. A fence ends with its list item or block
+    quote. As rustdoc's parser reads them (ADR-0038): Markdown's structure
+    sees only spaces and tabs (blank lines, list markers, headings,
+    thematic breaks), and a closing fence is followed only by spaces; a doc
+    string and an included file break lines at CR LF, CR and LF; an empty
+    list item closes at a blank line; a setext underline (`=` or `-`) ends
+    the paragraph above it; a footnote definition (`[^label]:`) is a
+    container, as a list item is; and a block doc comment's decoration is
+    removed as rustdoc removes it, its lines read as `str::lines` reads
+    them. Inline code (`` `unsafe` ``) and plain prose are fine. Notes count
+    the code blocks read.
 - Fails closed on these ways of bringing in code it did not read:
   - `#[path = "..."]` or `include!(...)` (also in `cfg_attr`, as a raw
     identifier, or through `std::`), unless the argument is one plain or raw
@@ -1006,16 +1137,34 @@ network through its tool.
   set to 2024, no target of a member sets an edition of its own, and each
   member inherits the workspace's lints, though no check reads what
   `[workspace.lints]` holds (ADR-0023, "`crates`" above).
-- Also not covered: `unsafe` in doc tests. Cargo passes the workspace's
-  lints to rustdoc, but rustdoc does not apply them to the doc tests it
-  compiles, so an `unsafe` block in any crate's README example (run
-  through its `ReadmeDoctests` item) or `///` example compiles, and
-  `cargo test` runs it. The audit reads no README and lexes doc comments
-  as comments, so it does not see one either. Only `tidepool-sys`'s README
-  has `unsafe` in an example (M2.1), which rule 4 allows; review keeps the
-  other crates' doc tests free of it.
+- Also not covered: the `// SAFETY:` comments and `# Safety` sections of
+  `unsafe` code in `sys`'s and `platform`'s own doc tests, such as
+  `tidepool-sys`'s README example (M2.1). The audit reads the
+  documentation of other crates only, and only for the keyword, and clippy
+  does not lint doc tests either, so review keeps them (ADR-0036,
+  ADR-0037).
+- Also not covered: where the documentation reader is not rustdoc
+  (ADR-0038 writes these down rather than model them). It has no HTML
+  blocks, which end paragraphs and hide fence lines; it takes a block quote
+  only at the start of a line, not inside a list item, lets list items
+  opened in a quote outlive it, keeps a paragraph open into a quote that
+  interrupts it, and expands a tab after `>` from the quote's content, not
+  its true column; and it joins an item's outer docs only with the inner
+  docs of the `mod name {` they precede, not of a fn, impl or trait, nor of
+  the file of a `mod name;`. A doc attribute that a `macro_rules!` builds
+  from `meta`, `ident` or `path` fragments is read only when its text is a
+  `doc = "..."` pair. Each of these matters only with a macro that passes
+  the doc test's own `unsafe` into braces or an item it writes, which the
+  macro rule above fails; otherwise the attribute's `forbid` sees the
+  `unsafe` the doc test writes.
+- Also not covered: a path package that is not a member of its workspace,
+  such as one under a workspace root's `target/`, which the walk skips.
+  Neither the walk nor the crate-root rules read it; `cargo xtask deps`
+  fails such a package, and the audit relies on it (ADR-0037).
 - Notes list the `unsafe` uses per crate (review any growth), the files
-  scanned and the crate roots checked.
+  scanned, the crate roots checked, how many of them are library crate
+  roots that must forbid `unsafe` in doc tests, and how many code blocks
+  of documentation were read for `unsafe`.
 - It does not check where `#[cfg(target_os)]` appears (`AGENTS.md` rule 5).
   No check does.
 

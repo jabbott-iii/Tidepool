@@ -660,6 +660,64 @@ enforced by tooling from day one.
   - ⏳ needs the user: switch Settings → Pages → Source to GitHub Actions,
     push, and see the page at <https://jabbott.dev/Tidepool/>.
 
+- [x] **M0.15 — unsafe-audit: doc tests forbid `unsafe_code`**
+  - Depends: M0.3, M0.13
+  - Decide first: how the gate catches `unsafe` in doc tests, which
+    neither the workspace's `unsafe_code = "deny"` nor `unsafe-audit`
+    reaches (`docs/04-quality.md` → `unsafe-audit`).
+  - Do: give the crate root of every library target but `sys`'s and
+    `platform`'s `#![doc(test(attr(forbid(unsafe_code))))]`, and make
+    `cargo xtask unsafe-audit` fail a library crate root that lacks it,
+    per ADR-0036.
+  - Accept:
+    - A generated workspace whose library carries the attribute fails
+      `cargo test --doc` on an `unsafe` block in a README example and in a
+      `///` example, and on a doc test's own `#![allow(unsafe_code)]`.
+    - The audit fails a library crate root without the attribute, with it
+      under `cfg_attr`, with other lints in the same `attr`, or as an
+      outer attribute.
+    - The audit passes the real workspace, and `sys`'s README example
+      still runs.
+  - Verify: `cargo test -p xtask`; `cargo xtask unsafe-audit`;
+    `cargo xtask ci`
+  - Note (2026-11-11): M2.1's review found the gap. The user answered the
+    `Decide first` line by choosing the attribute over lexing doc tests in
+    the audit, or doing both (ADR-0036).
+  - Note (2026-11-11): done. The 22 library crate roots but `sys`'s and
+    `platform`'s carry the attribute, and their READMEs' Rules say so. The
+    audit counts every crate type of a `[lib]` target: Cargo 1.99.0 runs
+    doc tests of `lib`, `rlib`, `proc-macro` and `["cdylib", "rlib"]`
+    libraries, and none of one that is only `dylib`, `cdylib` or
+    `staticlib`, but one more crate type would start them. The fixture
+    test runs `cargo test --doc --offline` on a generated workspace twice:
+    without the attribute its 7 doc tests pass, which is the gap, and with
+    it the `unsafe` ones and the three `allow`s fail.
+  - Note (2026-11-11): the review found that the audit's lexer read a
+    shebang line as code, older than this task: `#!/x "` on line 1 opened
+    a string that hid the rest of the file from every rule, while rustc
+    compiled it (`headers` caught it in `ci`, as line 1 must be the license
+    header). The lexer now skips a byte-order mark and a shebang line as
+    rustc does, checked against rustc 1.99.0 in 16 cases, and reads a
+    vertical tab as white space, which had let `unsafe\x0B{` escape the
+    `// SAFETY:` rule. A crate root the audit cannot read is reported as
+    that only.
+  - Note (2026-11-11): a test of the attribute found two more ways past
+    it, and the user chose ADR-0037. A proc-macro crate could make the
+    `unsafe` keyword from a string, with a span the lint skips, so no
+    workspace may have one. A doc test could pass `unsafe` to another
+    crate's macro that writes the braces, so the audit now reads the
+    doc-test code of every crate but `sys` and `platform` for the word:
+    64 code blocks in the tree today. The same test found that the lexer
+    read a combining mark after `unsafe_code` as a separator, and that the
+    rule for exported macros in `sys` and `platform` saw only `unsafe`
+    blocks and impls; both are fixed. All four ways fail the audit now.
+  - Note (2026-11-11): a test of the doc reader against rustdoc found 18
+    constructs it read differently. Each mattered only through an
+    exported macro that writes braces after a caller's `unsafe`, so the
+    user chose ADR-0038: that shape and macro-defining macros fail the
+    audit, and the reader is a second layer, with its mechanical gaps
+    fixed and its other limits written down.
+
 **Exit criteria (M0):** `cargo xtask ci` is green locally and on all three
 CI runners, with `headers`, `workflows`, `crates` and `features` among its
 steps. `Cargo.lock` contains zero third-party packages. CodeQL has run on
@@ -1123,8 +1181,8 @@ our own rasterizer.
   - Depends: M2.1, M0.2
   - Decide first: where the Xvfb test's read-back with `XGetImage` lives.
     `unsafe` compiles only in the library targets of `sys` and `platform`
-    (and in doc tests, a gap `docs/04-quality.md` records), so an
-    integration test cannot make the call (`docs/04-quality.md` →
+    and in their doc tests (ADR-0036), so an integration test cannot make
+    the call (`docs/04-quality.md` →
     `unsafe-audit`): a `#[cfg(test)]` test inside `platform`'s library, or
     a safe read-back function that `platform` exports for tests. Also,
     from M2.1's review (the Note below): whether Xlib's connection to the

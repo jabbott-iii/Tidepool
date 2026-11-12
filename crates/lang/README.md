@@ -18,7 +18,8 @@ dependency matrix in
 Version 0.1, not published (`publish = false`): the API changes as the
 roadmap needs.
 
-Nothing yet: the crate is only its doc comment, which names its spec.
+Nothing yet: besides what every library carries (ADR-0028, ADR-0036),
+the crate is only its doc comment, which names its spec.
 
 Not yet, with the roadmap task that adds it:
 
@@ -45,8 +46,9 @@ Nothing to use yet: sessions and diagnostics land in M6.7.
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - Path-scoped rules in `.claude/rules/`:
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its
   `Cargo.toml`.

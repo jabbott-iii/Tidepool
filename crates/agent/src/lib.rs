@@ -16,6 +16,11 @@
 //!
 //! Specification: `docs/subsystems/agents.md`.
 
+// rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
+// so this forbids `unsafe` in them, README examples included (ADR-0036).
+// `cargo xtask unsafe-audit` enforces that this line is here.
+#![doc(test(attr(forbid(unsafe_code))))]
+
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

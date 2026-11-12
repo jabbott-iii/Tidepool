@@ -32,6 +32,11 @@
 //! are byte offsets; lines end at LF, CR LF or a lone CR; a bad position is
 //! an error, never a panic (ADR-0019). Edits and undo follow ADR-0020.
 
+// rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
+// so this forbids `unsafe` in them, README examples included (ADR-0036).
+// `cargo xtask unsafe-audit` enforces that this line is here.
+#![doc(test(attr(forbid(unsafe_code))))]
+
 pub mod encoding;
 mod error;
 pub mod file;

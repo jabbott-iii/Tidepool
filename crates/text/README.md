@@ -170,8 +170,9 @@ output Tidepool's demo page shows: positions, graphemes, undo and the save.
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - Path-scoped rules in `.claude/rules/`:
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its
   `Cargo.toml`.

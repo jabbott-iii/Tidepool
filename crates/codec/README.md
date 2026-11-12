@@ -188,8 +188,9 @@ output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - Path-scoped rules in `.claude/rules/`:
   [`parsers.md`](../../.claude/rules/parsers.md),
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its

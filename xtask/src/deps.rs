@@ -770,7 +770,7 @@ fn artifact_extension(name: &str) -> Option<&'static str> {
 /// read (`AGENTS.md` rule 7): keystores, `.p12`, `.p8`, `.pem`, `.key`,
 /// `.env` files and provisioning profiles, and the names `.gitignore`
 /// keeps out of the repository for that reason.
-fn is_secret_name(name: &str) -> bool {
+pub(crate) fn is_secret_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name == ".env"
         || name.starts_with(".env.")

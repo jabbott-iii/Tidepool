@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, the benchmark harness, and
 the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M0.15 (2026-11-11, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -27,7 +27,8 @@ the binary are solid: M0.1 gave the first two a crate root that allows
 `unsafe_code`, and the binary an empty `main`, and M2.1 gave `sys` its
 Linux declarations. A crate that is only its doc
 comment, and for a library the `ReadmeDoctests` item that runs its README's
-examples (M0.13), is drawn planned, with the task that gives it code first.
+examples (M0.13) and the attribute that forbids `unsafe` in them (M0.15),
+is drawn planned, with the task that gives it code first.
 
 ## 1. Containers
 
@@ -886,7 +887,8 @@ the crate's `src/lib.rs`. The edges each crate may have are in
 `docs/01-architecture.md` → "Dependency matrix". Every member also has a
 `README.md` in ADR-0028's shape and copies of the root's `LICENSE` and
 `NOTICE`, and every library a `ReadmeDoctests` item that runs its README's
-examples as doc tests (M0.13); the table leaves those out.
+examples as doc tests (M0.13) and, but `sys` and `platform`, the attribute
+that forbids `unsafe` in them (M0.15); the table leaves those out.
 
 | Package | Path | Layer | `unsafe` | Built (task) | Planned (tasks) | Declared workspace dependencies |
 | :- | :- | :- | :- | :- | :- | :- |
@@ -913,7 +915,7 @@ examples as doc tests (M0.13); the table leaves those out.
 | `tidepool-gui` | `crates/gui` | 4, views and frontends | deny | nothing | M2.6, M3.5 | none |
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
 | `tidepool` (app) | `crates/app` | 5, application | deny | an empty `main` (M0.1) | M2.6, M3.4, M4.9, M7.1, M7.5, M14.4 | none |
-| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9) | `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
+| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9) | `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
 | `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9) | suites for M4.1, M4.2, M4.4, M9.4, M14.3 | `core`, `codec`, `text` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 

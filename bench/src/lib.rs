@@ -33,6 +33,11 @@
 //! It starts no program and opens no file but the baseline and, for the
 //! CPU's model, `/proc/cpuinfo`.
 
+// rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
+// so this forbids `unsafe` in them, README examples included (ADR-0036).
+// `cargo xtask unsafe-audit` enforces that this line is here.
+#![doc(test(attr(forbid(unsafe_code))))]
+
 pub mod baseline;
 pub mod cli;
 mod error;

@@ -147,7 +147,14 @@ todo = "deny"
 
 `unsafe_code` is `deny`, not `forbid`, because `sys` and `platform` need
 `#![allow(unsafe_code)]` at their crate roots. `cargo xtask unsafe-audit`
-checks that the allow appears nowhere else.
+checks that the allow appears nowhere else. rustdoc does not apply these
+lints to doc tests, so every other library's crate root forbids
+`unsafe_code` there with `#![doc(test(attr(forbid(unsafe_code))))]`, and
+the audit checks that line too (ADR-0036). The audit also reads their
+doc-test code for `unsafe`, and fails any proc-macro crate, whose output
+the lint cannot see (ADR-0037), and any macro that could carry a caller's
+`unsafe` into braces or an item it writes, where the lint does not look,
+or that defines a macro (ADR-0038).
 
 ## The main loop
 

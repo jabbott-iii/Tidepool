@@ -112,8 +112,9 @@ assert!(summary.p95_ns >= summary.median_ns);
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - It starts no program and opens no socket. It reads only the baseline and,
   as a plain file with no platform `cfg`, `/proc/cpuinfo`, and writes only
   the baseline, and that only with `--save` (ADR-0035).

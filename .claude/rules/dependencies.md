@@ -36,7 +36,11 @@ paths:
   `cargo xtask crates` checks all of it, and that the workspace's edition
   is 2024. A new member also gets a `README.md` (ADR-0023, ADR-0028),
   copies of the root's `LICENSE` and `NOTICE` (ADR-0028), a row in the
-  dependency matrix, and a line in `AGENTS.md`'s workspace map.
+  dependency matrix, and a line in `AGENTS.md`'s workspace map; a new
+  library other than `sys` and `platform` also gets
+  `#![doc(test(attr(forbid(unsafe_code))))]` in its crate root, which
+  `cargo xtask unsafe-audit` checks (ADR-0036). No member may be a
+  proc-macro crate (ADR-0037).
 - **Build scripts:** `build.rs` may only emit `cargo:` directives. No
   network access, no running external tools, no compiling C.
 - **xtask** never uploads, publishes, signs with real credentials, reads

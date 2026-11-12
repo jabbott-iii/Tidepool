@@ -28,7 +28,10 @@
 //!
 //! - **`unsafe` outside the two crates**: the keyword in any form (block,
 //!   `fn`, `impl`, `trait`, `extern`, `#[unsafe(...)]`) in a file that is
-//!   not under `crates/sys/` or `crates/platform/`.
+//!   not under `crates/sys/` or `crates/platform/`, or is in a package
+//!   nested in either directory, which is no part of the crate (ADR-0038).
+//!   Every rule that names the two crates scopes them so. Each file is read
+//!   with CR LF as LF, as rustc reads it.
 //! - **An undocumented `unsafe` block or `unsafe impl`** in the two crates:
 //!   no `//` comment whose text starts with `SAFETY:` between the end of
 //!   the previous statement (the last `;`, `{` or `}`) and the keyword. Doc
@@ -42,14 +45,60 @@
 //!   "..."]` attributes) have no `# Safety` line.
 //! - **An `extern` block outside `tidepool-sys`**, or one in `sys` that is
 //!   not declared `unsafe extern`.
-//! - **An exported macro that wraps its caller's tokens in `unsafe`**: in
-//!   the two crates, a `#[macro_export]` `macro_rules!` with an `unsafe`
-//!   block or `unsafe impl` that holds a metavariable (`$e`, `$(...)`, not
-//!   `$crate`). Expanded in another crate, the caller's code would run as
-//!   `unsafe` with no `unsafe` token there: rustc does not apply the
-//!   caller's `unsafe_code` lint to code from another crate's macro, so
-//!   neither the lint nor this audit would see it, and no `// SAFETY:`
-//!   comment in the macro can cover what callers pass.
+//! - **An exported macro that takes its caller's tokens and holds
+//!   `unsafe`**: in the two crates, a `#[macro_export]` `macro_rules!`
+//!   (also through `cfg_attr`) whose body has a metavariable (`$e`,
+//!   `$(...)`, not `$crate`) and `unsafe` in any form ([`File::unsafe_form`]:
+//!   a block, `fn`, `impl`, `trait`, `extern` block, `#[unsafe(...)]`, a bare
+//!   keyword), each one reported, wherever the metavariable is (ADR-0037).
+//!   Expanded in another crate, the caller's code could run as `unsafe`
+//!   with no `unsafe` token there: rustc does not apply the caller's
+//!   `unsafe_code` lint to code from another crate's macro, so neither the
+//!   lint nor this audit would see it, and no `// SAFETY:` comment in the
+//!   macro can cover what callers pass. A body that does not close runs to
+//!   the end of the file.
+//! - **A library crate root that does not forbid `unsafe` in doc tests**
+//!   (ADR-0036): the crate root of a library target (`[lib]`, of any crate
+//!   type, [`LIBRARY_KINDS`]) of a member of a workspace under the root,
+//!   other than the two crates' own, without [`FORBID_IN_DOC_TESTS`] as an
+//!   inner attribute at crate level. rustdoc does not apply the workspace's
+//!   `unsafe_code` lint to the doc tests it compiles, so the attribute has
+//!   the compiler forbid `unsafe` in each of them. It must be written
+//!   exactly so, token for token, at nesting depth 0: any other spelling
+//!   counts as missing (under `cfg_attr`, with another lint in the same
+//!   `attr`, `deny`, an outer `#[...]`, inside a `mod`, a raw identifier, a
+//!   combining mark that makes another word).
+//! - **A proc-macro crate** (ADR-0037): a target of kind [`PROC_MACRO`] in
+//!   any workspace under the root, the two crates included. A proc macro
+//!   can make the `unsafe` keyword from a string, with a span for which
+//!   rustc skips the `unsafe_code` lint, and this audit reads only the
+//!   string. That is its only violation: a proc macro is no library, so the
+//!   rule above does not ask it for the attribute.
+//! - **An exported macro that lets its caller's `unsafe` reach braces or an
+//!   item it writes** (ADR-0038), in every crate, the two included: in a
+//!   transcriber, a `tt` or `ident` metavariable, or a repetition that
+//!   holds one, right before a `{`, `fn`, `impl`, `trait`, `extern` or
+//!   `static` the macro writes, or as the name of an attribute it writes
+//!   ([`File::caller_unsafe`]). rustc skips the `unsafe_code` lint for
+//!   braces or an item from another crate's macro. In the two crates this
+//!   is besides the rule above: a macro of that shape holds no `unsafe`.
+//! - **A macro that defines a macro** (ADR-0038), in any crate: a body that
+//!   holds `macro_rules`, or `macro_rules` passed to a macro. What such a
+//!   macro makes is never written out for a rule here to read.
+//! - **`include_str` as a name of its own** (ADR-0038), outside the two
+//!   crates: defined or imported, it would take the standard macro's place
+//!   in `doc = include_str!(...)`.
+//! - **`unsafe` in a code block of the documentation** (ADR-0037), in a
+//!   file outside the two crates: in doc comments, in `#[doc = "..."]`
+//!   strings, and in files that `doc = include_str!(...)` includes from
+//!   inside the package ([`Audit::doc_includes`]), read by [`doc_tests`],
+//!   which finds every fenced block, whatever its info string, and every
+//!   indented one as CommonMark does, closely enough. The compiler cannot
+//!   see `unsafe` that a doc test passes to another crate's exported macro
+//!   when that macro writes the braces after it. A `doc =` value of another
+//!   form, or an included file the audit cannot read, is a violation too.
+//!   Since the macro rule above bans that macro shape at its source, this
+//!   reader is a second layer (ADR-0038).
 //!
 //! The rules are only as good as the set of files they are applied to, and
 //! the compiler reads more than the `.rs` files a walk finds. So the audit
@@ -79,7 +128,9 @@
 //! - **A skipped linked worktree inside a member's package directory**: a
 //!   plain `mod` declaration of that crate could compile module files from
 //!   it, which the walk skipped.
-//! - **A file larger than the size bound, or not UTF-8.**
+//! - **A file larger than the size bound, or not UTF-8**, a `.rs` file or a
+//!   file included as documentation, and an included file named like a
+//!   secret, which `xtask` never opens (`AGENTS.md` rule 7).
 //! - **`crates/sys/src/lib.rs` or `crates/platform/src/lib.rs` not found**:
 //!   the root is wrong, and an audit of the wrong directory would otherwise
 //!   pass by finding nothing.
@@ -94,17 +145,26 @@
 //! The audit reads source text, so it also covers code that the compiler
 //! skips on this OS (other `cfg(target_os)` branches) and code in macros.
 //! It does not check where `cfg(target_os)` appears (`AGENTS.md` rule 5):
-//! `docs/04-quality.md` gives that to no check.
+//! `docs/04-quality.md` gives that to no check. Nor does it read a path
+//! package that is not a member of its workspace, such as one under a
+//! workspace root's `target/`, which the walk skips: `cargo xtask deps`
+//! fails such a package, and the audit relies on it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::check::Report;
+use crate::deps;
 use crate::error::Error;
 use crate::lexer::{self, Comment, CommentKind, Doc, Lexed, Token, TokenKind};
 use crate::metadata::{self, Resolve};
 use crate::walk;
+
+mod doc_tests;
+
+use doc_tests::{DocLine, Fragment, Place};
 
 /// The crates that may contain `unsafe`: package name and directory,
 /// relative to the repository root.
@@ -122,6 +182,27 @@ const UNSAFE_NAMES: &str = "tidepool-sys and tidepool-platform";
 /// The file in each of [`UNSAFE_CRATES`] that may relax the `unsafe_code`
 /// lint, relative to the crate's directory.
 const CRATE_ROOT: &str = "/src/lib.rs";
+
+/// The kinds `cargo metadata` gives a library target: its crate types.
+/// Cargo runs the doc tests of a `lib` or `rlib` library, and none of one
+/// that is only `dylib`, `cdylib` or `staticlib`. All of them count, since
+/// one more crate type (`crate-type = ["cdylib", "rlib"]`) starts its doc
+/// tests, and the attribute costs nothing where there are none; for the
+/// same reason a library's `doctest = false` is not read. An example with a
+/// crate type is `example` here, and gets no doc tests. A `proc-macro`
+/// target is no library here: none may exist ([`PROC_MACRO`]).
+const LIBRARY_KINDS: [&str; 5] = ["lib", "rlib", "dylib", "cdylib", "staticlib"];
+
+/// The kind `cargo metadata` gives a proc-macro crate's target, which no
+/// workspace under the root may have, `sys` and `platform` included
+/// (ADR-0037): a proc macro can make the `unsafe` keyword from a string,
+/// with a span for which rustc skips the `unsafe_code` lint.
+const PROC_MACRO: &str = "proc-macro";
+
+/// The inner attribute with which a library's crate root forbids `unsafe`
+/// in its doc tests (ADR-0036), exactly as it must be written, token for
+/// token.
+const FORBID_IN_DOC_TESTS: &str = "#![doc(test(attr(forbid(unsafe_code))))]";
 
 /// The largest source file audited, in bytes. A larger one is a violation:
 /// the audit fails closed instead of skipping it.
@@ -149,6 +230,7 @@ fn audit_tree(root: &Path, limit: u64) -> Result<(Audit, Vec<PathBuf>), Error> {
         worktrees: walk::worktrees_note(root, &tree.worktrees),
         build_dir: walk::build_dir_note(root, &tree),
         worktree_dirs: tree.worktrees.clone(),
+        limit,
         ..Audit::default()
     };
     for link in &tree.links {
@@ -163,10 +245,29 @@ fn audit_tree(root: &Path, limit: u64) -> Result<(Audit, Vec<PathBuf>), Error> {
             path.file_name()
                 .is_some_and(|name| metadata::is_manifest_name(&name.to_string_lossy()))
         });
+    // A manifest in one of the two crates' directories, other than the
+    // crate's own, makes its directory a package of its own (ADR-0038).
+    audit.nested = manifests
+        .iter()
+        .filter_map(|manifest| {
+            let dir = walk::relative(root, manifest.parent()?);
+            UNSAFE_CRATES
+                .iter()
+                .any(|(_, crate_dir)| {
+                    dir.strip_prefix(crate_dir)
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+                .then(|| format!("{dir}/"))
+        })
+        .collect();
     for path in sources {
         let shown = walk::relative(root, &path);
+        let resolved = metadata::canonical(&path);
         match walk::read_bounded(&path, limit) {
-            Ok(text) => audit.file(&shown, &text),
+            Ok(text) => {
+                let forbids = audit.file(&shown, &resolved, &text);
+                audit.read.insert(resolved.clone(), forbids);
+            }
             Err(walk::ReadError::TooLarge { limit }) => audit.violations.push(format!(
                 "{shown}: larger than {limit} bytes, so it was not audited"
             )),
@@ -175,7 +276,7 @@ fn audit_tree(root: &Path, limit: u64) -> Result<(Audit, Vec<PathBuf>), Error> {
                 .push(format!("{shown}: not UTF-8, so it was not audited")),
             Err(walk::ReadError::Io(source)) => return Err(Error::Read { path, source }),
         }
-        audit.scanned.insert(metadata::canonical(&path));
+        audit.scanned.insert(resolved);
     }
     Ok((audit, manifests))
 }
@@ -191,8 +292,26 @@ struct Audit {
     files: usize,
     /// The resolved paths of the files the walk found.
     scanned: BTreeSet<PathBuf>,
+    /// The resolved paths of the files the audit read, which leaves out
+    /// those too large or not UTF-8, each with whether it carries
+    /// [`FORBID_IN_DOC_TESTS`] at crate level.
+    read: BTreeMap<PathBuf, bool>,
     /// How many crate roots were checked.
     crate_roots: usize,
+    /// How many library crate roots had to forbid `unsafe` in doc tests.
+    library_roots: usize,
+    /// How many code blocks of documentation were read for `unsafe`.
+    doc_blocks: usize,
+    /// The documented items that include a file with `doc =
+    /// include_str!(...)`, read once the package that holds them is known.
+    pending: Vec<Pending>,
+    /// The largest file read, in bytes: a `.rs` file, or a file included as
+    /// documentation.
+    limit: u64,
+    /// The directories, relative to the root and ending in `/`, of packages
+    /// nested in the directory of one of [`UNSAFE_CRATES`]: their files are
+    /// not that crate's.
+    nested: Vec<String>,
     /// The note naming the linked worktrees the walk skipped, if any.
     worktrees: Option<String>,
     /// The note saying the walk searched the build directory the
@@ -205,12 +324,22 @@ struct Audit {
 
 impl Audit {
     /// Audits one file. `path` is relative to the repository root, with `/`
-    /// between components.
-    fn file(&mut self, path: &str, text: &str) {
+    /// between components, and `real` is the file, resolved. Returns whether
+    /// the file carries [`FORBID_IN_DOC_TESTS`] at crate level
+    /// ([`File::forbids_unsafe_in_doc_tests`]), which
+    /// [`Audit::crate_roots`] asks of a library's crate root.
+    fn file(&mut self, path: &str, real: &Path, text: &str) -> bool {
         self.files += 1;
+        // rustc reads CR LF as LF before it lexes a file, so its doc
+        // comments are read as rustc reads them.
+        let normalized = text.replace("\r\n", "\n");
+        let text = normalized.as_str();
+        let nested = self.nested.iter().any(|dir| path.starts_with(dir.as_str()));
         let in_crate = |(_, dir): &(&str, &str)| {
-            path.strip_prefix(dir)
-                .is_some_and(|rest| rest.starts_with('/'))
+            !nested
+                && path
+                    .strip_prefix(dir)
+                    .is_some_and(|rest| rest.starts_with('/'))
         };
         let unsafe_crate = UNSAFE_CRATES.iter().position(in_crate);
         let root_of = UNSAFE_CRATES
@@ -274,16 +403,21 @@ impl Audit {
                     "{path}:{line}: `{level}(unsafe_code)` is only allowed in the crate roots \
                      of {UNSAFE_NAMES}"
                 ));
-            } else if token.is_name("macro_rules") && unsafe_crate.is_some() {
-                for (line, what, name) in file.exported_unsafe_wrappers(index) {
-                    self.violations.push(format!(
-                        "{path}:{line}: `unsafe` {what} in the exported macro `{name}` wraps tokens \
-                         its caller passes in (`$...`): they would run as `unsafe` in the caller's \
-                         crate, where neither its `unsafe_code` lint nor this audit sees them, and \
-                         no `// SAFETY:` comment here can cover them. Make it a function, or leave \
-                         the `unsafe` to the caller"
-                    ));
-                }
+            } else if token.is_name("macro_rules") {
+                self.macro_rules(path, &file, index, unsafe_crate.is_some());
+            } else if token.is_name("include_str")
+                && unsafe_crate.is_none()
+                && !lexed
+                    .tokens
+                    .get(index + 1)
+                    .is_some_and(|next| next.is_punct("!"))
+            {
+                self.violations.push(format!(
+                    "{path}:{line}: `include_str` as a name of its own, which defines or imports \
+                     something named like the standard macro: a macro of that name would take \
+                     its place in `doc = include_str!(...)`, and the audit would read another \
+                     file than rustdoc does (ADR-0038)"
+                ));
             } else if let Some(what) = file.file_reference(index)
                 && !file.names_audited_file(index)
             {
@@ -294,16 +428,280 @@ impl Audit {
                 ));
             }
         }
+        if unsafe_crate.is_none() {
+            self.documentation(path, real, &lexed);
+        }
+        file.forbids_unsafe_in_doc_tests()
+    }
+
+    /// The rules for the `macro_rules` at `index` of the file at `path`, in
+    /// every crate: no macro defines a macro, and no exported macro lets its
+    /// caller's `unsafe` reach braces or an item it writes
+    /// ([`File::caller_unsafe`]) (ADR-0038). In the two crates
+    /// (`in_unsafe_crate`), also no exported macro that takes its caller's
+    /// tokens holds `unsafe` ([`File::exported_unsafe_wrappers`]). A macro
+    /// named `include_str` is the rule of [`Audit::file`] on that name.
+    fn macro_rules(
+        &mut self,
+        path: &str,
+        file: &File<'_, '_>,
+        index: usize,
+        in_unsafe_crate: bool,
+    ) {
+        let line = file.token(index).map_or(0, |token| token.line);
+        let Some(definition) = file.macro_definition(index) else {
+            // Not a definition: a name of something else, which is fine,
+            // unless it is passed to a macro, which could define a macro
+            // with it.
+            if file.in_macro_call(index) {
+                self.violations.push(format!(
+                    "{path}:{line}: `macro_rules` passed to a macro, which could define a macro \
+                     with it that no rule here reads (ADR-0038)"
+                ));
+            }
+            return;
+        };
+        let name = definition.name;
+        for inner in definition.body.clone().filter(|&at| {
+            file.token(at)
+                .is_some_and(|token| token.is_name("macro_rules"))
+        }) {
+            let inner_line = file.token(inner).map_or(line, |token| token.line);
+            self.violations.push(format!(
+                "{path}:{inner_line}: the macro `{name}` defines a macro (its body holds \
+                 `macro_rules`): what it makes is never written out, so no rule here can read it \
+                 (ADR-0038)"
+            ));
+        }
+        if in_unsafe_crate {
+            for (line, what, name) in file.exported_unsafe_wrappers(index) {
+                self.violations.push(format!(
+                    "{path}:{line}: `unsafe` {what} in the exported macro `{name}`, which takes \
+                     tokens from its caller (`$...`): they could run as `unsafe` in the caller's \
+                     crate, where neither its `unsafe_code` lint nor this audit sees them, and no \
+                     `// SAFETY:` comment here can cover them. Make it a function, or leave the \
+                     `unsafe` to the caller"
+                ));
+            }
+        }
+        if definition.exported {
+            for (line, variable, fragment, place) in file.caller_unsafe(&definition) {
+                self.violations.push(format!(
+                    "{path}:{line}: the exported macro `{name}` puts `${variable}`, a `{fragment}` \
+                     fragment its caller can make the keyword `unsafe`, {place}: rustc does not \
+                     apply the caller's `unsafe_code` lint to braces or an item from another \
+                     crate's macro, in doc tests or in code. Use a fragment that cannot be \
+                     `unsafe` (`path`, `ty`, `vis`), or leave the `unsafe` to the caller \
+                     (ADR-0038)"
+                ));
+            }
+        }
+    }
+
+    /// Reads the documentation of the file at `path` (resolved, `real`) for
+    /// `unsafe` in its code blocks (ADR-0037), and reports the `doc =`
+    /// values it cannot read. An item that includes a file waits for
+    /// [`Audit::doc_includes`].
+    fn documentation(&mut self, path: &str, real: &Path, lexed: &Lexed<'_>) {
+        let docs = doc_tests::gather(lexed);
+        for line in docs.unreadable {
+            self.violations.push(format!(
+                "{path}:{line}: a `doc =` value that is not a string literal or `include_str!` of \
+                 one, which the audit cannot read, so the doc tests it may hold were not checked \
+                 for `unsafe` (ADR-0037)"
+            ));
+        }
+        for item in docs.items {
+            if item
+                .iter()
+                .any(|fragment| matches!(fragment, Fragment::Include { .. }))
+            {
+                self.pending.push(Pending {
+                    path: path.to_string(),
+                    real: real.to_path_buf(),
+                    item,
+                });
+                continue;
+            }
+            let fragments = item
+                .into_iter()
+                .filter_map(|fragment| match fragment {
+                    Fragment::Text { lines, sugared } => Some((lines, sugared)),
+                    Fragment::Include { .. } => None,
+                })
+                .collect();
+            self.doc_tests(path, fragments);
+        }
+    }
+
+    /// Reports each `unsafe` in the code blocks of one item's documentation,
+    /// from the file at `path`.
+    fn doc_tests(&mut self, path: &str, fragments: Vec<(Vec<DocLine>, bool)>) {
+        for block in doc_tests::code_blocks(fragments) {
+            self.doc_blocks += 1;
+            let text = block
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            for token in lexer::lex(&text).tokens {
+                let Some(place) = token
+                    .is_word("unsafe")
+                    .then(|| token.line.checked_sub(1).and_then(|index| block.get(index)))
+                    .flatten()
+                    .map(|line| &line.at)
+                else {
+                    continue;
+                };
+                let tail = format!(
+                    "a code block in the documentation, which rustdoc may compile as a doc test, \
+                     holds `unsafe`, which only {UNSAFE_NAMES} may use: every block counts, \
+                     `ignore` and `text` too, since the `unsafe_code` lint can miss `unsafe` that \
+                     another crate's macro expands. Inline code in prose is fine (ADR-0037)"
+                );
+                self.violations.push(match place {
+                    Place::Here(line) => format!("{path}:{line}: {tail}"),
+                    Place::Included { file, line, by } => {
+                        format!("{file}:{line}: included as documentation by {path}:{by}: {tail}")
+                    }
+                });
+            }
+        }
+    }
+
+    /// Reads the documentation that waited for its included files
+    /// ([`Audit::documentation`]), now that `packages` (each member's
+    /// resolved directory and name) are known. An included file must lie in
+    /// the package directory that holds the `.rs` file, the deepest one if
+    /// several do, reached by a relative path without links
+    /// ([`is_included_path`]), and be a UTF-8 file within the size bound.
+    fn doc_includes(&mut self, real_root: &Path, packages: &[(PathBuf, String)]) {
+        for pending in std::mem::take(&mut self.pending) {
+            let package = packages
+                .iter()
+                .filter(|(dir, _)| pending.real.starts_with(dir))
+                .max_by_key(|(dir, _)| dir.components().count())
+                .map(|(dir, _)| dir);
+            let mut fragments = Vec::new();
+            for fragment in pending.item {
+                match fragment {
+                    Fragment::Text { lines, sugared } => fragments.push((lines, sugared)),
+                    Fragment::Include { path, line } => {
+                        match self.include(real_root, &pending.real, package, &path, line) {
+                            Ok(lines) => fragments.push((lines, false)),
+                            Err(reason) => self.violations.push(format!(
+                                "{}:{line}: `doc = include_str!(\"{path}\")` {reason}, so the doc \
+                                 tests in it were not checked for `unsafe` (ADR-0037)",
+                                pending.path
+                            )),
+                        }
+                    }
+                }
+            }
+            self.doc_tests(&pending.path, fragments);
+        }
+    }
+
+    /// The lines of the file that `doc = include_str!(path)` on line `by` of
+    /// the `.rs` file `real` names, or why it cannot be read.
+    fn include(
+        &self,
+        real_root: &Path,
+        real: &Path,
+        package: Option<&PathBuf>,
+        path: &str,
+        by: usize,
+    ) -> Result<Vec<DocLine>, String> {
+        let Some(package) = package else {
+            return Err("is in a file of no workspace member's package".to_string());
+        };
+        let outside = || {
+            format!(
+                "does not name a relative path inside its package's directory {} (no hidden or \
+                 `target` directory, no escapes)",
+                walk::relative(real_root, package)
+            )
+        };
+        if !is_included_path(path) {
+            return Err(outside());
+        }
+        let mut resolved = real.parent().map(Path::to_path_buf).ok_or_else(outside)?;
+        for component in path.split('/') {
+            if component == ".." {
+                if !resolved.pop() {
+                    return Err(outside());
+                }
+            } else {
+                resolved.push(component);
+            }
+        }
+        if !resolved.starts_with(package) {
+            return Err(outside());
+        }
+        let shown = walk::relative(real_root, &resolved);
+        // `AGENTS.md` rule 7: xtask never opens a file named like a secret.
+        if resolved
+            .file_name()
+            .is_some_and(|name| deps::is_secret_name(&name.to_string_lossy()))
+        {
+            return Err(format!(
+                "names {shown}, a file named like a secret, which xtask never opens"
+            ));
+        }
+        match fs::canonicalize(&resolved) {
+            Ok(target) if target == resolved => {}
+            Ok(_) => {
+                return Err(format!(
+                    "names {shown}, which is reached through a symbolic link"
+                ));
+            }
+            Err(error) => return Err(format!("names {shown}, which cannot be read: {error}")),
+        }
+        let text = match walk::read_bounded(&resolved, self.limit) {
+            Ok(text) => text,
+            Err(walk::ReadError::TooLarge { limit }) => {
+                return Err(format!("names {shown}, which is larger than {limit} bytes"));
+            }
+            Err(walk::ReadError::NotUtf8) => {
+                return Err(format!("names {shown}, which is not UTF-8"));
+            }
+            Err(walk::ReadError::Io(error)) => {
+                return Err(format!("names {shown}, which cannot be read: {error}"));
+            }
+        };
+        Ok(doc_tests::split_lines(&text)
+            .into_iter()
+            .enumerate()
+            .map(|(index, line)| DocLine {
+                text: line.to_string(),
+                at: Place::Included {
+                    file: shown.clone(),
+                    line: index + 1,
+                    by,
+                },
+            })
+            .collect())
     }
 
     /// Checks that the crate root of every target of every member of the
-    /// workspaces that `manifests` belong to is a file the audit read.
-    /// It also checks that each crate root lies inside its package
-    /// directory ([`outside_package`]).
+    /// workspaces that `manifests` belong to is a file the audit read, that
+    /// no target is a proc macro ([`PROC_MACRO`]), and that each library's
+    /// crate root, but those of [`UNSAFE_CRATES`], forbids `unsafe` in its
+    /// doc tests ([`FORBID_IN_DOC_TESTS`]). It also checks that each crate
+    /// root lies inside its package directory ([`outside_package`]), and
+    /// then reads the files that documentation includes
+    /// ([`Audit::doc_includes`]), now that the packages are known.
     fn crate_roots(&mut self, root: &Path, manifests: &[PathBuf]) {
         // The paths that rule compares are resolved, so its messages show
         // them relative to the resolved root.
         let real_root = metadata::canonical(root);
+        // The two crates are known by name and directory both: a package
+        // named like one elsewhere, or another package in one's directory,
+        // is not exempt.
+        let unsafe_crates: Vec<(&str, PathBuf)> = UNSAFE_CRATES
+            .iter()
+            .map(|(name, dir)| (*name, metadata::canonical(&root.join(dir))))
+            .collect();
         // Every member's package directory, for the worktree rule below.
         let mut packages: Vec<(PathBuf, String)> = Vec::new();
         for workspace in metadata::workspaces(root, manifests, Resolve::No) {
@@ -319,15 +717,33 @@ impl Audit {
                 }
             };
             for package in graph.packages.iter().filter(|package| package.is_member) {
-                if let Some(dir) = package.manifest_path.parent() {
-                    packages.push((metadata::canonical(dir), package.name.clone()));
+                let package_dir = package.manifest_path.parent().map(metadata::canonical);
+                if let Some(dir) = &package_dir {
+                    packages.push((dir.clone(), package.name.clone()));
                 }
+                let may_use_unsafe = unsafe_crates
+                    .iter()
+                    .any(|(name, dir)| package.name == *name && package_dir.as_ref() == Some(dir));
                 for target in &package.targets {
                     self.crate_roots += 1;
-                    if !self
-                        .scanned
-                        .contains(&metadata::canonical(&target.src_path))
-                    {
+                    let src = metadata::canonical(&target.src_path);
+                    // A proc macro gets this violation alone: it is no
+                    // library, so the doc-test rule below does not ask it for
+                    // a line it must not need.
+                    if target.kind.split(", ").any(|kind| kind == PROC_MACRO) {
+                        self.violations.push(format!(
+                            "{}: the {} target `{}` of `{}` is a proc-macro crate, which no \
+                             workspace under the repository may have, {UNSAFE_NAMES} included: a \
+                             proc macro can make the `unsafe` keyword from a string, with a span \
+                             for which rustc skips the `unsafe_code` lint, and this audit reads \
+                             only the string (ADR-0037)",
+                            walk::relative(&real_root, &src),
+                            target.kind,
+                            target.name,
+                            package.name
+                        ));
+                    }
+                    if !self.scanned.contains(&src) {
                         self.violations.push(format!(
                             "{}: the {} target `{}` of `{}` starts from a file the audit did not \
                              read; a crate root must be a `.rs` file in the repository, outside \
@@ -337,6 +753,27 @@ impl Audit {
                             target.name,
                             package.name
                         ));
+                    } else if is_library(&target.kind)
+                        && !may_use_unsafe
+                        // One too large or not UTF-8 is reported as that.
+                        && let Some(&forbids) = self.read.get(&src)
+                    {
+                        self.library_roots += 1;
+                        if !forbids {
+                            self.violations.push(format!(
+                                "{}: the {} target `{}` of `{}` does not forbid `unsafe` in its \
+                                 doc tests, and rustdoc does not apply the workspace's \
+                                 `unsafe_code` lint to them. Add this line to its crate root after \
+                                 the `//!` doc comment, exactly as written (an inner attribute at \
+                                 crate level, not under `cfg_attr`, with nothing else in it): \
+                                 `{FORBID_IN_DOC_TESTS}` (ADR-0036)",
+                                // `src` is resolved, as the root is here.
+                                walk::relative(&real_root, &src),
+                                target.kind,
+                                target.name,
+                                package.name
+                            ));
+                        }
                     }
                     if let Some((src, dir)) =
                         outside_package(&target.src_path, &package.manifest_path)
@@ -371,6 +808,7 @@ impl Audit {
                 ));
             }
         }
+        self.doc_includes(&real_root, &packages);
     }
 
     /// Finishes the audit.
@@ -395,6 +833,14 @@ impl Audit {
         }
         notes.push(format!("Rust files scanned: {}", self.files));
         notes.push(format!("crate roots checked: {}", self.crate_roots));
+        notes.push(format!(
+            "library crate roots that must forbid `unsafe` in doc tests: {}",
+            self.library_roots
+        ));
+        notes.push(format!(
+            "code blocks of documentation read for `unsafe`: {}",
+            self.doc_blocks
+        ));
         notes.extend(self.worktrees);
         notes.extend(self.build_dir);
         Report {
@@ -403,6 +849,27 @@ impl Audit {
             ..Report::default()
         }
     }
+}
+
+/// A `macro_rules!` definition ([`File::macro_definition`]).
+#[derive(Debug)]
+struct MacroDefinition<'a> {
+    /// Its name: an identifier, or a metavariable's name inside a macro.
+    name: &'a str,
+    /// Whether it is `#[macro_export]`ed, also through `cfg_attr`.
+    exported: bool,
+    /// Its body's tokens, inside the delimiters.
+    body: Range<usize>,
+}
+
+/// A documented item that includes a file ([`Audit::documentation`]).
+#[derive(Debug)]
+struct Pending {
+    /// The `.rs` file, as messages show it, and resolved.
+    path: String,
+    real: PathBuf,
+    /// The item's pieces of documentation.
+    item: Vec<Fragment>,
 }
 
 /// Where `src_path`, the crate root of a target of the package whose
@@ -579,10 +1046,11 @@ impl<'l, 'a> File<'l, 'a> {
         false
     }
 
-    /// For the `macro_rules` at `index`, if it is `#[macro_export]`ed: each
-    /// `unsafe` block or `unsafe impl` in its body that holds a
-    /// metavariable other than `$crate`, as the line, what it is, and the
-    /// macro's name.
+    /// For the `macro_rules` at `index`, if it is `#[macro_export]`ed (also
+    /// through `cfg_attr`) and its body holds a metavariable other than
+    /// `$crate`: each `unsafe` in its body, in any form, as the line, the
+    /// form ([`File::unsafe_form`]) and the macro's name. A body that does
+    /// not close runs to the end of the file.
     fn exported_unsafe_wrappers(&self, index: usize) -> Vec<(usize, &'static str, &'a str)> {
         let mut found = Vec::new();
         let (Some(bang), Some(name), Some(open)) = (
@@ -604,37 +1072,337 @@ impl<'l, 'a> File<'l, 'a> {
             "[" => "]",
             _ => return found,
         };
-        let Some(end) = self.matching_close(index + 3, open.text, close) else {
+        let end = self
+            .matching_close(index + 3, open.text, close)
+            .unwrap_or(self.tokens.len());
+        let takes_tokens = (index + 4..end).any(|dollar| {
+            self.token(dollar).is_some_and(|t| t.is_punct("$"))
+                && !self
+                    .token(dollar + 1)
+                    .is_some_and(|after| after.is_word("crate"))
+        });
+        if !takes_tokens {
             return found;
-        };
+        }
         for at in index + 4..end {
-            let Some(token) = self.token(at).filter(|token| token.is_word("unsafe")) else {
-                continue;
-            };
-            let extent = match self.token(at + 1) {
-                Some(next) if next.is_punct("{") => self
-                    .matching_close(at + 1, "{", "}")
-                    .map(|close| ("block", close)),
-                Some(next) if next.is_word("impl") => (at + 2..end)
-                    .find(|&brace| self.token(brace).is_some_and(|t| t.is_punct("{")))
-                    .and_then(|brace| self.matching_close(brace, "{", "}"))
-                    .map(|close| ("impl", close)),
-                _ => None,
-            };
-            let Some((what, last)) = extent else {
-                continue;
-            };
-            let wraps = (at + 1..last).any(|dollar| {
-                self.token(dollar).is_some_and(|t| t.is_punct("$"))
-                    && !self
-                        .token(dollar + 1)
-                        .is_some_and(|after| after.is_word("crate"))
-            });
-            if wraps {
-                found.push((token.line, what, name.text));
+            if let Some(token) = self.token(at).filter(|token| token.is_word("unsafe")) {
+                found.push((token.line, self.unsafe_form(at), name.text));
             }
         }
         found
+    }
+
+    /// The `macro_rules!` definition whose `macro_rules` is at `index`, if it
+    /// is one: `macro_rules ! name` (or a metavariable `$name`, inside
+    /// another macro) then a delimited body. A body that does not close runs
+    /// to the end of the file.
+    fn macro_definition(&self, index: usize) -> Option<MacroDefinition<'a>> {
+        if !self.token(index + 1)?.is_punct("!") {
+            return None;
+        }
+        let (name, open) = match self.token(index + 2)? {
+            dollar if dollar.is_punct("$") => (self.token(index + 3)?.text, index + 4),
+            name if name.is_ident() => (name.text, index + 3),
+            _ => return None,
+        };
+        let close = match self.token(open)?.text {
+            "{" => "}",
+            "(" => ")",
+            "[" => "]",
+            _ => return None,
+        };
+        let opener = self.token(open)?.text;
+        let end = self
+            .matching_close(open, opener, close)
+            .unwrap_or(self.tokens.len());
+        Some(MacroDefinition {
+            name,
+            exported: self.has_attribute_naming(index, "macro_export"),
+            body: open + 1..end,
+        })
+    }
+
+    /// Whether the token at `index` is in the arguments of a macro call
+    /// (`name!(...)`, also through groups nested in them). An inner
+    /// attribute's `#![` is no call.
+    fn in_macro_call(&self, index: usize) -> bool {
+        let mut depth = 0_usize;
+        for at in (0..index).rev() {
+            let Some(token) = self.token(at) else {
+                return false;
+            };
+            if ["}", ")", "]"].iter().any(|close| token.is_punct(close)) {
+                depth += 1;
+            } else if ["{", "(", "["].iter().any(|open| token.is_punct(open)) {
+                if depth > 0 {
+                    depth -= 1;
+                    continue;
+                }
+                let before = |back: usize| at.checked_sub(back).and_then(|i| self.token(i));
+                if before(1).is_some_and(|t| t.is_punct("!"))
+                    && !before(2).is_some_and(|t| t.is_punct("#"))
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The delimited group that opens at `index`: its delimiters' indexes.
+    fn group(&self, index: usize) -> Option<(usize, usize)> {
+        let open = self.token(index)?.text;
+        let close = match open {
+            "{" => "}",
+            "(" => ")",
+            "[" => "]",
+            _ => return None,
+        };
+        Some((index, self.matching_close(index, open, close)?))
+    }
+
+    /// The arms of a macro's `body`: each matcher's and transcriber's tokens,
+    /// inside their delimiters. What cannot be read as arms is one more
+    /// transcriber with an empty matcher, so that it is still checked.
+    fn macro_arms(&self, body: &Range<usize>) -> Vec<(Range<usize>, Range<usize>)> {
+        let mut arms = Vec::new();
+        let mut at = body.start;
+        while at < body.end {
+            if self.token(at).is_some_and(|token| token.is_punct(";")) {
+                at += 1;
+                continue;
+            }
+            let arm = self.group(at).and_then(|(open, close)| {
+                let arrow =
+                    self.token(close + 1)?.is_punct("=") && self.token(close + 2)?.is_punct(">");
+                let transcriber = self.group(close + 3).filter(|_| arrow)?;
+                Some((open + 1..close, transcriber))
+            });
+            let Some((matcher, (open, close))) = arm.filter(|(_, (_, close))| *close < body.end)
+            else {
+                break;
+            };
+            arms.push((matcher, open + 1..close));
+            at = close + 1;
+        }
+        if at < body.end {
+            arms.push((at..at, at..body.end));
+        }
+        arms
+    }
+
+    /// For an exported macro: each place in a transcriber where a `tt` or
+    /// `ident` metavariable, or a repetition that holds one, comes right
+    /// before a token the macro writes itself that `unsafe` can precede
+    /// (`{`, `fn`, `impl`, `trait`, `extern`, `static`), or names an
+    /// attribute the macro writes (ADR-0038). Each as the line, the
+    /// metavariable, its fragment, and where it is.
+    ///
+    /// A metavariable's fragment comes from the matchers. One that no
+    /// matcher declares, or that arms declare differently, is a `tt`. The
+    /// token after it is found past `$(`, past the `)` that closes a
+    /// repetition with its separator and `*`, `+` or `?`; another
+    /// metavariable there, or the end of a group, is no violation.
+    fn caller_unsafe(
+        &self,
+        definition: &MacroDefinition<'a>,
+    ) -> Vec<(usize, &'a str, &'a str, String)> {
+        let arms = self.macro_arms(&definition.body);
+        let mut fragments: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+        for (matcher, _) in &arms {
+            for at in matcher.clone() {
+                let declared = (
+                    self.token(at),
+                    self.token(at + 1),
+                    self.token(at + 2),
+                    self.token(at + 3),
+                );
+                if let (Some(dollar), Some(name), Some(colon), Some(fragment)) = declared
+                    && dollar.is_punct("$")
+                    && name.is_ident()
+                    && !name.is_word("crate")
+                    && colon.is_punct(":")
+                    && fragment.is_ident()
+                {
+                    fragments
+                        .entry(name.text)
+                        .and_modify(|known| {
+                            if *known != Some(fragment.text) {
+                                *known = None;
+                            }
+                        })
+                        .or_insert(Some(fragment.text));
+                }
+            }
+        }
+        let mut found = Vec::new();
+        for (_, transcriber) in &arms {
+            for at in transcriber.clone() {
+                let (Some(dollar), Some(name)) = (self.token(at), self.token(at + 1)) else {
+                    continue;
+                };
+                if !dollar.is_punct("$") || !name.is_ident() || name.is_word("crate") {
+                    continue;
+                }
+                let fragment = fragments.get(name.text).copied().flatten().unwrap_or("tt");
+                if fragment != "tt" && fragment != "ident" {
+                    continue;
+                }
+                let place = if self.names_attribute(at) {
+                    Some(format!(
+                        "as the name of an attribute it writes (`#[${} ...]`)",
+                        name.text
+                    ))
+                } else {
+                    self.written_after(at + 2, transcriber.end, &fragments)
+                        .into_iter()
+                        .find_map(|next| {
+                            let token = self.token(next)?;
+                            let item = ["fn", "impl", "trait", "extern", "static"]
+                                .iter()
+                                .any(|word| token.is_word(word));
+                            (token.is_punct("{") || item).then(|| {
+                                format!("right before `{}`, which it writes itself", token.text)
+                            })
+                        })
+                };
+                if let Some(place) = place {
+                    found.push((dollar.line, name.text, fragment, place));
+                }
+            }
+        }
+        found
+    }
+
+    /// Whether the metavariable whose `$` is at `index` is the first thing
+    /// in an attribute the macro writes, through any repetitions that open
+    /// before it: `#[$k ...]`, `#![$k ...]`, `#[$($k)* ...]`, or the
+    /// attribute that a `cfg_attr` in one applies (`#[cfg_attr(p, $k)]`).
+    fn names_attribute(&self, index: usize) -> bool {
+        let mut at = index;
+        while at >= 2
+            && self.token(at - 1).is_some_and(|token| token.is_punct("("))
+            && self.token(at - 2).is_some_and(|token| token.is_punct("$"))
+        {
+            at -= 2;
+        }
+        let before = |back: usize| at.checked_sub(back).and_then(|i| self.token(i));
+        let opens_attribute = before(1).is_some_and(|t| t.is_punct("["))
+            && (before(2).is_some_and(|t| t.is_punct("#"))
+                || (before(2).is_some_and(|t| t.is_punct("!"))
+                    && before(3).is_some_and(|t| t.is_punct("#"))));
+        let applied_by_cfg_attr =
+            before(1).is_some_and(|t| t.is_punct(",")) && self.lint_level(at) == Some("cfg_attr");
+        opens_attribute || applied_by_cfg_attr
+    }
+
+    /// The indexes of the tokens that a transcriber, which ends at `end`,
+    /// can write itself next, at or after `index`, in any expansion: into a
+    /// repetition (`$(`), past it too when it can be empty (`*`, `?`), past
+    /// the `)` that ends one to what follows or to its start again, and its
+    /// separator, which it writes between rounds. A metavariable there is
+    /// the caller's, and ends that path, unless it is a `vis`, which can be
+    /// empty; so does the end of a group or of the transcriber.
+    fn written_after(
+        &self,
+        index: usize,
+        end: usize,
+        fragments: &BTreeMap<&str, Option<&str>>,
+    ) -> Vec<usize> {
+        let is_operator = |at: usize| {
+            self.token(at)
+                .is_some_and(|token| ["*", "+", "?"].iter().any(|op| token.is_punct(op)))
+        };
+        // Past the `)` at `close` of a repetition: its separator, if any, and
+        // the index after its operator.
+        let after_repetition = |close: usize| -> (Option<usize>, usize) {
+            if is_operator(close + 1) {
+                (None, close + 2)
+            } else if is_operator(close + 2) {
+                (Some(close + 1), close + 3)
+            } else {
+                (None, close + 1)
+            }
+        };
+        let mut found = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut paths = vec![index];
+        while let Some(at) = paths.pop() {
+            if at >= end || !seen.insert(at) {
+                continue;
+            }
+            let Some(token) = self.token(at) else {
+                continue;
+            };
+            if token.is_punct("$") {
+                let Some(next) = self.token(at + 1) else {
+                    continue;
+                };
+                if next.is_punct("(") {
+                    let Some(close) = self.matching_close(at + 1, "(", ")") else {
+                        continue;
+                    };
+                    paths.push(at + 2);
+                    let (_, after) = after_repetition(close);
+                    let may_be_empty = self
+                        .token(after - 1)
+                        .is_some_and(|op| op.is_punct("*") || op.is_punct("?"));
+                    if may_be_empty {
+                        paths.push(after);
+                    }
+                } else if next.is_ident()
+                    && !next.is_word("crate")
+                    && fragments.get(next.text).copied().flatten() == Some("vis")
+                {
+                    paths.push(at + 2);
+                } else if next.is_word("crate") {
+                    found.push(at);
+                }
+                continue;
+            }
+            if token.is_punct(")") {
+                let Some(open) = self.matching_open(at, "(", ")") else {
+                    continue;
+                };
+                let repetition = open
+                    .checked_sub(1)
+                    .and_then(|before| self.token(before))
+                    .is_some_and(|before| before.is_punct("$"));
+                if repetition {
+                    let (separator, after) = after_repetition(at);
+                    found.extend(separator);
+                    paths.push(after);
+                    paths.push(open + 1);
+                }
+                continue;
+            }
+            if token.is_punct("]") || token.is_punct("}") {
+                continue;
+            }
+            found.push(at);
+        }
+        found
+    }
+
+    /// What the `unsafe` at `index` begins, for messages: a block, an
+    /// `impl`, a `trait`, a function, an `extern` block, the attribute form
+    /// (`#[unsafe(no_mangle)]`), or a bare keyword.
+    fn unsafe_form(&self, index: usize) -> &'static str {
+        match self.token(index + 1) {
+            Some(next) if next.is_punct("{") => "block",
+            Some(next) if next.is_word("impl") => "impl",
+            Some(next) if next.is_word("trait") || next.is_word("auto") => "trait",
+            Some(next) if next.is_punct("(") => "attribute",
+            Some(next) if next.is_word("fn") => "fn",
+            Some(next) if next.is_word("extern") => {
+                if self.is_extern_block(index + 1) {
+                    "`extern` block"
+                } else {
+                    "fn"
+                }
+            }
+            _ => "keyword",
+        }
     }
 
     /// The index of the `open` that the `close` at `index` closes.
@@ -760,6 +1528,40 @@ impl<'l, 'a> File<'l, 'a> {
         }
     }
 
+    /// Whether the file carries [`FORBID_IN_DOC_TESTS`] as an inner
+    /// attribute at crate level: the same tokens, at nesting depth 0 (in no
+    /// `mod`, function, macro or other attribute), so that whitespace and
+    /// comments between them do not matter, and any other spelling does not
+    /// count. A closing delimiter with nothing open, which the compiler
+    /// rejects anyway, makes the depth unknown, and the answer is no.
+    fn forbids_unsafe_in_doc_tests(&self) -> bool {
+        let wanted = lexer::lex(FORBID_IN_DOC_TESTS).tokens;
+        let mut depth = 0_usize;
+        for (index, token) in self.tokens.iter().enumerate() {
+            if depth == 0
+                && self
+                    .tokens
+                    .get(index..index + wanted.len())
+                    .is_some_and(|found| {
+                        found.iter().zip(&wanted).all(|(found, wanted)| {
+                            (found.kind, found.text) == (wanted.kind, wanted.text)
+                        })
+                    })
+            {
+                return true;
+            }
+            if token.is_punct("(") || token.is_punct("[") || token.is_punct("{") {
+                depth += 1;
+            } else if token.is_punct(")") || token.is_punct("]") || token.is_punct("}") {
+                let Some(outer) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = outer;
+            }
+        }
+        false
+    }
+
     /// Whether the file reference at `index` ([`File::file_reference`])
     /// names, with a single string literal, a path the audit reads.
     fn names_audited_file(&self, index: usize) -> bool {
@@ -823,6 +1625,30 @@ fn is_audited_relative_path(path: &str) -> bool {
         })
 }
 
+/// Whether `path`, relative to a source file's directory, may name a file
+/// that `doc = include_str!(...)` includes: `/`-separated components, each
+/// `..` or an ordinary name (not hidden, not `target` in any case, with no
+/// trailing `.` or space, no `\`, `~` or `:`), as [`is_audited_relative_path`]
+/// has them but for `..`, which may step up as long as the file stays in its
+/// package ([`Audit::include`]).
+fn is_included_path(path: &str) -> bool {
+    !path.contains(':')
+        && path.split('/').all(|component| {
+            component == ".."
+                || (!component.is_empty()
+                    && !component.starts_with('.')
+                    && !component.ends_with(['.', ' '])
+                    && !component.eq_ignore_ascii_case("target")
+                    && !component.contains(['\\', '~']))
+        })
+}
+
+/// Whether a target of the kinds `kind` (as [`metadata::Target::kind`]
+/// joins them) is a library ([`LIBRARY_KINDS`]).
+fn is_library(kind: &str) -> bool {
+    kind.split(", ").any(|kind| LIBRARY_KINDS.contains(&kind))
+}
+
 /// Whether the walk audits a file named `name`: Rust source, with `.rs` in
 /// any case, since on macOS and Windows `mod x;` opens `x.RS`.
 fn is_rust_source(name: &str) -> bool {
@@ -847,11 +1673,11 @@ mod tests {
         for (_, dir) in UNSAFE_CRATES {
             let root = format!("{dir}{CRATE_ROOT}");
             if !files.iter().any(|(path, _)| *path == root) {
-                audit.file(&root, "#![allow(unsafe_code)]\n");
+                audit.file(&root, Path::new(&root), "#![allow(unsafe_code)]\n");
             }
         }
         for (path, text) in files {
-            audit.file(path, text);
+            audit.file(path, Path::new(path), text);
         }
         audit.report()
     }
@@ -957,7 +1783,7 @@ mod tests {
     #[test]
     fn unsafe_in_comments_and_strings_is_not_a_violation() {
         let text = "//! Never use `unsafe { }` here.\n\
-                    /// ```\n/// unsafe { f() }\n/// ```\n\
+                    /// Prose may say unsafe, and inline code `unsafe { f() }`.\n\
                     // #![allow(unsafe_code)]\n\
                     /* unsafe impl Send for X {} */\n\
                     const HELP: &str = \"unsafe { } is denied; #![allow(unsafe_code)]\";\n\
@@ -968,6 +1794,763 @@ mod tests {
         assert_eq!(
             violations(&[("crates/text/src/lib.rs", text)]),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_shebang_line_hides_nothing_and_counts_for_nothing() {
+        // rustc drops the first line of any `.rs` file that starts with `#!`
+        // not followed by `[`, so a quote in it opens no string: this module
+        // compiles into a crate that denies `unsafe_code`, with the lint
+        // allowed and an `unsafe` block.
+        let path = "crates/text/src/m.rs";
+        assert_eq!(
+            violations(&[(
+                path,
+                "#!/x \"\n#![allow(unsafe_code)]\n/// F.\npub fn f() -> u8 {\n    let x = 1u8;\n    \
+                 let p = &x as *const u8;\n    unsafe { *p }\n}\n// \"\n"
+            )]),
+            [
+                format!(
+                    "{path}:2: `allow(unsafe_code)` is only allowed in the crate roots of \
+                     tidepool-sys and tidepool-platform"
+                ),
+                outside(path, 7),
+            ]
+        );
+        // And what is on that line is not code.
+        assert_eq!(
+            violations(&[(path, "#!/usr/bin/unsafe\nfn f() {}\n")]),
+            Vec::<String>::new()
+        );
+    }
+
+    // --- Doc tests (ADR-0037) ---
+
+    /// The violation for `unsafe` on `line` of the documentation of `path`.
+    fn doc_test(path: &str, line: usize) -> String {
+        format!(
+            "{path}:{line}: a code block in the documentation, which rustdoc may compile as a doc \
+             test, holds `unsafe`, which only tidepool-sys and tidepool-platform may use: every \
+             block counts, `ignore` and `text` too, since the `unsafe_code` lint can miss `unsafe` \
+             that another crate's macro expands. Inline code in prose is fine (ADR-0037)"
+        )
+    }
+
+    /// The violation for a `doc =` value the audit cannot read.
+    fn unreadable_doc(path: &str, line: usize) -> String {
+        format!(
+            "{path}:{line}: a `doc =` value that is not a string literal or `include_str!` of one, \
+             which the audit cannot read, so the doc tests it may hold were not checked for \
+             `unsafe` (ADR-0037)"
+        )
+    }
+
+    #[test]
+    fn unsafe_in_any_code_block_of_the_documentation_is_a_violation() {
+        let path = "crates/text/src/lib.rs";
+        for (text, lines) in [
+            // Fenced, either way, with any info string.
+            (
+                "/// Reads.\n///\n/// ```\n/// let x = unsafe { *p };\n/// ```\nfn f() {}",
+                vec![4],
+            ),
+            ("//! ~~~\n//! unsafe { f() }\n//! ~~~", vec![2]),
+            (
+                "/// ```ignore\n/// unsafe { f() }\n/// ```\nfn f() {}",
+                vec![2],
+            ),
+            ("/// ```text\n/// unsafe-audit\n/// ```\nfn f() {}", vec![2]),
+            (
+                "/// ```compile_fail\n/// unsafe { f() }\n/// ```\nfn f() {}",
+                vec![2],
+            ),
+            (
+                "/// ```sh\n/// cargo xtask unsafe-audit\n/// ```\nfn f() {}",
+                vec![2],
+            ),
+            // Hidden lines are code too, and so is every `unsafe` on a line.
+            (
+                "/// ```\n/// # unsafe { f() }\n/// unsafe { g() }; unsafe { h() }\n/// ```\nfn f() {}",
+                vec![2, 3, 3],
+            ),
+            // Indented.
+            (
+                "/// Reads.\n///\n///     unsafe { f() }\nfn f() {}",
+                vec![3],
+            ),
+            // In a list item, and in a block quote.
+            (
+                "/// - An item:\n///\n///   ```\n///   unsafe { f() }\n///   ```\nfn f() {}",
+                vec![4],
+            ),
+            (
+                "/// > ```\n/// > unsafe { f() }\n/// > ```\nfn f() {}",
+                vec![2],
+            ),
+            // `/** */` and `/*! */`.
+            (
+                "/**\n * ```\n * unsafe { f() }\n * ```\n */\nfn f() {}",
+                vec![3],
+            ),
+            ("/*! ```\nunsafe { f() }\n``` */", vec![2]),
+            // A doc attribute's string, its escapes decoded: a line break
+            // and the fence, and under `cfg_attr`.
+            (
+                "#[doc = \"```\\nunsafe { f() }\\n```\"]\nfn f() {}",
+                vec![1],
+            ),
+            (
+                "#[doc = r#\"\n```\nunsafe { f() }\n```\"#]\nfn f() {}",
+                vec![3],
+            ),
+            (
+                "#[cfg_attr(doc, doc = \"```\")]\n#[cfg_attr(doc, doc = \"unsafe { f() }\")]\n/// ```\nfn f() {}",
+                vec![2],
+            ),
+            (
+                "#[doc = \"\\x60\\x60\\x60\\nunsafe { f() }\\n\\u{60}``\"]\nfn f() {}",
+                vec![1],
+            ),
+            // A fence opened in an item's outer docs runs into the inner
+            // docs of the module it opens, as rustdoc joins them.
+            (
+                "/// ```text\nmod m {\n    //! ```\n    //! ```\n    //! unsafe { f() }\n    //! ```\n}",
+                vec![5],
+            ),
+        ] {
+            assert_eq!(
+                violations(&[(path, text)]),
+                lines
+                    .iter()
+                    .map(|&line| doc_test(path, line))
+                    .collect::<Vec<_>>(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_in_prose_and_in_code_that_is_no_block_is_fine() {
+        for text in [
+            "//! Never write `unsafe { }`: the word unsafe is prose.\n",
+            "/// - A list item that says unsafe,\n///   continued at its content, where unsafe is still prose:\n///\n///     more of the item, after a blank line.\nfn f() {}",
+            "/// Prose\n///     continued, even unsafe, as an indented line cannot interrupt a paragraph.\nfn f() {}",
+            "/// ```\n/// // unsafe in a comment\n/// let s = \"unsafe in a string\";\n/// let r#unsafe = 1;\n/// ```\nfn f() {}",
+            "/// ```\n/// let unsafé = 1;\n/// ```\nfn f() {}",
+            "// ```\n// unsafe { f() }\n// ```\n//// ```\n//// unsafe { f() }\n//// ```\nfn f() {}",
+            "const S: &str = \"/// ```\\n/// unsafe { f() }\\n/// ```\";\n",
+        ] {
+            assert_eq!(
+                violations(&[("crates/text/src/lib.rs", text)]),
+                Vec::<String>::new(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_doc_value_the_audit_cannot_read_is_a_violation() {
+        let path = "crates/text/src/lib.rs";
+        assert_eq!(
+            violations(&[(path, "#[doc = concat!(\"a\", \"b\")]\nfn f() {}\n")]),
+            [unreadable_doc(path, 1)]
+        );
+        assert_eq!(
+            violations(&[(
+                path,
+                "macro_rules! documented {\n    ($d:expr) => {\n        #[doc = $d]\n        pub fn f() {}\n    };\n}\n"
+            )]),
+            [unreadable_doc(path, 3)]
+        );
+        assert_eq!(
+            violations(&[(path, "#![doc = env!(\"DOCS\")]\n")]),
+            [unreadable_doc(path, 1)]
+        );
+    }
+
+    #[test]
+    fn sys_and_platform_may_show_unsafe_in_their_doc_tests() {
+        let text = "/// ```\n/// // SAFETY: an example.\n/// unsafe { f() }\n/// ```\n#[doc = concat!(\"a\")]\nfn f() {}\n";
+        assert_eq!(platform(text), Vec::<String>::new());
+        assert_eq!(sys(text), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_file_included_as_documentation_is_read_too() {
+        let tree = TempTree::new("audit-doc-include");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/text\"]\n",
+        );
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write(
+            "crates/text/Cargo.toml",
+            "[package]\nname = \"text\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+        tree.write(
+            "crates/text/src/lib.rs",
+            format!(
+                "//! Text.\n{FORBID_IN_DOC_TESTS}\n\n#[cfg(doctest)]\n#[doc = include_str!(\"../README.md\")]\n\
+                 struct ReadmeDoctests;\n"
+            ),
+        );
+        tree.write(
+            "crates/text/README.md",
+            "# text\n\nSays unsafe in prose.\n\n```rust\nlet x = 1;\nunsafe { f(x) }\n```\n",
+        );
+        let (violations, notes) = audit_with_crate_roots(&tree);
+        assert_eq!(
+            violations,
+            [doc_test("crates/text/README.md", 7).replacen(
+                ": a code block",
+                ": included as documentation by crates/text/src/lib.rs:5: a code block",
+                1
+            )]
+        );
+        assert!(
+            notes.contains(&"code blocks of documentation read for `unsafe`: 1".to_string()),
+            "{notes:?}"
+        );
+
+        // Each way it cannot be read is a violation of its own.
+        let include = |path: &str, reason: &str| {
+            format!(
+                "crates/text/src/lib.rs:5: `doc = include_str!(\"{path}\")` {reason}, so the doc \
+                 tests in it were not checked for `unsafe` (ADR-0037)"
+            )
+        };
+        let outside = "does not name a relative path inside its package's directory crates/text \
+                       (no hidden or `target` directory, no escapes)";
+        tree.write("README.md", "# Root\n");
+        tree.write("crates/text/.hidden.md", "x\n");
+        tree.write("crates/text/target/x.md", "x\n");
+        tree.write("crates/text/latin.md", [b"caf\xe9\n".as_slice()].concat());
+        let lib = |path: &str| {
+            format!(
+                "//! Text.\n{FORBID_IN_DOC_TESTS}\n\n#[cfg(doctest)]\n#[doc = include_str!(\"{path}\")]\n\
+                 struct ReadmeDoctests;\n"
+            )
+        };
+        for (path, reason) in [
+            ("../../README.md", outside),
+            ("../.hidden.md", outside),
+            ("../target/x.md", outside),
+            ("../src/../../README.md", outside),
+            (
+                "../latin.md",
+                "names crates/text/latin.md, which is not UTF-8",
+            ),
+            (
+                "../signing.pem",
+                "names crates/text/signing.pem, a file named like a secret, which xtask never opens",
+            ),
+        ] {
+            tree.write("crates/text/src/lib.rs", lib(path));
+            assert_eq!(
+                audit_with_crate_roots(&tree).0,
+                [include(path, reason)],
+                "{path}"
+            );
+        }
+        // The OS says why it cannot open a missing file.
+        tree.write("crates/text/src/lib.rs", lib("../missing.md"));
+        let (violations, _) = audit_with_crate_roots(&tree);
+        let missing = include(
+            "../missing.md",
+            "names crates/text/missing.md, which cannot be read",
+        );
+        assert!(
+            violations.len() == 1
+                && violations[0].starts_with(missing.split(", so the doc").next().unwrap_or("")),
+            "{violations:?}"
+        );
+        // A path with an escape is no value the audit reads at all.
+        tree.write("crates/text/src/lib.rs", lib("..\\\\README.md"));
+        assert_eq!(
+            audit_with_crate_roots(&tree).0,
+            [unreadable_doc("crates/text/src/lib.rs", 5)]
+        );
+        // Through a symbolic link, when this system can make one.
+        tree.write("crates/text/real.md", "```\nunsafe {}\n```\n");
+        if symlink(
+            &tree,
+            "crates/text/linked.md",
+            &tree.path().join("crates/text/real.md"),
+        )
+        .is_ok()
+        {
+            tree.write("crates/text/src/lib.rs", lib("../linked.md"));
+            let (violations, _) = audit_with_crate_roots(&tree);
+            assert!(
+                violations.contains(&include(
+                    "../linked.md",
+                    "names crates/text/linked.md, which is reached through a symbolic link"
+                )),
+                "{violations:?}"
+            );
+        }
+    }
+
+    // --- Macros (ADR-0038) ---
+
+    /// The violation for the exported macro `name` of `crates/text/src/lib.rs`
+    /// that puts `$variable`, of `fragment`, at `place` on `line`.
+    fn passes_unsafe_on(
+        line: usize,
+        name: &str,
+        variable: &str,
+        fragment: &str,
+        place: &str,
+    ) -> String {
+        format!(
+            "crates/text/src/lib.rs:{line}: the exported macro `{name}` puts `${variable}`, a \
+             `{fragment}` fragment its caller can make the keyword `unsafe`, {place}: rustc does \
+             not apply the caller's `unsafe_code` lint to braces or an item from another crate's \
+             macro, in doc tests or in code. Use a fragment that cannot be `unsafe` (`path`, `ty`, \
+             `vis`), or leave the `unsafe` to the caller (ADR-0038)"
+        )
+    }
+
+    /// `place` for the token `token` that a macro writes itself.
+    fn before(token: &str) -> String {
+        format!("right before `{token}`, which it writes itself")
+    }
+
+    #[test]
+    fn an_exported_macro_may_not_let_its_caller_s_unsafe_reach_braces_or_an_item() {
+        let attribute = |variable: &str| {
+            format!("as the name of an attribute it writes (`#[${variable} ...]`)")
+        };
+        for (arms, variable, fragment, place) in [
+            // g1's `k1`.
+            (
+                "($k:tt, $($t:tt)*) => { $k { $($t)* } };",
+                "k",
+                "tt",
+                before("{"),
+            ),
+            ("($k:tt) => { $k fn f() {} };", "k", "tt", before("fn")),
+            (
+                "($k:tt) => { $k impl Send for S {} };",
+                "k",
+                "tt",
+                before("impl"),
+            ),
+            ("($k:tt) => { $k trait T {} };", "k", "tt", before("trait")),
+            (
+                "($k:tt) => { $k extern \"C\" fn f() {} };",
+                "k",
+                "tt",
+                before("extern"),
+            ),
+            (
+                "($k:tt) => { $k static X: i32 = 0; };",
+                "k",
+                "tt",
+                before("static"),
+            ),
+            (
+                "($name:ident) => { $name { x: 1 } };",
+                "name",
+                "ident",
+                before("{"),
+            ),
+            // The name of an attribute it writes.
+            (
+                "($k:tt) => { #[$k(no_mangle)] pub extern \"C\" fn f() {} };",
+                "k",
+                "tt",
+                attribute("k"),
+            ),
+            ("($k:tt) => { #![$k] };", "k", "tt", attribute("k")),
+            (
+                "($($k:tt)*) => { #[$($k)*] fn f() {} };",
+                "k",
+                "tt",
+                attribute("k"),
+            ),
+            (
+                "($k:tt) => { #[cfg_attr(all(), $k(no_mangle))] fn f() {} };",
+                "k",
+                "tt",
+                attribute("k"),
+            ),
+            // Through repetitions, their separators, and what can be empty.
+            ("($($k:tt)*) => { $($k)* { 1 } };", "k", "tt", before("{")),
+            ("($($k:tt),*) => { $($k),* { 1 } };", "k", "tt", before("{")),
+            (
+                "($k:tt $($t:tt)*) => { $k $( { $t } )* };",
+                "k",
+                "tt",
+                before("{"),
+            ),
+            (
+                "($k:tt $($t:expr)*) => { $k $($t)* { 1 } };",
+                "k",
+                "tt",
+                before("{"),
+            ),
+            (
+                "($k:tt $($t:expr)?) => { $k $($t)? fn f() {} };",
+                "k",
+                "tt",
+                before("fn"),
+            ),
+            (
+                "($k:tt, $v:vis) => { $k $v fn f() {} };",
+                "k",
+                "tt",
+                before("fn"),
+            ),
+            ("($($k:tt)*) => { $($k)fn* };", "k", "tt", before("fn")),
+            // A metavariable no matcher declares, or arms declare
+            // differently, is a `tt`.
+            ("() => { $u { 1 } };", "u", "tt", before("{")),
+            (
+                "($k:path) => { $k { 1 } }; ($k:tt, x) => { 1 };",
+                "k",
+                "tt",
+                before("{"),
+            ),
+        ] {
+            let text = format!("#[macro_export]\nmacro_rules! m {{\n    {arms}\n}}\n");
+            assert_eq!(
+                violations(&[("crates/text/src/lib.rs", &text)]),
+                [passes_unsafe_on(3, "m", variable, fragment, &place)],
+                "{arms}"
+            );
+        }
+        // Exported through `cfg_attr`, one arm per line.
+        assert_eq!(
+            violations(&[(
+                "crates/text/src/lib.rs",
+                "#[cfg_attr(all(), macro_export)]\nmacro_rules! m {\n    () => { 1 };\n    ($k:tt) => {\n        $k { 1 }\n    };\n}\n"
+            )]),
+            [passes_unsafe_on(5, "m", "k", "tt", &before("{"))]
+        );
+    }
+
+    #[test]
+    fn exported_macros_that_cannot_pass_unsafe_on_are_fine() {
+        for arms in [
+            // A fragment that cannot be `unsafe` before braces or an item.
+            "($name:path { $($f:ident : $v:expr),* }) => { $name { $($f: $v),* } };",
+            "($e:expr) => { if $e { 1 } else { 0 } };",
+            "($v:vis $name:ident) => { $v fn $name() {} };",
+            "($t:ty) => { impl Clone for $t { fn clone(&self) -> Self { *self } } };",
+            // `tt` fragments inside a group, before another metavariable,
+            // or before tokens `unsafe` cannot precede.
+            "($($t:tt)*) => { ::core::format_args!($($t)*) };",
+            "($($arg:tt)+) => { $crate::log::__log($crate::log::Level::Error, ::core::module_path!(), ::core::format_args!($($arg)+)) };",
+            "($left:expr, $right:expr $(,)?) => { $crate::testing::__assert_approx($left, $right, None, None) };",
+            "($a:tt $b:tt) => { $a $b };",
+            "($k:tt) => { ($k) { 1 } };",
+            "($k:tt) => { let x = $k; };",
+            "() => { $crate::f() };",
+        ] {
+            let text = format!("#[macro_export]\nmacro_rules! m {{\n    {arms}\n}}\n");
+            assert_eq!(
+                violations(&[("crates/text/src/lib.rs", &text)]),
+                Vec::<String>::new(),
+                "{arms}"
+            );
+        }
+        // Not exported: its braces are no other crate's.
+        assert_eq!(
+            violations(&[(
+                "crates/text/src/lib.rs",
+                "macro_rules! k1 {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n"
+            )]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_k1_shaped_macro_exported_from_sys_or_platform_fails() {
+        // It holds no `unsafe`, so the two crates' wrapper rule has nothing
+        // to see, but a doc test of a crate that uses it could pass its own
+        // `unsafe` through: the rule for that shape applies there too.
+        let k1 =
+            "#[macro_export]\nmacro_rules! k1 {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n";
+        let in_file = |path: &str| {
+            passes_unsafe_on(3, "k1", "k", "tt", &before("{")).replacen(
+                "crates/text/src/lib.rs",
+                path,
+                1,
+            )
+        };
+        assert_eq!(platform(k1), [in_file("crates/platform/src/window.rs")]);
+        assert_eq!(sys(k1), [in_file("crates/sys/src/linux/x11.rs")]);
+        // A macro of the two crates that is not exported is no other
+        // crate's, as sys's `dynlib!` is not.
+        assert_eq!(
+            sys("macro_rules! dynlib {\n    ($k:tt, $($t:tt)*) => { $k { $($t)* } };\n}\n"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn no_macro_defines_a_macro_in_any_crate() {
+        let generator = "macro_rules! define_wrap {\n    ($d:tt, $name:ident) => {\n        #[macro_export]\n        \
+                         macro_rules! $name {\n            ($d($d t:tt)*) => {{ $d($d t)* }};\n        }\n    };\n}\n\
+                         define_wrap!($, wrap_gen);\n";
+        let defines = |path: &str| {
+            format!(
+                "{path}:4: the macro `define_wrap` defines a macro (its body holds `macro_rules`): \
+                 what it makes is never written out, so no rule here can read it (ADR-0038)"
+            )
+        };
+        assert_eq!(
+            platform(generator),
+            [defines("crates/platform/src/window.rs")]
+        );
+        assert_eq!(sys(generator), [defines("crates/sys/src/linux/x11.rs")]);
+        assert_eq!(
+            violations(&[("crates/text/src/lib.rs", generator)]),
+            [defines("crates/text/src/lib.rs")]
+        );
+        // `macro_rules` passed to a macro, which could make one with it.
+        assert_eq!(
+            violations(&[(
+                "crates/text/src/lib.rs",
+                "make!(macro_rules, $);\nmake! { [macro_rules] }\n"
+            )]),
+            [1, 2].map(|line| format!(
+                "crates/text/src/lib.rs:{line}: `macro_rules` passed to a macro, which could \
+                     define a macro with it that no rule here reads (ADR-0038)"
+            ))
+        );
+        // A name of something else is fine.
+        assert_eq!(
+            violations(&[(
+                "crates/text/src/lib.rs",
+                "fn macro_rules() {}\nfn f(x: X) { x.macro_rules(); let macro_rules = 1; }\n"
+            )]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn include_str_may_not_be_defined_or_imported_outside_sys_and_platform() {
+        let path = "crates/text/src/lib.rs";
+        let shadows = |line: usize| {
+            format!(
+                "{path}:{line}: `include_str` as a name of its own, which defines or imports \
+                 something named like the standard macro: a macro of that name would take its \
+                 place in `doc = include_str!(...)`, and the audit would read another file than \
+                 rustdoc does (ADR-0038)"
+            )
+        };
+        for text in [
+            "macro_rules! include_str { ($x:literal) => { \"x\" }; }",
+            "use mac::my_inc as include_str;",
+            "use std::include_str;",
+            "use m::{include_str, other};",
+            "#[macro_export]\nmacro_rules! r#include_str { () => {} }",
+        ] {
+            assert_eq!(
+                violations(&[(path, text)]),
+                [shadows(text.lines().count())],
+                "{text}"
+            );
+        }
+        for text in [
+            "#[doc = include_str!(\"../README.md\")]\nstruct ReadmeDoctests;",
+            "const S: &str = ::std::include_str!(\"x\");",
+            "// macro_rules! include_str {}",
+            "const S: &str = \"include_str\";",
+        ] {
+            assert_eq!(violations(&[(path, text)]), Vec::<String>::new(), "{text}");
+        }
+        assert_eq!(
+            platform("macro_rules! include_str { () => {} }"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_package_nested_in_sys_or_platform_is_no_part_of_them() {
+        // Its files lose the two crates' exemptions: its doc tests are
+        // read, and `unsafe` in it is outside them. The crates' own files
+        // keep theirs.
+        let tree = TempTree::new("audit-nested-package");
+        tree.write("crates/sys/Cargo.toml", "");
+        tree.write(
+            "crates/sys/src/lib.rs",
+            "#![allow(unsafe_code)]\n//! ```\n//! unsafe { f() }\n//! ```\n",
+        );
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/sys/probe/Cargo.toml", "");
+        tree.write(
+            "crates/sys/probe/src/lib.rs",
+            "//! A probe nested in sys.\n//!\n//! ```\n//! unsafe { f() }\n//! ```\n\
+             fn g() {\n    // SAFETY: no.\n    unsafe { f() }\n}\n",
+        );
+        let (audit, _) = audit_tree(tree.path(), MAX_FILE_BYTES).unwrap();
+        assert_eq!(
+            audit.report().violations,
+            [
+                outside("crates/sys/probe/src/lib.rs", 8),
+                doc_test("crates/sys/probe/src/lib.rs", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_reader_s_mechanical_gaps_are_read_as_rustdoc_reads_them() {
+        // The minimal reproductions of ADR-0038's fixed gaps.
+        let path = "crates/text/src/lib.rs";
+        for (gap, text, line) in [
+            // 1: a closing fence is followed by spaces only, not a tab or
+            // other white space.
+            (
+                1,
+                "/// ```\n/// /*\n/// ```\t\n/// */ unsafe { f() }\n/// ```\nfn f() {}",
+                4,
+            ),
+            (
+                1,
+                "/// ```\n/// /*\n/// ```\u{a0}\n/// */ unsafe { f() }\n/// ```\nfn f() {}",
+                4,
+            ),
+            // 2: a list marker is followed by a space or a tab.
+            (
+                2,
+                "/// -\u{a0}item\n///\n///     unsafe { f() }\nfn f() {}",
+                3,
+            ),
+            (
+                2,
+                "/// -\u{c}item\n///\n///     unsafe { f() }\nfn f() {}",
+                3,
+            ),
+            (
+                2,
+                "/// 1.\u{a0}item\n///\n///     unsafe { f() }\nfn f() {}",
+                3,
+            ),
+            // 3: a line of other white space is text, not blank, nor a
+            // heading or a thematic break.
+            (
+                3,
+                "/// Text.\n/// \u{a0}\n///     /*\n///\n///     unsafe { f() } // */\nfn f() {}",
+                5,
+            ),
+            (
+                3,
+                "/// Text.\n/// #\u{a0}x\n///     /*\n///\n///     unsafe { f() } // */\nfn f() {}",
+                5,
+            ),
+            (
+                3,
+                "/// Text.\n/// *\u{a0}*\u{a0}*\n///     /*\n///\n///     unsafe { f() } // */\nfn f() {}",
+                5,
+            ),
+            // 4: an empty list item before a blank line closes.
+            (4, "/// -\n///\n///     unsafe { f() }\nfn f() {}", 3),
+            (4, "/// 10)\n///\n///     unsafe { f() }\nfn f() {}", 3),
+            // 5: a setext underline ends the paragraph.
+            (
+                5,
+                "/// Text.\n/// ===\n///     unsafe { f() }\nfn f() {}",
+                3,
+            ),
+            (5, "/// Text.\n/// -\n///     unsafe { f() }\nfn f() {}", 3),
+            (
+                5,
+                "/// - a\n///   ===\n///       unsafe { f() }\nfn f() {}",
+                3,
+            ),
+            // 11: a footnote definition is a container.
+            (
+                11,
+                "/// [^1]: ```\n///     unsafe { f() }\n///     ```\nfn f() {}",
+                2,
+            ),
+            (
+                11,
+                "/// [^n]: Text\n///     ```\n///     unsafe { f() }\n///     ```\nfn f() {}",
+                3,
+            ),
+            // 12: a CR is a line break, alone or before an LF.
+            (
+                12,
+                "#[doc = \"Text.\\r```\\nunsafe { f() }\\n```\"]\nfn f() {}",
+                1,
+            ),
+            (
+                12,
+                "#[doc = \"Text.\\x0d```\\nunsafe { f() }\\n```\"]\nfn f() {}",
+                1,
+            ),
+            (
+                12,
+                "#[doc = \"Text.\\u{d}```\\r\\nunsafe { f() }\\r\\n```\"]\nfn f() {}",
+                1,
+            ),
+            // 13: a CR LF file's block doc comment.
+            (
+                13,
+                "/**\r\n * Text.\r\n *\r\n *     unsafe { f() }\r\n */\r\nfn f() {}\r\n",
+                4,
+            ),
+            // 14: a last line of only `*` before `*/` is dropped.
+            (
+                14,
+                "/**\n * ```\n * unsafe { f() }\n * ```\n***\n*/\nfn f() {}",
+                3,
+            ),
+            (14, "/*!\n * ```\n * unsafe { f() }\n * ```\n*\n*/", 3),
+            // 16: `doc = "..."` that a macro turns into an attribute.
+            (
+                16,
+                "macro_rules! m { ($m:meta) => { #[$m] pub fn g() {} }; }\nm!(doc = \"```\\nunsafe { f() }\\n```\");",
+                2,
+            ),
+        ] {
+            assert_eq!(
+                violations(&[(path, text)]),
+                [doc_test(path, line)],
+                "gap {gap}: {text:?}"
+            );
+        }
+        // 16: `doc` that a macro completes cannot be read.
+        assert_eq!(
+            violations(&[(
+                path,
+                "macro_rules! m { ($($t:tt)*) => { #[doc $($t)*] pub fn g() {} }; }"
+            )]),
+            [unreadable_doc(path, 1)]
+        );
+    }
+
+    #[test]
+    fn an_included_file_breaks_lines_at_a_lone_cr_too() {
+        let tree = TempTree::new("audit-doc-include-cr");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/text\"]\n",
+        );
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write(
+            "crates/text/Cargo.toml",
+            "[package]\nname = \"text\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+        tree.write(
+            "crates/text/src/lib.rs",
+            format!("//! Text.\n{FORBID_IN_DOC_TESTS}\n\n#[doc = include_str!(\"../p.md\")]\npub fn f() {{}}\n"),
+        );
+        tree.write("crates/text/p.md", "Text.\r```\nunsafe { f() }\n```\n");
+        assert_eq!(
+            audit_with_crate_roots(&tree).0,
+            [doc_test("crates/text/p.md", 3).replacen(
+                ": a code block",
+                ": included as documentation by crates/text/src/lib.rs:4: a code block",
+                1
+            )]
         );
     }
 
@@ -1027,6 +2610,8 @@ mod tests {
             "// SAFETY: for `a`.\nunsafe { a() };\nunsafe { b() };",
             "// SAFETY: for the function.\nfn f() {\n    unsafe { g() }\n}",
             "// SAFETY: for `a`.\nf(unsafe { a() }, unsafe { b() });",
+            // A vertical tab is white space to rustc: this is a block.
+            "unsafe\u{b}{ *p }",
         ] {
             assert_eq!(platform(text).len(), 1, "{text}");
         }
@@ -1034,8 +2619,8 @@ mod tests {
 
     fn exported_wrapper(line: usize, what: &str, name: &str) -> String {
         format!(
-            "crates/platform/src/window.rs:{line}: `unsafe` {what} in the exported macro `{name}` \
-             wraps tokens its caller passes in (`$...`): they would run as `unsafe` in the \
+            "crates/platform/src/window.rs:{line}: `unsafe` {what} in the exported macro `{name}`, \
+             which takes tokens from its caller (`$...`): they could run as `unsafe` in the \
              caller's crate, where neither its `unsafe_code` lint nor this audit sees them, and no \
              `// SAFETY:` comment here can cover them. Make it a function, or leave the `unsafe` to \
              the caller"
@@ -1080,6 +2665,43 @@ mod tests {
                 5,
                 "block",
             ),
+            // Any `unsafe` in a macro that takes tokens, wherever they go:
+            // after it, in the body of an `unsafe fn` it writes, under the
+            // attribute form, or in an `unsafe extern` block.
+            (
+                "#[macro_export]\nmacro_rules! m {\n    ($e:expr) => {{\n        let x: i32 = $e;\n        \
+                 // SAFETY: `x` is only a number.\n        unsafe { f(x) }\n    }};\n}\n",
+                6,
+                "block",
+            ),
+            (
+                "#[macro_export]\nmacro_rules! in_unsafe_fn {\n    ($($t:tt)*) => {\n        \
+                 unsafe fn __body() { $($t)* }\n    };\n}\n",
+                4,
+                "fn",
+            ),
+            (
+                "#[macro_export]\nmacro_rules! unmangled {\n    ($i:item) => {\n        \
+                 #[unsafe(no_mangle)]\n        $i\n    };\n}\n",
+                4,
+                "attribute",
+            ),
+            (
+                "#[macro_export]\nmacro_rules! pod {\n    ($t:ty) => {\n        unsafe trait Pod {}\n    \
+                 };\n}\n",
+                4,
+                "trait",
+            ),
+            (
+                "#[macro_export]\nmacro_rules! kw {\n    ($k:tt) => { unsafe $k };\n}\n",
+                3,
+                "keyword",
+            ),
+            (
+                "#[macro_export]\nmacro_rules! ptr {\n    ($t:ty) => { type F = unsafe extern \"C\" fn($t); };\n}\n",
+                3,
+                "fn",
+            ),
         ] {
             let name = text
                 .split("macro_rules! ")
@@ -1092,16 +2714,46 @@ mod tests {
                 "{text}"
             );
         }
-        // Not exported, wrapping only `$crate` paths, a metavariable outside
-        // the block, or no `unsafe` at all: nothing to report.
+        // An exported macro with two forms reports each.
+        assert_eq!(
+            platform(
+                "#[macro_export]\nmacro_rules! both {\n    ($($t:tt)*) => {{\n        \
+                 unsafe fn body() { $($t)* }\n        // SAFETY: x.\n        unsafe { body() }\n    \
+                 }};\n}\n"
+            ),
+            [
+                exported_wrapper(4, "fn", "both"),
+                exported_wrapper(6, "block", "both")
+            ]
+        );
+        // A body that never closes runs to the end of the file.
+        assert_eq!(
+            platform(
+                "#[macro_export]\nmacro_rules! open {\n    ($e:expr) => {\n        // SAFETY: x.\n        \
+                 unsafe { $e }\n"
+            ),
+            [exported_wrapper(5, "block", "open")]
+        );
+        // An `unsafe extern` block, which only sys may declare.
+        assert_eq!(
+            sys(
+                "#[macro_export]\nmacro_rules! declare_c {\n    ($($t:tt)*) => {\n        \
+                 unsafe extern \"C\" { $($t)* }\n    };\n}\n"
+            ),
+            [exported_wrapper(4, "`extern` block", "declare_c").replace(
+                "crates/platform/src/window.rs",
+                "crates/sys/src/linux/x11.rs"
+            )]
+        );
+        // Not exported, wrapping only `$crate` paths, or no `unsafe` at all:
+        // nothing to report.
         for text in [
             "macro_rules! local {\n    ($e:expr) => {{\n        // SAFETY: x.\n        unsafe { $e }\n    \
              }};\n}\n",
             "#[macro_export]\nmacro_rules! pid {\n    () => {{\n        // SAFETY: no preconditions.\n        \
              unsafe { $crate::ffi::getpid() }\n    }};\n}\n",
-            "#[macro_export]\nmacro_rules! m {\n    ($e:expr) => {{\n        let x: i32 = $e;\n        \
-             // SAFETY: `x` is only a number.\n        unsafe { f(x) }\n    }};\n}\n",
             "#[macro_export]\nmacro_rules! id {\n    ($e:expr) => { $e };\n}\n",
+            "#[macro_export]\nmacro_rules! named {\n    ($e:expr) => { r#unsafe($e) };\n}\n",
         ] {
             assert_eq!(platform(text), Vec::<String>::new(), "{text}");
         }
@@ -1343,6 +2995,8 @@ mod tests {
                 "  tidepool-platform      4",
                 "Rust files scanned: 5",
                 "crate roots checked: 0",
+                "library crate roots that must forbid `unsafe` in doc tests: 0",
+                "code blocks of documentation read for `unsafe`: 0",
             ]
         );
     }
@@ -1587,14 +3241,14 @@ mod tests {
                  [lib]\npath = \"../../lib.rs\"\n"
             ),
         );
-        tree.write("lib.rs", "mod target;\n");
+        tree.write("lib.rs", format!("{FORBID_IN_DOC_TESTS}\nmod target;\n"));
         tree.write("target/mod.rs", "pub fn f() { unsafe { g() } }\n");
         tree.write("crates/build.rs", "fn main() {}\n");
         tree.write(
             "crates/core/Cargo.toml",
             format!("{package}name = \"core\"\n\n[lib]\npath = \"../core/src/lib.rs\"\n"),
         );
-        tree.write("crates/core/src/lib.rs", "");
+        tree.write("crates/core/src/lib.rs", format!("{FORBID_IN_DOC_TESTS}\n"));
         let (mut audit, manifests) = audit_tree(tree.path(), MAX_FILE_BYTES).unwrap();
         audit.crate_roots(tree.path(), &manifests);
         let report = audit.report();
@@ -1620,10 +3274,388 @@ mod tests {
         );
     }
 
+    // --- Doc tests (ADR-0036) ---
+
+    /// Whether `text` carries the attribute as [`File`] sees it.
+    fn forbids(text: &str) -> bool {
+        File::new(&lexer::lex(text)).forbids_unsafe_in_doc_tests()
+    }
+
+    #[test]
+    fn only_the_exact_attribute_at_crate_level_forbids_unsafe_in_doc_tests() {
+        for text in [
+            "#![doc(test(attr(forbid(unsafe_code))))]",
+            "//! Docs.\n\n// Why.\n#![doc(test(attr(forbid(unsafe_code))))]\n\npub mod a;\n",
+            "#![allow(dead_code)]\n#![doc(test(attr(forbid(unsafe_code))))]\n",
+            // Whitespace and comments between the tokens do not matter.
+            "#! [ doc ( test ( attr ( forbid ( unsafe_code ) ) ) ) ]",
+            "#![doc(\n    test(attr(forbid(unsafe_code)))\n)]",
+            "#![doc(test(/* for README examples too */ attr(forbid(unsafe_code))))]",
+            // After code at depth 0 that opens and closes what it opens.
+            "#![cfg_attr(test, allow(dead_code))]\n#![doc(test(attr(forbid(unsafe_code))))]",
+            // On line 1 it is an inner attribute, not a shebang: the first
+            // token after the `#!` is `[`, past rustc's white space (vertical
+            // tab and U+200E included) and comments that are not doc
+            // comments, on any line. A byte-order mark before it is dropped.
+            "\u{feff}#![doc(test(attr(forbid(unsafe_code))))]",
+            "#!\n[doc(test(attr(forbid(unsafe_code))))]",
+            "#!\u{b}\u{200e}[doc(test(attr(forbid(unsafe_code))))]",
+            "#! // why\n[doc(test(attr(forbid(unsafe_code))))]",
+            "#!/* why */[doc(test(attr(forbid(unsafe_code))))]",
+            "#!/***/ //// \n[doc(test(attr(forbid(unsafe_code))))]",
+            // After a shebang, which rustc drops, the next line is code: an
+            // open quote there does not make the attribute a string.
+            "#!/usr/bin/env x \"\n#![doc(test(attr(forbid(unsafe_code))))]\n// \"",
+        ] {
+            assert!(forbids(text), "{text}");
+        }
+        for text in [
+            // Missing.
+            "",
+            "//! Docs.\n\npub mod a;\n",
+            "#![forbid(unsafe_code)]",
+            "#![doc(test(attr(forbid(unsafe_op_in_unsafe_fn))))]",
+            // Not code.
+            "// #![doc(test(attr(forbid(unsafe_code))))]",
+            "/* #![doc(test(attr(forbid(unsafe_code))))] */",
+            "//! ```\n//! #![doc(test(attr(forbid(unsafe_code))))]\n//! ```\n",
+            "/// #![doc(test(attr(forbid(unsafe_code))))]\nfn f() {}",
+            "const S: &str = \"#![doc(test(attr(forbid(unsafe_code))))]\";",
+            "#![doc = \"test(attr(forbid(unsafe_code)))\"]",
+            // Under `cfg_attr`.
+            "#![cfg_attr(all(), doc(test(attr(forbid(unsafe_code)))))]",
+            "#![cfg_attr(doctest, doc(test(attr(forbid(unsafe_code)))))]",
+            // Other lints in the same `attr`, or anything else beside it.
+            "#![doc(test(attr(forbid(unsafe_code, missing_docs))))]",
+            "#![doc(test(attr(forbid(missing_docs, unsafe_code))))]",
+            "#![doc(test(attr(forbid(unsafe_code), deny(warnings))))]",
+            "#![doc(test(attr(deny(warnings), forbid(unsafe_code))))]",
+            "#![doc(test(attr(forbid(unsafe_code,))))]",
+            "#![doc(test(no_crate_inject, attr(forbid(unsafe_code))))]",
+            // A level a doc test could relax.
+            "#![doc(test(attr(deny(unsafe_code))))]",
+            "#![doc(test(attr(warn(unsafe_code))))]",
+            // An outer attribute, which documents one item.
+            "#[doc(test(attr(forbid(unsafe_code))))]\nmod m {}",
+            "#[doc(test(attr(forbid(unsafe_code))))]",
+            // Not at crate level: in a module, a function, a macro.
+            "mod m {\n    #![doc(test(attr(forbid(unsafe_code))))]\n}\n",
+            "pub mod a {\n    pub mod b {\n        #![doc(test(attr(forbid(unsafe_code))))]\n    }\n}\n",
+            "mod m {\n#![doc(test(attr(forbid(unsafe_code))))]",
+            "fn f() {\n    #![doc(test(attr(forbid(unsafe_code))))]\n}",
+            "macro_rules! m {\n    () => { #![doc(test(attr(forbid(unsafe_code))))] };\n}",
+            "m!(#![doc(test(attr(forbid(unsafe_code))))]);",
+            "m![#![doc(test(attr(forbid(unsafe_code))))]];",
+            // Raw identifiers: rustc reads them, but this form is not the one.
+            "#![r#doc(test(attr(forbid(unsafe_code))))]",
+            "#![doc(r#test(attr(forbid(unsafe_code))))]",
+            "#![doc(test(r#attr(forbid(unsafe_code))))]",
+            "#![doc(test(attr(r#forbid(unsafe_code))))]",
+            "#![doc(test(attr(forbid(r#unsafe_code))))]",
+            // Cut short, or after a closer with nothing open.
+            "#![doc(test(attr(forbid(unsafe_code))))",
+            "#![doc(test(attr(forbid(unsafe_code)))]",
+            "}\n#![doc(test(attr(forbid(unsafe_code))))]",
+            // On a shebang line, which rustc drops: one that starts with
+            // `#!` where the first token after it is not `[` (a doc comment
+            // counts as one), up to its line break.
+            "#!/x #![doc(test(attr(forbid(unsafe_code))))]",
+            "#!#![doc(test(attr(forbid(unsafe_code))))]",
+            "#!/usr/bin/env -S cargo +nightly -Zscript #![doc(test(attr(forbid(unsafe_code))))]",
+            "\u{feff}#!/x #![doc(test(attr(forbid(unsafe_code))))]",
+            "#!/x #![doc(test(attr(forbid(unsafe_code))))]\r\nfn f() {}\r\n",
+            "#! /// a doc comment comes first [doc(test(attr(forbid(unsafe_code))))]",
+            "#!//! a doc comment comes first\n[doc(test(attr(forbid(unsafe_code))))]",
+            "#!/** a doc comment comes first */[doc(test(attr(forbid(unsafe_code))))]",
+            "#!/*! a doc comment comes first */[doc(test(attr(forbid(unsafe_code))))]",
+            "#!/* never closed [doc(test(attr(forbid(unsafe_code))))]",
+            // A character outside ASCII that is not white space joins the
+            // word before it, as it does for rustc: `unsafe_codé` is an
+            // unknown lint, `attŕ` an unknown attribute.
+            "#![doc(test(attr(forbid(unsafe_code\u{301}))))]",
+            "#![doc(test(attr\u{301}(forbid(unsafe_code))))]",
+            "#![doc(test\u{301}(attr(forbid(unsafe_code))))]",
+            "#![doc(test(attr(forbid\u{301}(unsafe_code))))]",
+            "#![doc\u{301}(test(attr(forbid(unsafe_code))))]",
+            "#![doc(test(attr(forbid(unsafe_code\u{200d}))))]",
+            "#![doc(test(attr(forbid(unsafe_code\u{200c}))))]",
+            "#![doc(test(attr(forbid(unsafe_code\u{fe0f}))))]",
+            "#![doc(test(attr(forbid(unsafe_code\u{ad}))))]",
+            "#![doc(test(attr(forbid(unsafe_code\u{feff}))))]",
+            "#![doc(test(attr(forbid(\u{301}unsafe_code))))]",
+            "#![doc(test(attr(forbid(unsafe_codé))))]",
+        ] {
+            assert!(!forbids(text), "{text}");
+        }
+    }
+
+    /// The violation for the library target `name` of the package
+    /// `package`, of the kinds `kind`, whose crate root `src` lacks the
+    /// attribute.
+    fn lets_doc_tests_use_unsafe(src: &str, kind: &str, name: &str, package: &str) -> String {
+        format!(
+            "{src}: the {kind} target `{name}` of `{package}` does not forbid `unsafe` in its doc \
+             tests, and rustdoc does not apply the workspace's `unsafe_code` lint to them. Add \
+             this line to its crate root after the `//!` doc comment, exactly as written (an \
+             inner attribute at crate level, not under `cfg_attr`, with nothing else in it): \
+             `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036)"
+        )
+    }
+
+    /// The sorted violations and the notes of a whole audit of `tree`,
+    /// crate roots included.
+    fn audit_with_crate_roots(tree: &TempTree) -> (Vec<String>, Vec<String>) {
+        let (mut audit, manifests) = audit_tree(tree.path(), MAX_FILE_BYTES).unwrap();
+        audit.crate_roots(tree.path(), &manifests);
+        let mut report = audit.report();
+        report.violations.sort();
+        (report.violations, report.notes)
+    }
+
+    #[test]
+    fn every_library_crate_root_but_the_two_crates_forbids_unsafe_in_doc_tests() {
+        let tree = TempTree::new("audit-doc-tests");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/*\"]\n",
+        );
+        let package = |name: &str| {
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n")
+        };
+        // The two crates' libraries need nothing.
+        tree.write("crates/sys/Cargo.toml", package("tidepool-sys"));
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/Cargo.toml", package("tidepool-platform"));
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        // A library without it fails; its other targets need nothing: a
+        // test, a build script, an example with a crate type of its own.
+        tree.write(
+            "crates/text/Cargo.toml",
+            format!(
+                "{}\n[[example]]\nname = \"e\"\ncrate-type = [\"staticlib\"]\n",
+                package("text")
+            ),
+        );
+        tree.write("crates/text/src/lib.rs", "//! Text.\n\npub fn f() {}\n");
+        tree.write("crates/text/tests/t.rs", "#[test]\nfn t() {}\n");
+        tree.write("crates/text/build.rs", "fn main() {}\n");
+        tree.write("crates/text/examples/e.rs", "//! An example.\n");
+        // Every crate type of a library counts.
+        tree.write(
+            "crates/ffi/Cargo.toml",
+            format!("{}\n[lib]\ncrate-type = [\"cdylib\"]\n", package("ffi")),
+        );
+        tree.write("crates/ffi/src/lib.rs", "//! FFI.\n");
+        // A binary needs nothing, beside a library or alone.
+        tree.write("crates/both/Cargo.toml", package("both"));
+        tree.write(
+            "crates/both/src/lib.rs",
+            format!("//! Both.\n\n// Why.\n{FORBID_IN_DOC_TESTS}\n\npub fn f() {{}}\n"),
+        );
+        tree.write("crates/both/src/main.rs", "fn main() {}\n");
+        tree.write("crates/app/Cargo.toml", package("app"));
+        tree.write("crates/app/src/main.rs", "fn main() {}\n");
+
+        let (violations, notes) = audit_with_crate_roots(&tree);
+        let mut expected = [
+            lets_doc_tests_use_unsafe("crates/text/src/lib.rs", "lib", "text", "text"),
+            lets_doc_tests_use_unsafe("crates/ffi/src/lib.rs", "cdylib", "ffi", "ffi"),
+        ];
+        expected.sort();
+        assert_eq!(violations, expected);
+        // sys 1, platform 1, text 4, ffi 1, both 2, app 1; the libraries of
+        // text, ffi and both.
+        for note in [
+            "crate roots checked: 10",
+            "library crate roots that must forbid `unsafe` in doc tests: 3",
+        ] {
+            assert!(notes.contains(&note.to_string()), "{note}: {notes:?}");
+        }
+
+        // With the attribute, they pass.
+        for dir in ["text", "ffi"] {
+            tree.write(
+                &format!("crates/{dir}/src/lib.rs"),
+                format!("//! Docs.\n{FORBID_IN_DOC_TESTS}\n"),
+            );
+        }
+        assert_eq!(audit_with_crate_roots(&tree).0, Vec::<String>::new());
+    }
+
+    /// The violation for the proc-macro target `name` of `package`, whose
+    /// crate root is `src`.
+    fn proc_macro(src: &str, name: &str, package: &str) -> String {
+        format!(
+            "{src}: the proc-macro target `{name}` of `{package}` is a proc-macro crate, which no \
+             workspace under the repository may have, tidepool-sys and tidepool-platform \
+             included: a proc macro can make the `unsafe` keyword from a string, with a span for \
+             which rustc skips the `unsafe_code` lint, and this audit reads only the string \
+             (ADR-0037)"
+        )
+    }
+
+    #[test]
+    fn no_workspace_may_have_a_proc_macro_crate_sys_and_platform_included() {
+        // Each gets that violation alone, with the doc-test attribute or
+        // without it: a proc macro is no library to ask for the line.
+        let tree = TempTree::new("audit-proc-macro");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/*\"]\n",
+        );
+        let package = |name: &str| {
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+                 [lib]\nproc-macro = true\n"
+            )
+        };
+        tree.write("crates/sys/Cargo.toml", package("tidepool-sys"));
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/Cargo.toml", package("tidepool-platform"));
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/gfx/Cargo.toml", package("gfx"));
+        tree.write(
+            "crates/gfx/src/lib.rs",
+            format!("//! Gfx.\n{FORBID_IN_DOC_TESTS}\n"),
+        );
+        tree.write("crates/plain/Cargo.toml", package("plain"));
+        tree.write("crates/plain/src/lib.rs", "//! Plain.\n");
+        let (violations, notes) = audit_with_crate_roots(&tree);
+        let mut expected = [
+            proc_macro("crates/sys/src/lib.rs", "tidepool_sys", "tidepool-sys"),
+            proc_macro(
+                "crates/platform/src/lib.rs",
+                "tidepool_platform",
+                "tidepool-platform",
+            ),
+            proc_macro("crates/gfx/src/lib.rs", "gfx", "gfx"),
+            proc_macro("crates/plain/src/lib.rs", "plain", "plain"),
+        ];
+        expected.sort();
+        assert_eq!(violations, expected);
+        assert!(
+            notes.contains(
+                &"library crate roots that must forbid `unsafe` in doc tests: 0".to_string()
+            ),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn only_the_two_crates_by_name_and_directory_are_exempt() {
+        // A package in sys's directory under another name, and one named
+        // like platform elsewhere, are libraries like any other.
+        let tree = TempTree::new("audit-doc-tests-exempt");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/sys\", \"crates/plat\"]\n",
+        );
+        tree.write(
+            "crates/sys/Cargo.toml",
+            "[package]\nname = \"not-sys\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write(
+            "crates/plat/Cargo.toml",
+            "[package]\nname = \"tidepool-platform\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
+        tree.write("crates/plat/src/lib.rs", "//! Not platform.\n");
+        let mut expected = [
+            lets_doc_tests_use_unsafe("crates/sys/src/lib.rs", "lib", "not_sys", "not-sys"),
+            lets_doc_tests_use_unsafe(
+                "crates/plat/src/lib.rs",
+                "lib",
+                "tidepool_platform",
+                "tidepool-platform",
+            ),
+        ];
+        expected.sort();
+        assert_eq!(audit_with_crate_roots(&tree).0, expected);
+    }
+
+    #[test]
+    fn a_library_crate_root_the_audit_could_not_read_is_reported_only_as_that() {
+        // Both carry the line, but the audit read neither: one is not
+        // UTF-8, the other is over the bound. It cannot tell, and says so
+        // once, rather than also asking for a line that is there.
+        let tree = TempTree::new("audit-doc-tests-unread");
+        tree.write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"crates/latin\", \"crates/big\"]\n",
+        );
+        tree.write("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        tree.write("crates/platform/src/lib.rs", "#![allow(unsafe_code)]\n");
+        let package = |name: &str| {
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n")
+        };
+        tree.write("crates/latin/Cargo.toml", package("latin"));
+        tree.write(
+            "crates/latin/src/lib.rs",
+            [
+                format!("{FORBID_IN_DOC_TESTS}\n").as_bytes(),
+                b"//! Caf\xe9.\n",
+            ]
+            .concat(),
+        );
+        tree.write("crates/big/Cargo.toml", package("big"));
+        tree.write(
+            "crates/big/src/lib.rs",
+            format!("{FORBID_IN_DOC_TESTS}\n{}\n", "// ".repeat(30)),
+        );
+        let (mut audit, manifests) = audit_tree(tree.path(), 64).unwrap();
+        audit.crate_roots(tree.path(), &manifests);
+        let report = audit.report();
+        assert_eq!(
+            report.violations,
+            [
+                "crates/big/src/lib.rs: larger than 64 bytes, so it was not audited",
+                "crates/latin/src/lib.rs: not UTF-8, so it was not audited",
+            ]
+        );
+        assert!(
+            report.notes.contains(
+                &"library crate roots that must forbid `unsafe` in doc tests: 0".to_string()
+            ),
+            "{:?}",
+            report.notes
+        );
+    }
+
+    #[test]
+    fn library_kinds() {
+        for kind in [
+            "lib",
+            "rlib",
+            "dylib",
+            "cdylib",
+            "staticlib",
+            "cdylib, rlib",
+        ] {
+            assert!(is_library(kind), "{kind}");
+        }
+        // A proc macro is banned instead (ADR-0037).
+        for kind in [
+            "proc-macro",
+            "bin",
+            "test",
+            "bench",
+            "example",
+            "custom-build",
+            "",
+        ] {
+            assert!(!is_library(kind), "{kind}");
+        }
+    }
+
     #[test]
     fn a_missing_crate_root_is_a_violation() {
         let mut audit = Audit::default();
-        audit.file("crates/sys/src/lib.rs", "#![allow(unsafe_code)]\n");
+        audit.file(
+            "crates/sys/src/lib.rs",
+            Path::new("crates/sys/src/lib.rs"),
+            "#![allow(unsafe_code)]\n",
+        );
         assert_eq!(
             audit.report().violations,
             ["crates/platform/src/lib.rs was not found: is this the repository root?"]

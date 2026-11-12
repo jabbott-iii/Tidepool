@@ -22,6 +22,11 @@
 //! says so in its header. Tidepool does not depend on Nadir. This crate has
 //! no dependencies, no `unsafe` and no OS-specific code.
 
+// rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
+// so this forbids `unsafe` in them, README examples included (ADR-0036).
+// `cargo xtask unsafe-audit` enforces that this line is here.
+#![doc(test(attr(forbid(unsafe_code))))]
+
 pub mod cancel;
 pub mod civil;
 pub mod cli;

@@ -16,7 +16,7 @@ Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). 
 | Style | Means |
 | :- | :- |
 | Blue box | A component the code has: a crate, a module, or a file of tests |
-| White box with a dashed border | Planned: a crate that is only its doc comment, or a part not built yet; the label names the task that builds it |
+| White box with a dashed border | Planned: a crate that is only its doc comment (and what every library carries, ADR-0028, ADR-0036), or a part not built yet; the label names the task that builds it |
 | Blue circle | An interface the code provides, named by its public items |
 | White circle with a dashed border | A planned interface, labelled with the task that adds it |
 | Solid line between a box and a circle | The box provides the interface |
@@ -33,7 +33,8 @@ Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). 
 - An arrow between two crates is allowed by the using crate's row in the
   dependency matrix. Arrows inside one crate join its modules.
 - A box that has code is drawn solid even where part of it is planned; its
-  label says which part. A crate that is only its doc comment is drawn
+  label says which part. A crate that is only its doc comment, and for a
+  library what every library carries (ADR-0028, ADR-0036), is drawn
   planned, with the tasks that give it code.
 - A subsystem too big for one readable diagram is drawn in several, so the
   same component can appear in more than one.

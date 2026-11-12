@@ -17,7 +17,8 @@ Layer 2, services. It may use `core`, as its row of the dependency matrix in
 Version 0.1, not published (`publish = false`): the API changes as the
 roadmap needs.
 
-Nothing yet: the crate is only its doc comment, which names its spec.
+Nothing yet: besides what every library carries (ADR-0028, ADR-0036),
+the crate is only its doc comment, which names its spec.
 
 Not yet, with the roadmap task that adds it:
 
@@ -43,8 +44,9 @@ and `a11y` land in M3.1.
 
 ## Rules
 
-- `unsafe` is denied by the workspace lint, and `cargo xtask unsafe-audit`
-  checks.
+- `unsafe` is denied by the workspace lint, and in doc tests by the crate
+  root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
+  `cargo xtask unsafe-audit` checks both.
 - Path-scoped rules in `.claude/rules/`:
   [`ui-style.md`](../../.claude/rules/ui-style.md),
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its

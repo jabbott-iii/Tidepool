@@ -29,6 +29,11 @@
 //! Parts of this crate are ported from Nadir's `nadir-codec` (same owner);
 //! each ported file says so in its header. Tidepool does not depend on Nadir.
 
+// rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
+// so this forbids `unsafe` in them, README examples included (ADR-0036).
+// `cargo xtask unsafe-audit` enforces that this line is here.
+#![doc(test(attr(forbid(unsafe_code))))]
+
 mod error;
 pub mod json;
 mod limits;

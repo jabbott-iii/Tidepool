@@ -75,7 +75,16 @@ up on:
 - **`unsafe` lives in `tidepool-sys` and `tidepool-platform` only.** Each
   `unsafe` block has a `// SAFETY:` comment saying why it is sound, each
   `pub unsafe fn` a `# Safety` section, and raw OS declarations live only
-  in `tidepool-sys`. `cargo xtask unsafe-audit` enforces this.
+  in `tidepool-sys`. Every other library's crate root carries
+  `#![doc(test(attr(forbid(unsafe_code))))]` after its `//!` doc comment,
+  since the workspace lint does not reach doc tests (ADR-0036). Doc-test
+  code outside the two crates may not hold the word `unsafe` at all, even
+  in an `ignore` block, and there are no proc-macro crates (ADR-0037).
+  No exported macro, in any crate, may put a caller's `tt` or `ident`
+  right before braces, `fn`, `impl`, `trait`, `extern` or `static`
+  it writes (use `path`, `ty` or `vis`), and no macro may define a macro
+  (ADR-0038).
+  `cargo xtask unsafe-audit` enforces this.
 - **Platform `cfg` stays in a few places:** `#[cfg(target_os = ...)]`
   appears only in `sys`, `platform`, `toolchain`'s install plans and
   `xtask`'s packaging, apart from one `#[cfg(unix)]` in `text::file`
@@ -138,7 +147,7 @@ Windows, and the same commands CI runs:
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
 | `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks one of `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License`, has one twice or out of that order, or names a task the roadmap does not have; or its `LICENSE` or `NOTICE` is missing or not byte for byte the root's |
 | `cargo xtask features` | Fails if a ticked roadmap task belongs to no feature in `docs/features.jsonc`, a feature names a task the roadmap lacks, or a feature's `ticked` is not what the roadmap ticks |
-| `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment |
+| `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment, or if another library's crate root lacks `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036), its doc-test code holds `unsafe`, or a crate is a proc macro (ADR-0037), or a macro could let a caller's `unsafe` reach braces or an item it writes, or defines a macro (ADR-0038) |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |

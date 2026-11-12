@@ -25,6 +25,15 @@
 //!
 //! The lexer never fails and never panics: text that is not valid Rust
 //! gives some answer, and the compiler is the one to complain about it.
+//!
+//! What rustc never reads as code, the lexer skips as well: a byte-order
+//! mark, then a shebang line (`#!/usr/bin/env ...`), as rustc defines one
+//! ([`prelude_len`]). Read as code, a shebang line could pass for an
+//! attribute, and an open quote or `/*` in it would hide the code after it.
+//! White space is rustc's: Unicode's `Pattern_White_Space`, vertical tab
+//! included. Every other character outside ASCII is part of a word, as it
+//! is to rustc, which either takes it into an identifier or rejects the
+//! file: a combining mark after a word changes the word.
 
 /// What kind of code a [`Token`] is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,7 +164,9 @@ pub(crate) fn lex(text: &str) -> Lexed<'_> {
     let mut lexer = Lexer {
         text,
         bytes: text.as_bytes(),
-        pos: 0,
+        // A shebang line ends before its line break, so the line count
+        // stays right.
+        pos: prelude_len(text),
         line: 1,
         lexed: Lexed::default(),
     };
@@ -171,20 +182,119 @@ pub(crate) fn lex(text: &str) -> Lexed<'_> {
                 lexer.literal(start, line);
             }
             b'\'' => lexer.quote(),
-            _ if byte.is_ascii_whitespace() => lexer.pos += 1,
+            // A vertical tab too, which `is_ascii_whitespace` leaves out:
+            // rustc reads `unsafe\x0B{` as an `unsafe` block.
+            _ if byte.is_ascii_whitespace() || byte == 0x0b => lexer.pos += 1,
             _ => match lexer.peek_char() {
                 Some(character) if is_word_char(character) => lexer.word(),
                 Some(character) if character.is_ascii() => {
                     lexer.token(TokenKind::Punct, lexer.pos, lexer.pos + 1, lexer.line);
                     lexer.pos += 1;
                 }
-                // Anything else separates tokens, as white space does.
+                // rustc's white space outside ASCII.
                 Some(character) => lexer.pos += character.len_utf8(),
                 None => lexer.pos += 1,
             },
         }
     }
     lexer.lexed
+}
+
+/// The byte-order mark that rustc drops from the start of a file.
+const BOM: &str = "\u{feff}";
+
+/// How many bytes at the start of `text` rustc drops before it reads any
+/// code: a byte-order mark, then a shebang line. As `rustc_lexer`'s
+/// `strip_shebang` has it, a shebang line is one that starts with `#!`
+/// (right after the mark, if any), unless the first token after the `#!`,
+/// past white space and comments that are not doc comments, on any line,
+/// is `[`: then the `#!` begins an inner attribute. It ends before the line
+/// break, which rustc keeps.
+fn prelude_len(text: &str) -> usize {
+    let bom = if text.starts_with(BOM) { BOM.len() } else { 0 };
+    let after = text.get(bom..).unwrap_or("");
+    match after.strip_prefix("#!") {
+        Some(rest) if !starts_with_bracket(rest) => bom + after.find('\n').unwrap_or(after.len()),
+        _ => bom,
+    }
+}
+
+/// Whether the first token of `text`, past white space and comments that
+/// are not doc comments, is `[`. An unterminated comment, a doc comment or
+/// the end of the text comes first otherwise.
+fn starts_with_bracket(text: &str) -> bool {
+    let mut rest = text;
+    loop {
+        rest = rest.trim_start_matches(is_rustc_whitespace);
+        if let Some(body) = rest.strip_prefix("//") {
+            // `//!` and `///` are doc comments; `////` is not.
+            if body.starts_with('!') || (body.starts_with('/') && !body.starts_with("//")) {
+                return false;
+            }
+            rest = body
+                .find('\n')
+                .and_then(|end| body.get(end..))
+                .unwrap_or("");
+        } else if let Some(body) = rest.strip_prefix("/*") {
+            // `/*!` and `/**` are doc comments; `/***` and `/**/` are not.
+            if body.starts_with('!')
+                || (body.starts_with('*') && !body.starts_with("**") && !body.starts_with("*/"))
+            {
+                return false;
+            }
+            match after_block_comment(body) {
+                Some(after) => rest = after,
+                None => return false,
+            }
+        } else {
+            return rest.starts_with('[');
+        }
+    }
+}
+
+/// What follows the block comment whose body (after its `/*`) starts
+/// `body`, counting nested comments as rustc does; `None` if it does not
+/// end.
+fn after_block_comment(body: &str) -> Option<&str> {
+    let bytes = body.as_bytes();
+    let mut depth = 1_usize;
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        at += 1;
+        match (byte, bytes.get(at)) {
+            (b'/', Some(b'*')) => {
+                at += 1;
+                depth += 1;
+            }
+            (b'*', Some(b'/')) => {
+                at += 1;
+                depth -= 1;
+                if depth == 0 {
+                    return body.get(at..);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether rustc's lexer reads `character` as white space: Unicode's
+/// `Pattern_White_Space`.
+fn is_rustc_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\t' | '\n'
+            | '\u{b}'
+            | '\u{c}'
+            | '\r'
+            | ' '
+            | '\u{85}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{2028}'
+            | '\u{2029}'
+    )
 }
 
 /// Whether `byte` can start the name of a raw identifier (`r#name`). Names
@@ -196,11 +306,15 @@ fn is_word_start(byte: u8) -> bool {
 
 /// Whether `character` can be part of an identifier, keyword or number.
 ///
-/// Outside ASCII only letters and digits count. A byte-order mark or an
-/// exotic space next to `unsafe` therefore cannot hide the keyword by
-/// becoming part of the word.
+/// In ASCII, letters, digits and `_`. Outside ASCII, every character that
+/// is not rustc's white space, as rustc reads it: it either takes the
+/// character into the identifier (a combining mark after `unsafe_code`
+/// makes `unsafe_codé`, an unknown lint) or rejects the file, so nothing
+/// next to a word can be invisible to rustc and a separator here.
 fn is_word_char(character: char) -> bool {
-    character == '_' || character.is_alphanumeric()
+    character == '_'
+        || character.is_ascii_alphanumeric()
+        || (!character.is_ascii() && !is_rustc_whitespace(character))
 }
 
 struct Lexer<'a> {
@@ -554,15 +668,115 @@ mod tests {
     }
 
     #[test]
-    fn characters_that_are_not_letters_do_not_hide_a_keyword() {
-        for stray in ['\u{feff}', '\u{a0}', '\u{200e}', '\u{2028}', '\u{1F600}'] {
+    fn rustc_s_white_space_separates_words_and_nothing_else_outside_ascii_does() {
+        // rustc's white space (Pattern_White_Space) separates, as ASCII
+        // white space does.
+        for space in [
+            '\u{b}', '\u{85}', '\u{200e}', '\u{200f}', '\u{2028}', '\u{2029}',
+        ] {
             assert_eq!(
-                code(&format!("{stray}unsafe{stray}{{{stray}}}")),
+                code(&format!("{space}unsafe{space}{{{space}}}")),
                 ["unsafe", "{", "}"],
-                "{stray:?}"
+                "{space:?}"
             );
-            assert_eq!(code(&format!("r#type{stray}unsafe")), ["type", "unsafe"]);
+            assert_eq!(code(&format!("r#type{space}unsafe")), ["type", "unsafe"]);
         }
+        // Any other character outside ASCII is part of the word, as rustc
+        // takes it into the identifier or rejects the file: `unsafe` with a
+        // combining mark is `unsafé`, an identifier, not the keyword.
+        for joined in [
+            '\u{301}',
+            '\u{200d}',
+            '\u{feff}',
+            '\u{a0}',
+            '\u{ad}',
+            '\u{1F600}',
+            'é',
+        ] {
+            let word = format!("unsafe{joined}");
+            assert_eq!(
+                code(&format!("{word} {{}}")),
+                [word.as_str(), "{", "}"],
+                "{joined:?}"
+            );
+            assert_eq!(unsafe_count(&format!("{word} {{}}")), 0, "{joined:?}");
+            let lint = format!("unsafe_code{joined}");
+            assert_eq!(
+                code(&format!("allow({lint})")),
+                ["allow", "(", lint.as_str(), ")"]
+            );
+        }
+        assert_eq!(code("unsafe\u{301}"), ["unsafe\u{301}"]);
+        // A byte-order mark at the very start is dropped, as rustc drops it.
+        assert_eq!(code("\u{feff}unsafe {}"), ["unsafe", "{", "}"]);
+    }
+
+    #[test]
+    fn a_shebang_line_is_skipped_as_rustc_skips_it() {
+        // Each is a shebang line, which rustc drops up to its line break:
+        // the next line is code, and nothing on this one is, not even an
+        // open quote or comment.
+        for shebang in [
+            "#!/usr/bin/env run-cargo-script",
+            "#!",
+            "#! ",
+            "#!/x \"",
+            "#!/x r#\"",
+            "#!/x /*",
+            "#!/x #![allow(unsafe_code)]",
+            // The first token after the `#!` is not `[`.
+            "#!#![allow(unsafe_code)]",
+            "#!\u{feff}[allow(unsafe_code)]",
+            // A doc comment is a token.
+            "#! /// doc [allow(unsafe_code)]",
+            "#!//! doc [allow(unsafe_code)]",
+            "#!/** doc */[allow(unsafe_code)]",
+            "#!/*! doc */[allow(unsafe_code)]",
+            // An unterminated comment runs to the end.
+            "#!/* never closed [allow(unsafe_code)]",
+            // After a byte-order mark, which rustc drops too.
+            "\u{feff}#!/x \"",
+        ] {
+            for end in ["\n", "\r\n"] {
+                let text = format!("{shebang}{end}unsafe {{}}");
+                let lexed = lex(&text);
+                assert_eq!(code(&text), ["unsafe", "{", "}"], "{text:?}");
+                assert_eq!(lexed.tokens.first().map(|t| t.line), Some(2), "{text:?}");
+                assert_eq!(lexed.comments, [], "{text:?}");
+            }
+        }
+        assert_eq!(code("#!/x"), Vec::<&str>::new());
+
+        // Each starts an inner attribute: the first token after the `#!`,
+        // past rustc's white space and comments that are not doc comments,
+        // on any line, is `[`.
+        let attribute = ["#", "!", "[", "allow", "(", "unsafe_code", ")", "]"];
+        for text in [
+            "#![allow(unsafe_code)]",
+            "\u{feff}#![allow(unsafe_code)]",
+            "#! [allow(unsafe_code)]",
+            "#!\n[allow(unsafe_code)]",
+            "#!\r\n[allow(unsafe_code)]",
+            "#!\t\u{b}\u{c}\r\u{85}\u{200e}\u{200f}\u{2028}\u{2029}[allow(unsafe_code)]",
+            "#! // a comment\n[allow(unsafe_code)]",
+            "#!//// not a doc comment\n[allow(unsafe_code)]",
+            "#!/* a comment */[allow(unsafe_code)]",
+            "#!/* nested /* comments */ end */[allow(unsafe_code)]",
+            "#!/*** not a doc comment */[allow(unsafe_code)]",
+            "#!/**/[allow(unsafe_code)]",
+        ] {
+            assert_eq!(code(text), attribute, "{text:?}");
+        }
+
+        // Only at the very start of the file.
+        for text in [" #!/x", "\n#!/x", "// c\n#!/x"] {
+            assert_eq!(code(text), ["#", "!", "/", "x"], "{text:?}");
+        }
+        // rustc drops one byte-order mark: a second is a character of code.
+        assert_eq!(
+            code("\u{feff}\u{feff}#!/x"),
+            ["\u{feff}", "#", "!", "/", "x"]
+        );
     }
 
     #[test]
@@ -862,6 +1076,9 @@ mod tests {
             "'\\",
             "\\\n",
             "\r\n",
+            "#!",
+            "\u{feff}",
+            "\u{b}",
         ];
         testing::check_sized(
             "xtask_lexer",

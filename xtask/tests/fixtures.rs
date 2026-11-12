@@ -118,6 +118,12 @@ fn readme_of(name: &str) -> String {
     )
 }
 
+/// The crate root of the fixture's `tidepool-text`, after its header. Like
+/// every library's but sys's and platform's, it forbids `unsafe` in its doc
+/// tests, as `unsafe-audit` requires (ADR-0036).
+const TEXT_LIB: &str = "//! Text.\n#![doc(test(attr(forbid(unsafe_code))))]\n\n\
+    /// Says hello.\npub fn hello() -> &'static str {\n    \"hello\"\n}\n";
+
 /// The real `LICENSE` and `NOTICE`, which the fixture keeps at its root and
 /// a copy of in each member (ADR-0028), as the repository does.
 const LICENSE: &str = include_str!("../../LICENSE");
@@ -401,7 +407,8 @@ impl Fixture {
     /// but `ucd` (for which see [`Fixture::with_ucd`]): four crates that
     /// follow [`MATRIX`], each with its README ([`readme_of`]), copies of
     /// [`LICENSE`] and [`NOTICE`] and a manifest that inherits from the
-    /// workspace, the two unsafe crate roots, the real allowlist, `LICENSE`
+    /// workspace, the two unsafe crate roots, two crate roots that forbid
+    /// `unsafe` in doc tests (ADR-0036), the real allowlist, `LICENSE`
     /// and `NOTICE` at the root, a roadmap ([`ROADMAP`]) and its features
     /// ([`FEATURES`]), a lockfile, and the two workflows ([`CI_WORKFLOW`],
     /// [`CODEQL_WORKFLOW`]).
@@ -413,7 +420,11 @@ impl Fixture {
              \"crates/platform\", \"crates/text\"]\n\n[workspace.package]\nedition = \"2024\"\n\
              version = \"0.1.0\"\nlicense = \"Apache-2.0\"\n\n[workspace.lints]\n",
         );
-        fixture.package("core", "", "//! Core.\n");
+        fixture.package(
+            "core",
+            "",
+            "//! Core.\n#![doc(test(attr(forbid(unsafe_code))))]\n",
+        );
         fixture.package("sys", "", "//! Sys.\n#![allow(unsafe_code)]\n");
         fixture.package(
             "platform",
@@ -424,7 +435,7 @@ impl Fixture {
         fixture.package(
             "text",
             "[dependencies]\ntidepool-core = { path = \"../core\" }\n",
-            "//! Text.\n\n/// Says hello.\npub fn hello() -> &'static str {\n    \"hello\"\n}\n",
+            TEXT_LIB,
         );
         fixture.write("LICENSE", LICENSE);
         fixture.write("NOTICE", NOTICE);
@@ -2730,7 +2741,7 @@ fn unsafe_audit_fails_on_each_kind_of_violation() {
     // The lint relaxed outside the two crate roots.
     fixture.write(
         "crates/core/src/lib.rs",
-        "//! Core.\n#![allow(unsafe_code)]\n",
+        "//! Core.\n#![allow(unsafe_code)]\n#![doc(test(attr(forbid(unsafe_code))))]\n",
     );
     // A `pub unsafe fn` whose docs have no `# Safety` section.
     fixture.write(
@@ -2777,7 +2788,7 @@ fn unsafe_audit_ignores_keywords_inside_comments_and_literals() {
         "//! Never write `unsafe { }` or `#![allow(unsafe_code)]` here.\n\
          // unsafe { *p }\n\
          /* unsafe impl Send for X {}\n   /* nested: unsafe { } */ extern \"C\" { } */\n\
-         /// ```\n/// unsafe { f() }\n/// ```\n\
+         /// Prose may say unsafe, and inline code `unsafe { f() }`.\n\
          pub const HELP: &str = \"unsafe { } and #![allow(unsafe_code)] are denied\";\n\
          pub const RAW: &str = r#\"unsafe extern \"C\" { fn f(); } \"#;\n\
          pub const BYTES: &[u8] = b\"unsafe { }\";\n\
@@ -2801,8 +2812,8 @@ fn unsafe_audit_fails_on_code_brought_in_from_files_it_does_not_read() {
     fixture.write("crates/text/src/inc.txt", "pub fn f() {}\n");
     fixture.write(
         "crates/text/src/lib.rs",
-        "//! Text.\n\n#[path = \"ffi.txt\"]\nmod ffi;\n#[path = \"../.gen/m.rs\"]\nmod m;\n\
-         include!(\"inc.txt\");\n",
+        "//! Text.\n#![doc(test(attr(forbid(unsafe_code))))]\n#[path = \"ffi.txt\"]\nmod ffi;\n\
+         #[path = \"../.gen/m.rs\"]\nmod m;\ninclude!(\"inc.txt\");\n",
     );
     // A crate root that is not a `.rs` file.
     fixture.write("crates/core/src/lib.txt", smuggled);
@@ -2860,26 +2871,177 @@ fn unsafe_audit_fails_on_code_brought_in_from_files_it_does_not_read() {
     );
 }
 
+/// The violation for an `unsafe` of the form `what` on `line` of `path`,
+/// in the exported macro `name`, which takes tokens from its caller.
+fn exported_wrapper(path: &str, line: usize, what: &str, name: &str) -> String {
+    format!(
+        "{path}:{line}: `unsafe` {what} in the exported macro `{name}`, which takes tokens from \
+         its caller (`$...`): they could run as `unsafe` in the caller's crate, where neither its \
+         `unsafe_code` lint nor this audit sees them, and no `// SAFETY:` comment here can cover \
+         them. Make it a function, or leave the `unsafe` to the caller"
+    )
+}
+
+/// The line of `fixture`'s file `path` that holds `needle`, counted from 1.
+fn line_of(fixture: &Fixture, path: &str, needle: &str) -> usize {
+    fs::read_to_string(fixture.root.join(path))
+        .expect("the file exists")
+        .lines()
+        .position(|line| line.contains(needle))
+        .expect("the needle is in the file")
+        + 1
+}
+
 #[test]
 fn unsafe_audit_fails_on_an_exported_macro_that_wraps_caller_code_in_unsafe() {
-    // `tidepool_platform::in_unsafe!(*p)` would run unsafe code in a crate
-    // that denies `unsafe_code`, with no `unsafe` token there.
+    // Each of these, called from a crate that denies `unsafe_code`, runs
+    // the caller's tokens as `unsafe` there with no `unsafe` token in that
+    // crate: in a block, as the body of an `unsafe fn`, under
+    // `#[unsafe(no_mangle)]`, or as declarations in an `unsafe extern` block
+    // (the last one sys's, re-exported by platform).
     let fixture = Fixture::passing("audit-macro");
     fixture.append(
         "crates/platform/src/lib.rs",
-        "\n/// Runs `$e` as unsafe.\n#[macro_export]\nmacro_rules! in_unsafe {\n    ($e:expr) => \
-         {{\n        // SAFETY: delegated to the caller.\n        unsafe { $e }\n    }};\n}\n",
+        "\npub use tidepool_sys::declare_c;\n\n/// Runs `$e` as unsafe.\n#[macro_export]\n\
+         macro_rules! in_unsafe {\n    ($e:expr) => {{\n        // SAFETY: delegated to the caller.\n        \
+         unsafe { $e }\n    }};\n}\n\n/// Runs its tokens as the body of an `unsafe fn`, then calls \
+         it.\n#[macro_export]\nmacro_rules! in_unsafe_fn {\n    ($($t:tt)*) => {{\n        \
+         unsafe fn __body() {\n            $($t)*\n        }\n        // SAFETY: probe.\n        \
+         unsafe { __body() }\n    }};\n}\n\n/// Gives the item its caller passes an unmangled \
+         symbol name.\n#[macro_export]\nmacro_rules! unmangled {\n    ($i:item) => {\n        \
+         #[unsafe(no_mangle)]\n        $i\n    };\n}\n",
+    );
+    fixture.append(
+        "crates/sys/src/lib.rs",
+        "\n/// Declares the C functions its caller lists.\n#[macro_export]\nmacro_rules! declare_c {\n    \
+         ($($t:tt)*) => {\n        unsafe extern \"C\" {\n            $($t)*\n        }\n    };\n}\n",
+    );
+    let platform = "crates/platform/src/lib.rs";
+    let sys = "crates/sys/src/lib.rs";
+    let at = |path: &str, needle: &str| line_of(&fixture, path, needle);
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            exported_wrapper(
+                platform,
+                at(platform, "unsafe { $e }"),
+                "block",
+                "in_unsafe"
+            ),
+            exported_wrapper(
+                platform,
+                at(platform, "unsafe fn __body"),
+                "fn",
+                "in_unsafe_fn"
+            ),
+            exported_wrapper(
+                platform,
+                at(platform, "unsafe { __body() }"),
+                "block",
+                "in_unsafe_fn"
+            ),
+            exported_wrapper(
+                platform,
+                at(platform, "#[unsafe(no_mangle)]"),
+                "attribute",
+                "unmangled"
+            ),
+            exported_wrapper(
+                sys,
+                at(sys, "unsafe extern \"C\""),
+                "`extern` block",
+                "declare_c"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn unsafe_audit_fails_on_unsafe_in_a_doc_test_that_another_crate_s_macro_wraps() {
+    // `k1!(unsafe, *p)` puts the doc test's own `unsafe` before braces that
+    // core's macro writes, whose span makes rustc skip the `unsafe_code`
+    // lint, even at `forbid` (ADR-0037). The macro is banned at its source
+    // (ADR-0038), and the doc reader, a second layer, sees the doc test.
+    let fixture = Fixture::passing("audit-doc-test-macro");
+    let core = "crates/core/src/lib.rs";
+    fixture.append(
+        core,
+        "\n/// Puts its first token before a block of the rest.\n#[macro_export]\nmacro_rules! k1 {\n    \
+         ($k:tt, $($t:tt)*) => {\n        $k { $($t)* }\n    };\n}\n\n/// Probe.\n///\n/// ```\n/// \
+         let x = 1; let p = &raw const x; assert_eq!(tidepool_core::k1!(unsafe, *p), 1);\n/// ```\n\
+         pub fn probe_k1() {}\n",
     );
     let run = fixture.run("unsafe-audit");
     run.expect_code(1);
     assert_eq!(
         run.violations(),
         [
-            "crates/platform/src/lib.rs:23: `unsafe` block in the exported macro `in_unsafe` wraps \
-             tokens its caller passes in (`$...`): they would run as `unsafe` in the caller's \
-             crate, where neither its `unsafe_code` lint nor this audit sees them, and no `// \
-             SAFETY:` comment here can cover them. Make it a function, or leave the `unsafe` to \
-             the caller"
+            format!(
+                "{core}:{}: the exported macro `k1` puts `$k`, a `tt` fragment its caller can make \
+                 the keyword `unsafe`, right before `{{`, which it writes itself: rustc does not \
+                 apply the caller's `unsafe_code` lint to braces or an item from another crate's \
+                 macro, in doc tests or in code. Use a fragment that cannot be `unsafe` (`path`, \
+                 `ty`, `vis`), or leave the `unsafe` to the caller (ADR-0038)",
+                line_of(&fixture, core, "$k { $($t)* }")
+            ),
+            format!(
+                "{core}:{}: a code block in the documentation, which rustdoc may compile as a doc \
+                 test, holds `unsafe`, which only tidepool-sys and tidepool-platform may use: every \
+                 block counts, `ignore` and `text` too, since the `unsafe_code` lint can miss \
+                 `unsafe` that another crate's macro expands. Inline code in prose is fine \
+                 (ADR-0037)",
+                line_of(&fixture, core, "k1!(unsafe")
+            ),
+        ]
+    );
+}
+
+#[test]
+fn unsafe_audit_fails_on_a_macro_that_defines_a_macro() {
+    // A private generator in platform that defines an exported wrapper of
+    // its caller's tokens through the `$` token trick: no rule can read the
+    // macro it makes (ADR-0038).
+    let fixture = Fixture::passing("audit-macro-generator");
+    let platform = "crates/platform/src/lib.rs";
+    fixture.append(
+        platform,
+        "\n#[rustfmt::skip]\nmacro_rules! define_wrap {\n    ($d:tt, $name:ident) => {\n        \
+         /// Wraps caller tokens in an unsafe block.\n        #[macro_export]\n        \
+         macro_rules! $name {\n            ($d($d t:tt)*) => {{\n                // SAFETY: probe.\n                \
+         unsafe { $d($d t)* }\n            }};\n        }\n    };\n}\ndefine_wrap!($, wrap_gen);\n",
+    );
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [format!(
+            "{platform}:{}: the macro `define_wrap` defines a macro (its body holds \
+             `macro_rules`): what it makes is never written out, so no rule here can read it \
+             (ADR-0038)",
+            line_of(&fixture, platform, "macro_rules! $name")
+        )]
+    );
+}
+
+#[test]
+fn unsafe_audit_fails_on_a_proc_macro_crate() {
+    // A proc macro can make `unsafe` from a string with a span for which
+    // rustc skips the lint (ADR-0037). The crate root carries the doc-test
+    // line, so the ban is its only violation.
+    let fixture = Fixture::passing("audit-proc-macro");
+    fixture.append("crates/text/Cargo.toml", "\n[lib]\nproc-macro = true\n");
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [
+            "crates/text/src/lib.rs: the proc-macro target `tidepool_text` of `tidepool-text` is a \
+             proc-macro crate, which no workspace under the repository may have, tidepool-sys and \
+             tidepool-platform included: a proc macro can make the `unsafe` keyword from a string, \
+             with a span for which rustc skips the `unsafe_code` lint, and this audit reads only \
+             the string (ADR-0037)"
         ]
     );
 }
@@ -2936,7 +3098,10 @@ fn unsafe_audit_fails_on_a_crate_root_outside_its_package() {
     let fixture = Fixture::passing("audit-root-outside");
     let smuggled = "#![allow(unsafe_code)]\n\n/// Reads.\npub fn read(p: *const u8) -> u8 {\n    \
                     // SAFETY: no.\n    unsafe { *p }\n}\n";
-    fixture.write("lib.rs", "//! Text, from the root.\n\npub mod target;\n");
+    fixture.write(
+        "lib.rs",
+        "//! Text, from the root.\n#![doc(test(attr(forbid(unsafe_code))))]\n\npub mod target;\n",
+    );
     fixture.write("target/mod.rs", smuggled);
     fixture.append(
         "crates/text/Cargo.toml",
@@ -2976,6 +3141,373 @@ fn unsafe_audit_fails_on_a_crate_root_outside_its_package() {
         "{}",
         String::from_utf8_lossy(&built.stderr)
     );
+}
+
+/// The violation for the library target `name` of the package `package`,
+/// whose crate root `src` does not forbid `unsafe` in its doc tests
+/// (ADR-0036).
+fn lets_doc_tests_use_unsafe(src: &str, name: &str, package: &str) -> String {
+    format!(
+        "{src}: the lib target `{name}` of `{package}` does not forbid `unsafe` in its doc tests, \
+         and rustdoc does not apply the workspace's `unsafe_code` lint to them. Add this line to \
+         its crate root after the `//!` doc comment, exactly as written (an inner attribute at \
+         crate level, not under `cfg_attr`, with nothing else in it): \
+         `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036)"
+    )
+}
+
+#[test]
+fn unsafe_audit_fails_on_a_library_crate_root_that_does_not_forbid_unsafe_in_doc_tests() {
+    // Each of these seems to forbid `unsafe` in the crate's doc tests, and
+    // none is the one form the audit accepts: it counts them all as missing.
+    let fixture = Fixture::passing("audit-doc-tests");
+    let hello = "/// Says hello.\npub fn hello() -> &'static str {\n    \"hello\"\n}\n";
+    let in_root = |attribute: &str| format!("//! Text.\n{attribute}\n\n{hello}");
+    for (what, lib) in [
+        ("missing", format!("//! Text.\n\n{hello}")),
+        (
+            "under `cfg_attr`",
+            in_root("#![cfg_attr(all(), doc(test(attr(forbid(unsafe_code)))))]"),
+        ),
+        (
+            "with another lint in the same `attr`",
+            in_root("#![doc(test(attr(forbid(unsafe_code, missing_docs))))]"),
+        ),
+        (
+            "`deny`, which a doc test could relax",
+            in_root("#![doc(test(attr(deny(unsafe_code))))]"),
+        ),
+        (
+            "an outer attribute, of one function",
+            "//! Text.\n\n/// Says hello.\n#[doc(test(attr(forbid(unsafe_code))))]\n\
+             pub fn hello() -> &'static str {\n    \"hello\"\n}\n"
+                .to_string(),
+        ),
+        (
+            "inside a nested `mod`",
+            "//! Text.\n\n/// Greetings.\npub mod greet {\n    \
+             #![doc(test(attr(forbid(unsafe_code))))]\n\n    /// Says hello.\n    \
+             pub fn hello() -> &'static str {\n        \"hello\"\n    }\n}\n"
+                .to_string(),
+        ),
+    ] {
+        fixture.source("crates/text/src/lib.rs", &lib);
+        let run = fixture.run("unsafe-audit");
+        run.expect_code(1);
+        assert_eq!(
+            run.violations(),
+            [lets_doc_tests_use_unsafe(
+                "crates/text/src/lib.rs",
+                "tidepool_text",
+                "tidepool-text"
+            )],
+            "{what}"
+        );
+        assert!(
+            run.stdout.ends_with("unsafe-audit: FAILED (1 violation)\n"),
+            "{what}:\n{}",
+            run.stdout
+        );
+    }
+
+    // The exact form passes, after the `//!` doc comment and the comment
+    // that says why, as the repository writes it.
+    fixture.source(
+        "crates/text/src/lib.rs",
+        &format!("//! Text.\n\n// Why.\n#![doc(test(attr(forbid(unsafe_code))))]\n\n{hello}"),
+    );
+    passes(&fixture, "unsafe-audit");
+}
+
+#[test]
+fn unsafe_audit_asks_it_only_of_libraries_other_than_sys_and_platform() {
+    // The unbroken fixture's sys and platform do not carry the attribute.
+    // A binary needs nothing either: a package that has only one, or one
+    // beside a library.
+    let fixture = Fixture::passing("audit-doc-tests-binaries");
+    let manifest = fs::read_to_string(fixture.root.join("Cargo.toml")).expect("the manifest");
+    fixture.write(
+        "Cargo.toml",
+        &manifest.replace("\"crates/text\"]", "\"crates/text\", \"crates/app\"]"),
+    );
+    fixture.write("crates/app/Cargo.toml", &member_manifest("tidepool", ""));
+    fixture.source(
+        "crates/app/src/main.rs",
+        "//! The binary.\n\nfn main() {}\n",
+    );
+    fixture.source(
+        "crates/text/src/main.rs",
+        "//! A binary of text.\n\nfn main() {}\n",
+    );
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(0);
+    assert!(
+        run.stdout.contains(
+            "crate roots checked: 6\nlibrary crate roots that must forbid `unsafe` in doc tests: \
+             2\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.ends_with("unsafe-audit: ok\n"), "{}", run.stdout);
+}
+
+#[test]
+fn unsafe_audit_asks_it_of_the_libraries_of_every_workspace_under_the_root() {
+    // `agents/` is a workspace of its own (M9.2), outside the root one: its
+    // libraries' crate roots must forbid `unsafe` in doc tests too.
+    let fixture = Fixture::passing("audit-doc-tests-agents");
+    exclude(&fixture, "agents");
+    agents_workspace(&fixture, "");
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(1);
+    assert_eq!(
+        run.violations(),
+        [lets_doc_tests_use_unsafe(
+            "agents/tp-agent-mock/src/lib.rs",
+            "tp_agent_mock",
+            "tp-agent-mock"
+        )]
+    );
+
+    fixture.write(
+        "agents/tp-agent-mock/src/lib.rs",
+        "//! Mock.\n#![doc(test(attr(forbid(unsafe_code))))]\n",
+    );
+    let run = fixture.run("unsafe-audit");
+    run.expect_code(0);
+    // The root workspace's four, and the mock agent's library.
+    assert!(
+        run.stdout.contains(
+            "crate roots checked: 5\nlibrary crate roots that must forbid `unsafe` in doc tests: \
+             3\n"
+        ),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.ends_with("unsafe-audit: ok\n"), "{}", run.stdout);
+}
+
+/// The items after the crate doc and the attribute line, if any, of the
+/// crate root of [`doc_tests_forbid_unsafe_where_the_crate_root_says_so`]'s
+/// probe: a doc test for each way to use `unsafe` or allow it again, and one
+/// that does neither.
+const PROBE_ITEMS: &str = r#"
+// The README's examples are compiled as doc tests too.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
+/// An `unsafe` block.
+///
+/// ```
+/// let x = 2;
+/// let p: *const i32 = &x;
+/// assert_eq!(unsafe { *p }, 2);
+/// ```
+pub fn unsafe_block() {}
+
+/// The doc test allows the lint again.
+///
+/// ```
+/// #![allow(unsafe_code)]
+/// let x = 3;
+/// let p: *const i32 = &x;
+/// assert_eq!(unsafe { *p }, 3);
+/// ```
+pub fn allow_in_the_doc_test() {}
+
+/// An item in the doc test allows the lint again.
+///
+/// ```
+/// #[allow(unsafe_code)]
+/// fn read(p: *const i32) -> i32 {
+///     unsafe { *p }
+/// }
+/// assert_eq!(read(&4), 4);
+/// ```
+pub fn allow_on_an_item() {}
+
+/// A module whose doc tests allow the lint again.
+#[doc(test(attr(allow(unsafe_code))))]
+pub mod allow_on_a_module {
+    /// ```
+    /// let x = 5;
+    /// let p: *const i32 = &x;
+    /// assert_eq!(unsafe { *p }, 5);
+    /// ```
+    pub fn read() {}
+}
+
+/// Compiled, never run.
+///
+/// ```no_run
+/// let x = 6;
+/// let p: *const i32 = &x;
+/// assert_eq!(unsafe { *p }, 6);
+/// ```
+pub fn no_run() {}
+
+/// A macro of the doc test's own, of `k1`'s shape: not another crate's, so
+/// the lint sees the `unsafe` it puts before its braces (ADR-0038).
+///
+/// ```
+/// macro_rules! k1 {
+///     ($k:tt, $($t:tt)*) => {
+///         $k { $($t)* }
+///     };
+/// }
+/// let x = 7;
+/// let p: *const i32 = &x;
+/// assert_eq!(k1!(unsafe, *p), 7);
+/// ```
+pub fn local_macro() {}
+
+/// Safe.
+///
+/// ```
+/// assert_eq!(1 + 1, 2);
+/// ```
+pub fn safe() {}
+"#;
+
+/// The README of the probe: one example, with an `unsafe` block.
+const PROBE_README: &str = "# probe\n\n```rust\nlet x = 1;\nlet p: *const i32 = &x;\n\
+    assert_eq!(unsafe { *p }, 1);\n```\n";
+
+/// The item each doc test that `cargo test --doc` printed `stdout` for
+/// documents (`unsafe_block`, `ReadmeDoctests`, `allow_on_a_module::read`),
+/// with how it ended (`ok`, `FAILED`), sorted by item.
+fn doc_test_outcomes(stdout: &str) -> Vec<(&str, &str)> {
+    let mut outcomes: Vec<(&str, &str)> = stdout
+        .lines()
+        .filter_map(|line| {
+            let (name, outcome) = line.strip_prefix("test ")?.rsplit_once(" ... ")?;
+            Some((doc_test_item(name)?, outcome))
+        })
+        .collect();
+    outcomes.sort_unstable();
+    outcomes
+}
+
+/// The item a doc test's name (`probe/src/lib.rs - unsafe_block (line 11)`)
+/// says it documents.
+fn doc_test_item(name: &str) -> Option<&str> {
+    let (_file, rest) = name.split_once(" - ")?;
+    Some(rest.split_once(" (line ")?.0)
+}
+
+/// What libtest printed for the failed doc test of `item`: its section of
+/// `stdout`, after its `---- ... stdout ----` line.
+fn doc_test_failure<'a>(stdout: &'a str, item: &str) -> &'a str {
+    stdout
+        .split("\n---- ")
+        .skip(1)
+        .find(|section| doc_test_item(section.lines().next().unwrap_or("")) == Some(item))
+        .and_then(|section| section.split("\nfailures:").next())
+        .unwrap_or_else(|| panic!("no failure output for `{item}`:\n{stdout}"))
+}
+
+#[test]
+fn doc_tests_forbid_unsafe_where_the_crate_root_says_so() {
+    // A workspace shaped like Tidepool's for this: edition 2024, its lints
+    // denying `unsafe_code`, a library that inherits them and compiles its
+    // README's examples as doc tests through `ReadmeDoctests`.
+    let fixture = Fixture::empty("doc-tests");
+    fixture.write(
+        "Cargo.toml",
+        "[workspace]\nresolver = \"3\"\nmembers = [\"probe\"]\n\n[workspace.package]\n\
+         edition = \"2024\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n",
+    );
+    fixture.write(
+        "probe/Cargo.toml",
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition.workspace = true\n\
+         publish = false\n\n[lints]\nworkspace = true\n",
+    );
+    fixture.write("probe/README.md", PROBE_README);
+    let test_doc = || {
+        let output = Command::new(cargo())
+            .args([
+                "test",
+                "--doc",
+                "--offline",
+                "--color",
+                "never",
+                "--manifest-path",
+            ])
+            .arg(fixture.root.join("Cargo.toml"))
+            .current_dir(&fixture.root)
+            .env("CARGO_TARGET_DIR", fixture.case.join("target"))
+            .env("CARGO_NET_OFFLINE", "true")
+            .env("CARGO_TERM_COLOR", "never")
+            .output()
+            .expect("cargo runs");
+        Run {
+            code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    };
+    let items = [
+        "ReadmeDoctests",
+        "allow_in_the_doc_test",
+        "allow_on_a_module::read",
+        "allow_on_an_item",
+        "local_macro",
+        "no_run",
+        "safe",
+        "unsafe_block",
+    ];
+
+    // The control, without the attribute: every one compiles, and runs.
+    // That is the gap, as on Rust 1.99.0: rustdoc does not apply the
+    // workspace's `deny`. If this fails, rustdoc does now, and ADR-0036 is
+    // to be revisited.
+    fixture.write(
+        "probe/src/lib.rs",
+        &format!("//! The probe.\n{PROBE_ITEMS}"),
+    );
+    let run = test_doc();
+    run.expect_code(0);
+    assert_eq!(
+        doc_test_outcomes(&run.stdout),
+        items.map(|item| (item, "ok")),
+        "{}",
+        run.stdout
+    );
+
+    // With it, each fails to compile for its reason, and the safe one
+    // passes.
+    fixture.write(
+        "probe/src/lib.rs",
+        &format!("//! The probe.\n#![doc(test(attr(forbid(unsafe_code))))]\n{PROBE_ITEMS}"),
+    );
+    let run = test_doc();
+    run.expect_code(101);
+    assert_eq!(
+        doc_test_outcomes(&run.stdout),
+        items.map(|item| (item, if item == "safe" { "ok" } else { "FAILED" })),
+        "{}",
+        run.stdout
+    );
+    for item in ["ReadmeDoctests", "unsafe_block", "no_run", "local_macro"] {
+        let failure = doc_test_failure(&run.stdout, item);
+        assert!(
+            failure.contains("error: usage of an `unsafe` block"),
+            "{item}:\n{failure}"
+        );
+    }
+    for item in [
+        "allow_in_the_doc_test",
+        "allow_on_an_item",
+        "allow_on_a_module::read",
+    ] {
+        let failure = doc_test_failure(&run.stdout, item);
+        assert!(
+            failure.contains("error[E0453]: allow(unsafe_code) incompatible with previous forbid"),
+            "{item}:\n{failure}"
+        );
+    }
 }
 
 // --- headers ---
@@ -3480,7 +4012,8 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     // Valid Rust that `cargo fmt --check` rejects, and nothing else does.
     fixture.source(
         "crates/text/src/lib.rs",
-        "//! Text.\n\n/// Says hello.\npub fn hello( )->&'static str{\"hello\"}\n",
+        "//! Text.\n#![doc(test(attr(forbid(unsafe_code))))]\n\n/// Says hello.\n\
+         pub fn hello( )->&'static str{\"hello\"}\n",
     );
 
     let run = fixture.run("ci");
@@ -3557,13 +4090,15 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     // fmt: badly formatted, and nothing else is wrong with it.
     fixture.source(
         "crates/text/src/lib.rs",
-        "//! Text.\n\n/// Says hello.\npub fn hello( )->&'static str{\"hello\"}\n",
+        "//! Text.\n#![doc(test(attr(forbid(unsafe_code))))]\n\n/// Says hello.\n\
+         pub fn hello( )->&'static str{\"hello\"}\n",
     );
     // clippy: `needless_return`, a warning that `-D warnings` denies. And
     // unsafe-audit: the lint relaxed outside the two crate roots.
     fixture.source(
         "crates/core/src/lib.rs",
-        "//! Core.\n#![allow(unsafe_code)]\n\n/// One.\npub fn one() -> i32 {\n    return 1;\n}\n",
+        "//! Core.\n#![allow(unsafe_code)]\n#![doc(test(attr(forbid(unsafe_code))))]\n\n\
+         /// One.\npub fn one() -> i32 {\n    return 1;\n}\n",
     );
     // test: a test that fails.
     fixture.source(
@@ -3735,6 +4270,7 @@ fn ci_compiles_nothing_after_deps_fails() {
 /// standard error, which the test harness does not capture, or to standard
 /// output, which it does not capture either but writes its own lines to.
 const SKIPPING_TESTS: &str = r#"//! Text.
+#![doc(test(attr(forbid(unsafe_code))))]
 
 /// Says hello.
 pub fn hello() -> &'static str {
@@ -3947,7 +4483,11 @@ impl Fixture {
                 "| `tidepool-text` | `core` |\n| `tidepool-codec` | — |\n",
             ),
         );
-        self.package("codec", "", "//! Codec.\n");
+        self.package(
+            "codec",
+            "",
+            "//! Codec.\n#![doc(test(attr(forbid(unsafe_code))))]\n",
+        );
         self.source(
             "crates/codec/examples/formats.rs",
             &example("formats <ok> & 🌊"),
@@ -4198,7 +4738,7 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
     // A step of the gate failing: no example runs, nothing is written.
     fixture.source(
         "crates/codec/src/lib.rs",
-        "//! Codec.\npub fn badly( )->u8{1}\n",
+        "//! Codec.\n#![doc(test(attr(forbid(unsafe_code))))]\npub fn badly( )->u8{1}\n",
     );
     let run = fixture.site(&out, &[]);
     run.expect_code(1);
@@ -4209,7 +4749,10 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
         run.stdout
     );
     assert!(!run.stdout.contains("running `cargo run"), "{}", run.stdout);
-    fixture.source("crates/codec/src/lib.rs", "//! Codec.\n");
+    fixture.source(
+        "crates/codec/src/lib.rs",
+        "//! Codec.\n#![doc(test(attr(forbid(unsafe_code))))]\n",
+    );
     assert_eq!(page_files(&out), built);
 
     // An example that fails when it runs, after the gate passed: nothing
