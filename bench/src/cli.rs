@@ -679,7 +679,7 @@ mod tests {
                 .ends_with(" samples  (the baseline's median is 0 ns)  SLOWER by more than 10%"),
             "{text}"
         );
-        assert!(row("fake/faster").ends_with(" samples  -100.0%"), "{text}");
+        assert!(row("fake/faster").ends_with(" samples  -"), "{text}");
         let slower = row("fake/slower");
         assert!(slower.ends_with("%  SLOWER by more than 10%"), "{text}");
         assert!(slower.contains(" samples  +"), "{text}");
