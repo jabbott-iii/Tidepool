@@ -9,7 +9,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -2362,9 +2362,9 @@ macro private to the crate, makes a table: a struct with one function
 pointer for each C function, under its C name, and `load`, which looks
 each one up through a `Library` and names every one it cannot find in a
 `MissingSymbols`; a function C declares with `...` takes the same `...`
-(M2.2). `linux::x11::Xlib` is the only table so far: the 41 functions of
-`libX11.so.6` that `platform`'s window, its events, typed text and
-present call, loaded with `dlopen` (M2.1, M2.2, ADR-0010).
+(M2.2). `linux::x11::Xlib` is the only table so far: the 50 functions of
+`libX11.so.6` that `platform`'s window, its events, typed text, present
+and clipboard call, loaded with `dlopen` (M2.1, M2.2, M2.7, ADR-0010).
 `linux::libc` links what it declares from the C library: the dynamic
 loader, `poll`, `pipe2`, `write(2)`, and `setlocale` (M2.1, M2.2).
 `linux::evdev` gives the kernel's key codes that `platform`'s key map
@@ -2512,14 +2512,18 @@ classDiagram
   closed: `dlclose` is not declared.
 - `MissingSymbols` is in section 25.
 
-## 24. platform: the window, its events and present
+## 24. platform: the window, its events, present, the clipboard and folders
 
 `tidepool-platform` has one public API on every system (M2.2): a
 `window::Window` opened from a `WindowConfig`, with its `CursorShape`;
 `events::Event`, which `wait_events` appends, and the `Waker` that ends a
 wait from any thread; `surface::Pixels`, the checked view of a frame that
 `present` takes with its damage in device pixels (ADR-0040); and the
-crate's `Error`. A `Window` holds its system's backend: X11 on Linux
+crate's `Error`. M2.7 adds the clipboard's `Selection`, which
+`set_selection` and `request_selection` take and `Event::Pasted` answers
+(ADR-0042), and the folders: `paths::UserDirs`, which `paths::user_dirs`
+finds, and `dirs::android_sdk` and `dirs::rustup_home`, which fail with
+`Error::Unsupported` off Linux. A `Window` holds its system's backend: X11 on Linux
 (24.2), and on every other system one whose `open` fails with
 `Error::Unsupported`. A `Window` is neither `Send` nor `Sync`; a `Waker`
 is both. Input events are `core::input::InputEvent`, in logical units.
@@ -2540,6 +2544,8 @@ classDiagram
         +wait_events(deadline, events) Result
         +waker() Waker
         +present(pixels, damage) Result
+        +set_selection(selection, text)
+        +request_selection(selection)
     }
     class WindowConfig["window::WindowConfig"] {
         +title: String
@@ -2560,6 +2566,24 @@ classDiagram
         Exposed
         CloseRequested
         Woken
+        Pasted
+    }
+    class Selection["clipboard::Selection"] {
+        <<enumeration>>
+        Clipboard
+        Primary
+    }
+    class UserDirs["paths::UserDirs"] {
+        +config: PathBuf
+        +data: PathBuf
+        +cache: PathBuf
+        +logs: PathBuf
+    }
+    class Folders["paths, dirs"] {
+        <<module>>
+        +user_dirs() Result~UserDirs~
+        +android_sdk() Result~PathBuf~
+        +rustup_home() Result~PathBuf~
     }
     class Waker["events::Waker"] {
         +wake()
@@ -2589,8 +2613,12 @@ classDiagram
     Window ..> Pixels : present takes
     Window ..> DeviceRect : present's damage
     Window ..> PlatformError : fails with
+    Window ..> Selection : set_selection, request_selection
     Event *-- InputEvent : Input
     Event *-- DeviceRect : Exposed
+    Event *-- Selection : Pasted
+    Folders ..> UserDirs : user_dirs finds
+    Folders ..> PlatformError : fails with
     Pixels ..> PixelsError : new fails with
 ```
 
@@ -2615,10 +2643,41 @@ classDiagram
     class LinuxWindow["linux::window::Window"] {
         -connection: Connection
         -translator: Translator
+        -clipboard: Clipboard
         -cursors: 5 Cursors
         -pipe: Arc~SelfPipe~
         -lookup: Vec~u8~
+        -backlog: Vec~Event~
         -open(config) Result~Window~
+    }
+    class Clipboard["linux::selection::Clipboard"] {
+        -owned: 2 Option~Owned~
+        -claiming: 2 texts to claim
+        -pastes: 2 Paste
+        -transfers: Vec~Transfer~
+        -set(selection, text)
+        -request(selection)
+        -handle(event)
+        -expire(now)
+    }
+    class SelectionEvent["linux::selection::SelectionEvent"] {
+        <<enumeration>>
+        Property
+        Clear
+        Request
+        Notify
+    }
+    class Transfer["linux::selection::Transfer"] {
+        -requestor: Window
+        -property: Atom
+        -text: Arc~str~
+        -sent: usize
+    }
+    class Property["linux::connection::Property"] {
+        -type_: Atom
+        -format: int
+        -bytes: Vec~u8~
+        -longs: Vec~long~
     }
     class Connection["linux::connection::Connection"] {
         -xlib: static Xlib
@@ -2653,6 +2712,7 @@ classDiagram
         Expose
         Configure
         ClientMessage
+        Selection
         Other
     }
     class SelfPipe["linux::waker::SelfPipe"] {
@@ -2663,17 +2723,23 @@ classDiagram
         -pipe: Arc~SelfPipe~
         -wake()
     }
-    class Modules["linux::display, keymap, xresources, library"] {
+    class Modules["linux::display, keymap, xresources, library, xdg"] {
         <<module>>
         -display_name(DISPLAY) Result~unix_N~
         -from_x_keycode(keycode) Option~Key~
         -scale(resources) Scale
         -xlib() Result~Xlib~
+        -user_dirs() Result~UserDirs~
     }
     class Xlib["sys::linux::x11::Xlib"]
     class Key["core::input::Key"]
     LinuxWindow *-- Connection : connection
     LinuxWindow *-- Translator : translator
+    LinuxWindow *-- Clipboard : clipboard
+    Clipboard *-- Transfer : transfers
+    Clipboard ..> SelectionEvent : handles
+    Clipboard ..> Property : reads pastes as
+    Incoming *-- SelectionEvent : Selection
     LinuxWindow o-- SelfPipe : Arc
     LinuxWaker o-- SelfPipe : Arc
     Connection *-- TextInput : text
@@ -2691,6 +2757,11 @@ classDiagram
   handle, which ends the process.
 - `Incoming::decode` reads only the fields Xlib wrote for the event's
   type: a client message's data only when its format is 32.
+- `Connection::get_property` reads no more than it asked for, and no
+  more than 64 items of format 32, and frees what `XGetWindowProperty`
+  returns with `XFree` on every path. Events
+  that another client sent never make the clipboard claim, give up or
+  answer for a selection (ADR-0042).
 - The `Image` that `XGetImage` returns, for the read-back test, exists only
   in `#[cfg(test)]` code, and is freed through its own `f.destroy_image`.
 
@@ -2869,14 +2940,15 @@ The main files these diagrams were drawn from:
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`, `linux/evdev.rs`
 - `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,
-  `surface.rs`, `unsupported.rs`, `linux.rs`, and `linux/` (`claim.rs`,
-  `connection.rs`, `display.rs`, `input.rs`, `keymap.rs`, `library.rs`,
-  `waker.rs`, `window.rs`, `xresources.rs`)
+  `surface.rs`, `clipboard.rs`, `paths.rs`, `dirs.rs`, `unsupported.rs`,
+  `linux.rs`, and `linux/` (`claim.rs`, `connection.rs`, `display.rs`,
+  `input.rs`, `keymap.rs`, `library.rs`, `selection.rs`, `waker.rs`,
+  `window.rs`, `xdg.rs`, `xresources.rs`)
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0013, ADR-0019, ADR-0020,
-  ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040)
+  ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

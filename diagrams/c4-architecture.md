@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, the benchmark harness, and
 the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -285,13 +285,14 @@ use. The diagrams run left to right, from a crate to the crates it uses.
 ### 2.1 Layers 0 and 1: foundations, OS behavior, formats and engines
 
 `core`, `codec` and `text` are built, `sys` has its Linux declarations
-(M2.1, M2.2), and `platform` its Linux window over X11 (M2.2). Those two
+(M2.1, M2.2, M2.7), and `platform` its Linux window over X11 (M2.2), its
+clipboard and the user's and tools' folders (M2.7). Those two
 allow `unsafe_code`. The other four crates are empty.
 
 ```mermaid
 flowchart LR
     subgraph L1["Layer 1"]
-        k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>planned: clipboard M2.7,<br/>watch M4.5, process M5.7,<br/>pty M5.9, terminal M7.1,<br/>macOS M11.7, M11.8,<br/>M11.1, Windows<br/>M12.1, M12.2"]
+        k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>clipboard, paths,<br/>dirs (M2.7)<br/>planned: watch M4.5,<br/>process M5.7, pty M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, M11.1,<br/>Windows M12.1, M12.2"]
         k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>planned M2.4, M10.7,<br/>M10.2, M11.3"]
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
@@ -301,7 +302,7 @@ flowchart LR
     end
     subgraph L0["Layer 0: foundations"]
         k_core["tidepool-core<br/>error, log, testing, rng,<br/>hash with sha256, cli,<br/>civil, input, geom,<br/>color, cancel (M0.2)<br/>testing::fuzz (M1.6)<br/>path (M1.8)"]
-        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>dynlib, linux::libc,<br/>linux::x11 and its<br/>Xlib table (M2.1)<br/>write(2), setlocale,<br/>linux::evdev, typed<br/>text (M2.2)<br/>planned: clipboard M2.7,<br/>inotify M4.5, processes<br/>and PTY M5.7, M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, Windows<br/>M12.1, M12.2"]
+        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>dynlib, linux::libc,<br/>linux::x11 and its<br/>Xlib table (M2.1)<br/>write(2), setlocale,<br/>linux::evdev, typed<br/>text (M2.2)<br/>selections and<br/>properties (M2.7)<br/>planned: inotify M4.5,<br/>processes and PTY<br/>M5.7, M5.9, terminal<br/>M7.1, macOS M11.7,<br/>M11.8, Windows<br/>M12.1, M12.2"]
     end
 
     k_platform -->|"input, geom, log"| k_core
@@ -895,8 +896,8 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | Package | Path | Layer | `unsafe` | Built (task) | Planned (tasks) | Declared workspace dependencies |
 | :- | :- | :- | :- | :- | :- | :- |
 | `tidepool-core` | `crates/core` | 0, foundations | deny | `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`, `color`, `cancel` (M0.2); `testing::fuzz` (M1.6); `path` (M1.8) | — | none |
-| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2) | M2.7, M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
-| `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2) | M2.7, M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
+| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2); the selections and properties the clipboard calls (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
+| `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2); `clipboard`, `paths` and `dirs` on Linux (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
 | `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6) | M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |

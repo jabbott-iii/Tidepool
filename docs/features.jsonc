@@ -123,9 +123,9 @@
     {
       "name": "A window on Linux",
       "area": "Platform",
-      "summary": "Tidepool opens its window through X11, and through XWayland on a Wayland desktop, over the local X server's Unix socket only, on libc and X11 declarations written by hand, the layout of each struct whose fields are declared checked against the C headers, and a table of Xlib's functions loaded from libX11 at run time. Keys are reported by their place on the keyboard, whatever the layout, with the text they type; a waker any thread can use ends a wait within microseconds; and presenting sends only the damaged parts of a frame, read back pixel for pixel under Xvfb in the tests. The clipboard and the folders the system expects come next.",
+      "summary": "Tidepool opens its window through X11, and through XWayland on a Wayland desktop, over the local X server's Unix socket only, on libc and X11 declarations written by hand, the layout of each struct whose fields are declared checked against the C headers, and a table of Xlib's functions loaded from libX11 at run time. Keys are reported by their place on the keyboard, whatever the layout, with the text they type; a waker any thread can use ends a wait within microseconds; and presenting sends only the damaged parts of a frame, read back pixel for pixel under Xvfb in the tests. Copy and paste go through X's CLIPBOARD and PRIMARY selections, between Tidepool's windows and other programs, large texts in parts, with no wait on another program; and Tidepool finds its settings, data, cache and log folders from the XDG variables.",
       "tasks": ["M2.1", "M2.2", "M2.7"],
-      "ticked": ["M2.1", "M2.2"]
+      "ticked": ["M2.1", "M2.2", "M2.7"]
     },
     {
       "name": "Our own rasterizer and fonts",

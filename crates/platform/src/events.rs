@@ -30,6 +30,7 @@ use std::time::Instant;
 use tidepool_core::geom::{DeviceRect, DeviceSize};
 use tidepool_core::input::InputEvent;
 
+use crate::clipboard::Selection;
 use crate::window::Window;
 use crate::{Error, backend};
 
@@ -65,6 +66,14 @@ pub enum Event {
     /// A [`Waker`] woke the wait. However many times it was woken since the
     /// last wait, this is reported once.
     Woken,
+    /// The answer to [`Window::request_selection`]: the selection's text,
+    /// or `None` if there is none to paste, as that method says.
+    Pasted {
+        /// The selection asked for.
+        selection: Selection,
+        /// Its text.
+        text: Option<String>,
+    },
 }
 
 /// Ends a window's [`wait_events`](Window::wait_events) from any thread,
@@ -107,8 +116,14 @@ impl Window {
     /// everything that is waiting, and otherwise when the deadline passes,
     /// with nothing; a deadline that has passed already reports what is
     /// waiting without waiting. It never waits for longer than the
-    /// deadline, give or take the system's timer, and wakes for nothing
-    /// else: a signal that interrupts the wait does not end it.
+    /// deadline, give or take the system's timer and one turn of taking
+    /// events (on Linux at most 10 ms, after Xlib has read what the X
+    /// server sent), and ends for nothing else: a signal that interrupts
+    /// the wait does not end it.
+    ///
+    /// While it waits, it also answers other programs that ask for a
+    /// selection the window set ([`Window::set_selection`]), and reports
+    /// none of that.
     ///
     /// On Linux it first sends Xlib every request queued since the last
     /// call (as [`present`](Window::present) and

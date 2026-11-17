@@ -1289,7 +1289,7 @@ our own rasterizer.
     `SKIPPED` count), while the macOS and Windows jobs, which build no
     window tests, are as before.
 
-- [ ] **M2.7 — platform: clipboard and paths (Linux)**
+- [x] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8
   - Do: `clipboard` (`CLIPBOARD` and `PRIMARY`, `UTF8_STRING`, `TARGETS`,
     `INCR`), `paths` and `dirs`, per `docs/03-platforms.md` → Linux.
@@ -1300,6 +1300,68 @@ our own rasterizer.
     `cargo xtask unsafe-audit`
   - Note (2026-11-16): the `Verify` line sets `TIDEPOOL_IT_X11=1`, without
     which the window tests skip (ADR-0039).
+  - Note (2026-11-17): the user chose, while the task was prepared, each
+    option recommended (ADR-0042): the clipboard goes through the window's
+    events (`set_selection`, `request_selection` and `Event::Pasted`), so
+    the main thread never waits on another client; an owner serves
+    `UTF8_STRING`, `TARGETS` and `TIMESTAMP`, and a paste is
+    `UTF8_STRING` of at most 64 MiB; and logs live in
+    `$XDG_DATA_HOME/tidepool/logs`.
+  - Note (2026-11-17): done. `platform` has `clipboard` (`Selection`,
+    `Window::set_selection`, `Window::request_selection`,
+    `MAX_PASTE_BYTES`) with `Event::Pasted`, `paths` (`user_dirs`,
+    `UserDirs`) and `dirs` (`android_sdk`, `rustup_home`), and the errors
+    `NoHomeDirectory` and `Unsupported`, which now names what is missing.
+    On Linux the clipboard is `linux::selection`, on each window's own
+    connection, and the folders `linux::xdg`, ported in part from Nadir's.
+    `sys` adds the property and selection events and their constants, and
+    9 functions to Xlib's table, which has 50: `XMaxRequestSize`,
+    `XDeleteProperty`, `XGetWindowProperty`, `XFree`,
+    `XSetSelectionOwner`, `XGetSelectionOwner`, `XNextRequest`,
+    `XConvertSelection` and `XSendEvent`.
+  - Note (2026-11-17): checked. Under Xvfb 21.1.12 (libX11 1.8.7,
+    libxcb 1.15) text copied in one window pastes in another, both
+    selections and both ways, and a 1 MiB paste goes through `INCR` in
+    whole parts and an empty one; the 121 tests of the library, 28 of
+    them window tests, pass three runs in a row with no `SKIPPED`. With
+    xclip 0.13 under Xvfb, xclip read a 1 MiB clipboard byte for byte, and
+    `TARGETS` and `PRIMARY`, and a window pasted the 2,118,124 bytes xclip
+    served by `INCR`. A C program built with gcc 13.3.0 and `-Werror`
+    against libX11 1.8.7's headers checks the four new structs' sizes and
+    every offset, 14 constants and the 9 prototypes. libX11's source could
+    not be read (gitlab.freedesktop.org refuses automated reads), so a
+    reviewer ran its `_XWireToEvent` on hand-built events: it writes every
+    field of the four new event types that `decode` reads. clippy is
+    clean for x86_64 and aarch64 Linux, `x86_64-apple-darwin` and
+    `x86_64-pc-windows-msvc`, which were compiled, not run. The 71 Mermaid
+    blocks of the three changed diagram files parse and render with
+    Mermaid 11.4.1.
+  - Note (2026-11-17): reviewed in three rounds, `security-reviewer` in
+    each, every finding checked by two skeptics. Round one: 4 of 5
+    confirmed and fixed (another client could stop every later copy by
+    retyping the time stamp property, so it is written with a replace; an
+    `INCR` paste had no overall deadline; a read relied on its caller; a
+    paste's peak memory). Round two: 12 of 15 confirmed and fixed (floods
+    of parts, requests or events held a wait for seconds, so a wait takes
+    events in turns of 10 ms, reads a paste once a turn and serves at most
+    64 MiB a second; a clear at the claim's own time gave a held selection
+    up; a late answer was pasted for the next request, so each request
+    has an answer property of its own; and 8 fixes to docs and
+    declarations). Round three: 7 confirmed, 5 distinct, all fixed (a wake
+    seen a turn late; a copy behind a flood returned before its claim; a
+    stale write was taken for the claim's time, so the time stamp is told
+    by its request number; the cap on transfers spent the serving budget;
+    no test reached a resting answer slot). Each fix has a window test
+    that fails with the fix taken out, but for the format-32 guard, which
+    the old code also passed, and the wake after a drain, which a
+    reviewer measured instead.
+  - Note (2026-11-17): left open. `Event`'s derived `Debug` prints pasted
+    text, as `InputEvent::Text`'s prints typed text: the skeptics split
+    on it, and a redacting `Debug` would span `core` and `platform`. A
+    late refusal of an earlier request names no property, so it can end
+    the next paste of that selection with no text. Another client's server
+    grab stalls the round trips to the server, as it stalls any Xlib call
+    (ADR-0042).
 
 - [ ] **M2.3 — gfx: rasterizer, blending, clipping, damage, backdrop**
   - Depends: M0.2

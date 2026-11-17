@@ -12,8 +12,9 @@ core library, JSON, TOML and its document model, which writes edits
 back, the text engine's rope, positions,
 selections, undo tree, encodings and atomic save, a fuzzer for the
 parsers, a benchmark harness with the text engine's suites, and a
-Linux window over X11, with its events, a waker and presenting what
-changed, on hand-written libc and X11 declarations, are built; the
+Linux window over X11, with its events, a waker, presenting what
+changed and the clipboard, on hand-written libc and X11 declarations, and
+the XDG folders, are built; the
 `tidepool` binary opens no window yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws

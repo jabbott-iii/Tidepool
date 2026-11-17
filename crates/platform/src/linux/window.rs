@@ -42,28 +42,32 @@ use std::ffi::CString;
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tidepool_core::geom::{DeviceRect, DeviceSize, Scale, Size};
 use tidepool_core::log::{debug, warn};
 use tidepool_sys::linux::libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, nfds_t, poll, pollfd};
 use tidepool_sys::linux::x11::{
     self as xlib, Atom, ButtonPressMask, ButtonReleaseMask, Colormap, Cursor, ExposureMask,
-    FocusChangeMask, KeyPressMask, KeyReleaseMask, PointerMotionMask, StructureNotifyMask,
-    XA_STRING, XA_WM_CLASS, XA_WM_CLIENT_MACHINE, XA_WM_NAME,
+    FocusChangeMask, KeyPressMask, KeyReleaseMask, PointerMotionMask, PropertyChangeMask,
+    StructureNotifyMask, XA_CARDINAL, XA_STRING, XA_WM_CLASS, XA_WM_CLIENT_MACHINE, XA_WM_NAME,
 };
 
 use super::claim::{self, Claim};
 use super::connection::Connection;
 use super::input::{self, CloseMessage, Incoming, Translator};
+use super::selection::Clipboard;
 use super::waker::{SelfPipe, Waker};
 use super::{display, library, xresources};
 use crate::Error;
+use crate::clipboard::Selection;
 use crate::events::Event;
 use crate::surface::{self, Pixels};
 use crate::window::{CursorShape, WindowConfig};
 
 /// The events we ask the server for, besides those the input method needs.
+/// The selection events come whatever the mask; the clipboard needs the
+/// property changes.
 const EVENT_MASK: c_long = KeyPressMask
     | KeyReleaseMask
     | ButtonPressMask
@@ -71,7 +75,13 @@ const EVENT_MASK: c_long = KeyPressMask
     | PointerMotionMask
     | ExposureMask
     | StructureNotifyMask
-    | FocusChangeMask;
+    | FocusChangeMask
+    | PropertyChangeMask;
+
+/// The longest one turn of taking events lasts, so that a flood of events
+/// that another client causes holds a wait past its deadline, or keeps a
+/// wake unseen, for no longer than this.
+const DRAIN_BUDGET: Duration = Duration::from_millis(10);
 
 /// The widest and tallest window we ask for. The X protocol carries a size
 /// in 16 bits, and servers stop at half of that.
@@ -117,6 +127,7 @@ pub(crate) struct Window {
     colormap: Colormap,
     atoms: Atoms,
     translator: Translator,
+    clipboard: Clipboard,
     /// The cursor of each shape, by [`CursorShape::index`], all made in
     /// [`Window::open`] (0 until then), so that no later call creates one:
     /// creating one is where libXcursor reads files.
@@ -127,6 +138,8 @@ pub(crate) struct Window {
     pipe: Arc<SelfPipe>,
     /// Where typed text is looked up.
     lookup: Vec<u8>,
+    /// Events read outside a wait, which the next wait reports first.
+    backlog: Vec<Event>,
 }
 
 impl Window {
@@ -166,6 +179,7 @@ impl Window {
             wm_protocols: atoms.wm_protocols,
             wm_delete_window: atoms.wm_delete_window,
         };
+        let clipboard = Clipboard::new(&connection, window);
         // From here on, dropping `backend` destroys the window.
         let mut backend = Self {
             connection,
@@ -173,10 +187,12 @@ impl Window {
             colormap,
             atoms,
             translator: Translator::new(close, size, scale),
+            clipboard,
             cursors: [0; CursorShape::ALL.len()],
             cursor: None,
             pipe,
             lookup: Vec::new(),
+            backlog: Vec::new(),
         };
         if !backend.connection.create_gc(window) {
             return Err(Error::CallFailed { call: "XCreateGC" });
@@ -265,7 +281,7 @@ impl Window {
             .set_bytes(self.window, XA_WM_CLIENT_MACHINE, XA_STRING, &host);
         let pid = c_long::from(std::process::id());
         self.connection
-            .set_cardinals(self.window, self.atoms.net_wm_pid, &[pid]);
+            .set_longs(self.window, self.atoms.net_wm_pid, XA_CARDINAL, &[pid]);
     }
 
     pub(crate) fn size(&self) -> DeviceSize {
@@ -298,6 +314,32 @@ impl Window {
         Waker::new(Arc::clone(&self.pipe))
     }
 
+    /// Makes `text` the selection's, as
+    /// [`crate::window::Window::set_selection`] says.
+    ///
+    /// It waits for the server, so that the `PropertyNotify` with the time
+    /// to take the selection at is read, and handles the events read with
+    /// it, which the next wait reports: in turns, until the time stamp is
+    /// handled. `XSync` put it in Xlib's queue behind only what the server
+    /// sent first, however much another client's flood put there, so the
+    /// turns end; what came after it waits for the next wait.
+    pub(crate) fn set_selection(&mut self, selection: Selection, text: &str) {
+        self.clipboard.set(&self.connection, selection, text);
+        self.connection.sync();
+        let mut backlog = core::mem::take(&mut self.backlog);
+        while self.drain(&mut backlog, 0) && self.clipboard.is_stamping() {}
+        self.backlog = backlog;
+        self.connection.flush();
+    }
+
+    /// Asks for the selection's text, as
+    /// [`crate::window::Window::request_selection`] says.
+    pub(crate) fn request_selection(&mut self, selection: Selection) {
+        self.clipboard
+            .request(&self.connection, selection, Instant::now());
+        self.connection.flush();
+    }
+
     /// Waits for events, as [`crate::window::Window::wait_events`] says.
     pub(crate) fn wait_events(
         &mut self,
@@ -305,12 +347,17 @@ impl Window {
         events: &mut Vec<Event>,
     ) -> Result<(), Error> {
         let start = events.len();
+        // What was read outside a wait comes first.
+        events.append(&mut self.backlog);
         loop {
-            // The requests queued since the last wait, as by `present`.
+            // The requests queued since the last wait, as by `present`, or
+            // by the clipboard's answers in the last turn.
             self.connection.flush();
             // Xlib may hold events it read while waiting for a reply, which
-            // the descriptor no longer shows: take every one before polling.
-            self.drain(events, start);
+            // the descriptor no longer shows: take them before polling.
+            let more = self.drain(events, start);
+            self.clipboard
+                .expire(&self.connection, Instant::now(), events);
             // The errors among what was read, and any since the last wait.
             report_errors();
             if events.len() > start {
@@ -318,7 +365,23 @@ impl Window {
                 if self.pipe.drain()? {
                     events.push(Event::Woken);
                 }
+                // What the clipboard answered while draining.
+                self.connection.flush();
                 return Ok(());
+            }
+            if more {
+                // Events wait in Xlib's queue, which `poll` cannot see:
+                // see to a wake and the deadline, then take more.
+                if self.pipe.drain()? {
+                    events.push(Event::Woken);
+                }
+                if events.len() > start
+                    || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    self.connection.flush();
+                    return Ok(());
+                }
+                continue;
             }
             let Some(x_fd) = self.connection.fd().map(|fd| fd.as_raw_fd()) else {
                 return Err(Error::ConnectionLost);
@@ -335,7 +398,10 @@ impl Window {
                     revents: 0,
                 },
             ];
-            let timeout = poll_timeout(deadline, Instant::now());
+            // The clipboard's timeouts end a wait too, without an event
+            // unless a paste ends.
+            let wake = earliest(deadline, self.clipboard.deadline());
+            let timeout = poll_timeout(wake, Instant::now());
             // SAFETY: `fds` is two initialized entries that this function
             // borrows mutably for the call. Both descriptors are open: the
             // connection's while its display is, which `self` keeps, and
@@ -352,16 +418,21 @@ impl Window {
                     source: error,
                 });
             }
-            let [x_ready, pipe_ready] = fds.map(|fd| fd.revents);
+            // The pipe is read below whether or not `poll` saw it.
+            let [x_ready, _] = fds.map(|fd| fd.revents);
             // Both sources, when both are ready, so that one call reports
             // everything that is waiting: the server's first.
             if x_ready != 0 {
                 self.drain(events, start);
                 report_errors();
             }
-            if pipe_ready != 0 && self.pipe.drain()? {
+            // Whether or not `poll` saw it: a wake that came while the
+            // server's events were taken is seen now, not a turn later.
+            if self.pipe.drain()? {
                 events.push(Event::Woken);
             }
+            self.clipboard
+                .expire(&self.connection, Instant::now(), events);
             if x_ready & (POLLERR | POLLHUP | POLLNVAL) != 0 {
                 // The drain read what the server sent before it went; then
                 // Xlib sees the loss, and its handler ends the process.
@@ -372,21 +443,54 @@ impl Window {
                 };
             }
             if events.len() > start {
+                self.connection.flush();
                 return Ok(());
             }
-            // What came from the server was no event, such as a reply or an
-            // error: wait again, unless the deadline passed.
+            // What came from the server was no event, such as a reply, an
+            // error or a request the clipboard answered, or a timeout of
+            // the clipboard's passed: wait again, unless the deadline did.
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                self.connection.flush();
                 return Ok(());
             }
         }
     }
 
-    /// Takes every event Xlib has or can read without waiting, and appends
-    /// what they amount to. `events` from `start` on are this wait's.
-    fn drain(&mut self, events: &mut Vec<Event>, start: usize) {
+    /// Takes the events Xlib has or can read without waiting, for at most
+    /// [`DRAIN_BUDGET`], appends what they amount to, and reads the parts
+    /// of pastes they announced. Returns whether it stopped for the budget,
+    /// with events perhaps left in Xlib's queue, which polling the
+    /// connection does not show. `events` from `start` on are this wait's.
+    fn drain(&mut self, events: &mut Vec<Event>, start: usize) -> bool {
+        let until = Instant::now() + DRAIN_BUDGET;
+        loop {
+            if self.take_events(events, start, until) {
+                // The parts announced so far, so that a flood of events
+                // cannot put them off for ever.
+                self.clipboard
+                    .read_parts(&self.connection, Instant::now(), events);
+                return true;
+            }
+            // Reading a part waits for the server, which may queue more
+            // events meanwhile: take those too.
+            if !self
+                .clipboard
+                .read_parts(&self.connection, Instant::now(), events)
+            {
+                return false;
+            }
+        }
+    }
+
+    /// Takes every event Xlib has or can read without waiting, until
+    /// `until`, and appends what they amount to. Returns whether it stopped
+    /// at `until`.
+    fn take_events(&mut self, events: &mut Vec<Event>, start: usize, until: Instant) -> bool {
         // `pending` reads what has arrived once the queue is empty.
         while self.connection.pending() > 0 {
+            if Instant::now() >= until {
+                return true;
+            }
             let mut event = self.connection.next_event();
             // Decoded before the input method sees it: Xlib's own sets the
             // keycode of the press that ends a Compose sequence to 0 when
@@ -396,6 +500,11 @@ impl Window {
             // Any other event an input method takes is its own. A key it
             // takes still moved: only what it types is the input method's.
             if taken && !matches!(incoming, Incoming::Key { .. }) {
+                continue;
+            }
+            if let Incoming::Selection(selection) = incoming {
+                self.clipboard
+                    .handle(&self.connection, selection, Instant::now(), events);
                 continue;
             }
             self.translator.handle(incoming, events, start);
@@ -412,6 +521,7 @@ impl Window {
                 self.connection.set_text_focus(focused);
             }
         }
+        false
     }
 
     /// Shows the damaged parts of `pixels`, as
@@ -457,6 +567,15 @@ fn report_errors() {
              request {}.{} (serial {})",
             errors.count, errors.error_code, errors.request_code, errors.minor_code, errors.serial
         );
+    }
+}
+
+/// The earlier of two deadlines, where `None` is never.
+fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, None) => a,
+        (None, b) => b,
     }
 }
 
@@ -522,7 +641,10 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use super::super::connection::MAX_LONGS;
+    use super::super::selection::SelectionEvent;
     use super::*;
+    use crate::clipboard::MAX_PASTE_BYTES;
 
     // -- without a server -----------------------------------------------------
 
@@ -595,7 +717,8 @@ mod tests {
             | (1 << 6)
             | (1 << 15)
             | (1 << 17)
-            | (1 << 21);
+            | (1 << 21)
+            | (1 << 22);
         assert_eq!(EVENT_MASK, expected);
     }
 
@@ -1020,6 +1143,1085 @@ mod tests {
                 .any(|line| line.contains("the X server refused 1 request(s)")
                     && line.contains("error 3 for request 8.0")),
             "{logged:#?}"
+        );
+    }
+
+    // -- the clipboard, with a server -----------------------------------------
+
+    /// How long a clipboard test waits for what it expects.
+    const PATIENCE: Duration = Duration::from_secs(10);
+
+    /// Waits on each window in turn, a few milliseconds each, until `done`
+    /// accepts what the windows have reported, which it returns, or
+    /// `PATIENCE` passes.
+    fn pump(windows: &mut [&mut Window], done: impl Fn(&[Vec<Event>]) -> bool) -> Vec<Vec<Event>> {
+        let limit = Instant::now() + PATIENCE;
+        let mut seen: Vec<Vec<Event>> = windows.iter().map(|_| Vec::new()).collect();
+        while !done(&seen) {
+            assert!(Instant::now() < limit, "not in {PATIENCE:?}: {seen:?}");
+            for (window, events) in windows.iter_mut().zip(&mut seen) {
+                let deadline = Instant::now() + Duration::from_millis(5);
+                window
+                    .wait_events(Some(deadline), events)
+                    .unwrap_or_else(|error| panic!("{error}"));
+            }
+        }
+        seen
+    }
+
+    /// The pastes among `events`.
+    fn pastes(events: &[Event]) -> Vec<(Selection, Option<String>)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Pasted { selection, text } => Some((*selection, text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Waits on the windows until the one at `asker` reports a paste, and
+    /// returns its pastes.
+    fn paste_in(windows: &mut [&mut Window], asker: usize) -> Vec<(Selection, Option<String>)> {
+        let seen = pump(windows, |seen| !pastes(&seen[asker]).is_empty());
+        pastes(&seen[asker])
+    }
+
+    /// Waits on `window` until it owns `selection`, or no longer does.
+    fn until_owned(window: &mut Window, selection: Selection, owned: bool) {
+        let limit = Instant::now() + PATIENCE;
+        while window.clipboard.owns(selection) != owned {
+            assert!(Instant::now() < limit, "{selection:?} owned is not {owned}");
+            let mut events = Vec::new();
+            window
+                .wait_events(Some(Instant::now() + Duration::from_millis(5)), &mut events)
+                .unwrap_or_else(|error| panic!("{error}"));
+        }
+    }
+
+    /// A text of at least `len` bytes, with characters of one to four
+    /// bytes, so that parts split some of them.
+    fn long_text(len: usize) -> String {
+        let mut text = String::with_capacity(len + 16);
+        let mut line = 0_u32;
+        while text.len() < len {
+            text.push_str(&format!("{line:06} tidepool é ✓ 🌊\n"));
+            line += 1;
+        }
+        text
+    }
+
+    #[test]
+    fn text_copied_in_one_window_pastes_in_another() {
+        let test = "text_copied_in_one_window_pastes_in_another";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        copier.set_selection(Selection::Clipboard, "Tidepool — ünïcödé ✓ 🌊\r\n\ttabs");
+        copier.set_selection(Selection::Primary, "the primary selection");
+        until_owned(&mut copier, Selection::Clipboard, true);
+        assert!(copier.clipboard.owns(Selection::Primary));
+
+        paster.request_selection(Selection::Clipboard);
+        let pasted = paste_in(&mut [&mut copier, &mut paster], 1);
+        assert_eq!(
+            pasted,
+            [(
+                Selection::Clipboard,
+                Some("Tidepool — ünïcödé ✓ 🌊\r\n\ttabs".to_string())
+            )]
+        );
+        paster.request_selection(Selection::Primary);
+        let pasted = paste_in(&mut [&mut copier, &mut paster], 1);
+        assert_eq!(
+            pasted,
+            [(
+                Selection::Primary,
+                Some("the primary selection".to_string())
+            )]
+        );
+        // And back the other way, with an empty text.
+        paster.set_selection(Selection::Clipboard, "");
+        until_owned(&mut paster, Selection::Clipboard, true);
+        copier.request_selection(Selection::Clipboard);
+        let pasted = paste_in(&mut [&mut copier, &mut paster], 0);
+        assert_eq!(pasted, [(Selection::Clipboard, Some(String::new()))]);
+        assert_eq!(claim::take_errors(), None, "the server refused a request");
+    }
+
+    #[test]
+    fn a_1_mib_paste_goes_through_incr() {
+        let test = "a_1_mib_paste_goes_through_incr";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        let text = long_text(1024 * 1024);
+        assert!(text.len() > copier.clipboard.part());
+        copier.set_selection(Selection::Clipboard, &text);
+        paster.request_selection(Selection::Clipboard);
+        let pasted = paste_in(&mut [&mut copier, &mut paster], 1);
+        assert_eq!(pasted.len(), 1);
+        assert_eq!(pasted[0].0, Selection::Clipboard);
+        let got = pasted[0].1.as_deref().expect("the text pasted");
+        assert_eq!(got.len(), text.len());
+        assert!(got == text, "the paste differs from the copy");
+        // One transfer, of whole parts and an empty one that ends it.
+        let parts = text.len().div_ceil(copier.clipboard.part()) + 1;
+        assert_eq!(copier.clipboard.counts.sent_incr, 1);
+        assert_eq!(copier.clipboard.counts.parts_sent, parts);
+        assert_eq!(paster.clipboard.counts.received_incr, 1);
+        // The empty part that the paster read ended the transfer, and the
+        // paster's window is no longer watched.
+        assert!(copier.clipboard.deadline().is_none());
+        assert_eq!(claim::take_errors(), None, "the server refused a request");
+    }
+
+    #[test]
+    fn a_window_pastes_what_it_just_set() {
+        let test = "a_window_pastes_what_it_just_set";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut window = open_shown(test);
+        window.set_selection(Selection::Clipboard, "first");
+        window.set_selection(Selection::Clipboard, "second");
+        window.request_selection(Selection::Clipboard);
+        // A second request joins the first: one answer.
+        window.request_selection(Selection::Clipboard);
+        let pasted = paste_in(&mut [&mut window], 0);
+        assert_eq!(pasted, [(Selection::Clipboard, Some("second".to_string()))]);
+        settle(&mut window);
+        // And a long one, by INCR to its own window.
+        let text = long_text(600 * 1024);
+        window.set_selection(Selection::Clipboard, &text);
+        window.request_selection(Selection::Clipboard);
+        let pasted = paste_in(&mut [&mut window], 0);
+        assert!(
+            pasted == [(Selection::Clipboard, Some(text))],
+            "the paste differs"
+        );
+        assert_eq!(window.clipboard.counts.received_incr, 1);
+        assert_eq!(claim::take_errors(), None, "the server refused a request");
+    }
+
+    #[test]
+    fn a_selection_nobody_owns_pastes_nothing() {
+        let test = "a_selection_nobody_owns_pastes_nothing";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut window = open_shown(test);
+        if window
+            .connection
+            .selection_owner(window.connection.intern(c"CLIPBOARD"))
+            != 0
+        {
+            // Another client of this server holds it: nothing to test here.
+            let _ = io::stderr()
+                .write_all(format!("SKIPPED: {test}: another client owns CLIPBOARD\n").as_bytes());
+            return;
+        }
+        window.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut window], 0),
+            [(Selection::Clipboard, None)]
+        );
+    }
+
+    #[test]
+    fn a_paste_that_gets_no_answer_ends_with_nothing() {
+        let test = "a_paste_that_gets_no_answer_ends_with_nothing";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let mut paster = open_shown("paster");
+        owner.set_selection(Selection::Primary, "never sent");
+        until_owned(&mut owner, Selection::Primary, true);
+        let timeout = Duration::from_millis(300);
+        paster.clipboard.limit_for_test(MAX_PASTE_BYTES, timeout);
+        let asked = Instant::now();
+        paster.request_selection(Selection::Primary);
+        // The owner is not waited on, so it never answers.
+        let pasted = paste_in(&mut [&mut paster], 0);
+        assert_eq!(pasted, [(Selection::Primary, None)]);
+        assert!(asked.elapsed() >= timeout, "{:?}", asked.elapsed());
+        assert!(asked.elapsed() < timeout * 5, "{:?}", asked.elapsed());
+        // The owner's late answer is not taken for another paste.
+        settle(&mut owner);
+        let mut events = Vec::new();
+        paster
+            .wait_events(
+                Some(Instant::now() + Duration::from_millis(100)),
+                &mut events,
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(pastes(&events).is_empty(), "{events:?}");
+    }
+
+    #[test]
+    fn a_selection_another_window_takes_is_given_up() {
+        let test = "a_selection_another_window_takes_is_given_up";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut first = open_shown("first");
+        let mut second = open_shown("second");
+        first.set_selection(Selection::Clipboard, "from the first");
+        until_owned(&mut first, Selection::Clipboard, true);
+        second.set_selection(Selection::Clipboard, "from the second");
+        until_owned(&mut second, Selection::Clipboard, true);
+        until_owned(&mut first, Selection::Clipboard, false);
+        first.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut first, &mut second], 0),
+            [(Selection::Clipboard, Some("from the second".to_string()))]
+        );
+    }
+
+    #[test]
+    fn a_paste_larger_than_the_limit_is_nothing() {
+        let test = "a_paste_larger_than_the_limit_is_nothing";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        let part = copier.clipboard.part();
+        // Whole: one byte over the limit, then at it.
+        paster.clipboard.limit_for_test(1000, TIMEOUT_FOR_TESTS);
+        copier.set_selection(Selection::Clipboard, &"x".repeat(1001));
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, None)]
+        );
+        copier.set_selection(Selection::Clipboard, &"y".repeat(1000));
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, Some("y".repeat(1000)))]
+        );
+        // By INCR: over the limit after the first part.
+        paster
+            .clipboard
+            .limit_for_test(part + 10, TIMEOUT_FOR_TESTS);
+        copier.set_selection(Selection::Clipboard, &"z".repeat(part * 3));
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, None)]
+        );
+        assert_eq!(paster.clipboard.counts.received_incr, 1);
+    }
+
+    /// The timeout for tests that do not test it.
+    const TIMEOUT_FOR_TESTS: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn an_owner_answers_targets_and_timestamp_and_refuses_the_rest() {
+        let test = "an_owner_answers_targets_and_timestamp_and_refuses_the_rest";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let asker = open_shown("asker");
+        owner.set_selection(Selection::Clipboard, "text");
+        until_owned(&mut owner, Selection::Clipboard, true);
+
+        let atom = |name: &core::ffi::CStr| asker.connection.intern(name);
+        let (clipboard, property) = (atom(c"CLIPBOARD"), atom(c"TIDEPOOL_TEST"));
+        // Asks for `target` with the asker's connection itself, and returns
+        // the property the owner answered in (0 if refused) and its value.
+        let mut ask = |target: Atom, into: Atom, sent_property: Atom| {
+            asker.connection.delete_property(asker.window, into);
+            asker.connection.convert_selection(
+                clipboard,
+                target,
+                sent_property,
+                asker.window,
+                xlib::CurrentTime,
+            );
+            asker.connection.flush();
+            let limit = Instant::now() + PATIENCE;
+            loop {
+                assert!(Instant::now() < limit, "no answer for target {target}");
+                let mut events = Vec::new();
+                owner
+                    .wait_events(Some(Instant::now() + Duration::from_millis(5)), &mut events)
+                    .unwrap_or_else(|error| panic!("{error}"));
+                while asker.connection.pending() > 0 {
+                    let event = asker.connection.next_event();
+                    if let Incoming::Selection(SelectionEvent::Notify {
+                        property,
+                        target: answered,
+                        ..
+                    }) = event.decode()
+                    {
+                        assert_eq!(answered, target);
+                        let value = asker
+                            .connection
+                            .get_property(asker.window, into, true, 4096)
+                            .expect("the property reads");
+                        return (property, value);
+                    }
+                }
+            }
+        };
+        let (targets, utf8_string) = (atom(c"TARGETS"), atom(c"UTF8_STRING"));
+        let (answered, value) = ask(targets, property, property);
+        assert_eq!(answered, property);
+        assert_eq!((value.type_, value.format), (xlib::XA_ATOM, 32));
+        let listed: Vec<Atom> = value.longs.iter().map(|&atom| atom as Atom).collect();
+        assert_eq!(listed, [targets, atom(c"TIMESTAMP"), utf8_string]);
+
+        let (answered, value) = ask(atom(c"TIMESTAMP"), property, property);
+        assert_eq!(answered, property);
+        assert_eq!((value.type_, value.format), (xlib::XA_INTEGER, 32));
+        assert_eq!(value.longs.len(), 1);
+        assert_ne!(value.longs[0], 0);
+
+        // An obsolete client gives no property: the target names it.
+        let (answered, value) = ask(utf8_string, utf8_string, 0);
+        assert_eq!(answered, utf8_string);
+        assert_eq!(
+            (value.type_, value.bytes.as_slice()),
+            (utf8_string, &b"text"[..])
+        );
+
+        for refused in [c"STRING", c"MULTIPLE", c"TEXT", c"COMPOUND_TEXT"] {
+            let (answered, value) = ask(atom(refused), property, property);
+            assert_eq!(answered, 0, "{refused:?}");
+            assert_eq!(value.type_, 0, "{refused:?}: the property was written");
+        }
+        assert_eq!(claim::take_errors(), None, "the server refused a request");
+    }
+
+    /// Waits on `window` for up to `limit` and returns its pastes, if any.
+    fn pastes_within(window: &mut Window, limit: Duration) -> Vec<(Selection, Option<String>)> {
+        let mut events = Vec::new();
+        window
+            .wait_events(Some(Instant::now() + limit), &mut events)
+            .unwrap_or_else(|error| panic!("{error}"));
+        pastes(&events)
+    }
+
+    #[test]
+    fn a_copy_survives_another_client_meddling_with_its_time_stamp() {
+        let test = "a_copy_survives_another_client_meddling_with_its_time_stamp";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let mut meddler = open_shown("meddler");
+        owner.set_selection(Selection::Clipboard, "first");
+        assert!(owner.clipboard.owns(Selection::Clipboard));
+        let atom = |name: &core::ffi::CStr| meddler.connection.intern(name);
+        let (clipboard, utf8_string, stamp) = (
+            atom(c"CLIPBOARD"),
+            atom(c"UTF8_STRING"),
+            atom(c"TIDEPOOL_TIMESTAMP"),
+        );
+        // Asked to answer into its own time stamp property, the owner
+        // refuses, and the property keeps the type the owner gave it.
+        meddler.connection.convert_selection(
+            clipboard,
+            utf8_string,
+            stamp,
+            owner.window,
+            xlib::CurrentTime,
+        );
+        meddler.connection.flush();
+        settle(&mut owner);
+        let kept = owner
+            .connection
+            .get_property(owner.window, stamp, false, 64)
+            .expect("the property reads");
+        assert_eq!((kept.type_, kept.format), (xlib::XA_INTEGER, 32));
+        // Given another type and format by another client, the property
+        // still gives the next copy its time.
+        assert!(
+            meddler
+                .connection
+                .set_bytes(owner.window, stamp, xlib::XA_STRING, b"x")
+        );
+        meddler.connection.sync();
+        // The change it makes is an event too, which must not stand in for
+        // the time stamp of the next copy.
+        settle(&mut owner);
+        owner.set_selection(Selection::Clipboard, "second");
+        assert!(owner.clipboard.owns(Selection::Clipboard));
+        meddler.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut owner, &mut meddler], 1),
+            [(Selection::Clipboard, Some("second".to_string()))]
+        );
+        assert_eq!(claim::take_errors(), None, "the server refused a request");
+    }
+
+    #[test]
+    fn an_incr_paste_whose_parts_never_end_ends_with_nothing() {
+        let test = "an_incr_paste_whose_parts_never_end_ends_with_nothing";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        let meddler = open_shown("meddler");
+        let timeout = Duration::from_millis(100);
+        paster.clipboard.limit_for_test(MAX_PASTE_BYTES, timeout);
+        let text = long_text(copier.clipboard.part() * 3);
+        copier.set_selection(Selection::Clipboard, &text);
+        paster.request_selection(Selection::Clipboard);
+        // Until the owner answers by INCR, and no longer.
+        let limit = Instant::now() + PATIENCE;
+        while paster.clipboard.counts.received_incr == 0 {
+            assert!(Instant::now() < limit, "no INCR answer");
+            for window in [&mut copier, &mut paster] {
+                let mut events = Vec::new();
+                window
+                    .wait_events(Some(Instant::now() + Duration::from_millis(5)), &mut events)
+                    .unwrap_or_else(|error| panic!("{error}"));
+            }
+        }
+        let started = Instant::now();
+        // Another client writes a byte as the next part, more often than
+        // the timeout, for ever.
+        let property = paster
+            .clipboard
+            .pending_property(Selection::Clipboard)
+            .expect("a paste is pending");
+        let utf8_string = meddler.connection.intern(c"UTF8_STRING");
+        let pasted = loop {
+            assert!(started.elapsed() < PATIENCE, "the paste never ended");
+            meddler
+                .connection
+                .set_bytes(paster.window, property, utf8_string, b"x");
+            meddler.connection.flush();
+            let pasted = pastes_within(&mut paster, Duration::from_millis(40));
+            if !pasted.is_empty() {
+                break pasted;
+            }
+        };
+        let took = started.elapsed();
+        assert_eq!(pasted, [(Selection::Clipboard, None)]);
+        let overall = timeout * super::super::selection::RECEIVE_TIMEOUTS;
+        assert!(took >= overall - Duration::from_millis(100), "{took:?}");
+        assert!(took < overall + Duration::from_secs(1), "{took:?}");
+        // The selection pastes again.
+        copier.set_selection(Selection::Clipboard, "small");
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, Some("small".to_string()))]
+        );
+    }
+
+    #[test]
+    fn an_answer_in_format_32_pastes_nothing() {
+        let test = "an_answer_in_format_32_pastes_nothing";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        // The owner holds the selection but is never waited on, so only the
+        // meddler's answers come.
+        let mut owner = open_shown("owner");
+        let mut paster = open_shown("paster");
+        let meddler = open_shown("meddler");
+        owner.set_selection(Selection::Clipboard, "real");
+        let atom = |name: &core::ffi::CStr| meddler.connection.intern(name);
+        let (clipboard, utf8_string) = (atom(c"CLIPBOARD"), atom(c"UTF8_STRING"));
+        // More items than are ever copied, and a few: neither is text.
+        for items in [MAX_LONGS * 16, 3] {
+            paster.request_selection(Selection::Clipboard);
+            let property = paster
+                .clipboard
+                .pending_property(Selection::Clipboard)
+                .expect("a paste is pending");
+            let longs = vec![0x41; items];
+            assert!(
+                meddler
+                    .connection
+                    .set_longs(paster.window, property, utf8_string, &longs)
+            );
+            assert!(meddler.connection.send_selection_notify(
+                paster.window,
+                clipboard,
+                utf8_string,
+                property,
+                xlib::CurrentTime
+            ));
+            meddler.connection.flush();
+            assert_eq!(
+                paste_in(&mut [&mut paster], 0),
+                [(Selection::Clipboard, None)],
+                "{items} items"
+            );
+        }
+        drop(owner);
+    }
+
+    #[test]
+    fn an_abandoned_transfer_neither_spoils_the_next_paste_nor_outlives_a_new_request() {
+        let test = "an_abandoned_transfer_neither_spoils_the_next_paste_nor_outlives_a_new_request";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        let asker = open_shown("asker");
+        let text = long_text(copier.clipboard.part() * 3);
+        copier.set_selection(Selection::Clipboard, &text);
+        // An INCR transfer that the paster gives up after its first part:
+        // the next paste, in another answer property, gets the new text.
+        paster
+            .clipboard
+            .limit_for_test(copier.clipboard.part() / 2, TIMEOUT_FOR_TESTS);
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, None)]
+        );
+        assert!(copier.clipboard.deadline().is_some(), "the transfer ended");
+        copier.set_selection(Selection::Clipboard, "short");
+        paster
+            .clipboard
+            .limit_for_test(MAX_PASTE_BYTES, TIMEOUT_FOR_TESTS);
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut copier, &mut paster], 1),
+            [(Selection::Clipboard, Some("short".to_string()))]
+        );
+
+        // A client that asks into one property each time, as many do: its
+        // new request ends the transfer it abandoned there.
+        copier.set_selection(Selection::Clipboard, &text);
+        let atom = |name: &core::ffi::CStr| asker.connection.intern(name);
+        let (clipboard, utf8_string, property) = (
+            atom(c"CLIPBOARD"),
+            atom(c"UTF8_STRING"),
+            atom(c"TIDEPOOL_TEST"),
+        );
+        let ask = || {
+            asker.connection.convert_selection(
+                clipboard,
+                utf8_string,
+                property,
+                asker.window,
+                xlib::CurrentTime,
+            );
+            asker.connection.flush();
+        };
+        ask();
+        let limit = Instant::now() + PATIENCE;
+        while copier.clipboard.transfers_to(asker.window) == 0 {
+            assert!(Instant::now() < limit, "no INCR transfer began");
+            let _ = pastes_within(&mut copier, Duration::from_millis(5));
+        }
+        copier.set_selection(Selection::Clipboard, "short again");
+        // The asker never took a part: only the new request ends the
+        // transfer, here or in 5 s.
+        ask();
+        settle(&mut copier);
+        let answer = asker
+            .connection
+            .get_property(asker.window, property, false, 4096)
+            .expect("the property reads");
+        assert_eq!(
+            (answer.type_, answer.bytes.as_slice()),
+            (utf8_string, &b"short again"[..])
+        );
+        // The paster's transfer, in a resting property, may still run; the
+        // asker's does not.
+        assert_eq!(copier.clipboard.transfers_to(asker.window), 0);
+        drop(paster);
+    }
+
+    /// Waits on `window` with a deadline 50 ms away, as many times as it
+    /// takes for `done`, and checks that no wait took more than 250 ms.
+    /// Returns the pastes it reported. `feed` runs before each wait.
+    fn responsive_until(
+        window: &mut Window,
+        mut feed: impl FnMut(),
+        done: impl Fn(&[(Selection, Option<String>)]) -> bool,
+    ) -> Vec<(Selection, Option<String>)> {
+        let started = Instant::now();
+        let mut seen = Vec::new();
+        while !done(&seen) {
+            assert!(started.elapsed() < PATIENCE, "not done: {seen:?}");
+            feed();
+            let before = Instant::now();
+            seen.extend(pastes_within(window, Duration::from_millis(50)));
+            let took = before.elapsed();
+            assert!(
+                took < Duration::from_millis(250),
+                "a wait of 50 ms took {took:?}"
+            );
+        }
+        seen
+    }
+
+    #[test]
+    fn a_flood_of_parts_neither_holds_a_wait_nor_outlasts_the_paste() {
+        let test = "a_flood_of_parts_neither_holds_a_wait_nor_outlasts_the_paste";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut copier = open_shown("copier");
+        let mut paster = open_shown("paster");
+        let meddler = open_shown("meddler");
+        let timeout = Duration::from_millis(100);
+        paster.clipboard.limit_for_test(MAX_PASTE_BYTES, timeout);
+        copier.set_selection(
+            Selection::Clipboard,
+            &long_text(copier.clipboard.part() * 3),
+        );
+        paster.request_selection(Selection::Clipboard);
+        let limit = Instant::now() + PATIENCE;
+        while paster.clipboard.counts.received_incr == 0 {
+            assert!(Instant::now() < limit, "no INCR answer");
+            for window in [&mut copier, &mut paster] {
+                let mut events = Vec::new();
+                window
+                    .wait_events(Some(Instant::now() + Duration::from_millis(5)), &mut events)
+                    .unwrap_or_else(|error| panic!("{error}"));
+            }
+        }
+        let property = paster
+            .clipboard
+            .pending_property(Selection::Clipboard)
+            .expect("a paste is pending");
+        let utf8_string = meddler.connection.intern(c"UTF8_STRING");
+        let target = paster.window;
+        let started = Instant::now();
+        // Thousands of one-byte parts before each wait, without waiting for
+        // the paster to take any.
+        let mut writes = 0;
+        let pasted = responsive_until(
+            &mut paster,
+            || {
+                for _ in 0..5_000 {
+                    meddler
+                        .connection
+                        .set_bytes(target, property, utf8_string, b"x");
+                }
+                writes += 5_000;
+                meddler.connection.flush();
+            },
+            |seen| !seen.is_empty(),
+        );
+        assert_eq!(pasted, [(Selection::Clipboard, None)]);
+        // The property was read once a turn, not once a write.
+        let reads = paster.clipboard.counts.parts_read;
+        assert!(reads * 100 < writes, "{reads} reads for {writes} writes");
+        let overall = timeout * super::super::selection::RECEIVE_TIMEOUTS;
+        assert!(
+            started.elapsed() < overall + Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_flood_of_requests_is_refused_past_the_budget_and_holds_no_wait() {
+        let test = "a_flood_of_requests_is_refused_past_the_budget_and_holds_no_wait";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let asker = open_shown("asker");
+        let mut paster = open_shown("paster");
+        let text = "y".repeat(100 * 1024);
+        assert!(text.len() <= owner.clipboard.part());
+        owner.clipboard.serve_limit_for_test(300 * 1024);
+        owner.set_selection(Selection::Clipboard, &text);
+        let atom = |name: &core::ffi::CStr| asker.connection.intern(name);
+        let (clipboard, utf8_string, property) = (
+            atom(c"CLIPBOARD"),
+            atom(c"UTF8_STRING"),
+            atom(c"TIDEPOOL_TEST"),
+        );
+        const REQUESTS: usize = 2_000;
+        for _ in 0..REQUESTS {
+            asker.connection.convert_selection(
+                clipboard,
+                utf8_string,
+                property,
+                asker.window,
+                xlib::CurrentTime,
+            );
+        }
+        asker.connection.flush();
+        let (mut answered, mut refused) = (0, 0);
+        let limit = Instant::now() + PATIENCE;
+        while answered + refused < REQUESTS {
+            assert!(
+                Instant::now() < limit,
+                "{answered} answered, {refused} refused"
+            );
+            let before = Instant::now();
+            let _ = pastes_within(&mut owner, Duration::from_millis(50));
+            let took = before.elapsed();
+            assert!(
+                took < Duration::from_millis(250),
+                "a wait of 50 ms took {took:?}"
+            );
+            while asker.connection.pending() > 0 {
+                let event = asker.connection.next_event();
+                if let Incoming::Selection(SelectionEvent::Notify { property, .. }) = event.decode()
+                {
+                    if property == 0 {
+                        refused += 1;
+                    } else {
+                        answered += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            answered >= 1 && refused >= REQUESTS / 2,
+            "{answered} answered, {refused} refused"
+        );
+        // A second later the budget is whole again.
+        thread::sleep(Duration::from_millis(1100));
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut owner, &mut paster], 1),
+            [(Selection::Clipboard, Some(text))]
+        );
+    }
+
+    #[test]
+    fn a_clear_at_the_time_of_the_windows_own_claim_does_not_give_the_selection_up() {
+        let test = "a_clear_at_the_time_of_the_windows_own_claim_does_not_give_the_selection_up";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let meddler = open_shown("meddler");
+        let mut paster = open_shown("paster");
+        owner.set_selection(Selection::Clipboard, "first");
+        let clipboard = meddler.connection.intern(c"CLIPBOARD");
+        // A server time of the meddler's own.
+        let stamp = meddler.connection.intern(c"TIDEPOOL_TEST_TIME");
+        meddler
+            .connection
+            .touch_property(meddler.window, stamp, xlib::XA_INTEGER);
+        meddler.connection.sync();
+        let mut time = None;
+        while meddler.connection.pending() > 0 {
+            let event = meddler.connection.next_event();
+            if let Incoming::Selection(SelectionEvent::Property {
+                window,
+                atom,
+                time: at,
+                ..
+            }) = event.decode()
+                && window == meddler.window
+                && atom == stamp
+            {
+                time = Some(at);
+            }
+        }
+        let time = time.expect("the meddler's time stamp");
+        // The meddler claims at that time, and then the owner claims at the
+        // very same time: the server takes both, the owner's last, and the
+        // meddler's claim has sent the owner a clear of that time.
+        meddler
+            .connection
+            .set_selection_owner(clipboard, meddler.window, time);
+        meddler.connection.sync();
+        owner
+            .clipboard
+            .set(&owner.connection, Selection::Clipboard, "second");
+        let stamped = SelectionEvent::Property {
+            serial: core::ffi::c_ulong::MAX,
+            window: owner.window,
+            atom: owner.clipboard.stamp_property(),
+            time,
+            deleted: false,
+            sent: false,
+        };
+        owner
+            .clipboard
+            .handle(&owner.connection, stamped, Instant::now(), &mut Vec::new());
+        assert!(owner.clipboard.owns(Selection::Clipboard));
+        assert_eq!(owner.connection.selection_owner(clipboard), owner.window);
+        settle(&mut owner);
+        assert!(
+            owner.clipboard.owns(Selection::Clipboard),
+            "the window gave up a selection it holds"
+        );
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut owner, &mut paster], 1),
+            [(Selection::Clipboard, Some("second".to_string()))]
+        );
+    }
+
+    #[test]
+    fn a_late_answer_to_an_old_paste_is_not_taken_for_a_new_one() {
+        let test = "a_late_answer_to_an_old_paste_is_not_taken_for_a_new_one";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut old_owner = open_shown("old owner");
+        let mut new_owner = open_shown("new owner");
+        let mut paster = open_shown("paster");
+        old_owner.set_selection(Selection::Clipboard, "old");
+        // The old owner is not waited on, so the first paste gets no answer.
+        paster
+            .clipboard
+            .limit_for_test(MAX_PASTE_BYTES, Duration::from_millis(300));
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut paster], 0),
+            [(Selection::Clipboard, None)]
+        );
+        new_owner.set_selection(Selection::Clipboard, "new");
+        paster
+            .clipboard
+            .limit_for_test(MAX_PASTE_BYTES, TIMEOUT_FOR_TESTS);
+        paster.request_selection(Selection::Clipboard);
+        // The old owner answers the first request only now, while the
+        // second is pending, and before the new owner answers it.
+        settle(&mut old_owner);
+        let early = pastes_within(&mut paster, Duration::from_millis(200));
+        assert!(early.is_empty(), "the late answer was taken: {early:?}");
+        assert_eq!(
+            paste_in(&mut [&mut new_owner, &mut paster], 1),
+            [(Selection::Clipboard, Some("new".to_string()))]
+        );
+    }
+
+    #[test]
+    fn a_flood_of_events_holds_neither_a_wait_nor_a_wake() {
+        let test = "a_flood_of_events_holds_neither_a_wait_nor_a_wake";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut window = open_shown(test);
+        let meddler = open_shown("meddler");
+        // Hundreds of thousands of changes of a property of the window,
+        // each an event it must take, though none is reported.
+        let noise = meddler.connection.intern(c"TIDEPOOL_TEST_NOISE");
+        for _ in 0..300_000 {
+            meddler
+                .connection
+                .set_bytes(window.window, noise, xlib::XA_STRING, b"x");
+        }
+        meddler.connection.sync();
+        window.waker().wake();
+        let before = Instant::now();
+        let mut events = Vec::new();
+        window
+            .wait_events(None, &mut events)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(events.contains(&Event::Woken), "{events:?}");
+        // The wait saw the wake before it had taken every event: the rest
+        // wait in Xlib's queue for the next turn. (Xlib itself reads all
+        // that the server has sent in one go, before a turn begins, which
+        // takes most of the time here, so the time alone tells little.)
+        assert!(
+            window.connection.pending() > 0,
+            "the wait took every event before it saw the wake"
+        );
+        let took = before.elapsed();
+        assert!(took < Duration::from_secs(1), "the wake took {took:?}");
+        // A deadline that passed already ends a wait with events left.
+        let _ = pastes_within(&mut window, Duration::ZERO);
+        assert!(
+            window.connection.pending() > 0,
+            "a wait past its deadline took every event"
+        );
+        // The next waits take the rest.
+        settle(&mut window);
+    }
+
+    #[test]
+    fn a_copy_behind_a_flood_of_events_holds_the_selection_when_it_returns() {
+        let test = "a_copy_behind_a_flood_of_events_holds_the_selection_when_it_returns";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let meddler = open_shown("meddler");
+        let mut paster = open_shown("paster");
+        let noise = meddler.connection.intern(c"TIDEPOOL_TEST_NOISE");
+        for _ in 0..300_000 {
+            meddler
+                .connection
+                .set_bytes(owner.window, noise, xlib::XA_STRING, b"x");
+        }
+        meddler.connection.sync();
+        owner.set_selection(Selection::Clipboard, "fresh");
+        assert!(
+            owner.clipboard.owns(Selection::Clipboard),
+            "the copy returned before it held the selection"
+        );
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut owner, &mut paster], 1),
+            [(Selection::Clipboard, Some("fresh".to_string()))]
+        );
+    }
+
+    #[test]
+    fn a_stale_write_of_the_time_stamp_property_is_not_taken_for_a_copys_time() {
+        let test = "a_stale_write_of_the_time_stamp_property_is_not_taken_for_a_copys_time";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let meddler = open_shown("meddler");
+        let mut paster = open_shown("paster");
+        let stamp = owner.clipboard.stamp_property();
+        let clipboard = meddler.connection.intern(c"CLIPBOARD");
+        // The meddler writes the owner's time stamp property, an event the
+        // owner has not read yet, and then takes the clipboard, later.
+        meddler
+            .connection
+            .touch_property(owner.window, stamp, xlib::XA_INTEGER);
+        meddler.connection.sync();
+        thread::sleep(Duration::from_millis(5));
+        meddler
+            .connection
+            .set_selection_owner(clipboard, meddler.window, xlib::CurrentTime);
+        meddler.connection.sync();
+        thread::sleep(Duration::from_millis(5));
+        // The owner's copy, later still, takes the time of its own write.
+        owner.set_selection(Selection::Clipboard, "mine");
+        assert!(
+            owner.clipboard.owns(Selection::Clipboard),
+            "the copy took the time of the meddler's earlier write"
+        );
+        paster.request_selection(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut owner, &mut paster], 1),
+            [(Selection::Clipboard, Some("mine".to_string()))]
+        );
+    }
+
+    #[test]
+    fn requests_refused_for_the_transfer_cap_spend_none_of_the_budget() {
+        let test = "requests_refused_for_the_transfer_cap_spend_none_of_the_budget";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut owner = open_shown("owner");
+        let asker = open_shown("asker");
+        let text = long_text(owner.clipboard.part() + 1);
+        // Room for 16 transfers and four refused ones, and not one byte
+        // more.
+        owner.clipboard.serve_limit_for_test(text.len() * 20);
+        owner.set_selection(Selection::Clipboard, &text);
+        owner.set_selection(Selection::Primary, "p");
+        let atom = |name: &str| {
+            let name = std::ffi::CString::new(name).expect("a name");
+            asker.connection.intern(&name)
+        };
+        let (clipboard, utf8_string) = (atom("CLIPBOARD"), atom("UTF8_STRING"));
+        // Sixteen transfers that the asker never takes a part of, and four
+        // requests more, which the cap refuses.
+        for index in 0..20 {
+            asker.connection.convert_selection(
+                clipboard,
+                utf8_string,
+                atom(&format!("TIDEPOOL_TEST_{index}")),
+                asker.window,
+                xlib::CurrentTime,
+            );
+        }
+        let primary_into = atom("TIDEPOOL_TEST_PRIMARY");
+        asker.connection.convert_selection(
+            xlib::XA_PRIMARY,
+            utf8_string,
+            primary_into,
+            asker.window,
+            xlib::CurrentTime,
+        );
+        asker.connection.flush();
+        let mut answers = Vec::new();
+        let limit = Instant::now() + PATIENCE;
+        while answers.len() < 21 {
+            assert!(Instant::now() < limit, "{} answers", answers.len());
+            let _ = pastes_within(&mut owner, Duration::from_millis(20));
+            while asker.connection.pending() > 0 {
+                let event = asker.connection.next_event();
+                if let Incoming::Selection(SelectionEvent::Notify {
+                    selection,
+                    property,
+                    ..
+                }) = event.decode()
+                {
+                    answers.push((selection, property));
+                }
+            }
+        }
+        let refused = answers
+            .iter()
+            .filter(|&&(selection, property)| selection == clipboard && property == 0)
+            .count();
+        assert_eq!(refused, 4, "{answers:?}");
+        assert!(
+            answers.contains(&(xlib::XA_PRIMARY, primary_into)),
+            "the primary selection was refused: {answers:?}"
+        );
+    }
+
+    #[test]
+    fn a_resting_answer_slot_is_skipped_when_its_turn_comes() {
+        let test = "a_resting_answer_slot_is_skipped_when_its_turn_comes";
+        let Some(_serial) = x11(test) else {
+            return;
+        };
+        let mut old_owner = open_shown("old owner");
+        let mut new_owner = open_shown("new owner");
+        let mut paster = open_shown("paster");
+        old_owner.set_selection(Selection::Clipboard, "old");
+        paster
+            .clipboard
+            .limit_for_test(MAX_PASTE_BYTES, Duration::from_millis(300));
+        paster.request_selection(Selection::Clipboard);
+        let first = paster.clipboard.pending_property(Selection::Clipboard);
+        assert_eq!(
+            paste_in(&mut [&mut paster], 0),
+            [(Selection::Clipboard, None)]
+        );
+        new_owner.set_selection(Selection::Clipboard, "new");
+        paster
+            .clipboard
+            .limit_for_test(MAX_PASTE_BYTES, TIMEOUT_FOR_TESTS);
+        // Three pastes, in the other three slots, so that the next turn is
+        // the first slot's, which rests.
+        for _ in 0..3 {
+            paster.request_selection(Selection::Clipboard);
+            assert_ne!(
+                paster.clipboard.pending_property(Selection::Clipboard),
+                first
+            );
+            assert_eq!(
+                paste_in(&mut [&mut new_owner, &mut paster], 1),
+                [(Selection::Clipboard, Some("new".to_string()))]
+            );
+        }
+        paster.request_selection(Selection::Clipboard);
+        assert_ne!(
+            paster.clipboard.pending_property(Selection::Clipboard),
+            first,
+            "the resting slot was taken"
+        );
+        // The old owner answers the first request only now.
+        settle(&mut old_owner);
+        let early = pastes_within(&mut paster, Duration::from_millis(200));
+        assert!(early.is_empty(), "the late answer was taken: {early:?}");
+        assert_eq!(
+            paste_in(&mut [&mut new_owner, &mut paster], 1),
+            [(Selection::Clipboard, Some("new".to_string()))]
         );
     }
 }

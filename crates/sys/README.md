@@ -60,11 +60,17 @@ Built, with the roadmap task that built it:
   `XUnsetICFocus`, `XFilterEvent`, `Xutf8LookupString`); and
   `XSetIOErrorHandler`, its type, `XAnyEvent` and `XEvent`'s `xany`
   removed, since nothing calls or reads them, which leaves the table 41
-  functions — M2.2.
+  functions — M2.2. The clipboard's (ADR-0042): the property and
+  selection events with `XEvent`'s members for them, their masks and
+  types, `PropertyDelete`, `AnyPropertyType`, `Success`, `CurrentTime`,
+  `XA_PRIMARY`, `XA_ATOM` and `XA_INTEGER`, and 9 more
+  functions in the table (`XMaxRequestSize`, `XDeleteProperty`,
+  `XGetWindowProperty`, `XFree`, `XSetSelectionOwner`,
+  `XGetSelectionOwner`, `XNextRequest`, `XConvertSelection`,
+  `XSendEvent`), which makes it 50 — M2.7.
 
 Not yet, with the roadmap task that adds it:
 
-- the selections and window properties the clipboard reads — M2.7.
 - file watching (inotify) — M4.5.
 - the declarations for processes and the PTY — M5.7, M5.9.
 - the terminal's raw mode and its signals — M7.1.

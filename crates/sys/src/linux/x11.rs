@@ -36,11 +36,11 @@
 //!   `XEvent` gains `xexpose`; and the table's test prints
 //!   `SKIPPED:` with `dlerror`'s reason when `libX11.so.6` cannot be loaded.
 //! - Left out, since Tidepool does not call them yet: `XSizeHints`,
-//!   `XAspectRatio`, `PMinSize`, `PMaxSize`, `XColor`, `XA_ATOM`,
-//!   `VisualIDMask`, `SubstructureNotifyMask`, `SubstructureRedirectMask`,
-//!   `XGetVisualInfo`, `XFree`, `XSetWMNormalHints`, `XSendEvent`,
-//!   `XCreateBitmapFromData`, `XCreatePixmapCursor`, `XFreePixmap` and
-//!   `XUndefineCursor`.
+//!   `XAspectRatio`, `PMinSize`, `PMaxSize`, `XColor`, `VisualIDMask`,
+//!   `SubstructureNotifyMask`, `SubstructureRedirectMask`,
+//!   `XGetVisualInfo`, `XSetWMNormalHints`, `XCreateBitmapFromData`,
+//!   `XCreatePixmapCursor`, `XFreePixmap` and `XUndefineCursor`. (M2.7
+//!   declares `XA_ATOM`, `XFree` and `XSendEvent`, below.)
 //! - New here: `XPointer`; the graphics context (`_XGC`, `GC`,
 //!   `XGCValues`, `XCreateGC`, `XFreeGC`); the images (`ZPixmap`,
 //!   `LSBFirst`, `AllPlanes`, `XImageFuncs`, `XImage`, `XInitImage`,
@@ -73,6 +73,18 @@
 //!   `XSetIOErrorHandler`, which it added too: the handler of a lost
 //!   connection stays Xlib's own, which ends the process
 //!   (`tidepool-platform` does not recover from a lost X server yet).
+//! - New in M2.7, for the clipboard (ADR-0042): the property and selection
+//!   events (`XPropertyEvent`, `XSelectionClearEvent`,
+//!   `XSelectionRequestEvent`, `XSelectionEvent`, and `XEvent`'s members
+//!   for them), `PropertyChangeMask`, `NoEventMask`, their event types,
+//!   `PropertyDelete`, `AnyPropertyType`, `Success`, `CurrentTime`,
+//!   `XA_PRIMARY`, `XA_ATOM` and `XA_INTEGER`, and 9 functions:
+//!   `XMaxRequestSize`, `XDeleteProperty`, `XGetWindowProperty`, `XFree`,
+//!   `XSetSelectionOwner`, `XGetSelectionOwner`, `XNextRequest`,
+//!   `XConvertSelection` and `XSendEvent`, the table's 50. `XFree` and `XSendEvent` have Nadir's
+//!   signatures, with comments of Tidepool's. `None` (0), which `X.h`
+//!   defines for atoms and windows, is not declared: it would hide Rust's
+//!   `None`.
 //!
 //! Sources: `<X11/X.h>`, `<X11/Xlib.h>`, `<X11/Xutil.h>`, `<X11/Xatom.h>`,
 //! `<X11/cursorfont.h>` and `<X11/XKBlib.h>`. Each item names the header it
@@ -80,11 +92,10 @@
 //! parameter names only as comments (`Display* /* display */`); the
 //! declarations here write them as names.
 //!
-//! Only what `tidepool-platform`'s window, events and surface call (M2.2)
-//! is declared. Keys come from key codes (ADR-0039), so no key lookup
-//! (`XLookupKeysym`) is declared; the codes are in
-//! [`evdev`](super::evdev). Not declared yet: the selections and window
-//! properties that the clipboard reads (M2.7).
+//! Only what `tidepool-platform`'s window, events and surface (M2.2) and
+//! its clipboard (M2.7) call is declared. Keys come from key codes
+//! (ADR-0039), so no key lookup (`XLookupKeysym`) is declared; the codes
+//! are in [`evdev`](super::evdev).
 //!
 //! # Types
 //!
@@ -151,7 +162,7 @@
 // so that each one can be compared with its header.
 #![allow(non_upper_case_globals)]
 
-use core::ffi::{CStr, c_char, c_int, c_long, c_short, c_uchar, c_uint, c_ulong};
+use core::ffi::{CStr, c_char, c_int, c_long, c_short, c_uchar, c_uint, c_ulong, c_void};
 use core::marker::{PhantomData, PhantomPinned};
 use core::mem::offset_of;
 
@@ -397,9 +408,32 @@ pub const AllocNone: c_int = 0;
 /// `X11/X.h`: `#define PropModeReplace 0`
 pub const PropModeReplace: c_int = 0;
 
+/// The `req_type` of `XGetWindowProperty` that reads a property of any
+/// type. `X11/X.h`: `#define AnyPropertyType 0L /* special Atom, passed to
+/// GetProperty */`
+pub const AnyPropertyType: Atom = 0;
+
+/// The value `XGetWindowProperty` returns when it read the property.
+/// `X11/X.h`: `#define Success 0 /* everything's okay */`
+pub const Success: c_int = 0;
+
+/// The selection that holds what the user last selected, which a middle
+/// click pastes. `X11/Xatom.h`: `#define XA_PRIMARY ((Atom) 1)`
+pub const XA_PRIMARY: Atom = 1;
+
+/// The property type "atoms", as the `TARGETS` of a selection hold.
+/// `X11/Xatom.h`: `#define XA_ATOM ((Atom) 4)`
+pub const XA_ATOM: Atom = 4;
+
 /// The property type "unsigned 32-bit numbers", as `_NET_WM_PID` and
 /// `_NET_WM_ICON` hold. `X11/Xatom.h`: `#define XA_CARDINAL ((Atom) 6)`
 pub const XA_CARDINAL: Atom = 6;
+
+/// The property type "signed 32-bit numbers", as a selection's `TIMESTAMP`
+/// holds. (An `INCR` property's size is such a number too, but that
+/// property's type is `INCR`.)
+/// `X11/Xatom.h`: `#define XA_INTEGER ((Atom) 19)`
+pub const XA_INTEGER: Atom = 19;
 
 /// The property type "Latin-1 text", as `WM_CLASS` and
 /// `WM_CLIENT_MACHINE` hold. `X11/Xatom.h`: `#define XA_STRING ((Atom) 31)`
@@ -422,6 +456,11 @@ pub const XA_WM_CLASS: Atom = 67;
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
+
+/// Event selection: none. As the `event_mask` of `XSendEvent`, it sends
+/// the event to the client that made the window.
+/// `X11/X.h`: `#define NoEventMask 0L`
+pub const NoEventMask: c_long = 0;
 
 /// Event selection: keys going down. `X11/X.h`: `#define KeyPressMask (1L<<0)`
 pub const KeyPressMask: c_long = 1 << 0;
@@ -453,6 +492,10 @@ pub const StructureNotifyMask: c_long = 1 << 17;
 /// Event selection: the window gaining or losing the keyboard focus.
 /// `X11/X.h`: `#define FocusChangeMask (1L<<21)`
 pub const FocusChangeMask: c_long = 1 << 21;
+
+/// Event selection: the window's properties changing or being deleted.
+/// `X11/X.h`: `#define PropertyChangeMask (1L<<22)`
+pub const PropertyChangeMask: c_long = 1 << 22;
 
 /// Event type: a key went down; see [`XKeyEvent`].
 /// `X11/X.h`: `#define KeyPress 2`
@@ -489,6 +532,22 @@ pub const Expose: c_int = 12;
 /// Event type: the window's size, position or stacking changed; see
 /// [`XConfigureEvent`]. `X11/X.h`: `#define ConfigureNotify 22`
 pub const ConfigureNotify: c_int = 22;
+
+/// Event type: a property of the window changed or was deleted; see
+/// [`XPropertyEvent`]. `X11/X.h`: `#define PropertyNotify 28`
+pub const PropertyNotify: c_int = 28;
+
+/// Event type: the window no longer owns a selection; see
+/// [`XSelectionClearEvent`]. `X11/X.h`: `#define SelectionClear 29`
+pub const SelectionClear: c_int = 29;
+
+/// Event type: another client asks the owner of a selection for its value;
+/// see [`XSelectionRequestEvent`]. `X11/X.h`: `#define SelectionRequest 30`
+pub const SelectionRequest: c_int = 30;
+
+/// Event type: the answer to a request for a selection's value; see
+/// [`XSelectionEvent`]. `X11/X.h`: `#define SelectionNotify 31`
+pub const SelectionNotify: c_int = 31;
 
 /// Event type: a message from another client; see [`XClientMessageEvent`].
 /// `X11/X.h`: `#define ClientMessage 33`
@@ -539,6 +598,14 @@ pub const NotifyGrab: c_int = 1;
 /// [`XFocusChangeEvent::mode`]: a keyboard grab ended.
 /// `X11/X.h`: `#define NotifyUngrab 2`
 pub const NotifyUngrab: c_int = 2;
+
+/// [`XPropertyEvent::state`]: the property was deleted.
+/// `X11/X.h`: `#define PropertyDelete 1`
+pub const PropertyDelete: c_int = 1;
+
+/// The time that stands for the server's own time now, in requests that
+/// take one. `X11/X.h`: `#define CurrentTime 0L /* special Time */`
+pub const CurrentTime: Time = 0;
 
 /// A key going down ([`KeyPress`]) or up ([`KeyRelease`]).
 /// `X11/Xlib.h`: `typedef struct { ... } XKeyEvent;`
@@ -893,6 +960,156 @@ const _: () = assert!(offset_of!(XClientMessageEvent, message_type) == 40);
 const _: () = assert!(offset_of!(XClientMessageEvent, format) == 48);
 const _: () = assert!(offset_of!(XClientMessageEvent, data) == 56);
 
+/// A property of a window that changed or was deleted ([`PropertyNotify`]).
+/// `X11/Xlib.h`: `typedef struct { ... } XPropertyEvent;`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XPropertyEvent {
+    /// The event type. `type` in C.
+    pub type_: c_int,
+    /// The number of the last request the server processed.
+    pub serial: c_ulong,
+    /// Whether another client sent this with `XSendEvent`.
+    pub send_event: Bool,
+    /// The connection the event was read from.
+    pub display: *mut Display,
+    /// The window whose property changed.
+    pub window: Window,
+    /// The property.
+    pub atom: Atom,
+    /// The server's time of the change.
+    pub time: Time,
+    /// `PropertyNewValue` (0, which `platform` does not read, and so is
+    /// not declared) or [`PropertyDelete`].
+    pub state: c_int,
+}
+
+const _: () = assert!(size_of::<XPropertyEvent>() == 64);
+const _: () = assert!(align_of::<XPropertyEvent>() == 8);
+const _: () = assert!(offset_of!(XPropertyEvent, type_) == 0);
+const _: () = assert!(offset_of!(XPropertyEvent, serial) == 8);
+const _: () = assert!(offset_of!(XPropertyEvent, send_event) == 16);
+const _: () = assert!(offset_of!(XPropertyEvent, display) == 24);
+const _: () = assert!(offset_of!(XPropertyEvent, window) == 32);
+const _: () = assert!(offset_of!(XPropertyEvent, atom) == 40);
+const _: () = assert!(offset_of!(XPropertyEvent, time) == 48);
+const _: () = assert!(offset_of!(XPropertyEvent, state) == 56);
+
+/// The window lost a selection it owned ([`SelectionClear`]), to another
+/// client that took it.
+/// `X11/Xlib.h`: `typedef struct { ... } XSelectionClearEvent;`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XSelectionClearEvent {
+    /// The event type. `type` in C.
+    pub type_: c_int,
+    /// The number of the last request the server processed.
+    pub serial: c_ulong,
+    /// Whether another client sent this with `XSendEvent`.
+    pub send_event: Bool,
+    /// The connection the event was read from.
+    pub display: *mut Display,
+    /// The window that owned the selection.
+    pub window: Window,
+    /// The selection, such as `CLIPBOARD`.
+    pub selection: Atom,
+    /// The time the selection's owner last changed.
+    pub time: Time,
+}
+
+const _: () = assert!(size_of::<XSelectionClearEvent>() == 56);
+const _: () = assert!(align_of::<XSelectionClearEvent>() == 8);
+const _: () = assert!(offset_of!(XSelectionClearEvent, type_) == 0);
+const _: () = assert!(offset_of!(XSelectionClearEvent, serial) == 8);
+const _: () = assert!(offset_of!(XSelectionClearEvent, send_event) == 16);
+const _: () = assert!(offset_of!(XSelectionClearEvent, display) == 24);
+const _: () = assert!(offset_of!(XSelectionClearEvent, window) == 32);
+const _: () = assert!(offset_of!(XSelectionClearEvent, selection) == 40);
+const _: () = assert!(offset_of!(XSelectionClearEvent, time) == 48);
+
+/// Another client asks the owner of a selection for its value as `target`,
+/// to be written to `property` of `requestor` ([`SelectionRequest`]).
+/// `X11/Xlib.h`: `typedef struct { ... } XSelectionRequestEvent;`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XSelectionRequestEvent {
+    /// The event type. `type` in C.
+    pub type_: c_int,
+    /// The number of the last request the server processed.
+    pub serial: c_ulong,
+    /// Whether another client sent this with `XSendEvent`.
+    pub send_event: Bool,
+    /// The connection the event was read from.
+    pub display: *mut Display,
+    /// The window that owns the selection.
+    pub owner: Window,
+    /// The window of the client that asks, where the value goes.
+    pub requestor: Window,
+    /// The selection, such as `CLIPBOARD`.
+    pub selection: Atom,
+    /// The form it asks for, such as `UTF8_STRING` or `TARGETS`.
+    pub target: Atom,
+    /// The property of `requestor` to write the value to, or 0 (`None`)
+    /// from a client older than ICCCM 2.0, which means `target`.
+    pub property: Atom,
+    /// The time the requestor gave, or [`CurrentTime`].
+    pub time: Time,
+}
+
+const _: () = assert!(size_of::<XSelectionRequestEvent>() == 80);
+const _: () = assert!(align_of::<XSelectionRequestEvent>() == 8);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, type_) == 0);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, serial) == 8);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, send_event) == 16);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, display) == 24);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, owner) == 32);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, requestor) == 40);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, selection) == 48);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, target) == 56);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, property) == 64);
+const _: () = assert!(offset_of!(XSelectionRequestEvent, time) == 72);
+
+/// The answer to a request for a selection's value ([`SelectionNotify`]):
+/// the owner sends it with `XSendEvent` once it has written the value, and
+/// the server sends one with `property` 0 when the selection has no owner.
+/// `X11/Xlib.h`: `typedef struct { ... } XSelectionEvent;`
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XSelectionEvent {
+    /// The event type. `type` in C.
+    pub type_: c_int,
+    /// The number of the last request the server processed.
+    pub serial: c_ulong,
+    /// Whether another client sent this with `XSendEvent`: an owner's
+    /// answer always is.
+    pub send_event: Bool,
+    /// The connection the event was read from.
+    pub display: *mut Display,
+    /// The window that asked.
+    pub requestor: Window,
+    /// The selection.
+    pub selection: Atom,
+    /// The form asked for.
+    pub target: Atom,
+    /// The property the value was written to, or 0 (`None`) if it was
+    /// refused.
+    pub property: Atom,
+    /// The time of the request.
+    pub time: Time,
+}
+
+const _: () = assert!(size_of::<XSelectionEvent>() == 72);
+const _: () = assert!(align_of::<XSelectionEvent>() == 8);
+const _: () = assert!(offset_of!(XSelectionEvent, type_) == 0);
+const _: () = assert!(offset_of!(XSelectionEvent, serial) == 8);
+const _: () = assert!(offset_of!(XSelectionEvent, send_event) == 16);
+const _: () = assert!(offset_of!(XSelectionEvent, display) == 24);
+const _: () = assert!(offset_of!(XSelectionEvent, requestor) == 32);
+const _: () = assert!(offset_of!(XSelectionEvent, selection) == 40);
+const _: () = assert!(offset_of!(XSelectionEvent, target) == 48);
+const _: () = assert!(offset_of!(XSelectionEvent, property) == 56);
+const _: () = assert!(offset_of!(XSelectionEvent, time) == 64);
+
 /// Any event. `type_` says which member holds it.
 ///
 /// The header's union has a member for every kind of event. This one has
@@ -919,6 +1136,14 @@ pub union XEvent {
     pub xconfigure: XConfigureEvent,
     /// For [`ClientMessage`].
     pub xclient: XClientMessageEvent,
+    /// For [`PropertyNotify`].
+    pub xproperty: XPropertyEvent,
+    /// For [`SelectionClear`].
+    pub xselectionclear: XSelectionClearEvent,
+    /// For [`SelectionRequest`].
+    pub xselectionrequest: XSelectionRequestEvent,
+    /// For [`SelectionNotify`].
+    pub xselection: XSelectionEvent,
     /// Fixes the size. `X11/Xlib.h`: `long pad[24];`
     pub pad: [c_long; 24],
 }
@@ -933,6 +1158,10 @@ const _: () = assert!(offset_of!(XEvent, xfocus) == 0);
 const _: () = assert!(offset_of!(XEvent, xexpose) == 0);
 const _: () = assert!(offset_of!(XEvent, xconfigure) == 0);
 const _: () = assert!(offset_of!(XEvent, xclient) == 0);
+const _: () = assert!(offset_of!(XEvent, xproperty) == 0);
+const _: () = assert!(offset_of!(XEvent, xselectionclear) == 0);
+const _: () = assert!(offset_of!(XEvent, xselectionrequest) == 0);
+const _: () = assert!(offset_of!(XEvent, xselection) == 0);
 const _: () = assert!(offset_of!(XEvent, pad) == 0);
 
 // ---------------------------------------------------------------------------
@@ -1318,6 +1547,12 @@ dynlib! {
         /// screen_number)`
         fn XRootWindow(display: *mut Display, screen_number: c_int) -> Window;
 
+        /// Returns the largest request the server takes without the
+        /// BIG-REQUESTS extension, in 4-byte units, header included. The
+        /// protocol makes it at least 4,096 units (16,384 bytes).
+        /// `X11/Xlib.h`: `extern long XMaxRequestSize(Display* display)`
+        fn XMaxRequestSize(display: *mut Display) -> c_long;
+
         // Visuals and colormaps.
 
         /// Finds a visual of `depth` and `class` (such as 24 and
@@ -1441,6 +1676,53 @@ dynlib! {
             nelements: c_int,
         ) -> c_int;
 
+        /// Deletes a property of a window, if it has it. The server reports
+        /// it as a [`PropertyNotify`] of state [`PropertyDelete`].
+        /// `X11/Xlib.h`: `extern int XDeleteProperty(Display* display,
+        /// Window w, Atom property)`
+        fn XDeleteProperty(display: *mut Display, w: Window, property: Atom) -> c_int;
+
+        /// Reads up to `long_length` 4-byte units of a property, from
+        /// `long_offset` units in, and waits for the server's reply.
+        ///
+        /// Returns [`Success`] if it read it. Then the returns hold the
+        /// property's type and format, the number of items read and the
+        /// bytes left unread after them; a property that does not exist
+        /// has the type 0 (`None`), the format 0, no items and no bytes
+        /// left, and `delete` is ignored. If the property has the type
+        /// `req_type`, or that is [`AnyPropertyType`], the items are in
+        /// `*prop_return`: an array of `char` for format 8, of `short` for
+        /// 16 and of `long` for 32 (8 bytes an item on 64-bit Linux, of
+        /// which the low 32 bits are the value), with one more byte, zero,
+        /// after them, even for none. With `delete` [`True`], the property
+        /// is deleted when no bytes are left.
+        ///
+        /// The data is ours: free it with `XFree`.
+        /// `X11/Xlib.h`: `extern int XGetWindowProperty(Display* display,
+        /// Window w, Atom property, long long_offset, long long_length,
+        /// Bool delete, Atom req_type, Atom* actual_type_return, int*
+        /// actual_format_return, unsigned long* nitems_return, unsigned
+        /// long* bytes_after_return, unsigned char** prop_return)`
+        fn XGetWindowProperty(
+            display: *mut Display,
+            w: Window,
+            property: Atom,
+            long_offset: c_long,
+            long_length: c_long,
+            delete: Bool,
+            req_type: Atom,
+            actual_type_return: *mut Atom,
+            actual_format_return: *mut c_int,
+            nitems_return: *mut c_ulong,
+            bytes_after_return: *mut c_ulong,
+            prop_return: *mut *mut c_uchar,
+        ) -> c_int;
+
+        /// Frees data that Xlib allocated for us, such as a property's
+        /// value from `XGetWindowProperty`. It takes no display.
+        /// `X11/Xlib.h`: `extern int XFree(void* data)`
+        fn XFree(data: *mut c_void) -> c_int;
+
         // Events.
 
         /// Returns how many events are waiting. If none are waiting, it
@@ -1475,6 +1757,69 @@ dynlib! {
             detectable: Bool,
             supported: *mut Bool,
         ) -> Bool;
+
+        // Selections.
+
+        /// Makes `owner` the owner of `selection` from `time` on, or makes
+        /// the selection have none with `owner` 0. It has no effect if
+        /// `time` is earlier than the selection's last change or later
+        /// than the server's time now: ask `XGetSelectionOwner` whether it
+        /// took. The previous owner gets a [`SelectionClear`].
+        /// `X11/Xlib.h`: `extern int XSetSelectionOwner(Display* display,
+        /// Atom selection, Window owner, Time time)`
+        fn XSetSelectionOwner(
+            display: *mut Display,
+            selection: Atom,
+            owner: Window,
+            time: Time,
+        ) -> c_int;
+
+        /// Returns the window that owns `selection`, or 0 (`None`) if none
+        /// does. It waits for the server's reply.
+        /// `X11/Xlib.h`: `extern Window XGetSelectionOwner(Display*
+        /// display, Atom selection)`
+        fn XGetSelectionOwner(display: *mut Display, selection: Atom) -> Window;
+
+        /// Returns the number the next request on `display` will get.
+        /// Every event carries in its `serial` the number of the last
+        /// request of the connection that the server had processed when
+        /// it made the event, so an event with a serial below this one
+        /// was made before that request. It sends nothing.
+        /// `X11/Xlib.h`: `extern unsigned long XNextRequest(Display*
+        /// display)`
+        fn XNextRequest(display: *mut Display) -> c_ulong;
+
+        /// Asks the owner of `selection` to write its value as `target` to
+        /// `property` of `requestor`. The answer comes later as a
+        /// [`SelectionNotify`] to `requestor`: from the owner, or from the
+        /// server if the selection has no owner.
+        /// `X11/Xlib.h`: `extern int XConvertSelection(Display* display,
+        /// Atom selection, Atom target, Atom property, Window requestor,
+        /// Time time)`
+        fn XConvertSelection(
+            display: *mut Display,
+            selection: Atom,
+            target: Atom,
+            property: Atom,
+            requestor: Window,
+            time: Time,
+        ) -> c_int;
+
+        /// Sends `event_send` to window `w`. With `propagate` [`False`] and
+        /// an `event_mask` of [`NoEventMask`], it goes to the client that
+        /// made the window, as a selection owner's answer does. The server
+        /// sets the event's `send_event`. Xlib reads only the fields of the
+        /// event's type. Returns 0 if it could not convert the event to
+        /// send it, and not 0 if it queued it.
+        /// `X11/Xlib.h`: `extern Status XSendEvent(Display* display, Window
+        /// w, Bool propagate, long event_mask, XEvent* event_send)`
+        fn XSendEvent(
+            display: *mut Display,
+            w: Window,
+            propagate: Bool,
+            event_mask: c_long,
+            event_send: *mut XEvent,
+        ) -> Status;
 
         // Errors.
 

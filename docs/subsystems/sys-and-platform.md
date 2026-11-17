@@ -28,7 +28,8 @@ crates/sys/src/
 │   ├── evdev.rs          # the kernel's KEY_* codes that map to a Key; X reports them + 8 (ADR-0039)
 │   └── x11.rs            # Display, Window, XEvent (192-byte union), XImage, the error handler,
 │                         # font cursors, atoms, the input method and context for typed text…
-│                         # and the Xlib table (dynlib!, 41 functions)
+│                         # the selections and properties of the clipboard (M2.7)…
+│                         # and the Xlib table (dynlib!, 50 functions)
 ├── macos/
 │   ├── objc.rs           # objc_* runtime, Class/Sel/Id/BOOL, msg_send! macro
 │   ├── foundation.rs appkit.rs coregraphics.rs quartzcore.rs coreservices.rs
@@ -73,15 +74,15 @@ crates/sys/src/
 | Module | Provides |
 | :- | :- |
 | `window` | `Window::open(&WindowConfig)`, `set_title`, `size` (device pixels) and `logical_size`, `scale`, `set_cursor(CursorShape)`, `is_focused`; the close request is an event |
-| `events` | `Window::wait_events(deadline, &mut Vec<Event>)`: `Event::Input` (`core::input::InputEvent`, logical positions), `Resized`, `Exposed`, `CloseRequested`, `Woken`; `Waker` (`Send + Sync + Clone`) that interrupts the wait from any thread |
+| `events` | `Window::wait_events(deadline, &mut Vec<Event>)`: `Event::Input` (`core::input::InputEvent`, logical positions), `Resized`, `Exposed`, `CloseRequested`, `Woken`, `Pasted` (see `clipboard`); `Waker` (`Send + Sync + Clone`) that interrupts the wait from any thread |
 | `surface` | `present(&Pixels, &[DeviceRect])`: a borrowed BGRA8 view with its size and stride, which `gfx`'s framebuffer hands out, and the damage in device pixels (ADR-0040). X11 `XPutImage`, macOS layer contents, Win32 `SetDIBitsToDevice` |
-| `clipboard` | Get/set UTF-8 text; X11 `CLIPBOARD` and `PRIMARY` |
+| `clipboard` | `Selection` (`Clipboard`, `Primary`); `Window::set_selection(selection, text)`, which the window then answers for inside `wait_events`; `Window::request_selection(selection)`, answered by a later `Event::Pasted { selection, text }` (ADR-0042). X11 `CLIPBOARD` and `PRIMARY` |
 | `terminal` | For the TUI: raw mode guard (restores on drop, panic and signals), size, resize events, stdin reader |
 | `pty` | `Pty::spawn(argv, env, cwd, size)` → master reader/writer, resize, child handle |
 | `process` | Low-level spawn helpers `toolchain` builds on: pipes, process groups, kill-tree |
 | `watch` | Directory watching (inotify / FSEvents / ReadDirectoryChangesW) |
-| `paths` | Config, data, cache and log directories per OS |
-| `dirs` | Standard tool locations (Android SDK default, rustup home) |
+| `paths` | `user_dirs()`: `UserDirs`, the config, data, cache and log folders per OS |
+| `dirs` | Standard tool locations: `android_sdk()`, `rustup_home()` |
 
 ### Invariants
 
@@ -101,6 +102,11 @@ crates/sys/src/
 - Dropping a `Pty` or a terminal guard restores state and reaps children.
 - No `target_os` cfg appears in the public API; behavior differences are
   documented here and in `docs/03-platforms.md`.
+- No clipboard call waits for another program: a paste is asked for and
+  answered by a later event, and the owner answers others from
+  `wait_events`. Clipboard text never reaches the log.
+- `paths` and `dirs` only find paths: they make no folder. Off Linux they
+  fail with `Error::Unsupported` until M11.8 and M12.2.
 
 ## Tests
 
@@ -108,11 +114,23 @@ crates/sys/src/
 - Window tests need an X server: M2.2's open a window, present damage
   and read it back with `XGetImage`, wake a wait from another thread
   within 5 ms, end a wait at its deadline, refuse a window on a second
-  thread, and record a request the server refused; M2.7 adds the
-  clipboard round-trip between two windows. A resize is tested through
+  thread, and record a request the server refused; M2.7's copy text in
+  one window and paste it in another, both selections and both ways, a
+  1 MiB paste by `INCR`, a window's paste of what it just set, a paste
+  with no owner, one with no answer, a selection another window takes,
+  pastes over the limit, and the `TARGETS`, `TIMESTAMP` and refused
+  targets of an owner; and, from its review, a copy after another client
+  retyped the time stamp property, an `INCR` paste whose parts never end,
+  answers in format 32, and a new request into a property that an
+  abandoned transfer writes to; and from its later rounds, floods of
+  parts, requests and events, a clear at the claim's own time, late
+  answers and resting answer slots, a stale write of the time stamp, a
+  copy behind a flood, and the cap on transfers against the serving
+  budget. A resize is tested through
   the translation of `ConfigureNotify`, without a server, as are the
-  display's rules, the key map, the modifiers and the rest of the
-  events. The window tests are `#[cfg(test)]` tests inside
+  display's rules, the key map, the modifiers, the rest of the events
+  and the folders' rules (`linux::xdg`). The window tests are
+  `#[cfg(test)]` tests inside
   `platform`'s library, since only its library target may call Xlib,
   and they run only with `TIDEPOOL_IT_X11=1`, printing `SKIPPED:`
   otherwise: `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p

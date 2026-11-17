@@ -256,8 +256,10 @@ OS input ─► platform::Event ─► ui (focus, routing) ─► editor (keymap
   keys or signing identities in any file Tidepool writes.
 - Workspace trust decisions and session state (open files, layout) live in
   the user data directory.
-- Logs: `tidepool.log` plus 3 rotated copies in the user data directory (on
-  macOS, `~/Library/Logs/Tidepool`). Command lines are logged with secret
+- Logs: `tidepool.log` plus 3 rotated copies in the `logs` folder of the
+  user data directory (on Linux `$XDG_DATA_HOME/tidepool/logs`, ADR-0042;
+  on macOS, `~/Library/Logs/Tidepool`; paths per OS are in
+  `docs/03-platforms.md` → Paths). Command lines are logged with secret
   arguments redacted.
 - Managed tools install to each tool's standard location (rustup's own
   directories, the Android SDK where Android Studio would put it), so other

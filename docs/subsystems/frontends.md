@@ -26,6 +26,9 @@ automatically when no display is available, with a message).
 - Implements `TextMetrics` with `font::layout`.
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
+- Clipboard: the window's, from `platform::clipboard`. A paste is asked
+  for and answered by a later `Event::Pasted`, so the GUI's `Clipboard`
+  hands the text over when it comes, not when it is asked (ADR-0042).
 
 ## `tidepool-tui`
 

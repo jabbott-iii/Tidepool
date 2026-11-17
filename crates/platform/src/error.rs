@@ -29,12 +29,19 @@ use std::io;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// This system has no window yet. Linux has one; macOS gets one in
-    /// M11.7 and Windows in M12.1.
+    /// This system does not have this yet: a window, or the folders of
+    /// [`paths`](crate::paths) and [`dirs`](crate::dirs). Linux has them;
+    /// macOS gets them in M11.7 and M11.8, and Windows in M12.1 and M12.2.
     Unsupported {
+        /// What is missing, such as "window".
+        what: &'static str,
         /// The system, as [`std::env::consts::OS`] names it.
         os: &'static str,
     },
+    /// Linux: a folder lies in the home directory, which is not known:
+    /// `HOME` is not an absolute path, or it is unset or empty and the
+    /// user database gives no absolute path.
+    NoHomeDirectory,
     /// Linux: the `DISPLAY` environment variable names no X server that the
     /// window may connect to. The window connects only to a local one, over
     /// a Unix socket: `DISPLAY` must be `:N`, `:N.S`, `unix:N` or
@@ -111,10 +118,14 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unsupported { os } => write!(
+            Self::Unsupported { what, os } => write!(
                 f,
-                "Tidepool has no window on {os} yet: only on Linux (macOS comes in M11, \
+                "Tidepool has no {what} on {os} yet: only on Linux (macOS comes in M11, \
                  Windows in M12)"
+            ),
+            Self::NoHomeDirectory => f.write_str(
+                "the home directory is not known: HOME is not an absolute path, or it is unset \
+                 or empty and the user database gives no absolute path",
             ),
             Self::Display { value, reason } => {
                 match value {
@@ -168,6 +179,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io { source, .. } => Some(source),
             Self::Unsupported { .. }
+            | Self::NoHomeDirectory
             | Self::Display { .. }
             | Self::LibraryNotFound { .. }
             | Self::MissingSymbols { .. }
@@ -224,9 +236,20 @@ mod tests {
     fn messages_name_what_failed() {
         let cases = [
             (
-                Error::Unsupported { os: "macos" },
+                Error::Unsupported {
+                    what: "window",
+                    os: "macos",
+                },
                 "Tidepool has no window on macos yet",
             ),
+            (
+                Error::Unsupported {
+                    what: "user folders",
+                    os: "windows",
+                },
+                "Tidepool has no user folders on windows yet",
+            ),
+            (Error::NoHomeDirectory, "the home directory is not known"),
             (
                 Error::LibraryNotFound {
                     library: "libX11.so.6",

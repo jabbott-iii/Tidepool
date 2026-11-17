@@ -21,6 +21,8 @@
 //!
 //! - [`window`]: the window, its events and its presentation, which the
 //!   public types wrap.
+//! - [`selection`]: the window's clipboard: the selections it owns and the
+//!   pastes it asks for (ADR-0042).
 //! - [`connection`]: the connection to the X server, one safe method for
 //!   each Xlib call, and the input method that types text.
 //! - [`claim`]: the one thread that may call Xlib, and the X error handler.
@@ -30,6 +32,8 @@
 //! - [`xresources`]: the scale, from `Xft.dpi`.
 //! - [`waker`]: the self-pipe that wakes a wait.
 //! - [`library`]: loading a shared library, and Xlib's table, once.
+//! - [`xdg`]: the user's and the tools' folders, from the XDG variables and
+//!   the tools' own, for [`paths`](crate::paths) and [`dirs`](crate::dirs).
 //!
 //! Everything that needs no X server (the display's rules, the key map,
 //! the modifiers, the translation of events and the resource lookup) is
@@ -42,9 +46,12 @@ mod display;
 mod input;
 mod keymap;
 mod library;
+mod selection;
 mod waker;
 mod window;
+mod xdg;
 mod xresources;
 
 pub(crate) use self::waker::Waker;
 pub(crate) use self::window::Window;
+pub(crate) use self::xdg::{android_sdk, rustup_home, user_dirs};

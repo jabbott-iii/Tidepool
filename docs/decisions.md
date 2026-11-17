@@ -2414,3 +2414,160 @@ decides; the roadmap task that first depends on one asks for the decision.
   `xvfb`; window tests come to need a window manager or a real GPU; the
   demo page should count the window tests; or macOS (M11) or Windows (M12)
   gets window tests of its own to run in CI.
+
+## ADR-0042 — M2.7's Linux clipboard goes through the window's events; a selection serves `UTF8_STRING`, `TARGETS` and `TIMESTAMP`, and a paste is at most 64 MiB; logs live in the data folder's `logs/`
+
+- **Status:** Accepted
+- **Date:** 2026-11-17
+- **Context:**
+  - `docs/subsystems/sys-and-platform.md` gave `clipboard` as "Get/set
+    UTF-8 text". On X11 a paste is a round trip to whichever client owns
+    the selection (ICCCM, "Requesting a Selection"), and the owner answers
+    requests from its own event loop for as long as it owns it
+    ("Responsibilities of the Selection Owner"). A `get` that waits
+    for the answer makes the main thread wait on another program, against
+    `AGENTS.md` rule 6, and cannot paste from another window of the same
+    process on the same thread, whose connection nobody reads meanwhile:
+    M2.7's acceptance test does exactly that.
+  - ICCCM 2.0 (read on 2026-11-17 at xorg.freedesktop.org, by heading,
+    since that copy has no section numbers): "Selection owners are
+    required to support" `TARGETS`, `MULTIPLE` and `TIMESTAMP` ("Target
+    Atoms"); owners should refuse a request timed outside the period they
+    owned the selection ("Responsibilities of the Selection Owner");
+    clients should not use `CurrentTime` to claim a selection, and a
+    zero-length append to a property gives a timestamp in the
+    `PropertyNotify` it generates ("Acquiring Selection Ownership"), nor to
+    ask for one ("Requesting a Selection"). `INCR` ("INCR Properties",
+    "Large Data Transfers") carries a value larger than one request, in
+    parts "less than the maximum-request-size", which the server bounds:
+    the Xlib manual says `XMaxRequestSize` is "no smaller than 4096 units
+    (16384 bytes)", and it is 65,535 units on Xvfb without BIG-REQUESTS.
+  - Any client of the display can change any window's properties and
+    send it any event, so nothing a paste reads can be trusted, and a
+    paste's size is the other client's choice.
+  - `docs/03-platforms.md` → Paths put logs in the data folder, "Data
+    (logs, session, trust, toolchain state)", without a folder of their
+    own, and gave no default for the cache.
+  - The user chose the recommended option of each of three questions on
+    2026-11-17.
+- **Decision:**
+  - **Through the window's events.** `clipboard::Selection` is
+    `Clipboard` or `Primary`. `Window::set_selection(selection, text)`
+    keeps a copy of the text and makes the window the selection's owner;
+    `wait_events` answers other clients' requests while it is.
+    `Window::request_selection(selection)` asks the owner for the text,
+    and a later `wait_events` reports `Event::Pasted { selection, text }`,
+    `text` being `None` when nobody owns the selection, the owner refused,
+    no answer came within 5 s (from the request, or between two parts of
+    an `INCR` transfer), the text was larger than the limit, or it came
+    as any type but `UTF8_STRING`. A second request for a selection while
+    one is pending joins it: one event answers both. No call waits for
+    another client's answer. The calls that wait for the X server itself
+    (`XSync` and `XGetSelectionOwner` in `set_selection`, and
+    `XGetWindowProperty` when `wait_events` reads a paste) wait for no
+    other client, except one that holds a server grab (`XGrabServer`),
+    which stalls them, as it stalls every Xlib call that waits for the
+    server: a limit of X11 that rule 6 cannot remove. Another client's
+    flood of events holds a wait for at most one turn of taking events,
+    10 ms, beyond what Xlib takes to read what the server sent; the
+    window reads a paste's property once a turn however often it is
+    written, and sees a wake between turns.
+  - **Owning.** The window gets a timestamp from the server, as ICCCM
+    says, by a zero-length write to a property of its own
+    (`TIDEPOOL_TIMESTAMP`): a replace, not ICCCM's append, since an
+    append to a property that another client gave another type or format
+    is refused and reports no time. Each copy writes anew, and the window
+    takes only the `PropertyNotify` of its latest write, told by its
+    request number (`XNextRequest`, which an event's `serial` is at
+    least), so that another client's earlier write to the property is
+    never taken for the time. It claims the selection with
+    `XSetSelectionOwner` at that time. `set_selection` waits for the
+    server (`XSync`), and takes events in turns until that one is handled,
+    however many another client queued before it, so that the claim is
+    made before it returns; it keeps the events it read meanwhile for the
+    next `wait_events`. The claim fails only if another client claimed the
+    selection later. So a paste asked for right after it, by this
+    window or another, gets the new text. (Should the time come later, a
+    request for a selection the window is still claiming waits for the
+    claim.) The window gives the text up when another client takes the
+    selection (`SelectionClear`), asking the server first when the clear
+    has the very time of its own claim, which a claim in the same
+    millisecond can give; and when it closes. It keeps no copy for a
+    clipboard manager (no `SAVE_TARGETS`).
+  - **Serving.** An owner answers `UTF8_STRING` with the text, `TARGETS`
+    with those three atoms and `TIMESTAMP` with its claim's time, and
+    refuses every other target, any request timed before its claim, and
+    any request for an answer in one of the window's own properties but
+    its answer properties.
+    It refuses `MULTIPLE` too, against ICCCM's list, and so leaves it out
+    of `TARGETS`. A text longer than one part goes by `INCR`:
+    a part is at most 256 KiB, or the server's request limit less the
+    request's 24-byte header if that is smaller. At most 16 transfers run
+    at once; a part not taken within 5 s ends the transfer, and so does
+    any request into its property. The window begins at most 64 MiB of
+    text a second, whole or by `INCR`, and refuses requests beyond that,
+    but for the first of each second; a request refused for the cap on
+    transfers spends none of it. Events that another client sent
+    (`send_event`) never make the window serve, claim or give up a
+    selection.
+  - **Pasting.** A request asks for `UTF8_STRING` at `CurrentTime`,
+    against ICCCM's advice: the window's latest event can be older than
+    the owner's claim, and an owner that compares times, as Tidepool's
+    does, would refuse it. A paste is not tied to the event that asked
+    for it, which `platform` does not see. The text is at most 64 MiB,
+    whole or by `INCR`, counted after each sequence that is not UTF-8
+    becomes U+FFFD (up to three times the bytes received); a paste by
+    `INCR` ends with no text after a minute in all, however often its
+    parts come. Format-32 answers of more than 64 items are not copied.
+    Each request takes the next of four properties of the window's own
+    for its selection (`TIDEPOOL_CLIPBOARD_0` to `_3`, `TIDEPOOL_PRIMARY_0`
+    to `_3`), and the paste takes only the answer named there; one that
+    ended without its answer rests for a minute, so a late answer to an
+    earlier request is never pasted as the next one's. A late refusal
+    names no property, so it can still end the next paste of that
+    selection with no text.
+  - **Paths.** `paths::user_dirs()` gives the config, data, cache and log
+    folders; on Linux `$XDG_CONFIG_HOME/tidepool`, `$XDG_DATA_HOME/tidepool`,
+    `$XDG_CACHE_HOME/tidepool` and `$XDG_DATA_HOME/tidepool/logs`, with the
+    defaults `~/.config`, `~/.local/share` and `~/.cache`, a variable that
+    is unset, empty or not absolute counting as unset (XDG Base Directory
+    0.8). `dirs::android_sdk()` and `dirs::rustup_home()` give
+    `$ANDROID_HOME`, else `~/Android/Sdk`, and `$RUSTUP_HOME`, else
+    `~/.rustup`, by the same rule. They make no folder. Elsewhere they fail
+    with `Error::Unsupported` until M11.8 and M12.2.
+- **Consequences:**
+  - Pasting is asynchronous everywhere above `platform`: the frontend's
+    `Clipboard` (`docs/subsystems/frontends.md`) and the editor's paste
+    (M4.2) take the text from a later event, and drop it if the buffer
+    moved on (rule 6).
+  - Clipboard text is gone when the window that copied it closes, unless
+    a clipboard manager took it; the clipboard manager protocol is not
+    built.
+  - Clients that paste only `STRING`, `TEXT` or `COMPOUND_TEXT`, or that
+    ask with `MULTIPLE`, get nothing from Tidepool, and Tidepool pastes
+    nothing from an owner that offers only those.
+  - Since any client can write to the window's properties, another client
+    can corrupt or replace a paste: what a paste delivers is bounded, not
+    trusted.
+  - The window now selects `PropertyChangeMask`, so it also wakes for its
+    own and the window manager's property changes, which it ignores.
+  - `Error::Unsupported` names what is missing, a window or the user's
+    folders, as well as the system.
+- **Alternatives considered:**
+  - A blocking `get` with a timeout: simpler for callers, but it waits on
+    another program and deadlocks against a window of the same process.
+  - A `Clipboard` of its own with a hidden window and connection, which
+    outlives windows: the main loop would wait on two descriptors, with
+    more API, for nothing that needs it yet.
+  - Serving and pasting Latin-1 `STRING` too: for clients that are now
+    rare, at the cost of code and tests.
+  - Logs in `$XDG_STATE_HOME/tidepool`, where XDG 0.8 puts logs: it
+    changes the documented layout and raises whether session state moves
+    too; or straight in the data folder, as Nadir keeps them.
+  - Claiming with the window's latest event time: no round trip, but a
+    claim with an old time fails if another client claimed since, and a
+    window has no time before its first event.
+- **Revisit when:** a client users need pastes only `STRING` or asks with
+  `MULTIPLE`; text must outlive the window (a clipboard manager, or a
+  window that closes while the app runs); a frontend needs a blocking
+  paste; or the editor shows that logs belong apart from the data.

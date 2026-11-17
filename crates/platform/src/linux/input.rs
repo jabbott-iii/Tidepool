@@ -45,6 +45,7 @@ use tidepool_core::input::{InputEvent, Key, Modifiers, MouseButton, ScrollDelta}
 use tidepool_sys::linux::x11::{self as xlib, Atom, XEvent};
 
 use super::keymap;
+use super::selection::{Request, SelectionEvent};
 use crate::events::Event;
 
 /// The X button numbers above [`xlib::Button5`], which `X11/X.h` does not
@@ -99,6 +100,8 @@ pub(super) enum Incoming {
     /// A message from another client, of format 32, the only one we read.
     /// `first` is the first item of its data.
     ClientMessage { message_type: Atom, first: c_long },
+    /// A property or selection event, for the clipboard.
+    Selection(SelectionEvent),
     /// An event we have no use for, such as `MapNotify`.
     Other,
 }
@@ -116,8 +119,12 @@ impl Incoming {
     ///   [`ButtonPress`](xlib::ButtonPress),
     ///   [`ButtonRelease`](xlib::ButtonRelease),
     ///   [`MotionNotify`](xlib::MotionNotify), [`FocusIn`](xlib::FocusIn),
-    ///   [`FocusOut`](xlib::FocusOut), [`Expose`](xlib::Expose) and
-    ///   [`ConfigureNotify`](xlib::ConfigureNotify), every field of the
+    ///   [`FocusOut`](xlib::FocusOut), [`Expose`](xlib::Expose),
+    ///   [`ConfigureNotify`](xlib::ConfigureNotify),
+    ///   [`PropertyNotify`](xlib::PropertyNotify),
+    ///   [`SelectionClear`](xlib::SelectionClear),
+    ///   [`SelectionRequest`](xlib::SelectionRequest) and
+    ///   [`SelectionNotify`](xlib::SelectionNotify), every field of the
     ///   member the type selects;
     /// - for [`ClientMessage`](xlib::ClientMessage), `xclient.format`, and,
     ///   when that is 32, `xclient.message_type` and all five `long`s of
@@ -219,6 +226,55 @@ impl Incoming {
                     message_type,
                     first,
                 }
+            }
+            xlib::PropertyNotify => {
+                // SAFETY: the type selects `xproperty`, every field of which
+                // the caller promises is initialized.
+                let property = unsafe { event.xproperty };
+                Self::Selection(SelectionEvent::Property {
+                    serial: property.serial,
+                    window: property.window,
+                    atom: property.atom,
+                    time: property.time,
+                    deleted: property.state == xlib::PropertyDelete,
+                    sent: property.send_event != xlib::False,
+                })
+            }
+            xlib::SelectionClear => {
+                // SAFETY: the type selects `xselectionclear`, every field of
+                // which the caller promises is initialized.
+                let clear = unsafe { event.xselectionclear };
+                Self::Selection(SelectionEvent::Clear {
+                    window: clear.window,
+                    selection: clear.selection,
+                    time: clear.time,
+                    sent: clear.send_event != xlib::False,
+                })
+            }
+            xlib::SelectionRequest => {
+                // SAFETY: the type selects `xselectionrequest`, every field
+                // of which the caller promises is initialized.
+                let request = unsafe { event.xselectionrequest };
+                Self::Selection(SelectionEvent::Request(Request {
+                    owner: request.owner,
+                    requestor: request.requestor,
+                    selection: request.selection,
+                    target: request.target,
+                    property: request.property,
+                    time: request.time,
+                    sent: request.send_event != xlib::False,
+                }))
+            }
+            xlib::SelectionNotify => {
+                // SAFETY: the type selects `xselection`, every field of which
+                // the caller promises is initialized.
+                let notify = unsafe { event.xselection };
+                Self::Selection(SelectionEvent::Notify {
+                    requestor: notify.requestor,
+                    selection: notify.selection,
+                    target: notify.target,
+                    property: notify.property,
+                })
             }
             _ => Self::Other,
         }
@@ -440,7 +496,8 @@ impl Translator {
                     events.push(Event::CloseRequested);
                 }
             }
-            Incoming::Other => {}
+            // The window gives these to its clipboard.
+            Incoming::Selection(_) | Incoming::Other => {}
         }
     }
 
@@ -563,8 +620,10 @@ mod tests {
     use tidepool_sys::linux::x11::{
         Bool, ButtonPress, ButtonRelease, ClientMessage, ConfigureNotify, ControlMask, Expose,
         False, FocusIn, FocusOut, KeyPress, KeyRelease, Mod1Mask, Mod4Mask, MotionNotify,
-        NotifyGrab, NotifyUngrab, ShiftMask, XButtonEvent, XClientMessageData, XClientMessageEvent,
-        XConfigureEvent, XExposeEvent, XFocusChangeEvent, XKeyEvent, XMotionEvent,
+        NotifyGrab, NotifyUngrab, PropertyDelete, PropertyNotify, SelectionClear, SelectionNotify,
+        SelectionRequest, ShiftMask, XButtonEvent, XClientMessageData, XClientMessageEvent,
+        XConfigureEvent, XExposeEvent, XFocusChangeEvent, XKeyEvent, XMotionEvent, XPropertyEvent,
+        XSelectionClearEvent, XSelectionEvent, XSelectionRequestEvent,
     };
 
     use super::*;
@@ -1259,6 +1318,104 @@ mod tests {
                 "format {format}"
             );
         }
+
+        // The property and selection events, for the clipboard.
+        let property_event = XPropertyEvent {
+            type_: PropertyNotify,
+            serial: 41,
+            send_event: 1,
+            display: core::ptr::null_mut(),
+            window: 7,
+            atom: 300,
+            time: 1234,
+            state: PropertyDelete,
+        };
+        assert_eq!(
+            decode(&event(|event| event.xproperty = property_event)),
+            Incoming::Selection(SelectionEvent::Property {
+                serial: 41,
+                window: 7,
+                atom: 300,
+                time: 1234,
+                deleted: true,
+                sent: true,
+            })
+        );
+        let new_value = XPropertyEvent {
+            state: 0,
+            send_event: False,
+            ..property_event
+        };
+        assert!(matches!(
+            decode(&event(|event| event.xproperty = new_value)),
+            Incoming::Selection(SelectionEvent::Property {
+                deleted: false,
+                sent: false,
+                ..
+            })
+        ));
+        let clear_event = XSelectionClearEvent {
+            type_: SelectionClear,
+            serial: 0,
+            send_event: False,
+            display: core::ptr::null_mut(),
+            window: 7,
+            selection: 1,
+            time: 99,
+        };
+        assert_eq!(
+            decode(&event(|event| event.xselectionclear = clear_event)),
+            Incoming::Selection(SelectionEvent::Clear {
+                window: 7,
+                selection: 1,
+                time: 99,
+                sent: false,
+            })
+        );
+        let request_event = XSelectionRequestEvent {
+            type_: SelectionRequest,
+            serial: 0,
+            send_event: 1,
+            display: core::ptr::null_mut(),
+            owner: 7,
+            requestor: 8,
+            selection: 1,
+            target: 301,
+            property: 302,
+            time: 5,
+        };
+        assert_eq!(
+            decode(&event(|event| event.xselectionrequest = request_event)),
+            Incoming::Selection(SelectionEvent::Request(Request {
+                owner: 7,
+                requestor: 8,
+                selection: 1,
+                target: 301,
+                property: 302,
+                time: 5,
+                sent: true,
+            }))
+        );
+        let notify_event = XSelectionEvent {
+            type_: SelectionNotify,
+            serial: 0,
+            send_event: 1,
+            display: core::ptr::null_mut(),
+            requestor: 8,
+            selection: 1,
+            target: 301,
+            property: 0,
+            time: 5,
+        };
+        assert_eq!(
+            decode(&event(|event| event.xselection = notify_event)),
+            Incoming::Selection(SelectionEvent::Notify {
+                requestor: 8,
+                selection: 1,
+                target: 301,
+                property: 0,
+            })
+        );
 
         // `MapNotify`, which a window gets when it is shown (`X11/X.h`:
         // `#define MapNotify 19`), and nothing at all.

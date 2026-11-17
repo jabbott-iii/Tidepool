@@ -155,9 +155,63 @@ task that needs another OS leaves its box unchecked with a
 
 ### Clipboard
 
-- `CLIPBOARD` and `PRIMARY` selections with `UTF8_STRING` and `TARGETS`.
-  `INCR` transfers for large pastes. The owner keeps serving after copy
-  until another client takes the selection.
+The `CLIPBOARD` and `PRIMARY` selections, per ICCCM 2.0 but for the two
+departures ADR-0042 records. Each window has its own. Nothing waits for
+another client's answer (`AGENTS.md` rule 6); the round trips to the
+server, in `set_selection` and when `wait_events` reads a paste, wait
+while another client holds a server grab, as every Xlib call does.
+`wait_events` takes events in turns of at most 10 ms, between which it
+sees a wake and its deadline, so a flood of events another client causes
+cannot hold it for longer.
+
+- **Copy:** `set_selection` keeps a copy of the text, writes nothing to
+  the window's `TIDEPOOL_TIMESTAMP` property (a replace, which no type
+  another client gave the property can refuse) and waits for the server
+  (`XSync`); the `PropertyNotify` of that write, told from another
+  client's earlier one by its request number (`XNextRequest`), carries
+  the time it claims the selection at with `XSetSelectionOwner`. It takes
+  events in turns until that one is handled, however many were queued
+  before it, so it holds the selection when it returns.
+  `XGetSelectionOwner` says whether the claim took: one by another client
+  at a later time wins, and the log says so. Other events read meanwhile
+  are reported by the next `wait_events`. A `SelectionClear` with the
+  very time of the window's claim is checked with `XGetSelectionOwner`
+  before the window gives the selection up.
+- **Serving:** inside `wait_events` the owner answers `UTF8_STRING` with
+  the text, `TARGETS` with `TARGETS`, `TIMESTAMP` and `UTF8_STRING`, and
+  `TIMESTAMP` with its claim's time, and refuses every other target
+  (`MULTIPLE`, `STRING`, `TEXT`, `COMPOUND_TEXT` included), any request
+  timed before its claim, and any that would have it write into one of
+  its own properties but its answer properties. A request into a
+  property, answered or not, ends a transfer into that property. A
+  request with no property, from a client older than ICCCM 2.0, is
+  answered in the property its target names. The owner begins at most
+  64 MiB of text a second, and refuses requests beyond that but the
+  first of each second; a request refused for the cap on transfers
+  spends none of it. A text
+  longer than a part, at most 256 KiB or the server's request limit less
+  24 bytes, goes by `INCR`: the owner watches the requestor's window
+  (`PropertyChangeMask`) and writes the next part each time the property
+  is deleted, then an empty one. At most 16 transfers run at once; one
+  whose part is not taken within 5 s ends. The owner gives the text up on
+  `SelectionClear`, and when the window closes; no clipboard manager
+  protocol (`SAVE_TARGETS`) keeps it after that.
+- **Paste:** `request_selection` asks for `UTF8_STRING` at `CurrentTime`
+  into the next of the window's four properties for the selection
+  (`TIDEPOOL_CLIPBOARD_0` to `_3`, `TIDEPOOL_PRIMARY_0` to `_3`; one whose
+  paste ended without its answer rests for a minute), and takes only the
+  answer named there; a later `wait_events` reports `Event::Pasted`: the text, whole or by
+  `INCR`, with U+FFFD for bytes that are not UTF-8, at most 64 MiB once
+  they are replaced; or `None` if the selection has no owner, the owner
+  refused, the answer was of another type or too large, or 5 s passed
+  with no answer, or between two parts, or a minute in all by `INCR`. A
+  second request while one is pending joins it. However often another
+  client writes a part, the property is read once a turn. A late refusal
+  of an earlier request can end the next paste with `None`.
+- **Trust:** any client of the display can set the window's properties and
+  send it events, so a paste is bounded in size and time, not trusted, and
+  an event with `send_event` set never makes the window claim, give up or
+  answer for a selection. Clipboard text is never logged.
 
 ### Terminal (integrated) and TUI
 
@@ -178,9 +232,17 @@ task that needs another OS leaves its box unchecked with a
 | Kind | Path |
 | :- | :- |
 | Config | `$XDG_CONFIG_HOME/tidepool` (default `~/.config/tidepool`) |
-| Data (logs, session, trust, toolchain state) | `$XDG_DATA_HOME/tidepool` (default `~/.local/share/tidepool`) |
-| Cache | `$XDG_CACHE_HOME/tidepool` |
+| Data (session, trust, toolchain state) | `$XDG_DATA_HOME/tidepool` (default `~/.local/share/tidepool`) |
+| Cache | `$XDG_CACHE_HOME/tidepool` (default `~/.cache/tidepool`) |
+| Logs | `$XDG_DATA_HOME/tidepool/logs` (ADR-0042) |
 | Android SDK (managed) | `$ANDROID_HOME` if set, else `~/Android/Sdk` (Android Studio's default) |
+| rustup | `$RUSTUP_HOME` if set, else `~/.rustup` |
+
+`platform::paths::user_dirs` gives the first four, and `platform::dirs`
+the last two (M2.7). A variable that is unset, empty or not an absolute
+path counts as unset (XDG Base Directory 0.8); the home directory is
+`HOME`, or the user database's when that is unset or empty. Nothing is
+made: a caller makes a folder before writing into it.
 
 ### Managed tools on Linux
 

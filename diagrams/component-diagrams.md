@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -393,12 +393,12 @@ flowchart TB
     i_window(("window: Window::open,<br/>WindowConfig, CursorShape<br/>(M2.2)"))
     i_events(("events: wait_events,<br/>Event, Waker<br/>(M2.2)"))
     i_surface(("surface: present,<br/>Pixels<br/>(M2.2)"))
-    i_clip(("clipboard<br/>planned M2.7"))
+    i_clip(("clipboard: set_selection,<br/>request_selection,<br/>Selection (M2.7)"))
     i_terminal(("terminal:<br/>raw mode guard<br/>planned M7.1"))
 
-    c_platform["tidepool-platform<br/>the crate root, M0.1<br/>window, events, surface<br/>on X11, M2.2<br/>more planned M2.7 on"]
-    i_decl(("dynlib, libc, x11,<br/>evdev declarations<br/>M2.1, M2.2"))
-    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>more planned M2.7 on"]
+    c_platform["tidepool-platform<br/>the crate root, M0.1<br/>window, events, surface<br/>on X11, M2.2<br/>clipboard, M2.7<br/>more planned M4.5 on"]
+    i_decl(("dynlib, libc, x11,<br/>evdev declarations<br/>M2.1, M2.2, M2.7"))
+    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>selections, M2.7<br/>more planned M4.5 on"]
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
     c_gui -.->|"planned M2.6"| i_window
@@ -410,7 +410,7 @@ flowchart TB
     i_window --- c_platform
     i_events --- c_platform
     i_surface --- c_platform
-    i_clip -.- c_platform
+    i_clip --- c_platform
     i_terminal -.- c_platform
 
     c_platform -->|"loads libX11,<br/>calls"| i_decl
@@ -420,14 +420,17 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_platform,c_sys,i_decl,i_window,i_events,i_surface built
+    class c_platform,c_sys,i_decl,i_window,i_events,i_surface,i_clip built
     class c_gui,c_tui planned
-    class i_clip,i_terminal planned
+    class i_terminal planned
     class e_os external
 ```
 
 - `Waker::wake` may be called from any thread and interrupts
   `wait_events`; the main loop gets it from the frontend (`Frontend::waker`).
+- A paste is asked for with `request_selection` and answered by a later
+  `wait_events` as `Event::Pasted`, which also answers other programs for
+  the selections the window set (ADR-0042).
 
 ### 3.2 tidepool-platform: paths, watching, processes and the PTY
 
@@ -438,12 +441,12 @@ flowchart TB
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
 
-    i_paths(("paths, dirs<br/>planned M2.7"))
+    i_paths(("paths: user_dirs,<br/>dirs: android_sdk,<br/>rustup_home (M2.7)"))
     i_watch(("watch<br/>planned M4.5"))
     i_process(("process<br/>planned M5.7"))
     i_pty(("Pty::spawn<br/>planned M5.9"))
 
-    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2 (3.1)<br/>the modules here are<br/>planned M2.7 to M5.9"]
+    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>the rest planned<br/>M4.5 to M5.9"]
 
     c_app -.->|"settings,<br/>planned M3.4"| i_paths
     c_workspace -.->|"trust in user data,<br/>planned M4.7"| i_paths
@@ -452,16 +455,16 @@ flowchart TB
     c_toolchain -.->|"Spawn,<br/>planned M5.2"| i_process
     c_term -.->|"terminal panel,<br/>planned M5.4"| i_pty
 
-    i_paths -.- c_platform
+    i_paths --- c_platform
     i_watch -.- c_platform
     i_process -.- c_platform
     i_pty -.- c_platform
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_platform built
+    class c_app,c_platform,i_paths built
     class c_workspace,c_toolchain,c_term planned
-    class i_paths,i_watch,i_process,i_pty planned
+    class i_watch,i_process,i_pty planned
 ```
 
 - Of the crates in the binary, only `toolchain`, `term`, `workspace`, `gui`,

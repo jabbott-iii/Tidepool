@@ -36,10 +36,19 @@ Built, with the roadmap task that built it:
   input method; the scale from `Xft.dpi`; one thread of the process for
   every window; and X errors logged, not fatal. On every other system
   `Window::open` fails with `Error::Unsupported`.
+- `clipboard` (`Selection`, `Window::set_selection`,
+  `Window::request_selection`, `MAX_PASTE_BYTES`) with `Event::Pasted`,
+  on X11's `CLIPBOARD` and `PRIMARY`: the window answers other programs
+  inside `wait_events` with `UTF8_STRING`, `TARGETS` and `TIMESTAMP`,
+  large texts by `INCR`, and a paste is asked for and answered by a later
+  event, at most 64 MiB, so no call waits for another program
+  (ADR-0042); `paths::user_dirs` (`UserDirs`: config, data, cache and
+  logs) from the XDG variables, and `dirs::android_sdk` and
+  `dirs::rustup_home`, on Linux; elsewhere they fail with
+  `Error::Unsupported` — M2.7.
 
 Not yet, with the roadmap task that adds it:
 
-- `clipboard`, `paths` and `dirs` on Linux — M2.7.
 - `watch` (inotify) — M4.5.
 - `process` on Linux — M5.7.
 - `pty` on Linux — M5.9.
@@ -97,6 +106,17 @@ fn main() -> Result<(), Error> {
 }
 ```
 
+Find Tidepool's folders, which on Linux come from the XDG variables
+(nothing is made, and other systems have none yet):
+
+```rust
+use tidepool_platform::paths;
+
+if let Ok(dirs) = paths::user_dirs() {
+    assert!(dirs.config.is_absolute() && dirs.logs.is_absolute());
+}
+```
+
 A frame's view checks its shape, so that `present` can never read past
 it:
 
@@ -118,7 +138,8 @@ assert_eq!(short, Err(PixelsError::TooFewBytes { len: 32, needed: 36 }));
   through `dlopen`); ADR-0012 (the main loop, Proposed); ADR-0039 (M2.2's
   window: the read-back test, the X connection over a Unix socket only,
   keys from key codes, the `TIDEPOOL_IT_X11` gate); ADR-0040 (`present`
-  takes a pixel view of its own).
+  takes a pixel view of its own); ADR-0042 (M2.7's clipboard through the
+  window's events, its targets and limits, and the folders).
 - API reference: `cargo doc -p tidepool-platform --open`
 
 ## Rules
@@ -132,6 +153,8 @@ assert_eq!(short, Err(PixelsError::TooFewBytes { len: 32, needed: 36 }));
   `Cargo.toml`.
 - The connection to the X server is the one socket the core binary opens
   (`AGENTS.md` rule 8, ADR-0039), and only over a local Unix socket.
+- No clipboard call waits for another program, and clipboard text is
+  never logged (ADR-0042).
 - Every change here goes to the `security-reviewer` subagent.
 
 ## Checks
@@ -146,12 +169,15 @@ cargo xtask unsafe-audit
 
 The tests that open windows (present and read back with `XGetImage`, the
 `Waker` from another thread, the deadline, the one window thread, refused
-requests) run only with `TIDEPOOL_IT_X11=1`, and print `SKIPPED:`
+requests, and the clipboard between two windows, by `INCR`, with no owner
+or no answer, over the limit, an owner's targets, and other clients'
+meddling) run only with
+`TIDEPOOL_IT_X11=1`, and print `SKIPPED:`
 otherwise; with it set, a test that cannot reach an X server fails
 (ADR-0039). Run them under `xvfb-run`, not on a desktop, where a
 compositor can change what reads back. The rest, such as the display's
-rules, the key map and the translation of events, always run. The two
-cross-target lines check that the crate builds where it has no window yet
+rules, the key map, the translation of events and the folders' rules,
+always run. The two cross-target lines check that the crate builds where it has no window yet
 (after `rustup target add`). `cargo xtask ci` runs the whole gate, without
 the window tests unless it runs as Linux CI runs it,
 `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci` (ADR-0041).

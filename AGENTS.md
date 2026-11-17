@@ -26,7 +26,10 @@ tp` opens no window yet, though `tidepool-platform` can open one on Linux
   (M2.1); and in `tidepool-platform`, on Linux through X11, a window, its
   events with key codes, typed text and a waker other threads can use,
   and presenting the damaged parts of a frame, over a local Unix socket
-  only (M2.2, ADR-0039), with what that needs added to `tidepool-sys`.
+  only (M2.2, ADR-0039), with what that needs added to `tidepool-sys`;
+  and the clipboard's `CLIPBOARD` and `PRIMARY` selections through the
+  window's events, and the user's folders from the XDG variables and the
+  tools' from their own (`ANDROID_HOME`, `RUSTUP_HOME`) (M2.7, ADR-0042).
 - **Not built:** everything else. 19 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks

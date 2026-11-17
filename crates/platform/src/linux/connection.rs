@@ -62,10 +62,11 @@ use tidepool_core::log::{debug, warn};
 // in a pattern, a bare name that is not upper case reads as a new variable.
 use tidepool_sys::linux::libc::{LC_CTYPE, setlocale};
 use tidepool_sys::linux::x11::{
-    self as xlib, _XGC, AllocNone, Atom, CWBackPixel, CWBorderPixel, CWColormap, Colormap, Cursor,
-    Display, False, InputOutput, KeyPress, LSBFirst, PropModeReplace, Status, True, TrueColor,
-    Window, XA_CARDINAL, XEvent, XICRec, XIMPreeditNothing, XIMRec, XIMStatusNothing, XIMStyle,
-    XImage, XImageFuncs, XNClientWindow, XNFilterEvents, XNFocusWindow, XNInputStyle, XPointer,
+    self as xlib, _XGC, AllocNone, AnyPropertyType, Atom, CWBackPixel, CWBorderPixel, CWColormap,
+    Colormap, Cursor, Display, False, InputOutput, KeyPress, LSBFirst, NoEventMask,
+    PropModeReplace, SelectionNotify, Status, Success, Time, True, TrueColor, Window, XEvent,
+    XICRec, XIMPreeditNothing, XIMRec, XIMStatusNothing, XIMStyle, XImage, XImageFuncs,
+    XNClientWindow, XNFilterEvents, XNFocusWindow, XNInputStyle, XPointer, XSelectionEvent,
     XSetWindowAttributes, XVisualInfo, Xlib, ZPixmap,
 };
 
@@ -410,27 +411,61 @@ impl Connection {
         true
     }
 
-    /// Sets a property of a window to 32-bit numbers, `CARDINAL`s, each
-    /// given as a C `long`, of which Xlib sends the low 32 bits.
-    pub(super) fn set_cardinals(&self, window: Window, property: Atom, values: &[c_long]) {
+    /// Sets a property of a window to 32-bit numbers of type `type_`, such
+    /// as `CARDINAL`s or atoms, each given as a C `long`, of which Xlib
+    /// sends the low 32 bits. Returns `false`, having done nothing, if
+    /// there are more numbers than a request can count.
+    pub(super) fn set_longs(
+        &self,
+        window: Window,
+        property: Atom,
+        type_: Atom,
+        values: &[c_long],
+    ) -> bool {
+        self.change_longs(window, property, type_, PropModeReplace, values)
+    }
+
+    /// Sets a property of a window to no 32-bit numbers of type `type_`,
+    /// making it if it does not exist, so that the server reports a
+    /// [`PropertyNotify`](xlib::PropertyNotify) with its time: ICCCM's way to
+    /// get a timestamp, with a write of nothing. It replaces rather than
+    /// appends: an append to a property of another type or format is
+    /// refused (`BadMatch`) and reported by no event, and any client can
+    /// give the property another type.
+    pub(super) fn touch_property(&self, window: Window, property: Atom, type_: Atom) {
+        self.change_longs(window, property, type_, PropModeReplace, &[]);
+    }
+
+    /// `XChangeProperty` of 32-bit numbers in `mode`.
+    fn change_longs(
+        &self,
+        window: Window,
+        property: Atom,
+        type_: Atom,
+        mode: c_int,
+        values: &[c_long],
+    ) -> bool {
         let Ok(len) = c_int::try_from(values.len()) else {
-            return;
+            return false;
         };
         // SAFETY: the display is open. With format 32, Xlib reads `len`
         // items of the size of a C `long` from `data`, which is what
-        // `values` holds, and copies them. It gives the result no meaning.
+        // `values` holds (none for an empty slice, whose pointer is
+        // dangling but never read), and copies them. It gives the result
+        // no meaning.
         unsafe {
             (self.xlib.XChangeProperty)(
                 self.display.as_ptr(),
                 window,
                 property,
-                XA_CARDINAL,
+                type_,
                 32,
-                PropModeReplace,
+                mode,
                 values.as_ptr().cast::<c_uchar>(),
                 len,
             )
         };
+        true
     }
 
     /// Asks for detectable auto-repeat, and returns whether we have it. With
@@ -483,6 +518,303 @@ impl Connection {
     pub(super) fn free_cursor(&self, cursor: Cursor) {
         // SAFETY: the display is open. Xlib gives the result no meaning.
         unsafe { (self.xlib.XFreeCursor)(self.display.as_ptr(), cursor) };
+    }
+}
+
+// -- selections and properties ------------------------------------------------
+
+/// A property of a window, as [`Connection::get_property`] read it.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Property {
+    /// Its type, or 0 (`None`) if the window has no such property.
+    pub(super) type_: Atom,
+    /// The size of its items in bits: 8, 16 or 32, or 0 if it does not
+    /// exist.
+    pub(super) format: c_int,
+    /// The items read, for format 8.
+    pub(super) bytes: Vec<u8>,
+    /// The items read, for format 32, each in a C `long`.
+    pub(super) longs: Vec<c_long>,
+    /// How many bytes of the property are left after what was read.
+    pub(super) bytes_after: c_ulong,
+}
+
+impl Connection {
+    /// The most bytes of data one request can carry after a header of
+    /// `header` bytes: the server's limit without BIG-REQUESTS, which the
+    /// protocol makes at least 16,384 bytes.
+    pub(super) fn max_request_data(&self, header: usize) -> usize {
+        // SAFETY: the display is open.
+        let units = unsafe { (self.xlib.XMaxRequestSize)(self.display.as_ptr()) };
+        usize::try_from(units)
+            .unwrap_or(0)
+            .saturating_mul(4)
+            .saturating_sub(header)
+    }
+
+    /// Deletes a property of a window, if it has it.
+    pub(super) fn delete_property(&self, window: Window, property: Atom) {
+        // SAFETY: the display is open. Xlib gives the result no meaning.
+        unsafe { (self.xlib.XDeleteProperty)(self.display.as_ptr(), window, property) };
+    }
+
+    /// Reads at most `max_bytes` bytes of a property of a window, rounded
+    /// up to whole 4-byte units, and deletes the property if `delete` and
+    /// nothing is left of it. Waits for the server, not for any other
+    /// client, unless one holds a server grab. `None` if Xlib could not read it, or answered with more
+    /// than was asked for or with a format it does not define, or the
+    /// property holds more than [`MAX_LONGS`] items of format 32.
+    ///
+    /// Any client can set any property of any window, so what this returns
+    /// is to be checked, not trusted.
+    pub(super) fn get_property(
+        &self,
+        window: Window,
+        property: Atom,
+        delete: bool,
+        max_bytes: usize,
+    ) -> Option<Property> {
+        let units = max_bytes.div_ceil(4);
+        let long_length = c_long::try_from(units).ok()?;
+        let mut type_: Atom = 0;
+        let mut format: c_int = 0;
+        let mut items: c_ulong = 0;
+        let mut bytes_after: c_ulong = 0;
+        let mut data: *mut c_uchar = ptr::null_mut();
+        // SAFETY: the display is open, and every return is a live local
+        // that Xlib may write; each was set first, so each is initialized
+        // whatever Xlib writes. On success the data is Xlib's to free, as
+        // `Data` does below; on failure it is null or freed the same way.
+        let status = unsafe {
+            (self.xlib.XGetWindowProperty)(
+                self.display.as_ptr(),
+                window,
+                property,
+                0,
+                long_length,
+                if delete { True } else { False },
+                AnyPropertyType,
+                &raw mut type_,
+                &raw mut format,
+                &raw mut items,
+                &raw mut bytes_after,
+                &raw mut data,
+            )
+        };
+        // Built before anything can return, so that the data is freed on
+        // every path; with the items only of a property that was read.
+        let read = status == Success && type_ != 0;
+        let data = Data {
+            xlib: self.xlib,
+            data,
+            format,
+            items: if read {
+                usize::try_from(items).unwrap_or(0)
+            } else {
+                0
+            },
+        };
+        if status != Success {
+            return None;
+        }
+        let mut found = Property {
+            type_,
+            format,
+            bytes: Vec::new(),
+            longs: Vec::new(),
+            bytes_after,
+        };
+        if type_ == 0 {
+            // No such property: there are no items, and nothing to read.
+            return Some(found);
+        }
+        let items = usize::try_from(items).ok()?;
+        match format {
+            8 => {
+                // At most the 4-byte units asked for.
+                if items > units.checked_mul(4)? {
+                    return None;
+                }
+                found.bytes = data.bytes()?;
+            }
+            16 => {
+                if items > units.checked_mul(2)? {
+                    return None;
+                }
+            }
+            32 => {
+                // Xlib holds each item in a C `long`, twice the bytes asked
+                // for: only the short lists Tidepool reads are copied.
+                if items > units || items > MAX_LONGS {
+                    return None;
+                }
+                found.longs = data.longs()?;
+            }
+            _ => return None,
+        }
+        Some(found)
+    }
+
+    /// Makes `window` the owner of `selection` from `time` on. It has no
+    /// effect if another client took the selection after `time`: ask
+    /// [`Connection::selection_owner`].
+    pub(super) fn set_selection_owner(&self, selection: Atom, window: Window, time: Time) {
+        // SAFETY: the display is open. Xlib gives the result no meaning.
+        unsafe { (self.xlib.XSetSelectionOwner)(self.display.as_ptr(), selection, window, time) };
+    }
+
+    /// The number the next request on the connection will get, which the
+    /// serial of an event it causes is at least.
+    pub(super) fn next_request(&self) -> c_ulong {
+        // SAFETY: the display is open. Xlib only reads its count.
+        unsafe { (self.xlib.XNextRequest)(self.display.as_ptr()) }
+    }
+
+    /// The window that owns `selection`, or 0 if none does. Waits for the
+    /// server, not for the owner.
+    pub(super) fn selection_owner(&self, selection: Atom) -> Window {
+        // SAFETY: the display is open.
+        unsafe { (self.xlib.XGetSelectionOwner)(self.display.as_ptr(), selection) }
+    }
+
+    /// Asks the owner of `selection` to write it as `target` to `property`
+    /// of `requestor`, and to say so with a
+    /// [`SelectionNotify`]. Waits for nothing.
+    pub(super) fn convert_selection(
+        &self,
+        selection: Atom,
+        target: Atom,
+        property: Atom,
+        requestor: Window,
+        time: Time,
+    ) {
+        // SAFETY: the display is open. Xlib gives the result no meaning.
+        unsafe {
+            (self.xlib.XConvertSelection)(
+                self.display.as_ptr(),
+                selection,
+                target,
+                property,
+                requestor,
+                time,
+            )
+        };
+    }
+
+    /// Tells `requestor` that its request for `selection` as `target` is
+    /// answered in `property`, or refused with a `property` of 0. Returns
+    /// whether Xlib queued it.
+    pub(super) fn send_selection_notify(
+        &self,
+        requestor: Window,
+        selection: Atom,
+        target: Atom,
+        property: Atom,
+        time: Time,
+    ) -> bool {
+        // Every byte set, then the member: Xlib reads only its fields.
+        let mut event = XEvent { pad: [0; 24] };
+        event.xselection = XSelectionEvent {
+            type_: SelectionNotify,
+            serial: 0,
+            send_event: True,
+            display: self.display.as_ptr(),
+            requestor,
+            selection,
+            target,
+            property,
+            time,
+        };
+        // SAFETY: the display is open, and `event` is a live, initialized
+        // `XEvent` that Xlib only reads, for the type it names. The mask
+        // sends it to the client that made the window.
+        let status = unsafe {
+            (self.xlib.XSendEvent)(
+                self.display.as_ptr(),
+                requestor,
+                False,
+                NoEventMask,
+                &raw mut event,
+            )
+        };
+        status != 0
+    }
+}
+
+/// The most items of format 32 that [`Connection::get_property`] copies.
+/// Tidepool reads only short lists of them (`INCR`'s size, and in the
+/// tests `TARGETS` and `TIMESTAMP`).
+pub(super) const MAX_LONGS: usize = 64;
+
+/// What one `XGetWindowProperty` call returned: the data Xlib allocated
+/// for us, which is freed with `XFree` when this is dropped, and its format
+/// and number of items, as Xlib reported them.
+///
+/// Built only in [`Connection::get_property`], from that call's returns,
+/// with `items` 0 unless the call read a property.
+struct Data {
+    xlib: &'static Xlib,
+    /// The data, or null.
+    data: *mut c_uchar,
+    /// Its format: 8, 16 or 32.
+    format: c_int,
+    /// How many items of that format it holds.
+    items: usize,
+}
+
+impl Data {
+    /// Copies the items of format 8. `None` for another format, or for
+    /// items with no data.
+    fn bytes(&self) -> Option<Vec<u8>> {
+        if self.format != 8 {
+            return None;
+        }
+        // SAFETY: for format 8, Xlib allocated the items as `char`s.
+        unsafe { self.copy::<u8>() }
+    }
+
+    /// Copies the items of format 32. `None` for another format, or for
+    /// items with no data.
+    fn longs(&self) -> Option<Vec<c_long>> {
+        if self.format != 32 {
+            return None;
+        }
+        // SAFETY: for format 32, Xlib allocated the items as `long`s.
+        unsafe { self.copy::<c_long>() }
+    }
+
+    /// Copies every item, as `T`s.
+    ///
+    /// # Safety
+    ///
+    /// `T` must be the type Xlib gives an item of `self.format`: `u8`
+    /// (`char`) for 8, `c_long` for 32.
+    unsafe fn copy<T: Copy>(&self) -> Option<Vec<T>> {
+        if self.items == 0 {
+            return Some(Vec::new());
+        }
+        if self.data.is_null() {
+            return None;
+        }
+        // SAFETY: the data and the count are what one successful
+        // `XGetWindowProperty` returned (see `Data`): Xlib allocated the
+        // items it reported, an array of the type its format gives, which
+        // the caller promises is `T`, plus one zero byte, with `malloc`,
+        // which aligns it for any type. It is not freed until `self` is
+        // dropped, after the copy.
+        let items = unsafe { core::slice::from_raw_parts(self.data.cast::<T>(), self.items) };
+        Some(items.to_vec())
+    }
+}
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        if !self.data.is_null() {
+            // SAFETY: Xlib allocated the data for us and nothing has freed
+            // it; it is not used after this. Xlib gives the result no
+            // meaning.
+            unsafe { (self.xlib.XFree)(self.data.cast()) };
+        }
     }
 }
 
