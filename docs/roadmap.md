@@ -1428,7 +1428,9 @@ our own rasterizer.
     out wrong, so the docs state the bound above; and 6 in docs and
     diagrams. A stress test of every public function with hostile input,
     about 3.8 million calls in debug and release, found no panic, hang,
-    write outside the clip or unbounded allocation.
+    write outside the clip or unbounded allocation. The 94 Mermaid blocks
+    of the four changed diagram files parse and render with Mermaid
+    11.4.1.
 
 - [ ] **M2.4 — codec: QOI; xtask: golden harness; gfx goldens**
   - Depends: M2.3, M0.3, M1.6
