@@ -1372,7 +1372,7 @@ our own rasterizer.
     first, with a round trip, and passed the gate under Xvfb twice; it
     still fails without the drain's budget.
 
-- [ ] **M2.3 — gfx: rasterizer, blending, clipping, damage, backdrop**
+- [x] **M2.3 — gfx: rasterizer, blending, clipping, damage, backdrop**
   - Depends: M0.2
   - Decide first: accept ADR-0011 (CPU software rendering with damage
     tracking), which is `Proposed`.
@@ -1383,6 +1383,52 @@ our own rasterizer.
     damage covers every changed pixel; the same draw list gives the same
     bytes on two runs. Golden frames follow in M2.4, with the harness.
   - Verify: `cargo test -p tidepool-gfx`
+  - Note (2026-11-17): the user accepted ADR-0011 as written, which
+    answers the `Decide first` line.
+  - Note (2026-11-17): done. `gfx` has `framebuffer` (`Framebuffer`,
+    which covers any rect of device space, at most `MAX_DIMENSION`,
+    16,384 px, a side, and `View`), `clip` (`ClipStack`, `intersect`,
+    `SPACE`), `blend` (`over`, `scale`, `composite`), `raster`
+    (`fill_rect`, `hairline`, `border`, `brackets`, `polygon`, `line`,
+    `cut_corner_rect`, `pill`), `image` (`copy`, `blit`, `blit_scaled`
+    with `Filter`), `glyph` (`Mask`, `draw`), `damage` (`Damage`, at most
+    8 rects, and `diff` by 16 px tiles), `backdrop` (`BackdropStyle` with
+    the site's values, `Backdrop::ensure`, `base` and `blurred`) and
+    `GfxError`. It is new, not ported: Nadir draws with OpenGL. Its one
+    dependency is `core`. `polygon` and `line` are exact while their
+    vertices stay within about 1e11 px of the framebuffer, as the docs
+    and a test say; further out a slanted edge may come out wrong, but
+    never outside the clip.
+  - Note (2026-11-17): checked on rustc 1.99.0, Linux x86_64. `cargo test
+    -p tidepool-gfx`: 73 unit tests, 6 property tests and the README's
+    doc test pass. The unit tests check exact pixels for every primitive;
+    the property tests check that no draw call writes outside its clip,
+    whatever its geometry, that `diff` and merged `Damage` cover every
+    changed pixel, and that a fixed draw list of every primitive, a layer,
+    an image, a glyph mask and a backdrop gives the same bytes twice.
+    `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-gfx --no-deps` is
+    clean, and so is clippy for `x86_64-apple-darwin`,
+    `x86_64-pc-windows-msvc` and `aarch64-unknown-linux-gnu`, which were
+    compiled, not run. That the bytes are the same on every OS rests on the
+    arithmetic (integers, or IEEE 754 operations every CPU rounds the
+    same); M2.4's goldens compare them across the CI runners.
+  - Note (2026-11-17): `Backdrop::ensure` in a release build on the
+    reference machine (M0.5), median of 5: 191 ms at 1920×1080 and scale
+    1, 328 ms at 2560×1440 and scale 1, 370 ms at 2560×1440 and scale 2,
+    772 ms at 3840×2160 and scale 2. The spec's raster benchmarks
+    (`docs/subsystems/rendering.md` → Tests) are not part of this task
+    and were not added.
+  - Note (2026-11-17): reviewed in two rounds, each finding checked by
+    two skeptics. Round one: 5 of 9 confirmed (one by one skeptic of
+    two), all fixed: `Damage`'s equality read stale slots; mutants that
+    passed every test showed exact tests missing for polygon edges across
+    several cells, slanted lines and vertical bilinear scaling; and three
+    rustdoc links did not resolve. Round two: 7 of 8 confirmed, all
+    fixed: slanted polygons and lines with ends about 1e15 px away come
+    out wrong, so the docs state the bound above; and 6 in docs and
+    diagrams. A stress test of every public function with hostile input,
+    about 3.8 million calls in debug and release, found no panic, hang,
+    write outside the clip or unbounded allocation.
 
 - [ ] **M2.4 — codec: QOI; xtask: golden harness; gfx goldens**
   - Depends: M2.3, M0.3, M1.6
@@ -1424,6 +1470,11 @@ our own rasterizer.
   - Accept: cold start to first frame within the M0.5 budget on the
     reference machine; idle CPU ~0%.
   - Verify: `cargo tp -- --print-startup-time`; manual look
+  - Note (2026-11-17): M2.3 measured `Backdrop::ensure` at 191 ms for
+    1920×1080 at scale 1 in a release build on the reference machine
+    (M2.3's notes), against the 300 ms budget from cold start to the
+    first frame; how the first frame meets the budget with the backdrop
+    is this task's to settle.
 
 **Exit criteria (M2):** `cargo tp` opens a Linux window with crisp Saira and
 JetBrains Mono text over the jabbott.dev backdrop.

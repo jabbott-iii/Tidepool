@@ -29,8 +29,13 @@ tp` opens no window yet, though `tidepool-platform` can open one on Linux
   only (M2.2, ADR-0039), with what that needs added to `tidepool-sys`;
   and the clipboard's `CLIPBOARD` and `PRIMARY` selections through the
   window's events, and the user's folders from the XDG variables and the
-  tools' from their own (`ANDROID_HOME`, `RUSTUP_HOME`) (M2.7, ADR-0042).
-- **Not built:** everything else. 19 of the 26 workspace members are empty
+  tools' from their own (`ANDROID_HOME`, `RUSTUP_HOME`) (M2.7, ADR-0042);
+  and in `tidepool-gfx` the CPU rasterizer: a premultiplied BGRA8
+  framebuffer, rects, hairlines, borders, brackets and anti-aliased
+  polygons, lines, cut corners and pills, blending and layer opacity,
+  clipping, image and glyph-mask blits, damage merging and frame diffing,
+  and jabbott.dev's backdrop with its blurred copy (M2.3, ADR-0011).
+- **Not built:** everything else. 18 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
   add the rest.

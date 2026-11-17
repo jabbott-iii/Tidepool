@@ -36,7 +36,7 @@ Nothing to use yet: the first frame lands in M2.6.
 - Design: [`docs/subsystems/frontends.md`](../../docs/subsystems/frontends.md),
   [`docs/subsystems/rendering.md`](../../docs/subsystems/rendering.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
-  first); ADR-0011 (CPU rendering, Proposed).
+  first); ADR-0011 (CPU rendering).
 - API reference: `cargo doc -p tidepool-gui --open`
 
 ## Rules

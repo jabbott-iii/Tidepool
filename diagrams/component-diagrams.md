@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -46,10 +46,11 @@ Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). 
 The subsystems and the main interfaces between them, from the top layer
 down: 1.1 what the app, the frontends and the editor use, 1.2 what the
 agents, languages and toolchains offer one another, and 1.3 what all of
-them stand on. Only formats and text (`codec` and `text`), `xtask` and
-`sys`'s Linux declarations (M2.1) have code behind their interfaces; the
-app and `platform` are their crate roots (M0.1). Each arrow names the crate in its group that will use an
-interface and the task that adds that use.
+them stand on. Only formats and text (`codec` and `text`), `xtask`,
+`sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
+(M2.2, M2.7) and `gfx`'s rasterizer (M2.3) have code behind their
+interfaces; the app is its crate root (M0.1). Each arrow names the crate in
+its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
 
@@ -64,12 +65,13 @@ flowchart TB
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
 
     i_draw(("widget tree,<br/>DrawList,<br/>TextMetrics<br/>planned M3.1"))
-    i_raster(("Framebuffer,<br/>glyph atlas, layout<br/>planned M2.3, M2.5"))
+    i_raster(("Framebuffer, raster,<br/>backdrop (M2.3)"))
+    i_glyphs(("glyph atlas, layout<br/>planned M2.5"))
     i_agentf(("completions,<br/>chat, edit proposals<br/>planned M9.4, M9.5"))
     i_langf(("highlights,<br/>LSP features,<br/>Markdown tree<br/>planned M6.2,<br/>M6.5, M6.7"))
     i_toolf(("terminal grid,<br/>git, mobile pipelines<br/>planned M5.8,<br/>M8.1, M10.4"))
 
-    c_render["Rendering<br/>tidepool-gfx<br/>tidepool-font<br/>tidepool-ui<br/>planned M2.3, M2.8, M3.1"]
+    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font<br/>tidepool-ui<br/>planned M2.8, M3.1"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -81,22 +83,24 @@ flowchart TB
 
     c_front -.->|"gui, tui:<br/>planned M3.5, M7.1"| i_draw
     c_front -.->|"gui:<br/>planned M2.6"| i_raster
+    c_front -.->|"gui:<br/>planned M2.6"| i_glyphs
     c_editor -.->|"editor:<br/>planned M4.1"| i_draw
     c_editor -.->|"editor:<br/>planned M9.4, M9.5"| i_agentf
     c_editor -.->|"editor:<br/>planned M6.2, M6.6, M6.7"| i_langf
     c_editor -.->|"editor:<br/>planned M5.4, M8.2, M10.6"| i_toolf
 
     i_draw -.- c_render
-    i_raster -.- c_render
+    i_raster --- c_render
+    i_glyphs -.- c_render
     i_agentf -.- c_agents
     i_langf -.- c_lang
     i_toolf -.- c_tools
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app built
-    class c_front,c_editor,c_render,c_agents,c_lang,c_tools planned
-    class i_front,i_editor,i_draw,i_raster,i_agentf,i_langf,i_toolf planned
+    class c_app,c_render,i_raster built
+    class c_front,c_editor,c_agents,c_lang,c_tools planned
+    class i_front,i_editor,i_draw,i_glyphs,i_agentf,i_langf,i_toolf planned
 ```
 
 - The app's matrix row is "all crates above", so it may use every crate in
@@ -374,7 +378,8 @@ flowchart TB
 
 `sys` has its Linux declarations (M2.1, M2.2) and `platform` its Linux
 window, events and present (M2.2), so both are drawn solid with their
-planned modules in their labels; `gfx`, `font` and `ui` are empty
+planned modules in their labels. `gfx` has its rasterizer and the
+backdrop (M2.3), and is drawn solid too; `font` and `ui` are empty
 libraries.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
@@ -527,11 +532,11 @@ flowchart TB
 flowchart LR
     c_gui["tidepool-gui<br/>planned M2.6, M3.5"]
 
-    i_fb(("Framebuffer<br/>planned M2.3"))
-    i_raster(("raster, blend,<br/>clip, glyph blit<br/>planned M2.3"))
-    i_backdrop(("backdrop cache<br/>planned M2.3"))
-    i_damage(("damage merging<br/>planned M2.3"))
-    c_gfx["tidepool-gfx<br/>an empty library<br/>planned M2.3"]
+    i_fb(("Framebuffer, View<br/>(M2.3)"))
+    i_raster(("raster, blend, clip,<br/>image, glyph blit<br/>(M2.3)"))
+    i_backdrop(("Backdrop cache<br/>(M2.3)"))
+    i_damage(("Damage merging,<br/>diff (M2.3)"))
+    c_gfx["tidepool-gfx<br/>the CPU rasterizer (M2.3)<br/>planned: goldens M2.4"]
 
     i_ttf(("ttf, outline<br/>planned M2.8"))
     i_atlas(("glyph atlas<br/>planned M2.5"))
@@ -545,17 +550,19 @@ flowchart LR
     c_gui -.->|"planned M2.6"| i_atlas
     c_gui -.->|"TextMetrics,<br/>planned M3.5"| i_layout
 
-    i_fb -.- c_gfx
-    i_raster -.- c_gfx
-    i_backdrop -.- c_gfx
-    i_damage -.- c_gfx
+    i_fb --- c_gfx
+    i_raster --- c_gfx
+    i_backdrop --- c_gfx
+    i_damage --- c_gfx
     i_ttf -.- c_font
     i_atlas -.- c_font
     i_layout -.- c_font
 
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_gui,c_gfx,c_font planned
-    class i_fb,i_raster,i_backdrop,i_damage,i_ttf,i_atlas,i_layout planned
+    class c_gfx,i_fb,i_raster,i_backdrop,i_damage built
+    class c_gui,c_font planned
+    class i_ttf,i_atlas,i_layout planned
 ```
 
 - `gfx`'s glyph blit draws coverage masks from `font`'s atlas, but `gfx`
@@ -1163,7 +1170,8 @@ flowchart TB
 
 `core`'s property harness, its `Pcg32` and its fuzz engine (6.4) are the
 only code from `core` that the tests of `codec` and `text` use, and neither
-library uses `core`. `xtask` also uses `core`'s `cli`, `hash` and
+library uses `core`. `gfx`'s property tests use the harness and `Pcg32`
+too (M2.3); its library uses `core`'s `geom` and `color`. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
 measures `text`'s library with inputs drawn from `Pcg32`, and keeps its
 baseline with `codec`'s JSON and `text`'s atomic save.
@@ -1172,6 +1180,7 @@ baseline with `codec`'s JSON and `text`'s atomic save.
 flowchart TB
     c_ctests["codec tests<br/>json.rs, toml.rs"]
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
+    c_gtests["gfx tests<br/>properties.rs"]
     c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
@@ -1197,6 +1206,8 @@ flowchart TB
     c_ttests --> i_check
     c_ttests --> i_pcg
     c_ttests -->|"against<br/>String models"| i_tall
+    c_gtests --> i_check
+    c_gtests --> i_pcg
     c_bench -->|"the text suites"| i_tall
     c_bench -->|"inputs"| i_pcg
     c_bench -->|"baseline.json"| i_bjson
@@ -1213,7 +1224,7 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_bench,c_testing,c_rng,c_codec,c_text built
+    class c_ctests,c_ttests,c_gtests,c_bench,c_testing,c_rng,c_codec,c_text built
     class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save built
     class c_testkit,i_fakes planned
 ```

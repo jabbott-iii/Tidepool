@@ -5,5 +5,10 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+# Geometry and colors come from `tidepool-core`, the only edge the
+# dependency matrix allows for `gfx`; its tests use core's property harness.
+[dependencies]
+tidepool-core = { path = "../core" }
+
 [lints]
 workspace = true

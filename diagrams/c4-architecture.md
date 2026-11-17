@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the test harness, the benchmark harness, and
 the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -276,18 +276,21 @@ flowchart LR
 ## 2. Components of the tidepool binary
 
 The binary's crates by layer (`docs/01-architecture.md` → "Layers"), in
-five diagrams. Every arrow is an edge of the dependency matrix. No crate of
-the binary declares a dependency on another yet, so each edge is dotted and
-labelled with the task the roadmap or spec ties to its use, except the two
-dev-dependencies on `tidepool-core` that the tests of `codec` and `text`
-use. The diagrams run left to right, from a crate to the crates it uses.
+five diagrams. Every arrow is an edge of the dependency matrix. Only
+`platform` (on `core` and `sys`, M2.2) and `gfx` (on `core`, M2.3) declare
+dependencies yet; their edges, and the two dev-dependencies on
+`tidepool-core` that the tests of `codec` and `text` use, are solid. Every
+other edge is dotted and labelled with the task the roadmap or spec ties to
+its use. The diagrams run left to right, from a crate to the crates it
+uses.
 
 ### 2.1 Layers 0 and 1: foundations, OS behavior, formats and engines
 
 `core`, `codec` and `text` are built, `sys` has its Linux declarations
 (M2.1, M2.2, M2.7), and `platform` its Linux window over X11 (M2.2), its
 clipboard and the user's and tools' folders (M2.7). Those two
-allow `unsafe_code`. The other four crates are empty.
+allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3).
+The other three crates are empty.
 
 ```mermaid
 flowchart LR
@@ -296,7 +299,7 @@ flowchart LR
         k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>planned M2.4, M10.7,<br/>M10.2, M11.3"]
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
-        k_gfx["tidepool-gfx<br/>planned M2.3:<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, backdrop, damage"]
+        k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>planned: goldens M2.4"]
         k_font["tidepool-font<br/>planned M2.8: ttf, outline<br/>atlas, layout, fallback,<br/>bundled M2.5"]
         k_markdown["tidepool-markdown<br/>planned M6.5:<br/>CommonMark and<br/>GFM parser"]
     end
@@ -310,14 +313,14 @@ flowchart LR
     k_codec -->|"dev-dependency: tests"| k_core
     k_text -->|"dev-dependency: tests"| k_core
     k_regex -.->|"planned M4.8"| k_core
-    k_gfx -.->|"planned M2.3"| k_core
+    k_gfx -->|"geom, color;<br/>tests: testing, rng"| k_core
     k_font -.->|"planned M2.8"| k_core
     k_markdown -.->|"planned M6.5"| k_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_platform,k_codec,k_text,k_core,k_sys built
-    class k_regex,k_gfx,k_font,k_markdown planned
+    class k_platform,k_codec,k_text,k_gfx,k_core,k_sys built
+    class k_regex,k_font,k_markdown planned
 ```
 
 - The libraries of `codec` and `text` use nothing from `core`; their tests
@@ -503,7 +506,7 @@ flowchart LR
         k_ui["tidepool-ui<br/>planned M3.1"]
     end
     subgraph L01["Layers 0 and 1"]
-        k_gfx["tidepool-gfx<br/>planned M2.3"]
+        k_gfx["tidepool-gfx"]
         k_font["tidepool-font<br/>planned M2.8"]
         k_platform["tidepool-platform"]
         k_codec["tidepool-codec"]
@@ -527,8 +530,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_app,k_platform,k_codec,k_core built
-    class k_editor,k_gui,k_tui,k_ui,k_gfx,k_font planned
+    class k_app,k_platform,k_codec,k_gfx,k_core built
+    class k_editor,k_gui,k_tui,k_ui,k_font planned
 ```
 
 - The matrix also lets `gui` use `codec`; no task or spec gives it a use
@@ -901,7 +904,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6) | M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
-| `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | nothing | M2.3, M2.4 | none |
+| `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3) | M2.4 | `core` |
 | `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | nothing | M2.8, M2.5 | none |
 | `tidepool-markdown` | `crates/markdown` | 1, OS behavior, formats, engines | deny | nothing | M6.5 | none |
 | `tidepool-rpc` | `crates/rpc` | 2, services | deny | nothing | M6.1, M9.3, M13.1 | none |

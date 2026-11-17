@@ -5,22 +5,37 @@ OS calls. `gui` connects them to `platform::surface`.
 
 ## `tidepool-gfx`
 
+Everything is in device pixels; colors are `core::color::PremultipliedColor`.
+The rustdoc of each module is authoritative; this table summarizes it.
+
 | Module | Provides |
 | :- | :- |
-| `framebuffer` | Premultiplied BGRA8 framebuffer with stride; sub-rect views |
-| `raster` | Filled rects, cut-corner rects (polygon), 1 px hairlines, borders, bracket corners, anti-aliased lines and polygons (coverage accumulation), rounded pills |
-| `blend` | Source-over with premultiplied alpha; layer opacity |
-| `clip` | Clip-rect stack |
-| `image` | Blit with nearest and bilinear scaling |
-| `glyph` | Coverage-mask blit with color (from `font`'s atlas) |
-| `backdrop` | Cached background layers: radial gradients, the planet and star field, and the faint grid from jabbott.dev; rebuilt only on resize or theme change; a box-blur approximation for translucent panels |
-| `damage` | Damage rectangle merging and frame diffing |
+| `framebuffer` | `Framebuffer`: premultiplied BGRA8, bytes `[b, g, r, a]`, stride four times the width, covering any rect of device space (its bounds), so a layer can cover part of a window; at most `MAX_DIMENSION` (16,384) a side. `View`: a checked, borrowed view of such rows, with sub-rect views; the bytes, size and stride are what `platform::surface::Pixels` takes (ADR-0040) |
+| `raster` | Filled rects, 1 px hairlines, borders and bracket corners, crisp and blending no pixel twice; anti-aliased polygons (exact-area coverage accumulation), lines with butt caps, cut-corner rects and pills |
+| `blend` | Source-over with premultiplied alpha, scaling by coverage or opacity, and compositing a layer with an opacity |
+| `clip` | `ClipStack`, rect intersection, and `SPACE`, the device space a framebuffer may cover |
+| `image` | Copy, blit, and scaled blit with nearest and bilinear filtering in fixed-point integers |
+| `glyph` | `Mask`, an 8-bit coverage view with regions (from `font`'s atlas, M2.5), and its blit with a color |
+| `backdrop` | `BackdropStyle`, jabbott.dev's `.space` layers as data (radial glows, the planet, two star tiles, the masked grid, the blur radius), and `Backdrop`, which renders them and a box-blurred copy for translucent panels, and rebuilds only when the size, scale or style changes |
+| `damage` | `Damage`, at most `MAX_RECTS` (8) merged rects that cover everything added, and `diff`, the rects of 16 px tiles that changed between two frames |
 
 Invariants:
 
-- Output is bit-identical on every OS for the same draw list and size
-  (goldens are shared).
-- A frame touches only pixels inside its damage rectangles.
+- Output is bit-identical on every OS for the same draw calls and size
+  (goldens are shared): the code uses integer arithmetic, or IEEE 754
+  operations that every CPU rounds the same (`+ - * /`, `sqrt`, `floor`),
+  never `mul_add` or a libm function such as `exp` or `sin`.
+- Every draw call takes a clip rect and touches only pixels inside it and
+  the framebuffer's bounds; the painter clips to the damage rectangles, so
+  a frame touches only pixels inside them.
+- No draw call panics, whatever its geometry (NaN, infinite or huge
+  coordinates, empty or inverted rects): what is invalid draws nothing.
+- The backdrop approximates the site's CSS where the browser uses a
+  Gaussian or clips to a rounded box; each approximation is listed in
+  `backdrop`'s module docs. A rebuild is CPU work that grows with the
+  window: a few hundred milliseconds for 1920×1080 in a release build
+  (M2.3's note in `docs/roadmap.md`), which M2.6 weighs against the
+  first frame's budget.
 
 ## `tidepool-font`
 
@@ -47,7 +62,9 @@ Invariants:
 - Golden frames: each `raster` primitive, the backdrop, glyph runs in both
   bundled faces at 11, 12, 13, 14, 16 and 24 px at scale 1 and 2, uppercase
   letter-spaced labels.
-- Property tests: rects fully inside the clip never write outside; damage
-  merging covers every changed pixel.
+- Unit tests: exact pixels for every `gfx` primitive.
+- Property tests: no `gfx` draw call writes outside its clip, whatever its
+  geometry; merged damage and frame diffs cover every changed pixel; the
+  same draw calls give the same bytes twice.
 - Benchmarks: full-frame raster at 1920×1080 and 2560×1440; atlas fill for
   the ASCII range at 14 px.

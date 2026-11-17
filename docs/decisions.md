@@ -226,7 +226,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0011 — CPU software rendering with damage tracking; no GPU API in v1
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** An IDE redraws small regions most of the time. GPU backends
   add three APIs' worth of FFI.

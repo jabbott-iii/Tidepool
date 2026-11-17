@@ -130,8 +130,9 @@
     {
       "name": "Our own rasterizer and fonts",
       "area": "Rendering",
-      "summary": "A CPU rasterizer of our own will draw rectangles, cut corners, lines, images and glyphs with blending and clipping, redrawing only what changed. A TrueType parser and outline rasterizer will set Saira and JetBrains Mono, bundled with their licenses, from a glyph atlas, and the first window will show both over the jabbott.dev backdrop.",
-      "tasks": ["M2.3", "M2.8", "M2.5", "M2.6"]
+      "summary": "A CPU rasterizer of our own draws rectangles, hairlines, borders, bracket corners, and anti-aliased polygons, lines, cut corners and pills, with images and glyph masks, blending, layers and clipping, in arithmetic meant to give the same bytes on every OS; it merges the damaged parts of a frame, and renders jabbott.dev's deep-space backdrop with a blurred copy for translucent panels. A TrueType parser and outline rasterizer will set Saira and JetBrains Mono, bundled with their licenses, from a glyph atlas, and the first window will show both over the backdrop.",
+      "tasks": ["M2.3", "M2.8", "M2.5", "M2.6"],
+      "ticked": ["M2.3"]
     },
     {
       "name": "Golden frames",

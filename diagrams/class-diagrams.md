@@ -2,21 +2,21 @@
 
 These diagrams show the types the built crates have: `tidepool-core`,
 `tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
-`tidepool-sys` and `tidepool-platform`. Each shows what a type owns,
+`tidepool-sys`, `tidepool-platform` and `tidepool-gfx`. Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
 how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1), with ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 26, and drawn in the other files of `diagrams/` under the names
+section 27, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -52,7 +52,8 @@ fuzz targets' result lines with `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json` and the types of
 `text` (section 22), and `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
-Linux declarations (section 24).
+Linux declarations (section 24), and `tidepool-gfx` `core`'s geometry and
+colors (section 25).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2360,7 +2361,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 25.
+- `BenchError` is in section 26.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2517,7 +2518,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 25.
+- `MissingSymbols` is in section 26.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -2772,12 +2773,240 @@ classDiagram
 - The `Image` that `XGetImage` returns, for the read-back test, exists only
   in `#[cfg(test)]` code, and is freed through its own `f.destroy_image`.
 
-## 25. Error enums across crates
+## 25. gfx: the framebuffer, drawing, damage and the backdrop
+
+`tidepool-gfx` (M2.3) draws in device pixels into a `Framebuffer` of
+premultiplied BGRA8 bytes, which covers any rect of device space (its
+bounds), so a layer can cover part of a window. Drawing is free functions
+in `raster`, `blend`, `image` and `glyph`, each taking the framebuffer, a
+clip rect (a `ClipStack`'s `current()`, or a damage rect) and
+`core::color::PremultipliedColor`s; none returns an error or panics, and
+what is invalid draws nothing. `View` and `glyph::Mask` are checked,
+borrowed views of pixels and of 8-bit coverage, with regions. `Damage`
+merges changed rects, and `damage::diff` finds the rects that differ
+between two frames. The backdrop is in 25.2.
+
+### 25.1 Frames, views, drawing and damage
+
+```mermaid
+classDiagram
+    direction LR
+    class Framebuffer["framebuffer::Framebuffer"] {
+        -bytes: Vec~u8~
+        -bounds: DeviceRect
+        +new(size) Result~Framebuffer~
+        +new_at(bounds) Result~Framebuffer~
+        +try_clone() Result~Framebuffer~
+        +bounds() DeviceRect
+        +stride() usize
+        +bytes() byte slice
+        +view() View
+        +pixel(at) Option~PremultipliedColor~
+        +clear(color)
+    }
+    class View["framebuffer::View"] {
+        -bytes: byte slice
+        -size: DeviceSize
+        -stride: usize
+        +new(bytes, size, stride) Result~View~
+        +region(rect) Result~View~
+        +pixel(at) Option~PremultipliedColor~
+    }
+    class Mask["glyph::Mask"] {
+        -bytes: byte slice
+        -size: DeviceSize
+        -stride: usize
+        +new(bytes, size, stride) Result~Mask~
+        +region(rect) Result~Mask~
+        +coverage(at) Option~u8~
+    }
+    class Drawing["raster, blend, image, glyph"] {
+        <<module>>
+        +fill_rect(fb, clip, rect, color)
+        +hairline(fb, clip, start, length, orientation, color)
+        +border(fb, clip, rect, width, color)
+        +brackets(fb, clip, rect, arm, thickness, corners, color)
+        +polygon(fb, clip, points, color)
+        +line(fb, clip, from, to, width, color)
+        +cut_corner_rect(fb, clip, rect, cut, corners, color)
+        +pill(fb, clip, rect, color)
+        +over(src, dst) PremultipliedColor
+        +scale(color, amount) PremultipliedColor
+        +composite(dst, clip, layer, opacity)
+        +copy(fb, clip, src, at)
+        +blit(fb, clip, src, at)
+        +blit_scaled(fb, clip, src, dst, filter)
+        +draw(fb, clip, mask, at, color)
+    }
+    class Vertex["raster::Vertex"] {
+        +x: f32
+        +y: f32
+    }
+    class Corners["raster::Corners"] {
+        +top_left: bool
+        +top_right: bool
+        +bottom_right: bool
+        +bottom_left: bool
+    }
+    class Orientation["raster::Orientation"] {
+        <<enumeration>>
+        Horizontal
+        Vertical
+    }
+    class Filter["image::Filter"] {
+        <<enumeration>>
+        Nearest
+        Bilinear
+    }
+    class ClipStack["clip::ClipStack"] {
+        -stack: Vec~DeviceRect~
+        +new(base) ClipStack
+        +push(rect)
+        +pop() bool
+        +current() DeviceRect
+    }
+    class Damage["damage::Damage"] {
+        -slots: 9 DeviceRect
+        -len: usize
+        +add(rect)
+        +rects() DeviceRect slice
+        +clip_to(bounds)
+        +bounds() DeviceRect
+    }
+    class DamageFns["damage, clip"] {
+        <<module>>
+        +MAX_RECTS: usize = 8
+        +TILE: i32 = 16
+        +SPACE: DeviceRect
+        +diff(before, after) Damage
+        +intersect(a, b) DeviceRect
+    }
+    class Pixels["platform::surface::Pixels"]
+
+    Framebuffer ..> View : view()
+    Drawing ..> Framebuffer : draws into
+    Drawing ..> View : reads
+    Drawing ..> Mask : reads
+    Drawing ..> Vertex
+    Drawing ..> Corners
+    Drawing ..> Orientation
+    Drawing ..> Filter
+    DamageFns ..> Framebuffer : compares two
+    DamageFns ..> Damage : diff makes
+```
+
+- `gfx` does not use `platform`: `gui` (M2.6) builds a
+  `platform::surface::Pixels` from a framebuffer's `bytes`, `size` and
+  `stride` (ADR-0040), so no line joins them.
+- `Framebuffer`'s equality compares the bounds and the bytes; `Damage`'s
+  compares its rects. `Debug` of a framebuffer, view or mask leaves out
+  the bytes.
+
+### 25.2 The backdrop and its style
+
+`BackdropStyle` holds jabbott.dev's `.space` layers as data, and
+`BackdropStyle::jabbott_dev()` the site's values. `Backdrop` is the cache:
+`ensure` renders the backdrop and its box-blurred copy when the size, the
+scale or the style differs from its `Key`, and says whether it did.
+
+```mermaid
+classDiagram
+    direction LR
+    class Backdrop["backdrop::Backdrop"] {
+        -key: Option~Key~
+        -base: Framebuffer
+        -blurred: Framebuffer
+        +new() Backdrop
+        +ensure(size, scale, style) Result~bool~
+        +base() Framebuffer
+        +blurred() Framebuffer
+    }
+    class Key["backdrop::Key"] {
+        -size: DeviceSize
+        -scale: Scale
+        -style: BackdropStyle
+    }
+    class BackdropStyle["backdrop::BackdropStyle"] {
+        +bg: Color
+        +glows: Vec~Glow~
+        +planet: Planet
+        +stars: Vec~Star~
+        +star_inset: f32
+        +near_stars: StarTile
+        +far_stars: StarTile
+        +grid: Grid
+        +blur_radius: f32
+        +jabbott_dev() BackdropStyle
+        +validate() Result
+    }
+    class Glow["backdrop::Glow"] {
+        +color: Color
+        +radius_x: f32
+        +radius_y: f32
+        +center_x: f32
+        +center_y: f32
+        +fade_stop: f32
+    }
+    class Planet["backdrop::Planet"] {
+        +diameter: f32
+        +right: f32
+        +top: f32
+        +core_color: Color
+        +mid_color: Color
+        +ring_color: Color
+        +glow: Shadow
+        +inner_glow: Shadow
+        +opacity: f32
+    }
+    class Shadow["backdrop::Shadow"] {
+        +offset_x: f32
+        +offset_y: f32
+        +blur: f32
+        +color: Color
+    }
+    class Star["backdrop::Star"] {
+        +x: f32
+        +y: f32
+        +radius: f32
+        +color: Color
+        +fade_stop: f32
+    }
+    class StarTile["backdrop::StarTile"] {
+        +width: f32
+        +height: f32
+        +opacity: f32
+    }
+    class Grid["backdrop::Grid"] {
+        +cell: f32
+        +line_width: f32
+        +color: Color
+        +mask_fade_stop: f32
+    }
+    class Framebuffer["framebuffer::Framebuffer"]
+
+    Backdrop *-- "0..1" Key
+    Backdrop *-- "2" Framebuffer : base, blurred
+    Key *-- BackdropStyle
+    BackdropStyle *-- "0..*" Glow : glows
+    BackdropStyle *-- Planet
+    Planet *-- "2" Shadow : glow, inner_glow
+    BackdropStyle *-- "0..*" Star : stars
+    BackdropStyle *-- "2" StarTile : near_stars, far_stars
+    BackdropStyle *-- Grid
+```
+
+- The same `stars` are drawn in both tiles, each tile cutting off what
+  falls outside it, as the site's two `.space__stars` layers do.
+- `ensure` fails with `GfxError::InvalidStyle`, naming the field, for a
+  value that is not finite or is out of range, and keeps the cache it had.
+
+## 26. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
 `MissingSymbols`; `tidepool-platform` has a second, `PixelsError`, for a
-view of pixels that does not fit its bytes. Those of code that does I/O keep the `std::io::Error`
+view of pixels that does not fit its bytes. `GfxError` covers frames,
+views and backdrop styles, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
 failed save's message as text. Only `BenchError` wraps another crate's: its
 `Text` holds the `TextError` of a text operation a suite runs. `xtask`
@@ -2851,6 +3080,14 @@ classDiagram
         StrideTooSmall
         TooFewBytes
     }
+    class GfxError["gfx::GfxError"] {
+        <<enumeration>>
+        NegativeSize
+        TooLarge
+        OutsideView
+        OutOfMemory
+        InvalidStyle
+    }
     class BenchError["bench::BenchError"] {
         <<enumeration>>
         Usage
@@ -2882,6 +3119,8 @@ classDiagram
     StdError <|.. PlatformError
     Display <|.. PixelsError
     StdError <|.. PixelsError
+    Display <|.. GfxError
+    StdError <|.. GfxError
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
     PathError *-- IoError : Io
@@ -2893,9 +3132,9 @@ classDiagram
     PlatformError *-- IoError : Io
 ```
 
-## 26. Planned types
+## 27. Planned types
 
-The other 19 members are empty crates, so they have no class diagram yet.
+The other 18 members are empty crates, so they have no class diagram yet.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
@@ -2903,9 +3142,6 @@ is described in words here.
 - `tidepool-platform`, besides its window, events and present (section
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
-- `tidepool-gfx`: the premultiplied BGRA8 framebuffer of the `framebuffer`
-  module, which `docs/subsystems/frontends.md` calls `gfx::Framebuffer`,
-  planned (M2.3).
 - `tidepool-ui`: the widget tree's `NodeId`, the `TextMetrics` trait and
   the `DrawList`, planned (M3.1); the theme's token set, planned (M3.2).
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
@@ -2951,13 +3187,17 @@ The main files these diagrams were drawn from:
   `linux.rs`, and `linux/` (`claim.rs`, `connection.rs`, `display.rs`,
   `input.rs`, `keymap.rs`, `library.rs`, `selection.rs`, `waker.rs`,
   `window.rs`, `xdg.rs`, `xresources.rs`)
+- `crates/gfx/src/lib.rs`, `error.rs`, `framebuffer.rs`, `clip.rs`,
+  `blend.rs`, `raster.rs`, `image.rs`, `glyph.rs`, `damage.rs`,
+  `backdrop.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
-  `crates/platform/Cargo.toml`, `bench/Cargo.toml`
+  `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
+  `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
-  `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0013, ADR-0019, ADR-0020,
-  ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042)
+  `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
+  ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
-  `crates/sys`, `crates/platform` and `bench`
+  `crates/sys`, `crates/platform`, `crates/gfx` and `bench`
