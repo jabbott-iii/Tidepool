@@ -32,31 +32,126 @@ task that needs another OS leaves its box unchecked with a
 
 ### Window and event loop (X11 via `dlopen("libX11.so.6")`)
 
-- One `Display` connection, opened on the main thread. Tidepool does not
-  call `XInitThreads`; only main calls Xlib, any Xlib function, so that
+- `libX11.so.6` is loaded once, with `dlopen`, the first time a window
+  opens, and never unloaded; on a machine without it, opening a window
+  fails with an error that names it (the TUI, M7.1, is to need no X).
+- One `Display` connection for each window, over a local Unix socket
+  only, the one exception to `AGENTS.md` rule 8 (ADR-0039).
+  `platform` reads `DISPLAY` and passes `:N` and `:N.S` to
+  `XOpenDisplay` as `unix:N` and `unix:N.S`, so that libxcb never falls
+  back to TCP, and `unix:N` and `unix:N.S` as they are; it refuses any
+  other value, such as a host name (`ssh -X`'s `localhost:10.0`), a
+  transport (`tcp/…`), a socket path, a number that is not decimal or an
+  unset `DISPLAY`, with an error that says why and names the value,
+  escaped, before it opens any socket. It never passes `XOpenDisplay`
+  null. Xlib reads the Xauthority file itself; Tidepool never does.
+- Every window of the process lives on one thread: the first window to
+  open makes its thread the Xlib thread, for as long as any window is
+  open, and `Window::open` on another thread meanwhile fails. Once all are
+  closed, any thread may open the next. `Window` is `!Send` and `!Sync`.
+- Tidepool does not call `XInitThreads`; only that thread calls Xlib, any
+  Xlib function, so that
   use is sound whether or not Xlib locks. From 1.8 on, libX11 as
   normally built calls `XInitThreads` itself when the library is loaded;
   a build without that option, like any earlier version, does no
   locking.
+- X errors: `platform` replaces Xlib's default handler, which prints the
+  error and ends the process, with one that counts the error and keeps
+  the last one's codes, without allocating or calling Xlib. A window that
+  is opening fails if the server refused one of its requests (it waits
+  for the server with `XSync` before it returns); later errors are logged
+  by `wait_events`. The handler of a lost connection stays Xlib's own,
+  which ends the process: a lost X server is not recovered from (crash
+  reports are M4.9's).
 - `wait_events(deadline)` uses `poll` on two fds: the X connection
-  (`ConnectionNumber`) and a self-pipe the `Waker` writes to. It drains
-  `XPending` before and after polling.
-- Window: `XCreateWindow` with a 24-bit TrueColor visual, `WM_DELETE_WINDOW`,
-  `_NET_WM_NAME` (UTF-8), `_NET_WM_PID`, `WM_CLASS = "tidepool"`, and
-  `_NET_WM_ICON` from Tidepool's icon.
+  (`ConnectionNumber`, borrowed, never closed) and a self-pipe the
+  `Waker` writes to. It flushes Xlib's queued requests and drains
+  `XPending` before and after polling, returns as soon as it has events
+  or was woken, and otherwise when the deadline passes; a signal
+  (`EINTR`) does not end the wait. The self-pipe comes from `pipe2` with
+  `O_CLOEXEC | O_NONBLOCK`; `Waker::wake` is one `write(2)` of a byte, and
+  a full pipe means a wake is already pending. Both ends live as long as
+  the window or any waker, so a wake never meets `EPIPE`.
+- Window: `XCreateWindow` with a 24-bit TrueColor visual from
+  `XMatchVisualInfo`, whose red, green and blue masks must be BGRA8's
+  (`0xff0000`, `0xff00`, `0xff`), and a black background;
+  `WM_DELETE_WINDOW`; the title in `_NET_WM_NAME` (UTF-8) and `WM_NAME`
+  (`STRING` when it is ASCII, else `UTF8_STRING`); `_NET_WM_PID` with
+  `WM_CLIENT_MACHINE`, from `/proc/sys/kernel/hostname` (neither if it
+  cannot be read); and `WM_CLASS` with the instance `tidepool` and the
+  class `Tidepool`. There is no `_NET_WM_ICON`: Tidepool has no icon yet
+  (`assets/icons` does not exist), so the window manager shows its own.
+  The window is at least 1 by 1 and at most 32,767 by 32,767 device
+  pixels.
 - Client-side title bar is **not** drawn in v1; the window manager decorates.
-- Present: `XPutImage` of damaged rectangles from the framebuffer. MIT-SHM
+- Present: `XPutImage` of each damaged rectangle of the caller's `Pixels`
+  view (ADR-0040), clipped to the view and the window, through an
+  `XImage` that `XInitImage` sets up over the caller's bytes (`ZPixmap`,
+  depth 24, 32 bits a pixel, `LSBFirst`, `bytes_per_line` the stride).
+  The image is whole rows, from the start of the rectangle's first row
+  and as wide as the rectangle's right edge, so that whatever Xlib reads
+  for any server's scanline pad is in the view; the rectangle is split
+  into bands of rows so that Xlib's `int` offsets cannot overflow. Xlib
+  only reads the bytes, and the image is never given to `XDestroyImage`,
+  which would free them. The window is opaque: the alpha byte is not shown. MIT-SHM
   (`XShmPutImage`) is a later optimization behind a measured need.
-- HiDPI: scale from `Xft.dpi` in the resource database (default 96), with a
-  setting to override.
+- HiDPI: the scale is `Xft.dpi` in the resource database over 96, read
+  once when the window opens (1 when it is not set, or not a density
+  from 24 to 1536). A change while Tidepool runs is not seen. A setting
+  to override it has no roadmap task yet.
 
 ### Input
 
-- Keys: `XLookupKeysym` → Tidepool `Key`; text via `Xutf8LookupString`.
-- IME: XIM is backlog; dead keys work through `Xutf8LookupString`.
-- Mouse: buttons 1–3, wheel as buttons 4–7, `MotionNotify` with
-  compression of consecutive motion events.
-- Cursors: core font cursors in v1; `libXcursor` themes later.
+- Keys: the event's key code minus 8 is the kernel's evdev code, which a
+  table maps to Tidepool's `Key`, a physical key on any layout
+  (ADR-0039). That holds with the `evdev` and `libinput` drivers, under
+  XWayland and in Xvfb. Every `Key` can be reported; a code with no `Key`
+  (Japanese and Korean keys, media keys) is dropped. Modifiers come from
+  the event's `state`: Shift, Control, `Mod1` as Alt and `Mod4` as Super;
+  a modifier key's own press includes it, and its release leaves it out
+  unless the same modifier's other key is still down. A held key repeats
+  as presses with `repeat` set, through `XkbSetDetectableAutoRepeat`
+  (with a warning in the log on a server without it). When the window
+  loses the focus, every key still down is reported going up; focus
+  events of a keyboard grab are not focus changes.
+- Text via `Xutf8LookupString`, through an input context, after
+  `XFilterEvent`: none while Control, Alt or Super is held (a shortcut),
+  and no control characters (Enter, Tab, Backspace and the like are
+  keys). The first window takes the C library's `LC_CTYPE` from the
+  environment if it is still "C" and Xlib supports the locale, so that
+  text is not Latin-1 only.
+- IME: XIM is backlog; dead keys work through `Xutf8LookupString`, with
+  Xlib's own input method (`@im=none`), which connects to no server
+  (ADR-0039). Nothing of a sequence being composed is shown. Opening it,
+  in `Window::open`, reads the locale's Compose file and `~/.XCompose`
+  (or `$XCOMPOSEFILE`).
+- Mouse: buttons 1–3, wheel as buttons 4–7 (one line a step; positive
+  `y` is down), buttons 8 and 9 as Back and Forward, `MotionNotify` with
+  compression of consecutive motion events. Positions are logical: device
+  pixels over the scale.
+- Cursors: the core font's (the arrow, the text beam, the hand, and the
+  column and row resize arrows), made with `XCreateFontCursor`, all five
+  in `Window::open`; `set_cursor` only shows one (`XDefineCursor`), so it
+  reads no file. Where `libXcursor.so.1` is installed,
+  libX11 itself loads it with `dlopen` on the first `XCreateFontCursor`,
+  with `libXrender.so.1` and `libXfixes.so.3`, and the shapes come from
+  the user's cursor theme. Tidepool neither loads nor configures it.
+  libXcursor reads its settings with `XGetDefault`, which runs Xlib's
+  resource parser over the display's `RESOURCE_MANAGER` property (or
+  `~/.Xdefaults` when it is not set), merged with `$XENVIRONMENT` or
+  else `~/.Xdefaults-<host>`, and that parser follows `#include "path"`
+  lines. It takes the theme from
+  `XCURSOR_THEME` or the `Xcursor.theme` resource, and joins it onto its
+  icon directories (`$XCURSOR_PATH`, or by default `~/.icons`,
+  `/usr/share/icons` and `/usr/share/pixmaps`) without removing `..`; for
+  each shape it opens `<theme>/index.theme`, following `Inherits=`, and
+  `<theme>/cursors/<name>`, and parses what it finds with its cursor-image
+  parser. So any client of the display can make `Window::open` open and
+  read a file it names, and open and parse cursor files at a path of its
+  choosing; if one of them is a FIFO, `Window::open` blocks until
+  something writes to it. Each `Window::open` does this again for its
+  own connection, so opening a window while another runs can block the
+  window thread, and the open windows with it.
 
 ### Clipboard
 

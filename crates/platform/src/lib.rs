@@ -15,7 +15,18 @@
 //! Safe OS behavior: windows, events, the waker, present, clipboard,
 //! terminal raw mode, PTY, file watching and paths.
 //!
-//! Specification: `docs/subsystems/sys-and-platform.md`.
+//! Specification: `docs/subsystems/sys-and-platform.md`; what each system
+//! does, `docs/03-platforms.md`.
+//!
+//! Built so far (M2.2): a [`window`](window::Window), its
+//! [`events`](events::Event) and [waker](events::Waker), and
+//! [`present`](window::Window::present) in [`surface`], on Linux, through
+//! X11. On any other system [`Window::open`](window::Window::open) fails
+//! with [`Error::Unsupported`], until macOS (M11) and Windows (M12).
+//!
+//! No `target_os` shows in the API: every type, method and error variant
+//! exists on every system, and each says where it behaves differently.
+//! The backends are private modules.
 
 // `tidepool-sys` and `tidepool-platform` are the only two crates allowed to
 // contain `unsafe` (AGENTS.md rule 4); every other crate inherits the
@@ -29,3 +40,21 @@
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
+
+mod error;
+pub mod events;
+pub mod surface;
+pub mod window;
+
+// The backend of this system: X11 on Linux, and on every other system one
+// whose windows fail to open, until M11.7 and M12.1 add theirs.
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+use linux as backend;
+#[cfg(not(target_os = "linux"))]
+mod unsupported;
+#[cfg(not(target_os = "linux"))]
+use unsupported as backend;
+
+pub use error::Error;

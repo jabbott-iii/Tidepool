@@ -12,34 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The C library on Linux (glibc): the dynamic loader, and `poll` and
-//! `pipe2`, which the event loop is to wait in and its waker to write to
-//! (M2.2).
+//! The C library on Linux (glibc): the dynamic loader; `poll` and
+//! `pipe2`, which the event loop waits in and its waker's self-pipe comes
+//! from; `write`, with which the waker writes to it; and `setlocale`, with
+//! which the window takes the character locale for typed text (M2.2).
 //!
 //! Ported in part from nadir-sys `linux/libc.rs`: the loader, its flags and
 //! its tests, with Tidepool's names and reworded comments (the header
 //! quotes gain `extern`), and one more assertion in the test of a missing
-//! library: reading `dlerror`'s message clears it.
-//! Nadir's error numbers for ALSA are left out; `poll`, `pipe2` and their
-//! tests are new.
+//! library: reading `dlerror`'s message clears it; and, in M2.2,
+//! `setlocale`, `LC_CTYPE` and the test that the locale has a name, with
+//! Nadir's documentation reworded. Nadir's error numbers for ALSA and its
+//! `ioctl` are left out; `poll`, `pipe2`, `write` and their tests are new.
 //!
 //! Sources: `<dlfcn.h>`, and `<bits/dlfcn.h>` for the flag values;
 //! `<sys/poll.h>` (which `<poll.h>` includes), and `<bits/poll.h>` for the
-//! event bits; `<unistd.h>` for `pipe2`, and `<bits/fcntl-linux.h>` (which
-//! `<fcntl.h>` includes) for its flags, whose values are the kernel's
-//! `<asm-generic/fcntl.h>`. Each item gives its declaration there, without
-//! glibc's attribute macros (`__THROW`, `__wur` and the like). x86_64 and
-//! aarch64 both use glibc's generic `bits/` headers for these, and the
-//! kernel's generic flags.
+//! event bits; `<unistd.h>` for `pipe2` and `write`, and
+//! `<bits/fcntl-linux.h>` (which `<fcntl.h>` includes) for the flags of
+//! `pipe2`, whose values are the kernel's `<asm-generic/fcntl.h>`;
+//! `<locale.h>` for `setlocale`, and `<bits/locale.h>` for the value of
+//! `LC_CTYPE`. Each item gives its declaration there, without glibc's
+//! attribute macros (`__THROW`, `__wur` and the like). x86_64 and aarch64
+//! both use glibc's generic `bits/` headers for these, and the kernel's
+//! generic flags.
 //!
-//! Only what `tidepool-platform` is to call (M2.2) is declared, and nothing
-//! `std` already gives: an `errno` is read with
+//! Only what `tidepool-platform` calls is declared, and nothing `std`
+//! already gives: an `errno` is read with
 //! `std::io::Error::last_os_error`, the two descriptors from `pipe2` are
 //! each wrapped in `std::os::fd::OwnedFd`, which closes it, and `read` and
 //! `write` on them go through `std::fs::File`, except in code that must be
-//! async-signal-safe, for which `std` promises nothing: the tasks that
-//! write `Waker::wake` and the terminal's signal handler (M2.2, M7.1) are
-//! to declare `write` here. The
+//! async-signal-safe, for which `std` promises nothing: [`write()`] is
+//! declared for `Waker::wake` (M2.2), and the terminal's signal handler is
+//! to use it too (M7.1). The
 //! waker's self-pipe needs `pipe2`: `std::io::pipe` makes close-on-exec
 //! ends, but cannot make them non-blocking without `fcntl`, which is
 //! variadic, and the waker's write end must never block. A socket pair
@@ -221,6 +225,67 @@ unsafe extern "C" {
     /// nothing else reads or writes during the call. `pipe2` writes them
     /// only when it succeeds.
     pub fn pipe2(pipefd: *mut c_int, flags: c_int) -> c_int;
+}
+
+unsafe extern "C" {
+    /// Writes up to `n` bytes from `buf` to the file descriptor `fd`, and
+    /// returns how many it wrote, or -1 with `errno` set: `EAGAIN`
+    /// (`std::io::ErrorKind::WouldBlock`) when `fd` is non-blocking and
+    /// has no room, `EINTR` when a signal came before anything was written
+    /// to a descriptor that blocks, `EPIPE` when `fd` is a pipe that no
+    /// one can read any more (which also raises `SIGPIPE`, which Rust's
+    /// runtime ignores). Read `errno` with
+    /// `std::io::Error::last_os_error`; a failure changes it.
+    /// `unistd.h`: `extern ssize_t write (int __fd, const void *__buf,
+    /// size_t __n)`, where `size_t` is `usize` and `ssize_t` is `isize` on
+    /// these targets.
+    ///
+    /// It is async-signal-safe (POSIX, `signal-safety(7)`), which is why
+    /// it is declared: `std` does not promise that of
+    /// `<&File as Write>::write`. Write through `File` anywhere else.
+    ///
+    /// # Safety
+    ///
+    /// - `buf` points to `n` bytes that may be read during the call. It
+    ///   may be dangling if `n` is 0.
+    /// - `fd` is a descriptor the caller may write to: open, and not
+    ///   closed by anything else during the call, so that the bytes cannot
+    ///   go to a file that took its number.
+    pub fn write(fd: c_int, buf: *const c_void, n: usize) -> isize;
+}
+
+// ---------------------------------------------------------------------------
+// The locale
+// ---------------------------------------------------------------------------
+
+/// A [`setlocale`] category: how bytes are read as characters, and which
+/// characters are letters. Xlib's input methods read and compose typed
+/// text in it.
+/// `locale.h`: `#define LC_CTYPE __LC_CTYPE`, and `bits/locale.h`:
+/// `#define __LC_CTYPE 0`.
+pub const LC_CTYPE: c_int = 0;
+
+unsafe extern "C" {
+    /// Sets the C library's locale for `category` ([`LC_CTYPE`]) and
+    /// returns its new name, or returns null, changing nothing, if the
+    /// locale is not installed. A null `locale` changes nothing and returns
+    /// the current name; an empty one takes the locale from the
+    /// environment (`LC_ALL`, then the category's own variable, then
+    /// `LANG`). Every program starts in the "C" locale, and Rust's runtime
+    /// never changes it.
+    /// `locale.h`: `extern char *setlocale (int __category, const char
+    /// *__locale)`.
+    ///
+    /// The name belongs to the C library: do not free it. It is valid
+    /// until the next call of `setlocale`.
+    ///
+    /// # Safety
+    ///
+    /// - `locale` is null or points to a NUL-terminated string.
+    /// - No other thread is calling `setlocale`, nor reading the locale in
+    ///   a way that breaks if it changes meanwhile: glibc marks it
+    ///   `MT-Unsafe const:locale env`.
+    pub fn setlocale(category: c_int, locale: *const c_char) -> *mut c_char;
 }
 
 #[cfg(test)]
@@ -429,5 +494,83 @@ mod tests {
     #[test]
     fn poll_with_no_entries_times_out() {
         assert_eq!(poll_now(&mut []), 0);
+    }
+
+    /// Writes one byte to `fd` with [`write`], as `Waker::wake` does, and
+    /// returns what `write` returned, with the error it set if it failed.
+    fn write_one(fd: &OwnedFd) -> Result<isize, io::Error> {
+        let byte = [1_u8];
+        // SAFETY: `byte` is one readable byte, and `fd` is open: this
+        // function borrows it for the call.
+        let written = unsafe { write(fd.as_raw_fd(), byte.as_ptr().cast(), byte.len()) };
+        if written < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(written)
+        }
+    }
+
+    #[test]
+    fn write_puts_a_byte_in_the_pipe_and_refuses_a_full_one_rather_than_wait() {
+        let test = "write_puts_a_byte_in_the_pipe_and_refuses_a_full_one_rather_than_wait";
+        if !Path::new("/proc/self/fdinfo").is_dir() {
+            skipped(
+                test,
+                "/proc is not mounted, so a blocking write end cannot be ruled out first",
+            );
+            return;
+        }
+        let (read_end, write_end) = pipe();
+        // An end that blocks would hang this test rather than fail it.
+        assert_ne!(
+            flags(&write_end) & O_NONBLOCK,
+            0,
+            "the write end would block"
+        );
+
+        assert_eq!(write_one(&write_end).ok(), Some(1));
+        let mut reader = File::from(read_end);
+        let mut buffer = [0_u8; 4];
+        assert_eq!(reader.read(&mut buffer).ok(), Some(1));
+        assert_eq!(buffer[0], 1);
+
+        // Fill the pipe; then one more byte is refused at once. 16 MiB is
+        // well past any size it could have here.
+        let mut written = 0_usize;
+        let refused = loop {
+            match write_one(&write_end) {
+                Ok(count) => written += usize::try_from(count).unwrap_or(0),
+                Err(error) => break error.kind(),
+            }
+            assert!(
+                written <= 16 << 20,
+                "the pipe took {written} bytes and never filled"
+            );
+        };
+        assert_eq!(refused, ErrorKind::WouldBlock, "after {written} bytes");
+        assert!(written > 0);
+    }
+
+    #[test]
+    fn write_of_nothing_writes_nothing() {
+        let (read_end, write_end) = pipe();
+        // SAFETY: no byte is read from the dangling pointer, since `n` is
+        // 0, and `write_end` is open.
+        let written = unsafe { write(write_end.as_raw_fd(), core::ptr::dangling(), 0) };
+        assert_eq!(written, 0);
+        let mut fds = [watching(&read_end)];
+        assert_eq!(poll_now(&mut fds), 0);
+    }
+
+    #[test]
+    fn the_character_locale_has_a_name() {
+        // SAFETY: a null locale only reads the name, and no test of this
+        // crate changes it.
+        let name = unsafe { setlocale(LC_CTYPE, core::ptr::null()) };
+        assert!(!name.is_null());
+        // SAFETY: the C library returned a NUL-terminated string, valid
+        // until the next `setlocale`, which no test of this crate makes.
+        let name = unsafe { CStr::from_ptr(name) };
+        assert!(!name.is_empty());
     }
 }

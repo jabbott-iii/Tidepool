@@ -21,8 +21,8 @@
 //! blocks, function types and symbol tables, each with the header it comes
 //! from, and layout assertions. Its only code is the tables' loaders and
 //! the message of the error they return.
-//! Only `tidepool-platform` may use it, and from M2.2 it wraps what it
-//! calls in a safe API.
+//! Only `tidepool-platform` may use it, and it wraps what it calls in a
+//! safe API.
 //!
 //! On every system, [`dynlib`]: the [`Library`](dynlib::Library) trait,
 //! through which a symbol table looks its functions up in a library loaded
@@ -30,8 +30,9 @@
 //! the error that names every function the library lacks. The `dynlib!`
 //! macro that makes the tables is private to this crate.
 //!
-//! On Linux, the module `linux`: `linux::libc` (the dynamic loader, `poll`
-//! and `pipe2`) and `linux::x11` (Xlib's types, constants and events, and
+//! On Linux, the module `linux`: `linux::libc` (the dynamic loader,
+//! `poll`, `pipe2`, `write` and `setlocale`), `linux::evdev` (the kernel's
+//! key codes) and `linux::x11` (Xlib's types, constants and events, and
 //! `Xlib`, the table of its functions in `libX11.so.6`). A system's module
 //! exists only on that system. macOS and Windows are declared from M11.7
 //! and M12.1.

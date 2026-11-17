@@ -1177,7 +1177,7 @@ our own rasterizer.
     build on any other Linux target. A test loads the whole
     `Xlib` table from the installed `libX11.so.6`, opening no display.
 
-- [ ] **M2.2 — platform: window, events, waker, present (Linux)**
+- [x] **M2.2 — platform: window, events, waker, present (Linux)**
   - Depends: M2.1, M0.2
   - Decide first: where the Xvfb test's read-back with `XGetImage` lives.
     `unsafe` compiles only in the library targets of `sys` and `platform`
@@ -1194,7 +1194,7 @@ our own rasterizer.
   - Accept: under Xvfb, a test opens a window, presents a framebuffer,
     reads the pixels back with `XGetImage`, and a `Waker` from another
     thread interrupts `wait_events` within 5 ms.
-  - Verify: `xvfb-run cargo test -p tidepool-platform`;
+  - Verify: `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform`;
     `cargo xtask unsafe-audit`
   - Note (2026-11-10): M2.1's review raised two more questions to answer
     before M2.2's code. First, `XOpenDisplay` connects a socket in the
@@ -1208,6 +1208,54 @@ our own rasterizer.
     but `core::input::Key` names a physical key (M0.2), which a key code
     gives (the evdev code plus 8 under XWayland and the evdev and libinput
     drivers) and a keysym does not: which source the key map uses.
+  - Note (2026-11-16): ADR-0039 answers the `Decide first` line with the
+    options the user chose that day, each the recommended one: the
+    read-back is a `#[cfg(test)]` test in `platform`'s library; the X
+    connection is rule 8's one exception, over a local Unix socket only
+    (`:N` becomes `unix:N`, a `DISPLAY` naming a host is refused); the
+    key map reads key codes; and the window tests run only with
+    `TIDEPOOL_IT_X11=1`, which the `Verify` line now sets.
+  - Note (2026-11-16): the user chose, while the task was prepared, that
+    `present` takes a pixel view of `platform`'s own, since the matrix
+    gives `platform` no edge to `gfx` (ADR-0040).
+  - Note (2026-11-16): done. `platform` has one public API on every system:
+    `window` (`Window::open`, title, device and logical size, scale,
+    `CursorShape`, focus), `events` (`wait_events` with a deadline,
+    `Event`, the `Waker`) and `surface` (`present` of a checked `Pixels`
+    view and `DeviceRect` damage), with its `Error`; elsewhere
+    `Window::open` fails with `Error::Unsupported`. On Linux every window
+    is on one thread, X errors are recorded and logged instead of ending
+    the process, keys come from key codes and text from
+    `Xutf8LookupString` through Xlib's own input method. `sys` adds
+    `write(2)`, `setlocale`, `linux::evdev`, the types for typed text,
+    tables that take C's `...`, and a table of 41 functions; M2.1's
+    `XSetIOErrorHandler` and `XAnyEvent` are gone, since nothing calls
+    them.
+  - Note (2026-11-16): checked. Under Xvfb (21.1.12, libX11 1.8.7,
+    libxcb 1.15) the read-back compares every damaged and undamaged
+    pixel exactly, and a `Waker` on another thread ends a wait within
+    5 ms; a scratch run of 200 wakes measured a median of 26 µs and a
+    maximum of 116 µs. `strace` of the test binary saw only `AF_UNIX`
+    connections to the X server's socket, and none for a `DISPLAY` that
+    names a host. A C program built with gcc 13.3.0 and `-Werror`
+    against glibc 2.39, libX11 1.8.7 and the kernel's headers checks the
+    new declarations: 260 static assertions, 14 prototypes and the 118
+    evdev codes. clippy is clean for x86_64 and aarch64 Linux,
+    `x86_64-apple-darwin` and `x86_64-pc-windows-msvc`; macOS and Windows
+    were compiled, not run.
+  - Note (2026-11-16): reviewed in two rounds, `security-reviewer` in
+    each, every finding checked by a skeptic: 15 confirmed findings, 10
+    issues once those two reviewers found alike are counted once. All
+    are fixed but one, which is documented and narrowed. Among them: a client message's data is read only for
+    format 32, the only one whose 40 bytes Xlib writes; `present` gives
+    Xlib whole rows of the view, so no server's padding reads past it;
+    one wait reports a wake and the server's events together; and the
+    tests retry a connection that Xvfb's reset between them refuses.
+    Left as documented risk (`docs/03-platforms.md` → Input → Cursors):
+    libX11 loads libXcursor, whose theme any client of the display can
+    point at files of its choosing, so a FIFO there blocks
+    `Window::open`; every cursor is made there, so `set_cursor` reads no
+    file.
 
 - [ ] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8
@@ -1216,8 +1264,10 @@ our own rasterizer.
   - Accept: under Xvfb, text copied in one window pastes in another, and a
     1 MiB paste goes through `INCR`; `paths` follows the XDG variables and
     their defaults.
-  - Verify: `xvfb-run cargo test -p tidepool-platform`;
+  - Verify: `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform`;
     `cargo xtask unsafe-audit`
+  - Note (2026-11-16): the `Verify` line sets `TIDEPOOL_IT_X11=1`, without
+    which the window tests skip (ADR-0039).
 
 - [ ] **M2.3 — gfx: rasterizer, blending, clipping, damage, backdrop**
   - Depends: M0.2

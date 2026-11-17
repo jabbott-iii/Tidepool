@@ -42,7 +42,7 @@ instead.
 
 | OS | Libraries / frameworks | How |
 | :- | :- | :- |
-| Linux | `libc` (glibc), `libX11.so.6` (ADR-0010); later `libXi.so.6`, `libXcursor.so.1` | glibc linked; everything else loaded with `dlopen`, so a missing library gives a clear error |
+| Linux | `libc` (glibc), `libX11.so.6` (ADR-0010); later `libXi.so.6`. `libXcursor.so.1`, with `libXrender.so.1` and `libXfixes.so.3`, when installed | glibc linked; Tidepool loads libX11 (and later libXi) with `dlopen`, so a missing library gives a clear error. libX11 itself `dlopen`s libXcursor and the two it needs, when present, on the first `XCreateFontCursor`; Tidepool does not (`docs/03-platforms.md` → Input) |
 | macOS | `libobjc`, `Foundation`, `AppKit`, `CoreFoundation`, `CoreGraphics`, `QuartzCore`, `CoreServices` (FSEvents) | `#[link(name = "...", kind = "framework")]` in `tidepool-sys` |
 | Windows | `kernel32`, `user32`, `gdi32`, `shell32`, `ole32`, `imm32` (later) | Linked import libraries from the MSVC toolchain |
 

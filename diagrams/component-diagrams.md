@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -152,7 +152,8 @@ flowchart LR
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     c_xtask["xtask<br/>dev-only: the checks,<br/>fuzz-smoke, the demo page"]
 
-    i_os_win(("window, events,<br/>present, terminal<br/>raw mode<br/>planned M2.2, M7.1"))
+    i_os_win(("Window, wait_events,<br/>Waker, present<br/>(M2.2)"))
+    i_os_term(("terminal:<br/>raw mode guard<br/>planned M7.1"))
     i_text(("Rope, Transaction,<br/>History, file"))
     i_codec(("json: parse, write<br/>toml: parse, Document"))
     i_regex(("regex matching<br/>planned M4.8"))
@@ -160,11 +161,12 @@ flowchart LR
     i_os_proc(("process, PTY<br/>planned M5.7, M5.9"))
 
     c_fmt["Formats and text<br/>tidepool-codec: json, toml<br/>tidepool-text: rope to<br/>atomic save<br/>tidepool-regex:<br/>planned M4.8"]
-    c_os["OS layer<br/>tidepool-sys: dynlib,<br/>libc and x11, built M2.1<br/>tidepool-platform: the<br/>crate root today, M0.1<br/>modules planned M2.2"]
+    c_os["OS layer<br/>tidepool-sys: dynlib, libc,<br/>x11, evdev, M2.1, M2.2<br/>tidepool-platform: the<br/>X11 window, events and<br/>present, M2.2"]
     e_os["OS libraries<br/>libc and libX11,<br/>AppKit and Win32 later"]
     e_cargo["cargo"]
 
-    c_front -.->|"gui, tui:<br/>planned M2.6, M7.1"| i_os_win
+    c_front -.->|"gui:<br/>planned M2.6"| i_os_win
+    c_front -.->|"tui:<br/>planned M7.1"| i_os_term
     c_editor -.->|"editor, workspace:<br/>planned M4.1, M4.2, M4.3"| i_text
     c_editor -.->|"workspace:<br/>planned M4.7"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
@@ -179,20 +181,21 @@ flowchart LR
     c_xtask -->|"xtask: cargo<br/>metadata, manifests"| i_codec
     c_xtask -->|"the one program<br/>it starts"| e_cargo
 
-    i_os_win -.- c_os
+    i_os_win --- c_os
+    i_os_term -.- c_os
     i_text --- c_fmt
     i_codec --- c_fmt
     i_regex -.- c_fmt
     i_os_watch -.- c_os
     i_os_proc -.- c_os
-    c_os -->|"sys declares,<br/>built M2.1"| e_os
+    c_os -->|"sys declares,<br/>platform calls"| e_os
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_fmt,c_os,i_text,i_codec built
+    class c_xtask,c_fmt,c_os,i_text,i_codec,i_os_win built
     class c_front,c_editor,c_agents,c_lang,c_tools planned
-    class i_os_win,i_regex,i_os_watch,i_os_proc planned
+    class i_os_term,i_regex,i_os_watch,i_os_proc planned
     class e_os,e_cargo external
 ```
 
@@ -369,9 +372,10 @@ flowchart TB
 
 ## 3. The OS layer and rendering
 
-`sys` has its Linux declarations (M2.1) and `platform` only its crate
-root (M0.1), so both are drawn solid with their planned modules in their
-labels; `gfx`, `font` and `ui` are empty libraries.
+`sys` has its Linux declarations (M2.1, M2.2) and `platform` its Linux
+window, events and present (M2.2), so both are drawn solid with their
+planned modules in their labels; `gfx`, `font` and `ui` are empty
+libraries.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -386,15 +390,15 @@ flowchart TB
     c_gui["tidepool-gui<br/>planned M2.6"]
     c_tui["tidepool-tui<br/>planned M7.1"]
 
-    i_window(("Window<br/>planned M2.2"))
-    i_events(("wait_events,<br/>Waker<br/>planned M2.2"))
-    i_surface(("surface:<br/>present<br/>planned M2.2"))
+    i_window(("window: Window::open,<br/>WindowConfig, CursorShape<br/>(M2.2)"))
+    i_events(("events: wait_events,<br/>Event, Waker<br/>(M2.2)"))
+    i_surface(("surface: present,<br/>Pixels<br/>(M2.2)"))
     i_clip(("clipboard<br/>planned M2.7"))
     i_terminal(("terminal:<br/>raw mode guard<br/>planned M7.1"))
 
-    c_platform["tidepool-platform<br/>the crate root today, M0.1<br/>modules planned M2.2 on"]
-    i_decl(("dynlib, libc,<br/>x11 declarations<br/>built M2.1"))
-    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, built M2.1<br/>more planned M2.2 on"]
+    c_platform["tidepool-platform<br/>the crate root, M0.1<br/>window, events, surface<br/>on X11, M2.2<br/>more planned M2.7 on"]
+    i_decl(("dynlib, libc, x11,<br/>evdev declarations<br/>M2.1, M2.2"))
+    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>more planned M2.7 on"]
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
     c_gui -.->|"planned M2.6"| i_window
@@ -403,22 +407,22 @@ flowchart TB
     c_gui -.->|"planned M4.2"| i_clip
     c_tui -.->|"planned M7.1"| i_terminal
 
-    i_window -.- c_platform
-    i_events -.- c_platform
-    i_surface -.- c_platform
+    i_window --- c_platform
+    i_events --- c_platform
+    i_surface --- c_platform
     i_clip -.- c_platform
     i_terminal -.- c_platform
 
-    c_platform -.->|"planned M2.2"| i_decl
+    c_platform -->|"loads libX11,<br/>calls"| i_decl
     i_decl --- c_sys
-    c_sys -->|"declares, built M2.1"| e_os
+    c_sys -->|"declares"| e_os
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_platform,c_sys,i_decl built
+    class c_platform,c_sys,i_decl,i_window,i_events,i_surface built
     class c_gui,c_tui planned
-    class i_window,i_events,i_surface,i_clip,i_terminal planned
+    class i_clip,i_terminal planned
     class e_os external
 ```
 
@@ -439,7 +443,7 @@ flowchart TB
     i_process(("process<br/>planned M5.7"))
     i_pty(("Pty::spawn<br/>planned M5.9"))
 
-    c_platform["tidepool-platform<br/>the crate root today, M0.1<br/>modules planned M2.2 on"]
+    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2 (3.1)<br/>the modules here are<br/>planned M2.7 to M5.9"]
 
     c_app -.->|"settings,<br/>planned M3.4"| i_paths
     c_workspace -.->|"trust in user data,<br/>planned M4.7"| i_paths
@@ -590,7 +594,7 @@ flowchart TB
 
     i_process(("platform:<br/>process<br/>planned M5.7"))
     i_pty(("platform:<br/>Pty<br/>planned M5.9"))
-    c_platform["tidepool-platform<br/>the crate root today, M0.1<br/>process, Pty planned<br/>M5.7, M5.9"]
+    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2<br/>process, Pty planned<br/>M5.7, M5.9"]
     i_tparse(("codec:<br/>toml::parse"))
     i_zip(("codec: zip<br/>planned M10.2"))
     c_codec["tidepool-codec"]

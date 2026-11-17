@@ -17,16 +17,18 @@ patterns to port.
 crates/sys/src/
 ├── lib.rs                # #![allow(unsafe_code)], cfg-gated modules
 ├── dynlib.rs             # dynlib! macro (crate-private): struct of fn pointers + load(&dyn Library),
-│                         # MissingSymbols naming every symbol a library lacks
+│                         # C's `...` included; MissingSymbols naming every symbol a library lacks
 ├── linux.rs              # the Linux modules; fails the build on a Linux target but x86_64 or aarch64
 ├── linux/
-│   ├── libc.rs           # dlopen/dlsym/dlerror (no dlclose), poll, pipe2 (O_CLOEXEC, O_NONBLOCK);
-│   │                     # later write (M2.2, M7.1), inotify_* (M4.5), fork/execve/setsid/
-│   │                     # waitpid, kill (M5.7),
+│   ├── libc.rs           # dlopen/dlsym/dlerror (no dlclose), poll, pipe2 (O_CLOEXEC, O_NONBLOCK),
+│   │                     # write (async-signal-safe), setlocale (LC_CTYPE);
+│   │                     # later inotify_* (M4.5), fork/execve/setsid/waitpid, kill (M5.7),
 │   │                     # posix_openpt/grantpt/unlockpt/ptsname_r, ioctl TIOCSCTTY (M5.9),
 │   │                     # termios, ioctl TIOCGWINSZ, sigaction (M7.1)
-│   └── x11.rs            # Display, Window, XEvent (192-byte union), XImage, error handlers,
-│                         # font cursors, atoms… and the Xlib table (dynlib!)
+│   ├── evdev.rs          # the kernel's KEY_* codes that map to a Key; X reports them + 8 (ADR-0039)
+│   └── x11.rs            # Display, Window, XEvent (192-byte union), XImage, the error handler,
+│                         # font cursors, atoms, the input method and context for typed text…
+│                         # and the Xlib table (dynlib!, 41 functions)
 ├── macos/
 │   ├── objc.rs           # objc_* runtime, Class/Sel/Id/BOOL, msg_send! macro
 │   ├── foundation.rs appkit.rs coregraphics.rs quartzcore.rs coreservices.rs
@@ -45,9 +47,9 @@ crates/sys/src/
   borrowed, as a `BorrowedFd`, and never closed), and `read` and `write`
   go through `File`. The exception is code that
   must be async-signal-safe, which `std` does not promise for
-  `<&File as Write>::write`: for a signal handler and `Waker::wake`,
-  `sys` declares `write(2)` in the task that calls it (M2.2 for the
-  waker, M7.1 for the handler). A self-pipe comes from `pipe2` with
+  `<&File as Write>::write`: for `Waker::wake` and a signal handler,
+  `sys` declares `write(2)`, which the waker writes with (M2.2) and the
+  terminal's handler is to (M7.1). A self-pipe comes from `pipe2` with
   `O_CLOEXEC | O_NONBLOCK`: `std::io::pipe` cannot make its ends
   non-blocking without `fcntl`, which is variadic, and a socket pair
   would be a socket of Tidepool's own, against `AGENTS.md` rule 8.
@@ -70,9 +72,9 @@ crates/sys/src/
 
 | Module | Provides |
 | :- | :- |
-| `window` | `Window::open(config)`, title, size, scale factor, cursor shape, focus, close request |
-| `events` | `wait_events(deadline, &mut Vec<Event>)`; `Waker` (Send + Clone) that interrupts the wait from any thread |
-| `surface` | `present(&Framebuffer, &[DamageRect])`: X11 `XPutImage`, macOS layer contents, Win32 `SetDIBitsToDevice` |
+| `window` | `Window::open(&WindowConfig)`, `set_title`, `size` (device pixels) and `logical_size`, `scale`, `set_cursor(CursorShape)`, `is_focused`; the close request is an event |
+| `events` | `Window::wait_events(deadline, &mut Vec<Event>)`: `Event::Input` (`core::input::InputEvent`, logical positions), `Resized`, `Exposed`, `CloseRequested`, `Woken`; `Waker` (`Send + Sync + Clone`) that interrupts the wait from any thread |
+| `surface` | `present(&Pixels, &[DeviceRect])`: a borrowed BGRA8 view with its size and stride, which `gfx`'s framebuffer hands out, and the damage in device pixels (ADR-0040). X11 `XPutImage`, macOS layer contents, Win32 `SetDIBitsToDevice` |
 | `clipboard` | Get/set UTF-8 text; X11 `CLIPBOARD` and `PRIMARY` |
 | `terminal` | For the TUI: raw mode guard (restores on drop, panic and signals), size, resize events, stdin reader |
 | `pty` | `Pty::spawn(argv, env, cwd, size)` → master reader/writer, resize, child handle |
@@ -83,8 +85,19 @@ crates/sys/src/
 
 ### Invariants
 
-- All `Window` methods are main-thread only and the type is `!Send`.
-- `Waker::wake` is async-signal-safe on Unix (one byte to a self-pipe).
+- A `Window` is `!Send` and `!Sync`, and every window of the process
+  lives on one thread: the first to open one, until all are closed.
+  `Window::open` on another thread meanwhile fails with
+  `Error::WrongThread`. On Linux this keeps Xlib's calls from
+  overlapping.
+- `Waker::wake` is async-signal-safe on Unix (one byte to a self-pipe);
+  a signal handler that calls it saves and restores `errno`, which a full
+  pipe sets.
+- `present` cannot read outside its `Pixels` view: `Pixels::new` checks
+  that the stride covers a row and the bytes cover every row.
+- The crate's error is `platform::Error`, with every variant on every
+  system; on a system with no window yet, `Window::open` fails with
+  `Error::Unsupported`.
 - Dropping a `Pty` or a terminal guard restores state and reaps children.
 - No `target_os` cfg appears in the public API; behavior differences are
   documented here and in `docs/03-platforms.md`.
@@ -92,8 +105,19 @@ crates/sys/src/
 ## Tests
 
 - Layout asserts compile on each target.
-- Linux CI runs window tests under Xvfb: open, resize, damage present, clipboard round-trip
-  between two windows, `Waker` from another thread.
+- Window tests need an X server: M2.2's open a window, present damage
+  and read it back with `XGetImage`, wake a wait from another thread
+  within 5 ms, end a wait at its deadline, refuse a window on a second
+  thread, and record a request the server refused; M2.7 adds the
+  clipboard round-trip between two windows. A resize is tested through
+  the translation of `ConfigureNotify`, without a server, as are the
+  display's rules, the key map, the modifiers and the rest of the
+  events. The window tests are `#[cfg(test)]` tests inside
+  `platform`'s library, since only its library target may call Xlib,
+  and they run only with `TIDEPOOL_IT_X11=1`, printing `SKIPPED:`
+  otherwise: `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p
+  tidepool-platform` (ADR-0039). `cargo xtask ci` and the Linux CI job
+  do not set the variable yet, so they skip them.
 - PTY tests spawn `/bin/sh -c 'printf …'` through the `Pty` API (argv, not
   a shell string from user input) and check output and exit status.
 - Terminal guard test: a child process panics in raw mode; the terminal

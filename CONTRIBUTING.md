@@ -98,7 +98,8 @@ up on:
   snapshot. Never commit signing material or keys, not even throwaway
   ones: tests generate theirs.
 - **The Tidepool binary opens no sockets.** Network access happens only in
-  child processes such as `curl` and `git`.
+  child processes such as `curl` and `git`. The one exception is Xlib's
+  connection to the local X server, over a Unix socket only (ADR-0039).
 - **Smallest complete change.** No unrelated refactors, renames or
   reformatting. Keep public APIs, file formats and protocols unless the
   issue agreed to break one, and record a break in `docs/decisions.md`.
@@ -122,7 +123,7 @@ Nothing else is downloaded: the workspace has no third-party crates, and
 
 | System | You need |
 | :- | :- |
-| Linux (x86_64) | Nothing more today. From M2.2, an X11 session or Wayland with XWayland to run the GUI, and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests. Tidepool loads `libX11` at run time, so no development packages are needed |
+| Linux (x86_64) | Nothing more today. From M2.2, an X11 session or Wayland with XWayland to run the GUI, and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests, which run with `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform` (ADR-0039). Tidepool loads `libX11` at run time, so no development packages are needed |
 | macOS 13+ | The Xcode command-line tools (`xcode-select --install`), for the linker |
 | Windows 10 1809+ (x86_64) | The MSVC build tools and the Windows SDK (Visual Studio Build Tools) |
 

@@ -23,7 +23,8 @@
    message or a timer deadline, and redraws only damaged regions (ADR-0011).
 7. **The core binary opens no sockets.** Network access happens only in
    child processes the user approved: official installers, `curl`, `git`,
-   `ssh`, language agents (ADR-0009).
+   `ssh`, language agents (ADR-0009). The one exception is Xlib's
+   connection to the local X server, over a Unix socket only (ADR-0039).
 
 ## Layers
 

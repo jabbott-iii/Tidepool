@@ -2181,3 +2181,164 @@ decides; the roadmap task that first depends on one asks for the decision.
   - a task needs a macro-defining macro, or a `tt` or `ident` fragment
     before braces or an item it writes;
   - `sys` or `platform` exports a macro.
+
+## ADR-0039 — M2.2's Linux window: the read-back test lives in `platform`'s library; the X connection is rule 8's one exception, over a local Unix socket only; keys come from key codes; window tests run with `TIDEPOOL_IT_X11=1`
+
+- **Status:** Accepted
+- **Date:** 2026-11-16
+- **Context:**
+  - M2.2's `Decide first` line asked three questions, and M2.1's review
+    (its notes in `docs/roadmap.md`) raised two of them:
+    - Where the Xvfb test's read-back with `XGetImage` lives. `unsafe`
+      compiles only in the library targets of `sys` and `platform` and
+      in their doc tests (ADR-0036); an integration test is a crate of
+      its own, under the workspace's `deny`.
+    - Whether Xlib's connection to the X server is an exception to
+      `AGENTS.md` rule 8 ("the core binary opens no sockets"), and
+      whether TCP displays are accepted. `XOpenDisplay` connects a
+      socket in the calling process, and sends the cookie the
+      Xauthority file holds for that display. With libxcb 1.15
+      (measured with `strace` on `xdpyinfo` on 2026-11-16, no server on
+      display 77): `DISPLAY=:77` tries the abstract Unix socket
+      `@/tmp/.X11-unix/X77`, then `/tmp/.X11-unix/X77`, then falls back
+      to TCP on `127.0.0.1` and `::1`, port 6077; `DISPLAY=unix:77` tries
+      the two Unix sockets and nothing else; `DISPLAY=localhost:77` goes
+      straight to TCP.
+    - Whether the key map reads key codes or `XLookupKeysym`.
+      `core::input::Key` names a physical key (M0.2). A keysym depends on
+      the keyboard layout; a key code does not: an X server on Linux with
+      the `evdev` or `libinput` driver, XWayland and Xvfb report the
+      kernel's evdev code plus 8, as Nadir's backend relies on.
+  - This session has a real display (`DISPLAY=:1`), so a window test that
+    runs whenever `DISPLAY` is set would open windows on the user's
+    desktop during `cargo test`, where `XGetImage` of a window that is
+    covered or redirected by a compositor need not read back what was
+    presented. That is a fourth question, asked with the three.
+  - The user chose the recommended option for each on 2026-11-16.
+- **Decision:**
+  - **Read-back.** The test that presents a framebuffer and reads it back
+    with `XGetImage` is a `#[cfg(test)]` test inside
+    `tidepool-platform`'s library, which calls Xlib privately.
+    `platform` exports no read-back API for tests.
+  - **The X connection is rule 8's one exception, over a local Unix
+    socket only.** `platform` reads `DISPLAY` itself and gives Xlib a
+    name that can only reach a Unix socket:
+    - `:N` and `:N.S` become `unix:N` and `unix:N.S`, so libxcb never
+      falls back to TCP;
+    - `unix:N` and `unix:N.S` are passed as they are;
+    - any other value, or none, makes opening the window fail with an
+      error that says why and names the value escaped: a host name
+      (`localhost:10.0`, which `ssh -X` sets), a protocol prefix
+      (`tcp/…`, `inet6/…`), a socket path, a number that is not decimal,
+      an empty or unset `DISPLAY`.
+    - Xlib reads the Xauthority file and sends its cookie over that
+      socket. Tidepool never reads the file itself.
+    - Until XIM lands (backlog, `docs/03-platforms.md` → Input), the
+      input method is Xlib's own (`XSetLocaleModifiers("@im=none")`),
+      which composes dead keys from the locale's Compose file and
+      connects to nothing. An input method server that `XMODIFIERS`
+      names could be reached over a transport of its own (`tcp/`,
+      `local/`), a second socket; Nadir tries that server first, and
+      Tidepool does not.
+  - **Keys come from key codes.** A key event's key code minus 8 is an
+    evdev code (`linux/input-event-codes.h`), which a table in
+    `platform` maps to `Key`, ported from Nadir's `linux/keymap.rs`. The
+    evdev codes are declared in `tidepool-sys`. A code with no `Key` is
+    dropped. Modifiers come from the event's `state`. Typed text still
+    comes from `Xutf8LookupString`, through an input context.
+  - **Window tests run only with `TIDEPOOL_IT_X11=1`.** A test that
+    needs an X server prints `SKIPPED: TIDEPOOL_IT_X11 is not set` and
+    returns without it. With it set, a test that cannot reach a server
+    fails; it does not skip. Tests that need no server, such as the
+    display name's rules and the key map, always run. M2.2's and M2.7's
+    `Verify` lines become `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p
+    tidepool-platform`.
+  - CI is unchanged by M2.2: `cargo xtask ci` and the Linux CI job do not
+    set the variable, so they skip the window tests.
+- **Consequences:**
+  - `AGENTS.md` rule 8 and the places that summarize it
+    (`docs/01-architecture.md` principle 7, `CONTRIBUTING.md`,
+    `SECURITY.md`, the `security-reviewer` agent's checklist) name the
+    exception. A socket the core binary opens for any other reason is
+    still a violation, and so is a TCP connection to an X server.
+  - The GUI does not run over `ssh -X` or any TCP display; the error
+    says so. The TUI (M7) is the way to work on a remote machine.
+  - `docs/04-quality.md`'s provisional note on the Xvfb read-back is
+    settled: no test-only API, and no change to `unsafe-audit`.
+  - `docs/03-platforms.md` → Input maps keys from key codes; ADR-0010's
+    "Wayland through XWayland" holds, since XWayland reports evdev codes
+    plus 8.
+  - An X server whose key codes are not evdev's (the old `kbd` driver,
+    or keyboard rules other than `evdev`) gives wrong keys; text still
+    comes out right, from `Xutf8LookupString`. Tidepool does not detect
+    this yet.
+  - Without XIM, input methods for Chinese, Japanese and Korean do not
+    work in the GUI; dead keys and Compose sequences do.
+  - The window tests run where a developer or a task sets the variable;
+    the Linux CI job does not run them until a later change sets it under
+    `xvfb-run`, for which no roadmap task exists yet.
+    `docs/subsystems/sys-and-platform.md` → Tests says so. Later window
+    tests (M2.7's clipboard, M3.4's `xvfb-run cargo test -p tidepool`)
+    are expected to use the same variable.
+- **Alternatives considered:**
+  - A safe read-back function that `platform` exports, with the test in
+    `tests/`: later Xvfb tests could reuse it, but it is public API the
+    application never needs, to be written for every OS.
+  - The X connection as the exception over any transport Xlib supports:
+    `ssh -X` would work, but the core binary could open TCP sockets.
+  - Keys from `XLookupKeysym`, as `docs/03-platforms.md` said: the result
+    depends on the layout, against `Key`'s meaning.
+  - Running the window tests whenever `DISPLAY` is set: no variable, but
+    `cargo test` on a desktop opens windows there and can read back
+    something else under a compositor.
+  - Running the Linux CI gate under `xvfb-run` with the variable set, in
+    M2.2: CI coverage now, at the cost of a workflow change in this task.
+- **Revisit when:** a user needs the GUI over a TCP display or `ssh -X`;
+  XIM or another input method is planned, which would connect to a
+  server; a supported X server is found whose key codes are not evdev's;
+  native Wayland is planned (ADR-0010); or the Linux CI job is made to
+  run the window tests.
+
+## ADR-0040 — `platform`'s `present` takes a pixel view of its own, not `gfx::Framebuffer`
+
+- **Status:** Accepted
+- **Date:** 2026-11-16
+- **Context:**
+  - `docs/subsystems/sys-and-platform.md` gave `surface` as
+    `present(&Framebuffer, &[DamageRect])`, and
+    `docs/subsystems/frontends.md` calls that framebuffer
+    `gfx::Framebuffer`: premultiplied BGRA8 with a stride (M2.3).
+  - `tidepool-platform`'s row of the dependency matrix
+    (`docs/01-architecture.md`) allows only `core` and `sys`, and `gfx`
+    is a crate of the same layer. M2.2 builds `surface` before M2.3
+    builds `gfx`.
+  - The user chose the recommended option on 2026-11-16, while M2.2 was
+    being prepared.
+- **Decision:**
+  - `platform` defines a borrowed view of pixels that `present` takes:
+    BGRA8 bytes in rows, a `core::geom::DeviceSize` and a stride in bytes.
+    The bytes are premultiplied, as `gfx` makes them; the window is
+    opaque, so the alpha byte is not shown.
+  - The damage is `&[core::geom::DeviceRect]`, in device pixels. A
+    rectangle is clipped to the view and the window; an empty one is
+    skipped.
+  - `gfx`'s framebuffer (M2.3) hands out such a view, and `gui` (M2.6)
+    passes it to `present`.
+- **Consequences:**
+  - No change to the dependency matrix; `platform` can be built and
+    tested without `gfx`.
+  - The spec's signature becomes `present(&Pixels, &[DeviceRect])`
+    (`docs/subsystems/sys-and-platform.md`), and the diagrams that draw
+    it say so.
+  - The view checks its own shape (the stride covers a row, the bytes
+    cover every row), so `present` cannot read past the buffer whatever
+    the caller passes.
+- **Alternatives considered:**
+  - A pixel buffer type in `core`, shared by `gfx` and `platform`: `core`
+    would hold a rendering type, and part of `gfx`'s `framebuffer` would
+    move there.
+  - A `platform` → `gfx` edge: a same-layer edge in the matrix, and M2.2
+    would wait for M2.3.
+- **Revisit when:** a platform's present needs a pixel format other than
+  BGRA8 (for example a 30-bit visual), or `gfx` needs to hand `platform`
+  more than pixels, such as a shared-memory buffer for MIT-SHM.

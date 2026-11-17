@@ -12,6 +12,7 @@
 | Protocol transcripts | `crates/testkit/transcripts/` | LSP, DAP and TAP clients send and accept exactly the recorded messages |
 | Fake tools | `crates/testkit/fake-tools/` | `toolchain`, `vcs` and `mobile` handle real output formats and exit codes without the real tools |
 | Real-tool | Gated by `TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`, `TIDEPOOL_IT_ANDROID`, `TIDEPOOL_IT_IOS` | Integration with the actual installed tool |
+| Window | `#[cfg(test)]` tests in `platform`'s library, gated by `TIDEPOOL_IT_X11`, run under `xvfb-run` (ADR-0039) | A real X server shows the window, presents its pixels and delivers its events |
 | Fuzz smoke | Each parser crate's `tests/fuzz.rs`; mutated by `cargo xtask fuzz-smoke` | No parser panics, hangs or over-allocates on its seeds, its saved crashes or mutated input |
 | Responsiveness | `bench` latency suite | Keystroke-to-frame stays within budget with slow fakes attached |
 | Vim conformance | `crates/editor/tests/vim/` | Each supported command in `docs/subsystems/vim-mode.md` behaves as in Vim on a fixture |
@@ -971,9 +972,9 @@ network through its tool.
     own too, but rustdoc does not apply the workspace's lints to them:
     every other library's crate root forbids `unsafe` in its doc tests
     instead (below), and `sys`'s and `platform`'s may use it, as their code
-    may (ADR-0036). This is provisional: M2.2's Xvfb test
-    reads pixels back with `XGetImage`, and where that FFI call may live is
-    an open question.
+    may (ADR-0036). So M2.2's Xvfb test, which reads pixels back with
+    `XGetImage`, is a `#[cfg(test)]` test in `platform`'s library, and
+    `platform` exports no read-back for tests (ADR-0039).
   - A function written `pub` or `pub(...)` `unsafe fn` (also `const`,
     `async`, with an `extern` ABI, or in an `extern` block) with no
     `# Safety` line in its outer doc comments and no `# Safety` in its

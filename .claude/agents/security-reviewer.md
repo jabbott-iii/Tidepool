@@ -46,7 +46,10 @@ the code it touches.
 8. **AI:** IDE-side context assembly with deny-list, `.tidepoolignore`,
    consent and trust; edits are proposals; agent output validated; no
    command execution path; API keys never on argv.
-9. **Network:** the core binary opens no sockets.
+9. **Network:** the core binary opens no sockets. The one exception is
+   Xlib's connection to the local X server, over a Unix socket only: a
+   `DISPLAY` that could reach TCP, or an input method server, is a
+   violation (ADR-0039).
 10. **Weakened controls:** no disabled lints, ignored tests, raised
     tolerances or skipped checks added to make things pass.
 11. **CI workflows:** only the actions each workflow's row allows, each

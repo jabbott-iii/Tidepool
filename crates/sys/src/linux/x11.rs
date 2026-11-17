@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Xlib, the client library of the X Window System (`libX11.so.6`), which
-//! Tidepool is to load with `dlopen` (ADR-0010, M2.2).
+//! `tidepool-platform` loads with `dlopen` (ADR-0010).
 //!
 //! Ported in part from nadir-sys `linux/x11.rs`.
 //!
@@ -33,7 +33,7 @@
 //! - Changed: the comments; the table is written `unsafe extern "C"`
 //!   (`dynlib` says why) and its functions are grouped by use; the offset
 //!   assertions now cover every field;
-//!   `XEvent` gains `xany` and `xexpose`; and the table's test prints
+//!   `XEvent` gains `xexpose`; and the table's test prints
 //!   `SKIPPED:` with `dlerror`'s reason when `libX11.so.6` cannot be loaded.
 //! - Left out, since Tidepool does not call them yet: `XSizeHints`,
 //!   `XAspectRatio`, `PMinSize`, `PMaxSize`, `XColor`, `XA_ATOM`,
@@ -44,13 +44,35 @@
 //! - New here: `XPointer`; the graphics context (`_XGC`, `GC`,
 //!   `XGCValues`, `XCreateGC`, `XFreeGC`); the images (`ZPixmap`,
 //!   `LSBFirst`, `AllPlanes`, `XImageFuncs`, `XImage`, `XInitImage`,
-//!   `XPutImage`, `XGetImage`); `XAnyEvent`, `XExposeEvent`,
-//!   `ExposureMask` and `Expose`; the modifier masks; `XErrorEvent`,
-//!   `XErrorHandler`, `XIOErrorHandler`, `XSetErrorHandler` and
-//!   `XSetIOErrorHandler`; `XA_CARDINAL`, `XA_WM_CLIENT_MACHINE` and
+//!   `XPutImage`, `XGetImage`); `XExposeEvent`, `ExposureMask` and
+//!   `Expose`; the modifier masks; `XErrorEvent`, `XErrorHandler` and
+//!   `XSetErrorHandler`; `XA_CARDINAL`, `XA_WM_CLIENT_MACHINE` and
 //!   `XA_WM_CLASS`; the core font cursors (the `XC_` shapes and
 //!   `XCreateFontCursor`); and `XConnectionNumber`, `XFlush`, `XSync` and
 //!   `XMatchVisualInfo`.
+//! - Ported from Nadir in M2.2, for typed text, with reworded comments:
+//!   `KeySym`, `XIMRec`, `XIM`, `XICRec`, `XIC`, `XIMStyle`,
+//!   `XIMPreeditNothing`, `XIMStatusNothing`, `XNInputStyle`,
+//!   `XNClientWindow`, `XNFocusWindow`, `XNFilterEvents`,
+//!   `XBufferOverflow`, `XLookupChars` and `XLookupBoth`, and 11 functions:
+//!   `XSupportsLocale`, `XSetLocaleModifiers`, `XOpenIM`, `XCloseIM`,
+//!   `XCreateIC` and `XGetICValues`, which C declares with `...` (`dynlib!`
+//!   takes them so), `XDestroyIC`, `XSetICFocus`, `XUnsetICFocus`,
+//!   `XFilterEvent` and `Xutf8LookupString`. Changed: `XOpenIM`'s `rdb` is
+//!   a pointer to `_XrmHashBucketRec`, new here and opaque, as the header
+//!   has it, where Nadir passes `void *`; the two styles are `c_long`s, the
+//!   type the header gives them (`0x0008L`), where Nadir makes them
+//!   `XIMStyle`s; and `XCreateIC` and `XGetICValues` say that Xlib reads
+//!   every value of their lists as an `XPointer`. Left out: `XIMProc`,
+//!   `XIMCallback`, `XNDestroyCallback`, `XSetIMValues`, `XLookupNone` and
+//!   `XLookupKeySym`. Nadir watches for an input method server that
+//!   stops; Xlib's own input method, the only one Tidepool opens
+//!   (ADR-0039), has no server.
+//! - Dropped in M2.2, since nothing calls or reads them: `XAnyEvent` and
+//!   `XEvent`'s `xany`, which M2.1 added, and `XIOErrorHandler` and
+//!   `XSetIOErrorHandler`, which it added too: the handler of a lost
+//!   connection stays Xlib's own, which ends the process
+//!   (`tidepool-platform` does not recover from a lost X server yet).
 //!
 //! Sources: `<X11/X.h>`, `<X11/Xlib.h>`, `<X11/Xutil.h>`, `<X11/Xatom.h>`,
 //! `<X11/cursorfont.h>` and `<X11/XKBlib.h>`. Each item names the header it
@@ -58,13 +80,11 @@
 //! parameter names only as comments (`Display* /* display */`); the
 //! declarations here write them as names.
 //!
-//! Only what `tidepool-platform`'s window, events and surface are to call
-//! (M2.2) is declared. Not declared yet: the key lookup
-//! (`docs/03-platforms.md` names `XLookupKeysym`, while
-//! `tidepool_core::input::Key` is a physical key, which M2.2 reconciles)
-//! and typed text, which needs an input context (`XOpenIM`, and
-//! `XCreateIC`, which is variadic) for `Xutf8LookupString` (M2.2); and the
-//! selections and window properties that the clipboard reads (M2.7).
+//! Only what `tidepool-platform`'s window, events and surface call (M2.2)
+//! is declared. Keys come from key codes (ADR-0039), so no key lookup
+//! (`XLookupKeysym`) is declared; the codes are in
+//! [`evdev`](super::evdev). Not declared yet: the selections and window
+//! properties that the clipboard reads (M2.7).
 //!
 //! # Types
 //!
@@ -99,10 +119,13 @@
 //! - A `display` argument came from `XOpenDisplay` and is not closed yet.
 //! - Xlib calls in the process never overlap: each one, for any display or
 //!   for none, happens after the one before it has returned. One thread
-//!   making them all does this; in Tidepool that is the main thread
-//!   (`docs/03-platforms.md`). Xlib keeps state for the whole process, such
-//!   as the error handlers, which `XOpenDisplay`, `XSetErrorHandler` and
-//!   `XSetIOErrorHandler` use, and the last two take no display.
+//!   making them all does this; in Tidepool that is the thread that opens
+//!   the first window, for as long as any window is open, which
+//!   `tidepool-platform` enforces (`docs/03-platforms.md`). Xlib keeps
+//!   state for the whole process, such as the error handler, which
+//!   `XOpenDisplay` and `XSetErrorHandler` use, and the last takes no
+//!   display, and the locale and its modifiers, which `XSupportsLocale`,
+//!   `XSetLocaleModifiers` and `XOpenIM` use.
 //! - Tidepool never calls `XInitThreads`. Whether Xlib locks anyway
 //!   depends on how libX11 was built: from 1.8 on, by default, it calls
 //!   `XInitThreads` itself when the library is loaded, `dlopen` included,
@@ -120,15 +143,15 @@
 //! of its own to keep its request numbers in step. If the server rejects
 //! it, an X error arrives later, and the error
 //! handler is called with it; Xlib's default handler prints it and ends the
-//! process, so `tidepool-platform` is to install its own with
-//! `XSetErrorHandler` (M2.2). Where a result does mean something, the
+//! process, so `tidepool-platform` installs its own with
+//! `XSetErrorHandler`. Where a result does mean something, the
 //! function's documentation here says what.
 
 // The constants keep the names their headers give them (`KeyPress`, `True`),
 // so that each one can be compared with its header.
 #![allow(non_upper_case_globals)]
 
-use core::ffi::{c_char, c_int, c_long, c_short, c_uchar, c_uint, c_ulong};
+use core::ffi::{CStr, c_char, c_int, c_long, c_short, c_uchar, c_uint, c_ulong};
 use core::marker::{PhantomData, PhantomPinned};
 use core::mem::offset_of;
 
@@ -517,32 +540,6 @@ pub const NotifyGrab: c_int = 1;
 /// `X11/X.h`: `#define NotifyUngrab 2`
 pub const NotifyUngrab: c_int = 2;
 
-/// The part that every event starts with, whatever its type.
-/// `X11/Xlib.h`: `typedef struct { ... } XAnyEvent;`
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct XAnyEvent {
-    /// The event type. `type` in C.
-    pub type_: c_int,
-    /// The number of the last request the server processed.
-    pub serial: c_ulong,
-    /// Whether another client sent this with `XSendEvent`.
-    pub send_event: Bool,
-    /// The connection the event was read from.
-    pub display: *mut Display,
-    /// The window the event is about, by which one display's events are
-    /// told apart for each of its windows.
-    pub window: Window,
-}
-
-const _: () = assert!(size_of::<XAnyEvent>() == 40);
-const _: () = assert!(align_of::<XAnyEvent>() == 8);
-const _: () = assert!(offset_of!(XAnyEvent, type_) == 0);
-const _: () = assert!(offset_of!(XAnyEvent, serial) == 8);
-const _: () = assert!(offset_of!(XAnyEvent, send_event) == 16);
-const _: () = assert!(offset_of!(XAnyEvent, display) == 24);
-const _: () = assert!(offset_of!(XAnyEvent, window) == 32);
-
 /// A key going down ([`KeyPress`]) or up ([`KeyRelease`]).
 /// `X11/Xlib.h`: `typedef struct { ... } XKeyEvent;`
 #[repr(C)]
@@ -908,8 +905,6 @@ pub union XEvent {
     /// The event type: [`KeyPress`] and so on. `type` in C. Every member
     /// starts with it.
     pub type_: c_int,
-    /// The part every event has, such as its window.
-    pub xany: XAnyEvent,
     /// For [`KeyPress`] and [`KeyRelease`].
     pub xkey: XKeyEvent,
     /// For [`ButtonPress`] and [`ButtonRelease`].
@@ -931,7 +926,6 @@ pub union XEvent {
 const _: () = assert!(size_of::<XEvent>() == 192);
 const _: () = assert!(align_of::<XEvent>() == 8);
 const _: () = assert!(offset_of!(XEvent, type_) == 0);
-const _: () = assert!(offset_of!(XEvent, xany) == 0);
 const _: () = assert!(offset_of!(XEvent, xkey) == 0);
 const _: () = assert!(offset_of!(XEvent, xbutton) == 0);
 const _: () = assert!(offset_of!(XEvent, xmotion) == 0);
@@ -990,14 +984,6 @@ const _: () = assert!(offset_of!(XErrorEvent, minor_code) == 34);
 /// `X11/Xlib.h`: `typedef int (*XErrorHandler) (Display*, XErrorEvent*);`
 pub type XErrorHandler =
     Option<unsafe extern "C" fn(display: *mut Display, error_event: *mut XErrorEvent) -> c_int>;
-
-/// A function that Xlib calls when the connection to the server fails,
-/// such as when the server exits, in place of the default handler, which
-/// prints a message. Either way, the process exits once it returns: it can
-/// record what happened, not recover. The connection is gone, so a call
-/// on that display can do nothing useful. `None` restores the default.
-/// `X11/Xlib.h`: `typedef int (*XIOErrorHandler) (Display*);`
-pub type XIOErrorHandler = Option<unsafe extern "C" fn(display: *mut Display) -> c_int>;
 
 // ---------------------------------------------------------------------------
 // Images
@@ -1183,6 +1169,93 @@ pub const XC_sb_h_double_arrow: c_uint = 108;
 /// The `shape` of `XCreateFontCursor`: the up-down arrow, over a splitter
 /// between rows. `X11/cursorfont.h`: `#define XC_sb_v_double_arrow 116`
 pub const XC_sb_v_double_arrow: c_uint = 116;
+
+// ---------------------------------------------------------------------------
+// Typed text
+// ---------------------------------------------------------------------------
+
+/// A symbol on a key, as the keyboard layout names it. Tidepool reads none:
+/// keys come from key codes (ADR-0039), and the type is here for the
+/// parameter of `Xutf8LookupString` that may be null.
+/// `X11/X.h`: `typedef XID KeySym;`
+pub type KeySym = XID;
+
+/// A resource database. Only Xlib looks inside it, and we only pass null
+/// for one, to `XOpenIM`. `X11/Xlib.h`: `struct _XrmHashBucketRec;`, which
+/// `X11/Xresource.h` names `XrmDatabase` as a pointer.
+#[repr(C)]
+pub struct _XrmHashBucketRec {
+    _opaque: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
+
+/// An open input method: what turns key presses into text, as by a dead
+/// key or a Compose sequence. Only Xlib looks inside it.
+/// `X11/Xlib.h`: `typedef struct _XIM *XIM;`
+#[repr(C)]
+pub struct XIMRec {
+    _opaque: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
+
+/// An input method. `X11/Xlib.h`: `typedef struct _XIM *XIM;`
+pub type XIM = *mut XIMRec;
+
+/// An input context: an input method's state for one window. Only Xlib
+/// looks inside it. `X11/Xlib.h`: `typedef struct _XIC *XIC;`
+#[repr(C)]
+pub struct XICRec {
+    _opaque: [u8; 0],
+    _marker: PhantomData<(*mut u8, PhantomPinned)>,
+}
+
+/// An input context. `X11/Xlib.h`: `typedef struct _XIC *XIC;`
+pub type XIC = *mut XICRec;
+
+/// How an input context shows what is being composed, and its status.
+/// `X11/Xlib.h`: `typedef unsigned long XIMStyle;`
+pub type XIMStyle = c_ulong;
+
+/// A bit of an [`XIMStyle`]: the application shows nothing of a text
+/// being composed.
+/// `X11/Xlib.h`: `#define XIMPreeditNothing 0x0008L`, a `long`.
+pub const XIMPreeditNothing: c_long = 0x0008;
+
+/// A bit of an [`XIMStyle`]: the application shows no status of the input
+/// method.
+/// `X11/Xlib.h`: `#define XIMStatusNothing 0x0400L`, a `long`.
+pub const XIMStatusNothing: c_long = 0x0400;
+
+/// The name of an input context's style, an [`XIMStyle`], for `XCreateIC`.
+/// `X11/Xlib.h`: `#define XNInputStyle "inputStyle"`
+pub const XNInputStyle: &CStr = c"inputStyle";
+
+/// The name of the window an input context belongs to, a [`Window`], for
+/// `XCreateIC`. `X11/Xlib.h`: `#define XNClientWindow "clientWindow"`
+pub const XNClientWindow: &CStr = c"clientWindow";
+
+/// The name of the window whose key presses an input context reads, a
+/// [`Window`], for `XCreateIC`.
+/// `X11/Xlib.h`: `#define XNFocusWindow "focusWindow"`
+pub const XNFocusWindow: &CStr = c"focusWindow";
+
+/// The name of the events an input context needs its window to select, an
+/// `unsigned long` event mask, read with `XGetICValues`.
+/// `X11/Xlib.h`: `#define XNFilterEvents "filterEvents"`
+pub const XNFilterEvents: &CStr = c"filterEvents";
+
+/// A status of `Xutf8LookupString`: the text did not fit the buffer, and
+/// the lookup returned the size it needs. Look the same event up again
+/// with a buffer that large. `X11/Xlib.h`: `#define XBufferOverflow -1`
+pub const XBufferOverflow: Status = -1;
+
+/// A status of `Xutf8LookupString`: text, and no key symbol.
+/// `X11/Xlib.h`: `#define XLookupChars 2`
+pub const XLookupChars: Status = 2;
+
+/// A status of `Xutf8LookupString`: text and a key symbol.
+/// `X11/Xlib.h`: `#define XLookupBoth 4`
+pub const XLookupBoth: Status = 4;
 
 // ---------------------------------------------------------------------------
 // Functions
@@ -1412,13 +1485,6 @@ dynlib! {
         /// (XErrorHandler handler)`
         fn XSetErrorHandler(handler: XErrorHandler) -> XErrorHandler;
 
-        /// Sets the function that is called when the connection to a server
-        /// fails, after which the process exits, and returns the one it
-        /// replaces. See [`XIOErrorHandler`].
-        /// `X11/Xlib.h`: `extern XIOErrorHandler XSetIOErrorHandler
-        /// (XIOErrorHandler handler)`
-        fn XSetIOErrorHandler(handler: XIOErrorHandler) -> XIOErrorHandler;
-
         // Drawing.
 
         /// Creates a graphics context for drawing to drawables of the depth
@@ -1511,6 +1577,22 @@ dynlib! {
         /// `X11/Xlib.h`: `extern Cursor XCreateFontCursor(Display* display,
         /// unsigned int shape)`
         ///
+        /// Where `libXcursor.so.1` is installed, the first call makes
+        /// libX11 load it with `dlopen` (with `libXrender.so.1` and
+        /// `libXfixes.so.3`), and each call takes the shape from the
+        /// user's cursor theme. libXcursor reads its settings with
+        /// `XGetDefault`, which parses the display's `RESOURCE_MANAGER`
+        /// property (or `~/.Xdefaults` when it is not set), merged with
+        /// `$XENVIRONMENT` or else `~/.Xdefaults-<host>`, following
+        /// `#include "path"` lines, and takes the theme from
+        /// `XCURSOR_THEME` or the `Xcursor.theme` resource, which it joins
+        /// onto its icon directories without removing `..`, then opens and
+        /// parses the theme's `index.theme` and `cursors/<name>`. So every
+        /// call can open and parse files at paths that any client of the
+        /// display chooses, and blocks on a FIFO there: `tidepool-platform`
+        /// makes every cursor while a window opens, never later
+        /// (`docs/03-platforms.md` → Input → Cursors).
+        ///
         /// The cursor is ours. Free it with `XFreeCursor`.
         fn XCreateFontCursor(display: *mut Display, shape: c_uint) -> Cursor;
 
@@ -1538,6 +1620,126 @@ dynlib! {
         /// The string belongs to Xlib: do not free it. It is valid until
         /// the display is closed.
         fn XResourceManagerString(display: *mut Display) -> *mut c_char;
+
+        // Typed text.
+
+        /// Returns whether Xlib can work in the C library's current
+        /// character locale (its `LC_CTYPE`), which input methods need.
+        /// It may call `setlocale` itself, after which a locale name that
+        /// `setlocale` returned before may be gone.
+        /// `X11/Xlib.h`: `extern Bool XSupportsLocale (void)`
+        fn XSupportsLocale() -> Bool;
+
+        /// Sets the locale modifiers, which choose the input method that
+        /// `XOpenIM` opens: an empty list reads them from the `XMODIFIERS`
+        /// environment variable, and `@im=none` asks for Xlib's own, which
+        /// composes dead keys and Compose sequences from the locale's
+        /// Compose file and connects to no server. Returns null on failure,
+        /// leaving the modifiers as they were, or else the modifiers, in a
+        /// string that belongs to Xlib: do not free it. Xlib copies
+        /// `modifier_list`.
+        /// `X11/Xlib.h`: `extern char *XSetLocaleModifiers(const char*
+        /// modifier_list)`
+        fn XSetLocaleModifiers(modifier_list: *const c_char) -> *mut c_char;
+
+        /// Opens the input method that the current locale and its modifiers
+        /// choose, for `display`. `rdb`, `res_name` and `res_class` may be
+        /// null. Returns null on failure.
+        /// `X11/Xlib.h`: `extern XIM XOpenIM(Display* dpy, struct
+        /// _XrmHashBucketRec* rdb, char* res_name, char* res_class)`
+        ///
+        /// The input method is ours. Close it with `XCloseIM`, after its
+        /// input contexts are destroyed and before the display is closed.
+        fn XOpenIM(
+            display: *mut Display,
+            rdb: *mut _XrmHashBucketRec,
+            res_name: *mut c_char,
+            res_class: *mut c_char,
+        ) -> XIM;
+
+        /// Closes an input method. Its input contexts must be destroyed
+        /// first. Xlib gives the result no meaning here.
+        /// `X11/Xlib.h`: `extern Status XCloseIM(XIM im)`
+        fn XCloseIM(im: XIM) -> Status;
+
+        /// Creates an input context of an input method from pairs of a
+        /// name (`XN...`, a C string) and its value, then a null pointer
+        /// that ends the list. Returns null on failure.
+        /// `X11/Xlib.h`: `extern XIC XCreateIC(XIM im, ...)`, with the
+        /// attribute `_X_SENTINEL(0)`: the list ends with a null pointer.
+        ///
+        /// Pass every argument after `im` as an [`XPointer`]
+        /// (`*mut c_char`): libX11 reads each name with `va_arg(var,
+        /// char*)` and each value with `va_arg(var, XPointer)`
+        /// (`_XIMVaToNestedList` in `xlibi18n/ICWrap.c`, after
+        /// `_XIMCountVaList` has passed over the list reading the values as
+        /// `XIMArg*`, a pointer of the same size). A value that is a
+        /// number, such as an [`XIMStyle`] for [`XNInputStyle`] or a
+        /// [`Window`] for [`XNClientWindow`] and [`XNFocusWindow`], goes as
+        /// that number made a pointer, which the input method turns back.
+        ///
+        /// The context is ours. Destroy it with `XDestroyIC`, before its
+        /// window and its input method.
+        fn XCreateIC(im: XIM, ...) -> XIC;
+
+        /// Destroys an input context.
+        /// `X11/Xlib.h`: `extern void XDestroyIC(XIC ic)`
+        fn XDestroyIC(ic: XIC);
+
+        /// Reads values of an input context: pairs of a name and a pointer
+        /// to where its value goes, then a null pointer that ends the list.
+        /// For [`XNFilterEvents`], the pointer is to an `unsigned long`.
+        /// Returns null on success, or else the name of the first value it
+        /// could not read, which is one of the caller's arguments.
+        /// `X11/Xlib.h`: `extern char *XGetICValues(XIC ic, ...)`, with the
+        /// attribute `_X_SENTINEL(0)`.
+        ///
+        /// As for `XCreateIC`, pass every argument after `ic` as an
+        /// [`XPointer`]: libX11 reads them the same way (`ICWrap.c`).
+        fn XGetICValues(ic: XIC, ...) -> *mut c_char;
+
+        /// Tells the input method that the context's window has the
+        /// keyboard focus.
+        /// `X11/Xlib.h`: `extern void XSetICFocus(XIC ic)`
+        fn XSetICFocus(ic: XIC);
+
+        /// Tells the input method that the context's window lost the
+        /// keyboard focus.
+        /// `X11/Xlib.h`: `extern void XUnsetICFocus(XIC ic)`
+        fn XUnsetICFocus(ic: XIC);
+
+        /// Gives an event to the input methods that asked for it, and
+        /// returns [`True`] if one of them took it, such as a dead key or a
+        /// step of a Compose sequence; the event must then be left alone.
+        /// It may change the event: Xlib's own input method sets the
+        /// `keycode` of the key press that ends a Compose sequence to 0,
+        /// and puts that copy back in the queue, where the next
+        /// `XNextEvent` reads it and `Xutf8LookupString` finds the composed
+        /// text in it. A `window` of 0 (`None` in C) stands for the event's
+        /// own window.
+        /// `X11/Xlib.h`: `extern Bool XFilterEvent(XEvent* event, Window
+        /// window)`
+        fn XFilterEvent(event: *mut XEvent, window: Window) -> Bool;
+
+        /// Writes what a key press typed, in UTF-8, to the `bytes_buffer`
+        /// bytes at `buffer_return`, with no NUL, and returns how many bytes
+        /// that is; `status_return` says what was returned
+        /// ([`XLookupChars`], [`XLookupBoth`], or another status). If the
+        /// text does not fit, the status is [`XBufferOverflow`] and the
+        /// result is the size it needs. `keysym_return` may be null. The
+        /// event must be a [`KeyPress`] that `XFilterEvent` did not take.
+        /// `X11/Xlib.h`: `extern int Xutf8LookupString(XIC ic,
+        /// XKeyPressedEvent* event, char* buffer_return, int bytes_buffer,
+        /// KeySym* keysym_return, Status* status_return)`, where
+        /// `XKeyPressedEvent` is `typedef XKeyEvent XKeyPressedEvent;`.
+        fn Xutf8LookupString(
+            ic: XIC,
+            event: *mut XKeyEvent,
+            buffer_return: *mut c_char,
+            bytes_buffer: c_int,
+            keysym_return: *mut KeySym,
+            status_return: *mut Status,
+        ) -> c_int;
     }
 }
 

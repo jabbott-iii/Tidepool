@@ -7,7 +7,7 @@ saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
 the flows the specs plan, from startup to signing an Android package; most
 of their code does not exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -24,7 +24,7 @@ Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). 
 | `par` / `and` | Steps that run at the same time, on different threads |
 | Note | What a step means, or the rule or budget it keeps |
 | "(planned)" in the section title, and a note at the top naming the tasks | The whole flow is planned: not built yet |
-| A task ID in a participant's label, such as "(M2.2)" | That participant is planned, and that task builds it |
+| A task ID in a participant's label, such as "(M2.6)" | That participant is planned, and that task builds it |
 | "(built)" in a participant's label | That participant exists in the code now, inside a planned flow |
 
 UML draws an answer as a dashed arrow, and Mermaid cannot dash a
@@ -432,7 +432,8 @@ From `cargo tp` to the first frame, as `docs/01-architecture.md` → "The
 main loop" and `docs/subsystems/frontends.md` plan it. M2.6 draws the first
 frame (the backdrop and a line of each face); M3.4 adds the loop and the
 shell, on ADR-0012, which is Proposed until then. The binary today is an
-empty `main` (M0.1). The frontend draws with `gfx` (the framebuffer and the
+empty `main` (M0.1); `platform`'s window and events are built (M2.2). The
+frontend draws with `gfx` (the framebuffer and the
 backdrop, M2.3) and `font` (the bundled faces, M2.5), libraries it calls:
 drawn as the frontend's own steps in 8.1, and as one participant in 8.2.
 
@@ -444,10 +445,10 @@ sequenceDiagram
     participant Cli as tidepool main<br/>(M3.4)
     participant Cfg as Config load<br/>(M3.4, M4.7)
     participant Fe as gui frontend<br/>(M2.6)
-    participant Plat as platform window<br/>and events (M2.2)
+    participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over User,Disp: planned M2.2, M2.3, M2.5, M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>and sys's Xlib declarations (M2.1).
+    Note over User,Disp: planned M2.3, M2.5, M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1), and<br/>platform's window and events (M2.2).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: Config::load(args)
@@ -457,7 +458,7 @@ sequenceDiagram
     else the GUI, by default
         Cli->>Fe: Frontend::open(config, mode)
         Fe->>Plat: Window::open(config)
-        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table (built),<br/>one Display,<br/>XCreateWindow
+        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix:N only<br/>(ADR-0039),<br/>XCreateWindow
         Plat->>Plat: the scale<br/>from Xft.dpi
         Fe->>Fe: font (M2.5): load<br/>Saira and JetBrains Mono<br/>from assets/fonts/
         Fe->>Fe: gfx (M2.3): a Framebuffer<br/>at device resolution,<br/>the backdrop layers built
@@ -472,10 +473,10 @@ sequenceDiagram
     participant Cli as tidepool main<br/>(M3.4)
     participant Fe as gui frontend<br/>(M2.6)
     participant Gfx as gfx and font<br/>(M2.3, M2.5)
-    participant Plat as platform window<br/>and events (M2.2)
+    participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over Shell,Disp: planned M2.2, M2.3, M2.5, M2.6, M3.4.<br/>core's InputEvent is built (M0.2).
+    Note over Shell,Disp: planned M2.3, M2.5, M2.6, M3.4.<br/>core's InputEvent (M0.2) and platform's<br/>window and events (M2.2) are built.
     Cli->>Cli: an mpsc channel for<br/>workers, child readers<br/>and timers
     Cli->>Shell: App::new(config, tx,<br/>frontend.waker())
     loop every turn of the main loop
@@ -489,7 +490,7 @@ sequenceDiagram
         opt a Frame
             Cli->>Fe: present(frame)
             Fe->>Gfx: rasterize the<br/>damaged parts
-            Fe->>Plat: present(framebuffer, damage rects)
+            Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
             Plat->>Disp: XPutImage of<br/>the damaged rects
         end
     end
@@ -503,9 +504,9 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-whole flow is planned in M2.2, M2.6, M3.1, M3.4, M4.1, M4.2, M4.3 and
-M4.6; `Transaction` and `History` are built (M1.2), and so is core's
-`InputEvent` (M0.2).
+whole flow is planned in M2.6, M3.1, M3.4, M4.1, M4.2, M4.3 and M4.6;
+`Transaction` and `History` are built (M1.2), and so are core's
+`InputEvent` (M0.2) and `platform`'s events (M2.2).
 
 ### 9.1 The key, to the focused editor
 
@@ -513,17 +514,17 @@ M4.6; `Transaction` and `History` are built (M1.2), and so is core's
 sequenceDiagram
     actor User
     participant Disp as X server
-    participant Plat as platform events<br/>(M2.2)
+    participant Plat as platform events<br/>(built)
     participant Fe as gui frontend<br/>(M2.6)
     participant ML as app main loop<br/>(M3.4)
     participant Ui as ui input and<br/>focus (M3.1)
 
-    Note over User,Ui: planned M2.2, M2.6, M3.1, M3.4.<br/>core's InputEvent is built (M0.2).
+    Note over User,Ui: planned M2.6, M3.1, M3.4.<br/>core's InputEvent (M0.2) and platform's<br/>events (M2.2) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
     Disp->>Plat: a key event on<br/>the X connection
-    Plat-->>Fe: the event
+    Plat-->>Fe: Event::Input: the Key from<br/>the key code, then the text<br/>from Xutf8LookupString
     Fe-->>ML: an InputEvent,<br/>core input (built)
     ML->>Ui: route it to the focused<br/>node and its ancestors
     Ui-->>ML: the focused editor
@@ -558,16 +559,16 @@ sequenceDiagram
     participant ML as app main loop<br/>(M3.4)
     participant View as editor view and ui<br/>draw list (M4.1, M3.1)
     participant Fe as gui frontend<br/>(M2.6)
-    participant Plat as platform events<br/>(M2.2)
+    participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M2.2, M2.6, M3.1, M3.4, M4.1
+    Note over ML,Bg: planned M2.6, M3.1, M3.4, M4.1.<br/>platform's present and Waker are built (M2.2).
     ML->>View: build_frame(metrics)
     View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage
     ML->>Fe: present(frame)
     Fe->>Fe: rasterize only the<br/>damaged rects with gfx<br/>and font (M3.5, M2.3, M2.5)
-    Fe->>Plat: present(framebuffer,<br/>damage rects)
+    Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
     Plat->>Disp: XPutImage
     Note over ML,Disp: Keystroke to pixels: p99 within 16 ms<br/>at 1920x1080 on the reference machine
     Bg-)ML: a Msg with the version it was made for, through mpsc,<br/>and the Waker ends wait_events

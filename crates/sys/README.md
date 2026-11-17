@@ -5,8 +5,8 @@ the Objective-C runtime and AppKit, Win32 and ConPTY. It declares and does
 nothing else.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
-`tidepool-platform` is to wrap what it calls in a safe API, from M2.2, and
-no other crate may use it.
+`tidepool-platform` wraps what it calls in a safe API, and no other crate
+may use it.
 
 Layer 0, foundations. It may use no workspace crate, as its row of the
 dependency matrix in
@@ -25,34 +25,45 @@ Built, with the roadmap task that built it:
   symbol table finds its functions in a library loaded while the program
   runs, and `MissingSymbols`, the error that names every function the
   library lacks; the `dynlib!` macro that makes the tables is private to
-  the crate — M2.1.
+  the crate — M2.1. Its tables take functions that C declares with `...`,
+  as Nadir's do — M2.2.
 - `linux::libc`: `dlopen`, `dlsym` and `dlerror` with `RTLD_NOW` and
   `RTLD_LOCAL` (no `dlclose`: a loaded library stays until the process
   exits, so a table never dangles); `poll` with `pollfd`, `nfds_t` and
   the `POLL*` bits it reports; and `pipe2` with `O_CLOEXEC` and
-  `O_NONBLOCK`, for the waker's self-pipe, whose two ends are to go into
-  `OwnedFd`: the event loop is to read its end through `File`, and
-  `Waker::wake` to write with `write(2)` (M2.2) — M2.1.
+  `O_NONBLOCK`, for the waker's self-pipe, whose two ends go into
+  `OwnedFd`, and whose read end the event loop reads through `File` —
+  M2.1. `write(2)`, which `Waker::wake` writes with, for code that must be
+  async-signal-safe, which `std` does not promise for `File`'s `write`;
+  and `setlocale` with `LC_CTYPE`, with which the window takes the
+  environment's character locale for typed text — M2.2.
+- `linux::evdev`, ported in part from Nadir: the kernel's 118 key codes
+  (`linux/input-event-codes.h`) that `tidepool-platform`'s key map gives a
+  `Key`, which an X server reports shifted by 8 (ADR-0039) — M2.2.
 - `linux::x11`, ported in part from Nadir: the Xlib types, constants and
   events (key, button, motion, focus, expose, configure, client message,
   in the 192-byte `XEvent`), the window's attributes and visual, `XImage`
-  with its functions, `XErrorEvent` and the error handlers' types, the
-  core font cursors, and `Xlib`, the table of the 31 functions in
-  `libX11.so.6` that the window, its events and its presentation are to
-  call (M2.2). Every struct and union with fields has its size,
-  alignment and field offsets asserted (the opaque `Display`, `Visual`,
-  `_XGC` and `XGCValues` have none), with numbers measured from the headers on x86_64
-  Linux; they hold on aarch64 Linux too, and a Linux target other than
-  x86_64 or aarch64 fails the build — M2.1.
+  with its functions, `XErrorEvent` and the error handler's type, the
+  core font cursors, and `Xlib`, the table of the functions in
+  `libX11.so.6` that the window, its events and its presentation call
+  (31 in M2.1).
+  Every struct and union with fields has its size, alignment and field
+  offsets asserted (the opaque `Display`, `Visual`, `_XGC` and
+  `XGCValues` have none), with numbers measured from the headers on
+  x86_64 Linux; they hold on aarch64 Linux too, and a Linux target other
+  than x86_64 or aarch64 fails the build — M2.1. Typed text, ported from
+  Nadir: `KeySym`, the opaque input method and context (`XIM`, `XIC`),
+  `XIMStyle` and its two style bits, the four `XN` names, three lookup
+  statuses, and 11 more functions in the table (`XSupportsLocale`,
+  `XSetLocaleModifiers`, `XOpenIM`, `XCloseIM`, `XCreateIC` and
+  `XGetICValues` with their `...`, `XDestroyIC`, `XSetICFocus`,
+  `XUnsetICFocus`, `XFilterEvent`, `Xutf8LookupString`); and
+  `XSetIOErrorHandler`, its type, `XAnyEvent` and `XEvent`'s `xany`
+  removed, since nothing calls or reads them, which leaves the table 41
+  functions — M2.2.
 
 Not yet, with the roadmap task that adds it:
 
-- the key lookup (`docs/03-platforms.md` names `XLookupKeysym`;
-  `tidepool_core::input::Key` is a physical key, which M2.2 reconciles)
-  and typed text (an X input context for `Xutf8LookupString`) — M2.2.
-- `write(2)`, for code that must be async-signal-safe, which `std`
-  does not promise for `File`'s `write`: `Waker::wake` — M2.2; the
-  terminal's signal handler — M7.1.
 - the selections and window properties the clipboard reads — M2.7.
 - file watching (inotify) — M4.5.
 - the declarations for processes and the PTY — M5.7, M5.9.
@@ -64,9 +75,9 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
 ## Usage
 
-Only `tidepool-platform` is to depend on it
+Only `tidepool-platform` depends on it
 ([`docs/01-architecture.md`](../../docs/01-architecture.md), principle 2:
-nothing else touches an OS API). It adds the dependency, by path, in M2.2, and wraps what it calls in a
+nothing else touches an OS API), by path, and wraps what it calls in a
 safe API:
 
 ```toml
@@ -87,7 +98,7 @@ assert_eq!(error.to_string(), "missing symbols: XOpenDisplay, XPending");
 ```
 
 On Linux, Xlib is loaded through a `Library` of the caller's own, as
-`tidepool-platform` is to load it from M2.2. Loading it opens no display:
+`tidepool-platform` loads it. Loading it opens no display:
 
 ```rust,no_run
 # #[cfg(target_os = "linux")]

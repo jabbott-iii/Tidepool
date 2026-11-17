@@ -61,6 +61,10 @@ version = "0.1.0"
 [[package]]
 name = "tidepool-platform"
 version = "0.1.0"
+dependencies = [
+ "tidepool-core",
+ "tidepool-sys",
+]
 
 [[package]]
 name = "tidepool-regex"

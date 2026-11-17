@@ -12,13 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Declarations for Linux: the C library, and Xlib, whose functions are a
-//! table to be loaded from `libX11.so.6` while the program runs (M2.2).
+//! Declarations for Linux: the C library, the kernel's key codes, and
+//! Xlib, whose functions are a table loaded from `libX11.so.6` while the
+//! program runs.
 //!
-//! - [`libc`]: the dynamic loader, `poll` and `pipe2`.
-//! - [`x11`]: the Xlib types, constants and events that a window, its
-//!   events and its presentation are to use (M2.2), and [`x11::Xlib`], the
-//!   table of its functions in `libX11.so.6`.
+//! - [`libc`]: the dynamic loader, `poll`, `pipe2`, `write` and
+//!   `setlocale`.
+//! - [`evdev`]: the kernel's key codes, which an X server reports shifted
+//!   by 8.
+//! - [`x11`]: the Xlib types, constants and events that
+//!   `tidepool-platform`'s window, its events and its presentation use
+//!   (M2.2), and [`x11::Xlib`], the table of its functions in
+//!   `libX11.so.6`.
 //!
 //! The layouts these modules assert were measured on x86_64 Linux by a C
 //! program, and hold on x86_64 and aarch64 Linux, where `long` and
@@ -43,5 +48,6 @@ const _: () = assert!(
      aarch64, where `long` and pointers are 8 bytes, not for x32 or ILP32"
 );
 
+pub mod evdev;
 pub mod libc;
 pub mod x11;

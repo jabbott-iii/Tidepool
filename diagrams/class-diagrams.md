@@ -1,22 +1,22 @@
 # UML class diagrams
 
 These diagrams show the types the built crates have: `tidepool-core`,
-`tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench` and
-`tidepool-sys`. Each shows what a type owns,
+`tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
+`tidepool-sys` and `tidepool-platform`. Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
 how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.1 (2026-11-10, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.2 (2026-11-16, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 25, and drawn in the other files of `diagrams/` under the names
+section 26, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -51,6 +51,8 @@ dev-dependency, and make one `core::testing::fuzz::Target` per fuzz target.
 fuzz targets' result lines with `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json` and the types of
 `text` (section 22), and `tidepool-sys` no workspace crate (section 23).
+`tidepool-platform` uses `core`'s geometry and input types and `sys`'s
+Linux declarations (section 24).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2351,7 +2353,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 24.
+- `BenchError` is in section 25.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2359,12 +2361,14 @@ classDiagram
 macro private to the crate, makes a table: a struct with one function
 pointer for each C function, under its C name, and `load`, which looks
 each one up through a `Library` and names every one it cannot find in a
-`MissingSymbols`. `linux::x11::Xlib` is the only table so far: 31
-functions of `libX11.so.6` that the window, its events and its
-presentation are to call, loading it with `dlopen` (M2.2, ADR-0010);
-M2.2 adds typed text and the key lookup.
+`MissingSymbols`; a function C declares with `...` takes the same `...`
+(M2.2). `linux::x11::Xlib` is the only table so far: the 41 functions of
+`libX11.so.6` that `platform`'s window, its events, typed text and
+present call, loaded with `dlopen` (M2.1, M2.2, ADR-0010).
 `linux::libc` links what it declares from the C library: the dynamic
-loader, `poll` and `pipe2`. Each struct has every field of its header,
+loader, `poll`, `pipe2`, `write(2)`, and `setlocale` (M2.1, M2.2).
+`linux::evdev` gives the kernel's key codes that `platform`'s key map
+reads (M2.2, ADR-0039). Each struct has every field of its header,
 and `XEvent` the members Tidepool reads and the header's `pad`, each
 with its layout asserted; `Display`, `Visual`, `XGCValues` and the
 graphics context behind `GC` are opaque, and have no fields. The boxes show
@@ -2385,6 +2389,7 @@ classDiagram
         +XNextEvent: fn
         +XPutImage: fn
         +XGetImage: fn
+        +XCreateIC: variadic fn
         +load(library) Result~Xlib~
     }
     class LibcFns["linux::libc"] {
@@ -2394,7 +2399,16 @@ classDiagram
         +dlerror() message
         +poll(fds, nfds, timeout) c_int
         +pipe2(pipefd, flags) c_int
+        +write(fd, buf, count) ssize_t
+        +setlocale(category, locale) name
     }
+    class Evdev["linux::evdev"] {
+        <<module>>
+        +KEY_A: u16
+        +KEY_ENTER: u16
+    }
+    class XIM["linux::x11::XIM"]
+    class XIC["linux::x11::XIC"]
     class pollfd {
         +fd: c_int
         +events: c_short
@@ -2405,10 +2419,6 @@ classDiagram
         <<union>>
         +type_: c_int
         +pad: 24 longs
-    }
-    class XAnyEvent {
-        +type_: c_int
-        +window: Window
     }
     class XKeyEvent {
         +state: c_uint
@@ -2478,8 +2488,9 @@ classDiagram
     Xlib ..> XSetWindowAttributes : XCreateWindow
     Xlib ..> XVisualInfo : XMatchVisualInfo fills
     Xlib ..> XErrorHandler : XSetErrorHandler
+    Xlib ..> XIM : XOpenIM makes
+    Xlib ..> XIC : XCreateIC makes
     LibcFns ..> pollfd : poll
-    XEvent *-- XAnyEvent : xany
     XEvent *-- XKeyEvent : xkey
     XEvent *-- XButtonEvent : xbutton
     XEvent *-- XMotionEvent : xmotion
@@ -2499,13 +2510,196 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 24.
+- `MissingSymbols` is in section 25.
 
-## 24. Error enums across crates
+## 24. platform: the window, its events and present
+
+`tidepool-platform` has one public API on every system (M2.2): a
+`window::Window` opened from a `WindowConfig`, with its `CursorShape`;
+`events::Event`, which `wait_events` appends, and the `Waker` that ends a
+wait from any thread; `surface::Pixels`, the checked view of a frame that
+`present` takes with its damage in device pixels (ADR-0040); and the
+crate's `Error`. A `Window` holds its system's backend: X11 on Linux
+(24.2), and on every other system one whose `open` fails with
+`Error::Unsupported`. A `Window` is neither `Send` nor `Sync`; a `Waker`
+is both. Input events are `core::input::InputEvent`, in logical units.
+
+### 24.1 The public API
+
+```mermaid
+classDiagram
+    direction LR
+    class Window["window::Window"] {
+        +open(config) Result~Window~
+        +set_title(title)
+        +size() DeviceSize
+        +logical_size() Size
+        +scale() Scale
+        +set_cursor(shape)
+        +is_focused() bool
+        +wait_events(deadline, events) Result
+        +waker() Waker
+        +present(pixels, damage) Result
+    }
+    class WindowConfig["window::WindowConfig"] {
+        +title: String
+        +size: Size
+    }
+    class CursorShape["window::CursorShape"] {
+        <<enumeration>>
+        Arrow
+        Text
+        Hand
+        ColumnResize
+        RowResize
+    }
+    class Event["events::Event"] {
+        <<enumeration>>
+        Input
+        Resized
+        Exposed
+        CloseRequested
+        Woken
+    }
+    class Waker["events::Waker"] {
+        +wake()
+    }
+    class Pixels["surface::Pixels"] {
+        -bytes: byte slice
+        -size: DeviceSize
+        -stride: usize
+        +new(bytes, size, stride) Result~Pixels~
+    }
+    class PixelsError["surface::PixelsError"] {
+        <<enumeration>>
+        NegativeSize
+        StrideTooSmall
+        StrideTooLarge
+        TooFewBytes
+    }
+    class PlatformError["platform::Error"]
+    class Backend["linux::window::Window"]
+    class InputEvent["core::input::InputEvent"]
+    class DeviceRect["core::geom::DeviceRect"]
+    Window *-- Backend : backend
+    Window ..> WindowConfig : open takes
+    Window ..> CursorShape : set_cursor
+    Window ..> Event : wait_events appends
+    Window ..> Waker : waker makes
+    Window ..> Pixels : present takes
+    Window ..> DeviceRect : present's damage
+    Window ..> PlatformError : fails with
+    Event *-- InputEvent : Input
+    Event *-- DeviceRect : Exposed
+    Pixels ..> PixelsError : new fails with
+```
+
+- `wait_events` returns when it has appended events, was woken, or the
+  deadline passed; `None` waits for ever.
+- `Pixels::new` checks that the stride covers a row and the bytes every
+  row, so `present` reads nothing outside the view.
+
+### 24.2 The Linux backend
+
+The backend's types are private to the crate. One `Connection` per
+window owns the `Display`, its graphics context and the input method; it
+holds the thread's `Claim`, so every Xlib call in the process comes from
+one thread while any window is open, and it is closed last. `display`
+turns `DISPLAY` into the `unix:N` name `XOpenDisplay` gets, and refuses
+any other (ADR-0039). `library::xlib` loads `libX11.so.6` once, and the
+table is never unloaded.
+
+```mermaid
+classDiagram
+    direction TB
+    class LinuxWindow["linux::window::Window"] {
+        -connection: Connection
+        -translator: Translator
+        -cursors: 5 Cursors
+        -pipe: Arc~SelfPipe~
+        -lookup: Vec~u8~
+        -open(config) Result~Window~
+    }
+    class Connection["linux::connection::Connection"] {
+        -xlib: static Xlib
+        -display: Display pointer
+        -gc: Option~GC~
+        -text: Option~TextInput~
+    }
+    class TextInput["linux::connection::TextInput"] {
+        -im: XIM
+        -ic: XIC
+    }
+    class Claim["linux::claim::Claim"] {
+        -take() Result~Claim~
+    }
+    class XErrors["linux::claim::XErrors"] {
+        -count: u64
+        -error_code: u8
+        -request_code: u8
+    }
+    class Translator["linux::input::Translator"] {
+        -scale: Scale
+        -size: DeviceSize
+        -focused: bool
+        -held: 256 bools
+    }
+    class Incoming["linux::input::Incoming"] {
+        <<enumeration>>
+        Key
+        Button
+        Motion
+        Focus
+        Expose
+        Configure
+        ClientMessage
+        Other
+    }
+    class SelfPipe["linux::waker::SelfPipe"] {
+        -read: File
+        -write: OwnedFd
+    }
+    class LinuxWaker["linux::waker::Waker"] {
+        -pipe: Arc~SelfPipe~
+        -wake()
+    }
+    class Modules["linux::display, keymap, xresources, library"] {
+        <<module>>
+        -display_name(DISPLAY) Result~unix_N~
+        -from_x_keycode(keycode) Option~Key~
+        -scale(resources) Scale
+        -xlib() Result~Xlib~
+    }
+    class Xlib["sys::linux::x11::Xlib"]
+    class Key["core::input::Key"]
+    LinuxWindow *-- Connection : connection
+    LinuxWindow *-- Translator : translator
+    LinuxWindow o-- SelfPipe : Arc
+    LinuxWaker o-- SelfPipe : Arc
+    Connection *-- TextInput : text
+    Connection *-- Claim : _claim
+    Connection o-- Xlib : static
+    Connection ..> Incoming : next_event decodes
+    Translator ..> Incoming : turns into Events
+    Translator ..> Key : keys from key codes
+    Claim ..> XErrors : the error handler records
+    Modules ..> Xlib : xlib loads
+```
+
+- The error handler records each refused request in atomics, and
+  `wait_events` logs what it recorded; a lost connection stays Xlib's to
+  handle, which ends the process.
+- `Incoming::decode` reads only the fields Xlib wrote for the event's
+  type: a client message's data only when its format is 32.
+- The `Image` that `XGetImage` returns, for the read-back test, exists only
+  in `#[cfg(test)]` code, and is freed through its own `f.destroy_image`.
+
+## 25. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
-`MissingSymbols`. Those of code that does I/O keep the `std::io::Error`
+`MissingSymbols`; `tidepool-platform` has a second, `PixelsError`, for a
+view of pixels that does not fit its bytes. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
 failed save's message as text. Only `BenchError` wraps another crate's: its
 `Text` holds the `TextError` of a text operation a suite runs. `xtask`
@@ -2564,6 +2758,21 @@ classDiagram
         Output
     }
     class MissingSymbols["sys::dynlib::MissingSymbols"]
+    class PlatformError["platform::Error"] {
+        <<enumeration>>
+        Unsupported
+        Display
+        LibraryNotFound
+        ConnectionFailed
+        WrongThread
+        Refused
+        Io
+    }
+    class PixelsError["platform::surface::PixelsError"] {
+        <<enumeration>>
+        StrideTooSmall
+        TooFewBytes
+    }
     class BenchError["bench::BenchError"] {
         <<enumeration>>
         Usage
@@ -2591,6 +2800,10 @@ classDiagram
     StdError <|.. BenchError
     Display <|.. MissingSymbols
     StdError <|.. MissingSymbols
+    Display <|.. PlatformError
+    StdError <|.. PlatformError
+    Display <|.. PixelsError
+    StdError <|.. PixelsError
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
     PathError *-- IoError : Io
@@ -2599,20 +2812,19 @@ classDiagram
     XtaskError *-- IoError : Read, Spawn, Output, Write
     BenchError *-- TextError : Text
     BenchError *-- IoError : Read, Output
+    PlatformError *-- IoError : Io
 ```
 
-## 25. Planned types
+## 26. Planned types
 
-The other 20 members are empty crates, so they have no class diagram yet.
+The other 19 members are empty crates, so they have no class diagram yet.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
 
-- `tidepool-platform`: `Window` (`Window::open(config)`), `wait_events`
-  filling a `Vec<Event>`, the `Waker` that interrupts it from any thread,
-  and `present(&Framebuffer, &[DamageRect])`, planned (M2.2); `Pty`
-  (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the terminal's raw
-  mode guard, planned (M7.1).
+- `tidepool-platform`, besides its window, events and present (section
+  24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
+  terminal's raw mode guard, planned (M7.1).
 - `tidepool-gfx`: the premultiplied BGRA8 framebuffer of the `framebuffer`
   module, which `docs/subsystems/frontends.md` calls `gfx::Framebuffer`,
   planned (M2.3).
@@ -2655,14 +2867,18 @@ The main files these diagrams were drawn from:
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
   `suites.rs`, `suites/text.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
-  `linux/x11.rs`
+  `linux/x11.rs`, `linux/evdev.rs`
+- `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,
+  `surface.rs`, `unsupported.rs`, `linux.rs`, and `linux/` (`claim.rs`,
+  `connection.rs`, `display.rs`, `input.rs`, `keymap.rs`, `library.rs`,
+  `waker.rs`, `window.rs`, `xresources.rs`)
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
-  `bench/Cargo.toml`
+  `crates/platform/Cargo.toml`, `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0013, ADR-0019, ADR-0020,
-  ADR-0027, ADR-0029, ADR-0035)
+  ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
-  `crates/sys` and `bench`
+  `crates/sys`, `crates/platform` and `bench`

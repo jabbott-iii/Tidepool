@@ -1,8 +1,8 @@
 # Tidepool — zero-dependency IDE (Rust; Linux, macOS, Windows)
 
-**Status:** in development, at version 0.1, and still headless: nothing
-opens a window yet. `docs/roadmap.md` ticks each task once it is done and
-verified.
+**Status:** in development, at version 0.1, and still headless: `cargo
+tp` opens no window yet, though `tidepool-platform` can open one on Linux
+(M2.2). `docs/roadmap.md` ticks each task once it is done and verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
   M0.9–M0.11), with doc tests that forbid `unsafe` outside `sys` and
@@ -23,9 +23,11 @@ verified.
   `tidepool-sys` the first declarations for the Linux window, its events
   and its presentation: the loader, `poll` and `pipe2` from libc, and
   Xlib's types and a table of its functions to be loaded at run time
-  (M2.1), to which M2.2 adds typed text, the key lookup and the waker's
-  `write(2)`.
-- **Not built:** everything else. 20 of the 26 workspace members are empty
+  (M2.1); and in `tidepool-platform`, on Linux through X11, a window, its
+  events with key codes, typed text and a waker other threads can use,
+  and presenting the damaged parts of a frame, over a local Unix socket
+  only (M2.2, ADR-0039), with what that needs added to `tidepool-sys`.
+- **Not built:** everything else. 19 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
   add the rest.
@@ -136,6 +138,8 @@ or file is there.
    in-house signing crypto (ADR-0007).
 8. **The core binary opens no sockets.** Network access happens only in
    child processes (`curl`, official installers, `git`, `ssh`, agents).
+   The one exception is Xlib's connection to the local X server, over a
+   Unix socket only: never TCP, and no input method server (ADR-0039).
 9. **Honest verification.**
    - Never state that a build, test, benchmark or check passed unless you
      ran it in this session and saw it pass.

@@ -94,7 +94,9 @@ part lands on the roadmap:
 - **AI context:** a file on the deny-list, or outside the user's grants,
   that reaches an agent; an agent's output that is executed or applied
   without the user accepting it (ADR-0009).
-- **Network:** the Tidepool binary opening a socket of its own.
+- **Network:** the Tidepool binary opening a socket of its own. Its one
+  exception is Xlib's connection to the local X server over a Unix socket
+  (ADR-0039); reaching an X server over TCP is in scope.
 - **Build automation and CI:** `xtask`, which must never reach the network
   or read secrets; the Claude Code hook in `.claude/hooks/`; and the
   workflows in `.github/workflows/`, such as script injection, an unpinned
