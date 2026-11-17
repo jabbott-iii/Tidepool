@@ -153,7 +153,8 @@ compositor can change what reads back. The rest, such as the display's
 rules, the key map and the translation of events, always run. The two
 cross-target lines check that the crate builds where it has no window yet
 (after `rustup target add`). `cargo xtask ci` runs the whole gate, without
-the window tests.
+the window tests unless it runs as Linux CI runs it,
+`TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci` (ADR-0041).
 
 ## License
 

@@ -12,7 +12,7 @@
 | Protocol transcripts | `crates/testkit/transcripts/` | LSP, DAP and TAP clients send and accept exactly the recorded messages |
 | Fake tools | `crates/testkit/fake-tools/` | `toolchain`, `vcs` and `mobile` handle real output formats and exit codes without the real tools |
 | Real-tool | Gated by `TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`, `TIDEPOOL_IT_ANDROID`, `TIDEPOOL_IT_IOS` | Integration with the actual installed tool |
-| Window | `#[cfg(test)]` tests in `platform`'s library, gated by `TIDEPOOL_IT_X11`, run under `xvfb-run` (ADR-0039) | A real X server shows the window, presents its pixels and delivers its events |
+| Window | `#[cfg(test)]` tests in `platform`'s library, gated by `TIDEPOOL_IT_X11`, run under `xvfb-run`, by hand and in Linux CI's gate (ADR-0039, ADR-0041) | A real X server shows the window, presents its pixels and delivers its events |
 | Fuzz smoke | Each parser crate's `tests/fuzz.rs`; mutated by `cargo xtask fuzz-smoke` | No parser panics, hangs or over-allocates on its seeds, its saved crashes or mutated input |
 | Responsiveness | `bench` latency suite | Keystroke-to-frame stays within budget with slow fakes attached |
 | Vim conformance | `crates/editor/tests/vim/` | Each supported command in `docs/subsystems/vim-mode.md` behaves as in Vim on a fixture |
@@ -1423,9 +1423,14 @@ network through its tool.
 - `.github/workflows/ci.yml`: matrix Linux, macOS, Windows; `permissions:
   contents: read`; actions pinned by full commit SHA with the tag in a
   comment; cache keyed on the lockfile and toolchain; installs the
-  toolchain and runs `cargo xtask ci`, then, on Linux only, `cargo xtask
-  fuzz-smoke --secs 30` (30 s per target; it runs only if the gate
-  passed), all three with workflow commands paused (below).
+  toolchain and runs `cargo xtask ci`, on Linux under `xvfb-run -a` with
+  `TIDEPOOL_IT_X11=1`, so that the gate runs the window tests, on the
+  runner image's own `xvfb`, which depends on `xauth` and brings
+  `libX11` (ADR-0041); then, on Linux only, `cargo xtask fuzz-smoke
+  --secs 30` (30 s per target; it runs only if the gate passed), all
+  three with workflow commands paused (below). macOS and Windows build
+  no window tests yet (they are in `platform`'s Linux backend), so their
+  gate neither runs nor skips them.
 - **Workflow commands are paused** (M0.11) in the toolchain step, whose
   rustup reads `rust-toolchain.toml` and can quote it, and in the gate's
   and the fuzz-smoke steps, which run the repository's code; and so in

@@ -1257,6 +1257,38 @@ our own rasterizer.
     `Window::open`; every cursor is made there, so `set_cursor` reads no
     file.
 
+- [ ] **M2.9 — ci: the window tests run under Xvfb on Linux**
+  - Depends: M2.2, M0.4, M0.11
+  - Decide first: whether `ci.yml`'s gate step runs `cargo xtask ci` under
+    `xvfb-run -a` with `TIDEPOOL_IT_X11=1` on Linux, or a separate
+    Linux-only step runs `cargo test -p tidepool-platform` that way after
+    the gate; and whether `pages.yml`'s build does the same, so that the
+    demo page counts the window tests. M2.2 left CI unchanged (ADR-0039).
+  - Do: the change in `.github/workflows/ci.yml`, and in `pages.yml` if
+    chosen, with workflow commands paused in every step it adds or
+    changes; `docs/04-quality.md` → "CI",
+    `docs/subsystems/sys-and-platform.md` → Tests, the `Checks` of
+    `crates/platform/README.md`, and the docs that say CI skips the
+    window tests.
+  - Accept:
+    - On the Linux runner the window tests run and pass, with no
+      `SKIPPED:` line for them; on macOS and Windows nothing changes.
+    - The runner image's `xvfb`, which depends on `xauth`, is used, with
+      no install step.
+    - The changed workflows pass `cargo xtask workflows` and parse.
+    - The Linux job of a CI run on GitHub shows them run (human, after a
+      push).
+  - Verify: `cargo xtask workflows`; the Linux step's command run here;
+    parse the changed workflows (state how)
+  - Note (2026-11-16): ADR-0041 answers the `Decide first` line with the
+    options the user chose that day, each the recommended one: the gate
+    step runs `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci` on Linux and
+    `cargo xtask ci` elsewhere; `pages.yml` is unchanged.
+  - ⏳ needs the user: push, and see the Linux job of `ci.yml` run the
+    seven window tests (its gate's summary reads `ci: ok` with no
+    `SKIPPED` count), while the macOS and Windows jobs, which build no
+    window tests, are as before.
+
 - [ ] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8
   - Do: `clipboard` (`CLIPBOARD` and `PRIMARY`, `UTF8_STRING`, `TARGETS`,

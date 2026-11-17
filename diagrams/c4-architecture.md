@@ -176,7 +176,8 @@ GitHub Actions. It starts no program but `cargo` (ADR-0017, ADR-0027).
   `fuzz-smoke` and `site`. It starts `cargo` for `fmt`, `clippy`, `test`,
   `metadata`, `locate-project`, a `cargo test` per fuzz target, and
   `site`'s two `cargo run --example` (ADR-0030).
-- `ci.yml` runs `cargo xtask ci` on Linux, macOS and Windows, then
+- `ci.yml` runs `cargo xtask ci` on Linux, macOS and Windows, on Linux
+  under `xvfb-run` with the window tests on (ADR-0041), then
   `cargo xtask fuzz-smoke --secs 30` on Linux.
 - `pages.yml` runs `cargo xtask site` once CI has passed on a push to
   `main`, and deploys the page it builds to GitHub Pages, at
@@ -187,7 +188,7 @@ GitHub Actions. It starts no program but `cargo` (ADR-0017, ADR-0027).
 ```mermaid
 flowchart TB
     p_contrib(["Contributor<br/>works on Tidepool"])
-    e_gha["GitHub Actions<br/>ci.yml on Linux, macOS<br/>and Windows; pages.yml"]
+    e_gha["GitHub Actions<br/>ci.yml on Linux (under<br/>xvfb-run), macOS and<br/>Windows; pages.yml"]
     e_cargo["cargo<br/>the pinned toolchain,<br/>1.99.0"]
     e_pages["GitHub Pages<br/>jabbott.dev/Tidepool/"]
 

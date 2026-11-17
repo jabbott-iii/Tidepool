@@ -116,8 +116,10 @@ crates/sys/src/
   `platform`'s library, since only its library target may call Xlib,
   and they run only with `TIDEPOOL_IT_X11=1`, printing `SKIPPED:`
   otherwise: `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p
-  tidepool-platform` (ADR-0039). `cargo xtask ci` and the Linux CI job
-  do not set the variable yet, so they skip them.
+  tidepool-platform` (ADR-0039). Linux CI's gate runs under `xvfb-run
+  -a` with the variable set, so it runs them (ADR-0041); `cargo xtask ci`
+  run plainly on Linux, and the demo page's build, skip them. macOS and
+  Windows build no window tests yet.
 - PTY tests spawn `/bin/sh -c 'printf …'` through the `Pty` API (argv, not
   a shell string from user input) and check output and exit status.
 - Terminal guard test: a child process panics in raw mode; the terminal

@@ -2184,7 +2184,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0039 — M2.2's Linux window: the read-back test lives in `platform`'s library; the X connection is rule 8's one exception, over a local Unix socket only; keys come from key codes; window tests run with `TIDEPOOL_IT_X11=1`
 
-- **Status:** Accepted
+- **Status:** Accepted; extended by ADR-0041 (on Linux, CI's gate runs under `xvfb-run` with `TIDEPOOL_IT_X11=1`, so it runs the window tests; `pages.yml` is unchanged)
 - **Date:** 2026-11-16
 - **Context:**
   - M2.2's `Decide first` line asked three questions, and M2.1's review
@@ -2342,3 +2342,75 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** a platform's present needs a pixel format other than
   BGRA8 (for example a 30-bit visual), or `gfx` needs to hand `platform`
   more than pixels, such as a shared-memory buffer for MIT-SHM.
+
+## ADR-0041 — On Linux, CI's gate runs under `xvfb-run` with `TIDEPOOL_IT_X11=1`, so it runs the window tests; the demo page's build is unchanged
+
+- **Status:** Accepted
+- **Date:** 2026-11-16
+- **Context:**
+  - ADR-0039 gated `tidepool-platform`'s window tests behind
+    `TIDEPOOL_IT_X11=1` and left CI unchanged in M2.2, so `cargo xtask ci`
+    and the Linux CI job skipped the seven of them (`ci: ok (7 tests
+    SKIPPED)`). macOS and Windows build no window tests: they are in
+    `platform`'s Linux backend. `docs/subsystems/sys-and-platform.md` planned Linux CI to
+    run window tests under Xvfb, and M2.9 does it.
+  - GitHub's runner images (actions/runner-images, read on 2026-11-16):
+    `ubuntu-latest` is Ubuntu 24.04 (image 20261111.370.1), announced to
+    move to Ubuntu 26.04 in November 2026 (issue 14748). Both images list
+    `xvfb` among their apt packages (2:21.1.12-1ubuntu1.9 on 24.04,
+    2:21.1.22-1ubuntu1.3 on 26.04). Neither lists `xauth` or `libx11-6`,
+    but Ubuntu's `xvfb` package depends on `xauth`, which `xvfb-run`
+    calls, and on `x11-xkb-utils` and `libgl1`, which bring `libx11-6`
+    (checked with `dpkg -s xvfb` on Ubuntu 24.04, the same version).
+  - The window tests retry a connection that Xvfb refuses while it resets
+    between them (M2.2), so stock `xvfb-run -a`, without `-noreset`, is
+    enough.
+  - The user chose the recommended option of each of M2.9's two
+    questions on 2026-11-16.
+- **Decision:**
+  - `ci.yml`'s gate step runs `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask
+    ci` when the runner is Linux, and `cargo xtask ci` on macOS and
+    Windows. It stays one step, with workflow commands paused as before.
+  - The runner image's `xvfb` is used as it is: no install step, and no
+    package source the workflow names.
+  - `pages.yml` is unchanged. The demo page's gate runs without an X
+    server, so the page lists the window tests as skipped.
+- **Consequences:**
+  - On Linux the gate's test step runs the window tests, and a failure
+    among them fails the gate; its summary reads `ci: ok` with no
+    `SKIPPED` count when nothing else skips. macOS and Windows are as
+    before: they build no window tests, so their gate neither runs nor
+    skips them.
+  - Every step of the Linux gate runs while an Xvfb server is up, and
+    every cargo child of `xtask` sees `DISPLAY` and `TIDEPOOL_IT_X11`;
+    only the window tests read them (and `XAUTHORITY`, the path of
+    `xvfb-run`'s cookie file, which Xlib reads). `xvfb-run` sends Xvfb
+    SIGTERM on exit without waiting; Xvfb's output goes to `/dev/null`,
+    `xvfb-run`'s default error file, so nothing it prints reaches the log,
+    within the step or after it. The step must keep that default, or print
+    a file it points `-e` at before the resume.
+  - If a runner image stopped shipping `xvfb`, the Linux gate would fail
+    at once with `xvfb-run` not found, not skip. If Xvfb cannot start,
+    `xvfb-run -a` tries ten display numbers and then runs the gate with
+    no server: the window tests fail with `ConnectionFailed`, and
+    `xvfb-run` exits 1, so the step fails, after the whole gate and with
+    no reason from Xvfb.
+  - The demo page and CI's Linux gate report different counts for the
+    same commit: the page lists seven tests as skipped that CI ran.
+  - ADR-0039's consequence that CI did not run the window tests now holds
+    only for `pages.yml`.
+- **Alternatives considered:**
+  - A separate Linux-only step after the gate, running `TIDEPOOL_IT_X11=1
+    xvfb-run -a cargo test -p tidepool-platform`: the gate would stay the
+    same on every system and a failure would name the window tests, at
+    the cost of a second paused step, and the Linux gate would still
+    report seven skips.
+  - `pages.yml`'s build under `xvfb-run` as well: the page would count
+    the window tests, at the cost of a change to the workflow that
+    publishes the site.
+  - Installing `xvfb` with `apt-get` in the workflow: not needed while the
+    images ship it, and it would reach the network from a CI step.
+- **Revisit when:** a runner image used for `ubuntu-latest` ships without
+  `xvfb`; window tests come to need a window manager or a real GPU; the
+  demo page should count the window tests; or macOS (M11) or Windows (M12)
+  gets window tests of its own to run in CI.

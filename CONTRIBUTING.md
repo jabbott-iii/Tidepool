@@ -198,8 +198,10 @@ Then, as the change needs:
   by its full commit SHA with its tag in a comment
   ([`docs/04-quality.md`](docs/04-quality.md) → "CI").
 
-CI runs `cargo xtask ci` on Linux, macOS and Windows. If your change touches
-code for an OS you cannot run, say so in the pull request.
+CI runs `cargo xtask ci` on Linux, macOS and Windows; on Linux under
+`xvfb-run -a` with `TIDEPOOL_IT_X11=1`, so the window tests run there
+(ADR-0041). If your change touches code for an OS you cannot run, say so
+in the pull request.
 
 ## Coding conventions
 

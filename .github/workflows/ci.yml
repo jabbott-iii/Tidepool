@@ -22,6 +22,9 @@
 #   using the peeled `^{}` SHA when the tag is annotated.
 # - No toolchain action: the hosted runners ship rustup, and
 #   `rust-toolchain.toml` selects the pinned toolchain and its components.
+# - On Linux the gate runs under `xvfb-run -a` with `TIDEPOOL_IT_X11=1`, so
+#   tidepool-platform's window tests run, on the runner image's own xvfb,
+#   which brings xauth and libX11; nothing is installed (ADR-0041).
 # - On Linux, after the gate, `cargo xtask fuzz-smoke --secs 30` fuzzes each
 #   target for 30 s (docs/04-quality.md -> "Fuzz smoke", ADR-0027).
 
@@ -112,7 +115,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
 
-      # Paused as the toolchain step is (above).
+      # Paused as the toolchain step is (above). On Linux, under an Xvfb
+      # server that xvfb-run starts and stops, with the window tests on
+      # (ADR-0041); RUNNER_OS is the runner's own, not an expression.
+      # Keep xvfb-run's -e at its default, /dev/null: Xvfb may outlive the
+      # resume below, and must print nothing to the log.
       - name: cargo xtask ci
         run: |
           unset token
@@ -123,7 +130,11 @@ jobs:
           fi
           exec 2>&1
           echo "::stop-commands::${token}"
-          cargo xtask ci
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci
+          else
+            cargo xtask ci
+          fi
           echo "::${token}::"
 
       # Linux only: the memory checks read /proc, and one OS is enough
