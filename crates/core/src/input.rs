@@ -14,11 +14,12 @@
 
 //! Input types shared by `platform`, `ui`, `editor` and both frontends:
 //! [`Key`] (physical keys), [`Modifiers`], [`MouseButton`], [`ScrollDelta`]
-//! and [`InputEvent`].
+//! and [`InputEvent`]; and [`TextLength`], which shows a typed or pasted
+//! text in `Debug` as its length only (ADR-0043).
 //!
 //! Ported in part from nadir-core `keys.rs` (the `keys!` macro, [`Key`] and
 //! [`Key::ALL`] unchanged; [`MouseButton`] reordered). [`Modifiers`],
-//! [`ScrollDelta`] and [`InputEvent`] are new.
+//! [`ScrollDelta`], [`InputEvent`] and [`TextLength`] are new.
 //!
 //! A [`Key`] names a place on the keyboard, not the character printed
 //! there: the key right of Tab is [`Key::Q`] on every layout, though an
@@ -547,7 +548,11 @@ pub enum ScrollDelta {
 ///
 /// Positions are in logical units (see [`geom`](crate::geom)), measured
 /// from the top-left corner of the window's content area.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Its `Debug` shows the length of [`InputEvent::Text`], never the text,
+/// which can be a password: `Text(<7 bytes>)`. Every other event shows as
+/// a derived `Debug` would.
+#[derive(Clone, PartialEq)]
 pub enum InputEvent {
     /// A key went down, or auto-repeated while held.
     KeyDown {
@@ -606,6 +611,84 @@ pub enum InputEvent {
     FocusGained,
     /// The window (or terminal) lost keyboard focus.
     FocusLost,
+}
+
+impl fmt::Debug for InputEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::KeyDown {
+                key,
+                modifiers,
+                repeat,
+            } => f
+                .debug_struct("KeyDown")
+                .field("key", key)
+                .field("modifiers", modifiers)
+                .field("repeat", repeat)
+                .finish(),
+            Self::KeyUp { key, modifiers } => f
+                .debug_struct("KeyUp")
+                .field("key", key)
+                .field("modifiers", modifiers)
+                .finish(),
+            Self::Text(text) => f.debug_tuple("Text").field(&TextLength(text)).finish(),
+            Self::MouseMove {
+                position,
+                modifiers,
+            } => f
+                .debug_struct("MouseMove")
+                .field("position", position)
+                .field("modifiers", modifiers)
+                .finish(),
+            Self::MouseDown {
+                button,
+                position,
+                modifiers,
+            } => f
+                .debug_struct("MouseDown")
+                .field("button", button)
+                .field("position", position)
+                .field("modifiers", modifiers)
+                .finish(),
+            Self::MouseUp {
+                button,
+                position,
+                modifiers,
+            } => f
+                .debug_struct("MouseUp")
+                .field("button", button)
+                .field("position", position)
+                .field("modifiers", modifiers)
+                .finish(),
+            Self::Wheel {
+                delta,
+                position,
+                modifiers,
+            } => f
+                .debug_struct("Wheel")
+                .field("delta", delta)
+                .field("position", position)
+                .field("modifiers", modifiers)
+                .finish(),
+            Self::FocusGained => f.write_str("FocusGained"),
+            Self::FocusLost => f.write_str("FocusLost"),
+        }
+    }
+}
+
+/// A text the user typed or pasted, which shows in `Debug` as its length
+/// in bytes, `<7 bytes>`, never as the text: logging an event with `{:?}`
+/// must not log a password (`AGENTS.md` rule 7). Other crates that hold
+/// such text, such as `tidepool-platform`'s pasted text, use it too.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TextLength<'a>(pub &'a str);
+
+impl fmt::Debug for TextLength<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let len = self.0.len();
+        let unit = if len == 1 { "byte" } else { "bytes" };
+        write!(f, "<{len} {unit}>")
+    }
 }
 
 impl InputEvent {
@@ -825,6 +908,90 @@ mod tests {
             InputEvent::FocusLost,
         ] {
             assert_eq!(event.modifiers(), Modifiers::NONE, "{event:?}");
+        }
+    }
+
+    #[test]
+    fn debug_shows_a_texts_length_and_never_the_text() {
+        let typed = InputEvent::Text("hunter2 ✓".to_string());
+        let shown = format!("{typed:?}");
+        assert_eq!(shown, "Text(<11 bytes>)");
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert_eq!(format!("{typed:#?}"), "Text(\n    <11 bytes>,\n)");
+        assert_eq!(
+            format!("{:?}", InputEvent::Text("a".to_string())),
+            "Text(<1 byte>)"
+        );
+        assert_eq!(
+            format!("{:?}", InputEvent::Text(String::new())),
+            "Text(<0 bytes>)"
+        );
+        assert_eq!(format!("{:?}", TextLength("secret")), "<6 bytes>");
+    }
+
+    #[test]
+    fn debug_shows_every_other_event_as_derived() {
+        let at = Point::new(1.5, 2.0);
+        let shift = Modifiers::SHIFT;
+        let cases = [
+            (
+                InputEvent::KeyDown {
+                    key: Key::A,
+                    modifiers: shift,
+                    repeat: true,
+                },
+                "KeyDown { key: A, modifiers: Modifiers(SHIFT), repeat: true }",
+            ),
+            (
+                InputEvent::KeyUp {
+                    key: Key::Enter,
+                    modifiers: Modifiers::NONE,
+                },
+                "KeyUp { key: Enter, modifiers: Modifiers(NONE) }",
+            ),
+            (
+                InputEvent::MouseMove {
+                    position: at,
+                    modifiers: shift,
+                },
+                &format!("MouseMove {{ position: {at:?}, modifiers: Modifiers(SHIFT) }}"),
+            ),
+            (
+                InputEvent::MouseDown {
+                    button: MouseButton::Left,
+                    position: at,
+                    modifiers: shift,
+                },
+                &format!(
+                    "MouseDown {{ button: Left, position: {at:?}, modifiers: Modifiers(SHIFT) }}"
+                ),
+            ),
+            (
+                InputEvent::MouseUp {
+                    button: MouseButton::Right,
+                    position: at,
+                    modifiers: shift,
+                },
+                &format!(
+                    "MouseUp {{ button: Right, position: {at:?}, modifiers: Modifiers(SHIFT) }}"
+                ),
+            ),
+            (
+                InputEvent::Wheel {
+                    delta: ScrollDelta::Lines { x: 0.0, y: 3.0 },
+                    position: at,
+                    modifiers: shift,
+                },
+                &format!(
+                    "Wheel {{ delta: Lines {{ x: 0.0, y: 3.0 }}, position: {at:?}, \
+                     modifiers: Modifiers(SHIFT) }}"
+                ),
+            ),
+            (InputEvent::FocusGained, "FocusGained"),
+            (InputEvent::FocusLost, "FocusLost"),
+        ];
+        for (event, expected) in cases {
+            assert_eq!(format!("{event:?}"), expected);
         }
     }
 }

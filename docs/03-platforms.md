@@ -211,7 +211,8 @@ cannot hold it for longer.
 - **Trust:** any client of the display can set the window's properties and
   send it events, so a paste is bounded in size and time, not trusted, and
   an event with `send_event` set never makes the window claim, give up or
-  answer for a selection. Clipboard text is never logged.
+  answer for a selection. Clipboard text is never logged, and `Event`'s
+  `Debug` shows its length only (ADR-0043).
 
 ### Terminal (integrated) and TUI
 

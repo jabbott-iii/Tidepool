@@ -2571,3 +2571,52 @@ decides; the roadmap task that first depends on one asks for the decision.
   `MULTIPLE`; text must outlive the window (a clipboard manager, or a
   window that closes while the app runs); a frontend needs a blocking
   paste; or the editor shows that logs belong apart from the data.
+
+## ADR-0043 — `Debug` shows a typed or pasted text's length, never the text: `core::input::TextLength`, in `InputEvent`'s and `platform`'s `Event`'s
+
+- **Status:** Accepted
+- **Date:** 2026-11-17
+- **Context:**
+  - `AGENTS.md` rule 7: secrets never go into logs. Text the user types
+    or pastes is often a password: into a keystore prompt (M10.3), a
+    terminal (M5.4), or from a password manager.
+  - `core::input::InputEvent::Text(String)` and `platform`'s
+    `Event::Pasted { text }` (M2.7, ADR-0042) derived `Debug`, which
+    prints the text. Nothing logs events yet, but the frontends, the main
+    loop (M3.4) and crash reports (M4.9) will log what they handle, and a
+    crash report can leave the machine. M2.7's security review found it;
+    two skeptics split on it, since nothing leaks today, and it was left
+    for a change that spans `core` and `platform`.
+  - `Debug` output is no stable API: nothing parses it.
+  - The user asked for this change on 2026-11-17.
+- **Decision:**
+  - `core::input::TextLength(&str)` shows in `Debug` as the text's length
+    in bytes: `<7 bytes>`, `<1 byte>`.
+  - `InputEvent` and `platform::events::Event` write `Debug` by hand:
+    `Text(<7 bytes>)`, `Input(Text(<7 bytes>))` and `Pasted { selection:
+    Clipboard, text: Some(<7 bytes>) }`, and every other event as a
+    derived `Debug` would show it. `platform`'s private `Property`, which
+    holds a paste's bytes, shows counts only.
+  - A type that holds text the user typed or pasted shows it so in
+    `Debug`, from now on.
+- **Consequences:**
+  - Logging an event with `{:?}` cannot log what was typed or pasted. A
+    test's failure message shows the length instead of the text; a test
+    that needs the text compares it, or prints it on purpose.
+  - Key events still name their physical key (`KeyDown { key: A, .. }`),
+    from which typed text can often be pieced together on a known layout.
+    Keys are not redacted: keymaps and vim mode are debugged by key
+    names; the user chose to keep them on 2026-11-17. A log of key events is to be kept out of release logs by the
+    code that would write it.
+  - `Display` is unchanged: none of these types has one.
+- **Alternatives considered:**
+  - A newtype for the text inside the enums: the same `Debug`, but every
+    match and constructor in `platform`, the frontends and the editor
+    would change.
+  - Redacting in the log's sinks: the log cannot tell typed text from any
+    other; `register_secret` is for secrets known in advance.
+  - Leaving it until something logs events: the first such log could
+    ship before anyone remembers.
+- **Revisit when:** a log, trace or crash report is to record key events,
+  which name the keys pressed; or a type that holds user text needs its
+  text in `Debug` for a reason this ADR did not weigh.

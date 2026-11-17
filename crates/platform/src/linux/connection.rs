@@ -524,7 +524,10 @@ impl Connection {
 // -- selections and properties ------------------------------------------------
 
 /// A property of a window, as [`Connection::get_property`] read it.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// Its `Debug` shows how many items it holds, never the items, which can
+/// be a paste.
+#[derive(PartialEq, Eq)]
 pub(super) struct Property {
     /// Its type, or 0 (`None`) if the window has no such property.
     pub(super) type_: Atom,
@@ -537,6 +540,18 @@ pub(super) struct Property {
     pub(super) longs: Vec<c_long>,
     /// How many bytes of the property are left after what was read.
     pub(super) bytes_after: c_ulong,
+}
+
+impl core::fmt::Debug for Property {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Property")
+            .field("type_", &self.type_)
+            .field("format", &self.format)
+            .field("bytes", &format_args!("<{} bytes>", self.bytes.len()))
+            .field("longs", &format_args!("<{} items>", self.longs.len()))
+            .field("bytes_after", &self.bytes_after)
+            .finish()
+    }
 }
 
 impl Connection {
@@ -1377,6 +1392,26 @@ mod tests {
 
     fn rect(x: i32, y: i32, width: i32, height: i32) -> DeviceRect {
         DeviceRect::new(x, y, width, height)
+    }
+
+    #[test]
+    fn a_propertys_debug_shows_counts_not_items() {
+        let property = Property {
+            type_: 300,
+            format: 8,
+            bytes: b"hunter2".to_vec(),
+            longs: Vec::new(),
+            bytes_after: 0,
+        };
+        let shown = format!("{property:?}");
+        assert_eq!(
+            shown,
+            "Property { type_: 300, format: 8, bytes: <7 bytes>, longs: <0 items>, bytes_after: 0 }"
+        );
+        assert!(
+            !shown.contains("hunter2") && !shown.contains("104"),
+            "{shown}"
+        );
     }
 
     #[test]

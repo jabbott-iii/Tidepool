@@ -28,14 +28,20 @@ use core::fmt;
 use std::time::Instant;
 
 use tidepool_core::geom::{DeviceRect, DeviceSize};
-use tidepool_core::input::InputEvent;
+use tidepool_core::input::{InputEvent, TextLength};
 
 use crate::clipboard::Selection;
 use crate::window::Window;
 use crate::{Error, backend};
 
 /// Something that happened to a window.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Its `Debug` shows the length of a text the user typed or pasted, never
+/// the text, which can be a password: `Pasted { selection: Clipboard,
+/// text: Some(<7 bytes>) }`, and `Input(Text(<7 bytes>))` as
+/// [`InputEvent`]'s own `Debug` shows it. Every other event shows as a
+/// derived `Debug` would.
+#[derive(Clone, PartialEq)]
 pub enum Event {
     /// Input: a key, typed text, the pointer, the wheel or the keyboard
     /// focus. Positions are in logical units, from the top-left corner of
@@ -74,6 +80,24 @@ pub enum Event {
         /// Its text.
         text: Option<String>,
     },
+}
+
+impl fmt::Debug for Event {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // `InputEvent`'s `Debug` keeps typed text out.
+            Self::Input(input) => f.debug_tuple("Input").field(input).finish(),
+            Self::Resized(size) => f.debug_tuple("Resized").field(size).finish(),
+            Self::Exposed(rect) => f.debug_tuple("Exposed").field(rect).finish(),
+            Self::CloseRequested => f.write_str("CloseRequested"),
+            Self::Woken => f.write_str("Woken"),
+            Self::Pasted { selection, text } => f
+                .debug_struct("Pasted")
+                .field("selection", selection)
+                .field("text", &text.as_deref().map(TextLength))
+                .finish(),
+        }
+    }
 }
 
 /// Ends a window's [`wait_events`](Window::wait_events) from any thread,
@@ -161,5 +185,49 @@ mod tests {
     #[test]
     fn a_waker_crosses_threads() {
         is_send_sync_clone::<Waker>();
+    }
+
+    #[test]
+    fn debug_shows_a_pasted_or_typed_texts_length_and_never_the_text() {
+        let pasted = Event::Pasted {
+            selection: Selection::Clipboard,
+            text: Some("hunter2".to_string()),
+        };
+        let shown = format!("{pasted:?}");
+        assert_eq!(
+            shown,
+            "Pasted { selection: Clipboard, text: Some(<7 bytes>) }"
+        );
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(!format!("{pasted:#?}").contains("hunter2"));
+        let none = Event::Pasted {
+            selection: Selection::Primary,
+            text: None,
+        };
+        assert_eq!(
+            format!("{none:?}"),
+            "Pasted { selection: Primary, text: None }"
+        );
+        let typed = Event::Input(InputEvent::Text("hunter2".to_string()));
+        assert_eq!(format!("{typed:?}"), "Input(Text(<7 bytes>))");
+    }
+
+    #[test]
+    fn debug_shows_every_other_event_as_derived() {
+        let size = DeviceSize::new(640, 480);
+        let rect = DeviceRect::new(1, 2, 3, 4);
+        let cases = [
+            (
+                Event::Input(InputEvent::FocusGained),
+                "Input(FocusGained)".to_string(),
+            ),
+            (Event::Resized(size), format!("Resized({size:?})")),
+            (Event::Exposed(rect), format!("Exposed({rect:?})")),
+            (Event::CloseRequested, "CloseRequested".to_string()),
+            (Event::Woken, "Woken".to_string()),
+        ];
+        for (event, expected) in cases {
+            assert_eq!(format!("{event:?}"), expected);
+        }
     }
 }

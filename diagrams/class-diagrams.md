@@ -9,7 +9,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.7 (2026-11-17, version 0.1), with ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -459,6 +459,8 @@ classDiagram
 
 `InputEvent` is the one input type every frontend will produce. `Key`
 names keys by their USB HID usage ids, and `Modifiers` is a small bit set.
+`InputEvent`'s `Debug` shows a typed text as its length, through
+`TextLength`, never the text (ADR-0043).
 
 ```mermaid
 classDiagram
@@ -509,12 +511,17 @@ classDiagram
         Lines
         Logical
     }
+    class TextLength {
+        +0: str reference
+    }
     class Point["geom::Point"]
     InputEvent *-- Key : KeyDown, KeyUp
     InputEvent *-- Modifiers
     InputEvent *-- MouseButton : MouseDown, MouseUp
     InputEvent *-- ScrollDelta : Wheel
     InputEvent *-- Point : position
+    InputEvent ..> TextLength : Debug of Text
+    note for TextLength "Debug: the length,<br/>such as &lt;7 bytes&gt;"
     note for Key "One variant per key, valued by<br/>its USB HID usage id on the<br/>keyboard page and named<br/>after the US layout"
 ```
 

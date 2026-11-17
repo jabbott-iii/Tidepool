@@ -104,7 +104,9 @@ crates/sys/src/
   documented here and in `docs/03-platforms.md`.
 - No clipboard call waits for another program: a paste is asked for and
   answered by a later event, and the owner answers others from
-  `wait_events`. Clipboard text never reaches the log.
+  `wait_events`. Clipboard text never reaches the log, and `Event`'s
+  `Debug` shows a pasted or typed text's length, never the text
+  (ADR-0043).
 - `paths` and `dirs` only find paths: they make no folder. Off Linux they
   fail with `Error::Unsupported` until M11.8 and M12.2.
 

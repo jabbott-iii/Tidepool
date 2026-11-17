@@ -195,7 +195,9 @@ is the reference.
   - `canonicalize` and `resolve` block on the file system and run on
     workers, never on the main thread (rule 6).
 - `input`: `Key` (`Key::ALL`, `usage`), `Modifiers` (`SHIFT`, `CTRL`,
-  `ALT`, `SUPER`), `MouseButton`, `ScrollDelta`, `InputEvent`.
+  `ALT`, `SUPER`), `MouseButton`, `ScrollDelta`, `InputEvent`, whose
+  `Debug` shows a text's length, never the text, through `TextLength`
+  (ADR-0043).
 - `cancel`: `CancelToken::{new, cancel, is_cancelled}`;
   `Deadline::{after, at, NEVER, instant, remaining, expired}`.
 

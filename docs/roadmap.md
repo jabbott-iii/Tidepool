@@ -1362,6 +1362,15 @@ our own rasterizer.
     the next paste of that selection with no text. Another client's server
     grab stalls the round trips to the server, as it stalls any Xlib call
     (ADR-0042).
+  - Note (2026-11-17, after the tick): at the user's request, `Event`'s
+    and `InputEvent`'s `Debug` now show a typed or pasted text's length,
+    never the text, through `core::input::TextLength` (ADR-0043). The
+    rest of the note above stays open. The window test
+    `a_flood_of_events_holds_neither_a_wait_nor_a_wake` failed once in
+    the gate under Xvfb: under load the server was still writing the
+    events when the wait began. It now reads them all into Xlib's queue
+    first, with a round trip, and passed the gate under Xvfb twice; it
+    still fails without the drain's budget.
 
 - [ ] **M2.3 — gfx: rasterizer, blending, clipping, damage, backdrop**
   - Depends: M0.2

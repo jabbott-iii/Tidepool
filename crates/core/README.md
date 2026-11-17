@@ -29,6 +29,8 @@ Built, with the roadmap task that built it:
 - `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`,
   `color` and `cancel`, as `docs/subsystems/core.md` → "Public API names"
   lists them — M0.2.
+- `input::TextLength`, with which `InputEvent`'s `Debug` shows a typed
+  text's length, never the text (ADR-0043) — M2.7.
 - `testing::fuzz`, the engine of the fuzz targets that each parser crate
   has in its `tests/fuzz.rs`: seeds and saved crashes replayed by every
   `cargo test`, mutations from a seed when `cargo xtask fuzz-smoke` asks,

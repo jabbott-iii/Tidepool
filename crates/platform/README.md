@@ -154,7 +154,8 @@ assert_eq!(short, Err(PixelsError::TooFewBytes { len: 32, needed: 36 }));
 - The connection to the X server is the one socket the core binary opens
   (`AGENTS.md` rule 8, ADR-0039), and only over a local Unix socket.
 - No clipboard call waits for another program, and clipboard text is
-  never logged (ADR-0042).
+  never logged (ADR-0042); `Event`'s `Debug` shows a pasted or typed
+  text's length, never the text (ADR-0043).
 - Every change here goes to the `security-reviewer` subagent.
 
 ## Checks

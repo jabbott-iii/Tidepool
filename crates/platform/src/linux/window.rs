@@ -2015,6 +2015,10 @@ mod tests {
                 .set_bytes(window.window, noise, xlib::XA_STRING, b"x");
         }
         meddler.connection.sync();
+        // Every one of them in Xlib's queue before the wait: the server
+        // sends them all before the reply to this round trip, however
+        // slowly it writes them under load.
+        window.connection.sync();
         window.waker().wake();
         let before = Instant::now();
         let mut events = Vec::new();
