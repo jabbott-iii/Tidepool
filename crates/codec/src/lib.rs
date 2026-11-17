@@ -22,8 +22,9 @@
 //! returns a [`CodecError`] that says where the input went wrong and what was
 //! expected there, and never panics, whatever the input.
 //!
-//! Formats so far: [`json`] (JSON and JSONC) and [`toml`] (TOML 1.1, with a
-//! document model that edits a document and keeps the rest of its text).
+//! Formats so far: [`json`] (JSON and JSONC), [`toml`] (TOML 1.1, with a
+//! document model that edits a document and keeps the rest of its text) and
+//! [`qoi`] (QOI images, decoded and encoded as the reference encoder does).
 //! The others arrive with their roadmap tasks.
 //!
 //! Parts of this crate are ported from Nadir's `nadir-codec` (same owner);
@@ -37,6 +38,7 @@
 mod error;
 pub mod json;
 mod limits;
+pub mod qoi;
 pub mod toml;
 
 // The README's examples are compiled as doc tests too.

@@ -2,12 +2,13 @@
 
 These diagrams follow Tidepool's flows through time: who calls whom, in
 what order, and what comes back. Sections 1 to 7 are read from the code:
-`cargo xtask ci`, `cargo xtask fuzz-smoke` and its engine, and loading,
+`cargo xtask ci` and its `golden` step, `cargo xtask fuzz-smoke` and its
+engine, and loading,
 saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
 the flows the specs plan, from startup to signing an Android package; most
 of their code does not exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -36,13 +37,15 @@ for one picture is drawn in numbered parts, read in order.
 
 ## 1. `cargo xtask ci`
 
-`run_ci` runs its eleven steps in order and keeps going after a failure, so
-one run reports every problem. `deps` is the gate: when it fails, `clippy`
-and `test`, which compile the workspace and run its code, are not run, and
-the summary lists them as "not run" (`xtask/src/check.rs`). `deps`,
-`layers`, `crates` and `unsafe-audit` ask `cargo metadata
+`run_ci` runs its twelve steps in order and keeps going after a failure,
+so one run reports every problem. `deps` is the gate: when it fails,
+`clippy`, `test` and `golden`, which compile the workspace and run its
+code, are not run, and the summary lists them as "not run"
+(`xtask/src/check.rs`). `golden` draws the golden scenes and compares them
+with their references (section 1.1, ADR-0044). `deps`, `layers`,
+`crates`, `golden` and `unsafe-audit` ask `cargo metadata
 --format-version 1 --offline`: `deps` with `--locked`, once for each
-workspace; `layers` and `crates` with `--no-deps`, for the root
+workspace; `layers`, `crates` and `golden` with `--no-deps`, for the root
 workspace; and `unsafe-audit` with `--no-deps`, once for each workspace.
 `crates` checks each member's manifest, and its README: that it starts
 with `# <package name>`, has its sections (Status, Usage, an optional
@@ -82,9 +85,14 @@ sequenceDiagram
         Ci->>Cargo: cargo test --workspace, its output<br/>passed on and read as it comes
         Cargo-->>Ci: exit status, and the lines that<br/>start with SKIPPED (Skips)
         Ci->>Dev: a skipped line for each,<br/>then test: ok (N SKIPPED)
+        Ci->>Own: golden::check(root):<br/>the scenes drawn and<br/>compared (section 1.1)
+        Own->>Cargo: cargo metadata --no-deps,<br/>then cargo test --package<br/>tidepool-gfx --test golden,<br/>TIDEPOOL_GOLDEN_DIR set
+        Cargo-->>Own: exit status, and each<br/>scene has written<br/>its PAM file
+        Own-->>Ci: a Report
+        Ci->>Dev: a line for each scene,<br/>then golden: ok
     else deps failed
         Ci->>Dev: clippy: not run, deps failed, and<br/>this step would compile and<br/>run the code it rejected
-        Ci->>Dev: test: not run,<br/>for the same reason
+        Ci->>Dev: test and golden: not run,<br/>for the same reason
     end
     Ci->>Own: layers::run: parse<br/>the dependency matrix<br/>in docs/01-architecture.md
     Own->>Cargo: cargo metadata --no-deps
@@ -106,18 +114,83 @@ sequenceDiagram
     Cli-->>Dev: exit status 0 if<br/>every step passed,<br/>1 if one failed<br/>or did not run
 ```
 
-A run that passes ends with `ci: ok: 11 of 11 steps passed; not yet
+A run that passes ends with `ci: ok: 12 of 12 steps passed; not yet
 implemented: tools, theme`; one whose gate failed, with `ci: FAILED: 1 of
-11 steps failed: deps; not run: clippy, test; not yet implemented: tools,
-theme`.
+12 steps failed: deps; not run: clippy, test, golden; not yet implemented:
+tools, theme`.
+
+### 1.1 The `golden` step, and `cargo xtask golden --bless`
+
+`golden` asks `cargo metadata` which members have a test target named
+`golden`, then runs each one's scenes in a `cargo test` of its own, and
+compares what they drew, exactly for `gfx`, with `tests/golden/`
+(`xtask/src/golden.rs`, ADR-0044). The scenes run in the test process,
+which can draw but not write QOI; `xtask`, which may not depend on `gfx`,
+reads what they wrote. `ci` runs it as a step, blessing nothing;
+`cargo xtask golden` runs the same, and with `--bless` and scene names
+also writes those scenes' references.
+
+```mermaid
+sequenceDiagram
+    actor Dev as Developer or CI job
+    participant Gold as xtask golden
+    participant Cargo as cargo children
+    participant Test as test process,<br/>gfx tests/golden.rs
+    participant Out as target/golden
+    participant Ref as tests/golden
+
+    Dev->>Gold: cargo xtask golden,<br/>with --bless gfx_line,<br/>or ci's golden step
+    opt the command, not ci's step
+        Gold->>Gold: parse: the names after<br/>--bless, each 1 to 64 of<br/>a-z, 0-9 and _
+    end
+    Gold->>Cargo: cargo metadata<br/>--offline --no-deps
+    Cargo-->>Gold: the members: those with a<br/>golden test, each with a row<br/>in SCENES, or a violation
+    Gold->>Out: refuse links, empty it,<br/>make rendered/tidepool-gfx<br/>(left as it is when no crate draws)
+    loop each crate with scenes, in SCENES order (tidepool-gfx, tolerance 0)
+        Gold->>Cargo: cargo test --package tidepool-gfx<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/tidepool-gfx
+        Note over Gold,Cargo: run_with_env: an argv vector,<br/>stdin closed, CARGO_NET_OFFLINE=true,<br/>its output straight to the terminal
+        Cargo->>Test: build, run the 14 scene tests
+        Test->>Out: each scene draws into a Framebuffer<br/>and writes SCENE.pam: premultiplied<br/>RGBA, rows from the top
+        Test-->>Cargo: exit status
+        Cargo-->>Gold: exit status, a failure<br/>being a violation
+    end
+    Gold->>Out: read_rendered: parse_pam each<br/>file. A file that is not a scene's,<br/>or a scene two crates drew, is a violation
+    Gold->>Ref: read_references: find each SCENE.qoi,<br/>read one at a time as it is compared.<br/>Any other entry is a violation
+    Note over Gold,Ref: Blessing writes nothing unless the run is<br/>otherwise sound: every command passed,<br/>every file read, every name a scene's.
+    loop each scene drawn or referenced, in name order
+        Gold->>Gold: judge: qoi::decode the reference,<br/>its size, then the pixels whose<br/>channel differs by more than<br/>the crate's tolerance
+        alt named by --bless, and blessing
+            Gold->>Gold: qoi::encode what it drew, to<br/>write once every scene is judged<br/>(unless it is already its reference)
+        else Same
+            Gold->>Gold: note: SCENE ok
+        else Differs, OtherSize, BadReference or NoReference
+            Gold->>Out: save_images, links refused again,<br/>each a new file: SCENE.actual.qoi, and<br/>for Differs SCENE.diff.qoi, magenta<br/>where a pixel differs
+            Gold->>Gold: a violation, naming<br/>the images to look at
+        else NotRendered
+            Gold->>Gold: a violation: a reference<br/>that no scene drew
+        end
+    end
+    opt references to bless
+        Gold->>Ref: write_blessed, in name order: each to<br/>a new .SCENE.qoi.tmp, renamed over<br/>SCENE.qoi. The first that cannot be<br/>written stops the rest, a violation<br/>naming those written before it
+    end
+    Gold->>Dev: the notes, the violations, then<br/>golden: ok or golden: FAILED<br/>(N violations), as ci prints a step
+    Gold-->>Dev: exit status 0 if it passed,<br/>1 if not, 2 for a usage error
+```
+
+- `ci` draws each scene twice: `test` runs the same tests with
+  `TIDEPOOL_GOLDEN_DIR` unset, so they draw and write nothing, and then
+  `golden` draws them again and compares.
+- A run whose drawing crates drew nothing, with no references, fails: it
+  compared nothing. A workspace with no drawing crate and no references,
+  as in `xtask`'s fixtures, passes, and leaves `target/golden` as it is.
 
 ## 2. `cargo xtask fuzz-smoke`: `xtask` and its children
 
 `fuzz-smoke` checks that `fuzz/` agrees with its table of targets, then
 runs each target's test in its own `cargo test`, and reads the one result
 line the test prints (`xtask/src/fuzz.rs`). The parsers run in those test
-processes, never in `xtask`. The targets run in table order: `json` and
-`toml` (`tidepool-codec`), then `encoding` (`tidepool-text`).
+processes, never in `xtask`. The targets run in table order: `json`,
+`toml` and `qoi` (`tidepool-codec`), then `encoding` (`tidepool-text`).
 
 ```mermaid
 sequenceDiagram
@@ -133,7 +206,7 @@ sequenceDiagram
     alt they disagree
         Smoke->>Dev: the violation lines,<br/>then fuzz-smoke: FAILED,<br/>nothing was run
     else they agree
-        Smoke->>Dev: fuzz-smoke: 3 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
+        Smoke->>Dev: fuzz-smoke: 4 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
         loop each target, in table order
             Smoke->>Dev: == json: the variables<br/>and the command line
             Smoke->>Cargo: cargo test --profile fuzz<br/>-p tidepool-codec --test fuzz<br/>-- --exact json --nocapture
@@ -858,9 +931,11 @@ sequenceDiagram
 ## Sources
 
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `deps.rs`, `layers.rs`,
-  `crates.rs`, `metadata.rs`, `ucd.rs`, `workflows.rs`, `fuzz.rs`
+  `crates.rs`, `metadata.rs`, `ucd.rs`, `workflows.rs`, `fuzz.rs`,
+  `golden.rs`
 - `crates/core/src/testing/fuzz.rs`, `fuzz/engine.rs`, `fuzz/paths.rs`
-- `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`
+- `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
+  `crates/gfx/tests/golden.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `transaction.rs`,
   `history.rs`, `pos.rs`, `lib.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
@@ -870,10 +945,10 @@ sequenceDiagram
 - `docs/01-architecture.md` → "Dependency matrix", "The main loop", "Data
   flow", "Threading model"
 - `docs/03-platforms.md` → "Linux"
-- `docs/04-quality.md` → "Fuzz smoke", "`xtask` checks"
+- `docs/04-quality.md` → "Golden frames", "Fuzz smoke", "`xtask` checks"
 - `docs/subsystems/frontends.md`, `sys-and-platform.md`, `rendering.md`,
   `ui-and-theme.md`, `editor.md`, `languages.md`, `toolchains.md`,
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
-  ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029
+  ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044
 - `docs/roadmap.md`: the tasks named in each section

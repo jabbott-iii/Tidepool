@@ -12,3 +12,5 @@ fuzz/** -text
 # inputs only from the same bytes on every OS (ADR-0027). Every directory a
 # fuzz target reads seeds from is -text, as toml-test's is above.
 crates/codec/tests/json/** -text
+# Golden references are images, compared pixel for pixel (ADR-0044).
+tests/golden/** -text

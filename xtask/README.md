@@ -1,9 +1,10 @@
 # xtask
 
 Project automation, run as `cargo xtask <command>`: the checks behind the
-pull request gate, the fuzz smoke, the demo page's build and the benchmark
-runner, and later goldens, theme contrast and packaging. It never ships, never
-uploads, publishes or signs, reads no secrets, and opens no sockets.
+pull request gate, the golden frames, the fuzz smoke, the demo page's build
+and the benchmark runner, and later theme contrast and packaging. It never
+ships, never uploads, publishes or signs, reads no secrets, and opens no
+sockets.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
 development tooling, where CI and the Claude Code hook run it; it links only
@@ -75,10 +76,19 @@ Built, with the roadmap task that built it:
   tidepool-bench` with every argument after `bench` passed on unchanged,
   `--help` and `--root` included, and exits with its success; not a step
   of `ci` — M1.9.
+- `golden [--bless <scene>...]`, a step of `ci` after `test`: it finds
+  the drawing crates with `cargo metadata`, the members with a test target
+  named `golden`, each with its row and tolerance in `SCENES` in
+  `src/golden.rs` (`tidepool-gfx` so far), and runs `cargo test --package
+  <crate> --test golden` of each with
+  `TIDEPOOL_GOLDEN_DIR` naming where the scenes write their PAM files,
+  compares each with `tests/golden/<scene>.qoi` within its crate's
+  tolerance, writes `actual` and `diff` images of a failing scene to
+  `target/golden/`, and with `--bless` writes the references of the
+  scenes named, and only those; ported from Nadir — M2.4.
 
 Not yet, with the roadmap task that adds it:
 
-- `golden` — M2.4.
 - `theme` — M3.2.
 - `tools` — M5.1.
 - `package` — M11.6, M12.4, M14.4.
@@ -88,7 +98,7 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 ## Usage
 
 ```bash
-cargo xtask ci              # the gate: deps, fmt, clippy, test, layers, crates, features, unsafe-audit, headers, workflows, ucd
+cargo xtask ci              # the gate: deps, fmt, clippy, test, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd
 cargo xtask deps            # no package outside the repository unless approved
 cargo xtask layers          # each crate uses only what the dependency matrix allows
 cargo xtask crates          # the members' manifests and READMEs
@@ -96,6 +106,7 @@ cargo xtask features        # every ticked roadmap task belongs to a feature in 
 cargo xtask unsafe-audit    # `unsafe` only in tidepool-sys and tidepool-platform, each use documented
 cargo xtask headers         # every source file starts with the license header
 cargo xtask workflows       # the CI workflows' actions, pins and token permissions
+cargo xtask golden [--bless <scene>...]    # draw the golden scenes and compare them with tests/golden/
 cargo xtask ucd [--check]   # write the grapheme tables, or with --check compare them
 cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]    # fuzz each target, 60 s by default
 cargo xtask site [--out DIR]    # build the demo page into target/site, running the gate first
@@ -105,9 +116,9 @@ cargo xtask --help          # the commands and their options
 
 A command exits 0 when its checks pass, 1 when one fails or cannot run, and
 2 when the command line is not understood; `bench` exits 0 when
-`tidepool-bench` succeeded and 1 otherwise. `golden` (M2.4), `theme`
-(M3.2), `tools` (M5.1) and `package <os>` (M11.6, M12.4, M14.4) are
-planned; until its task lands, each exits 1 with "not yet implemented".
+`tidepool-bench` succeeded and 1 otherwise. `theme` (M3.2), `tools`
+(M5.1) and `package <os>` (M11.6, M12.4, M14.4) are planned; until its
+task lands, each exits 1 with "not yet implemented".
 
 ## Documentation
 
@@ -127,7 +138,10 @@ planned; until its task lands, each exits 1 with "not yet implemented".
   proc-macro crates, and `unsafe-audit` reads the doc-test code of every
   crate but `sys` and `platform` for `unsafe`); ADR-0038 (the macro shape
   that hides `unsafe` from the lint is banned at its source, no macro
-  defines a macro, and the doc reader is a second layer).
+  defines a macro, and the doc reader is a second layer); ADR-0044 (the
+  golden scenes are tests that write PAM, and `golden` runs them with
+  `cargo test`, compares them with the QOI references, and is a step of
+  `ci`).
 - API reference: `cargo doc -p xtask --open`
 
 ## Rules
@@ -153,12 +167,19 @@ planned; until its task lands, each exits 1 with "not yet implemented".
   adds its row to `TARGETS` in `src/fuzz.rs`, which must agree with
   `fuzz/corpus/` and `fuzz/crashes/`; none of `fuzz/`, `fuzz/corpus/` and
   `fuzz/crashes/` may be a link.
+- The golden scenes also draw in their crates' test processes. `golden`
+  writes only into `target/golden/`, which it empties first when a crate
+  draws scenes, and, with
+  `--bless`, the references of the scenes named in `tests/golden/`; it
+  follows no link on the way to either. A crate whose scenes join adds
+  its row to `SCENES` in `src/golden.rs`, with its tolerance.
 
 ## Checks
 
 ```bash
 cargo test -p xtask
 cargo xtask ci
+cargo xtask golden
 cargo xtask fuzz-smoke --secs 60
 cargo xtask site
 ```

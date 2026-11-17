@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -154,17 +154,17 @@ flowchart LR
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
-    c_xtask["xtask<br/>dev-only: the checks,<br/>fuzz-smoke, the demo page"]
+    c_xtask["xtask<br/>dev-only: the checks,<br/>goldens, fuzz-smoke,<br/>the demo page"]
 
     i_os_win(("Window, wait_events,<br/>Waker, present<br/>(M2.2)"))
     i_os_term(("terminal:<br/>raw mode guard<br/>planned M7.1"))
     i_text(("Rope, Transaction,<br/>History, file"))
-    i_codec(("json: parse, write<br/>toml: parse, Document"))
+    i_codec(("json: parse, write<br/>toml: parse, Document<br/>qoi: decode, encode"))
     i_regex(("regex matching<br/>planned M4.8"))
     i_os_watch(("watch<br/>planned M4.5"))
     i_os_proc(("process, PTY<br/>planned M5.7, M5.9"))
 
-    c_fmt["Formats and text<br/>tidepool-codec: json, toml<br/>tidepool-text: rope to<br/>atomic save<br/>tidepool-regex:<br/>planned M4.8"]
+    c_fmt["Formats and text<br/>tidepool-codec: json,<br/>toml, qoi<br/>tidepool-text: rope to<br/>atomic save<br/>tidepool-regex:<br/>planned M4.8"]
     c_os["OS layer<br/>tidepool-sys: dynlib, libc,<br/>x11, evdev, M2.1, M2.2<br/>tidepool-platform: the<br/>X11 window, events and<br/>present, M2.2"]
     e_os["OS libraries<br/>libc and libX11,<br/>AppKit and Win32 later"]
     e_cargo["cargo"]
@@ -182,7 +182,7 @@ flowchart LR
     c_lang -.->|"syntax:<br/>planned M13.2"| i_regex
     c_tools -.->|"toolchain:<br/>planned M5.1"| i_codec
     c_tools -.->|"toolchain, term:<br/>planned M5.2, M5.4"| i_os_proc
-    c_xtask -->|"xtask: cargo<br/>metadata, manifests"| i_codec
+    c_xtask -->|"xtask: cargo<br/>metadata, manifests,<br/>golden frames"| i_codec
     c_xtask -->|"the one program<br/>it starts"| e_cargo
 
     i_os_win --- c_os
@@ -213,14 +213,22 @@ dependency: `tidepool-core` is a dev-dependency of each, for their tests
 
 `json` (M1.4) and `toml` (M1.7) parse within `Limits` and fail with
 `CodecError`, and `json` also writes. `toml::Document` (M1.5) edits a TOML
-document and writes it back, changing only the edited bytes. `xtask` is
-the only user of `json` and `toml` today:
-`metadata.rs` reads `cargo metadata` with `json::parse_bytes`, and
-`crates.rs` reads the members' manifests with `toml::parse`.
+document and writes it back, changing only the edited bytes. `qoi` (M2.4)
+decodes QOI images within `Limits` and encodes them. `xtask` and
+`tidepool-bench` are its only users today. In `xtask`, `metadata.rs`
+reads `cargo metadata` with `json::parse_bytes`, `features.rs` reads
+`docs/features.jsonc` with `json::parse`, `crates.rs` reads the members'
+manifests and `site.rs` reads `rust-toolchain.toml` with `toml::parse`,
+`site/page.rs` writes the demo page's data with `json::to_string_pretty`,
+and `golden.rs` decodes the golden references with `qoi::decode` and
+writes references and images with `qoi::encode` (ADR-0044).
+`tidepool-bench` reads and writes `bench/baseline.json` with
+`json::parse_bytes` and `json::to_string_pretty` (6.5).
 
 ```mermaid
 flowchart LR
-    c_xtask["xtask<br/>metadata.rs, crates.rs"]
+    c_xtask["xtask<br/>metadata.rs, features.rs,<br/>crates.rs, site.rs,<br/>golden.rs"]
+    c_bench["tidepool-bench<br/>baseline.rs"]
     c_rpc["tidepool-rpc<br/>planned M6.1"]
     c_lang["tidepool-lang<br/>planned M6.4"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1"]
@@ -235,17 +243,20 @@ flowchart LR
     i_tparse(("toml::parse,<br/>parse_bytes"))
     i_limits(("Limits,<br/>CodecError"))
     i_tdoc(("toml::Document<br/>parse, get, set,<br/>as_str"))
-    i_qoi(("qoi<br/>planned M2.4"))
+    i_qoi(("qoi::decode,<br/>encode"))
     i_png(("inflate,<br/>deflate, png<br/>planned M10.7"))
     i_zip(("zip, xml<br/>planned M10.2"))
     i_plist(("plist<br/>planned M11.3"))
 
-    c_codec["tidepool-codec<br/>json: RFC 8259 and JSONC, M1.4<br/>toml: TOML 1.1 with spans, M1.7<br/>toml::Document, M1.5"]
+    c_codec["tidepool-codec<br/>json: RFC 8259 and JSONC, M1.4<br/>toml: TOML 1.1 with spans, M1.7<br/>toml::Document, M1.5<br/>qoi: QOI 1.0 images, M2.4"]
 
-    c_xtask -->|"cargo metadata"| i_jparse
-    c_xtask -->|"members' manifests"| i_tparse
-    c_xtask -->|"both"| i_limits
-    c_xtask -.->|"golden frames,<br/>planned M2.4"| i_qoi
+    c_xtask -->|"cargo metadata,<br/>features.jsonc"| i_jparse
+    c_xtask -->|"the demo page's data"| i_jwrite
+    c_xtask -->|"members' manifests,<br/>rust-toolchain.toml"| i_tparse
+    c_xtask -->|"all three"| i_limits
+    c_xtask -->|"golden frames"| i_qoi
+    c_bench -->|"bench/baseline.json"| i_jparse
+    c_bench -->|"bench/baseline.json"| i_jwrite
     c_rpc -.->|"messages,<br/>planned M6.1"| i_jparse
     c_rpc -.->|"messages,<br/>planned M6.1"| i_jwrite
     c_lang -.->|"cargo diagnostics,<br/>planned M6.4"| i_jparse
@@ -263,16 +274,16 @@ flowchart LR
     i_tparse --- c_codec
     i_limits --- c_codec
     i_tdoc --- c_codec
-    i_qoi -.- c_codec
+    i_qoi --- c_codec
     i_png -.- c_codec
     i_zip -.- c_codec
     i_plist -.- c_codec
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc built
+    class c_xtask,c_bench,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
     class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_editor,c_workspace,c_mobile planned
-    class i_qoi,i_png,i_zip,i_plist planned
+    class i_png,i_zip,i_plist planned
 ```
 
 - The YAML subset, CSV and INI in the spec's table are in the backlog, with
@@ -536,7 +547,7 @@ flowchart LR
     i_raster(("raster, blend, clip,<br/>image, glyph blit<br/>(M2.3)"))
     i_backdrop(("Backdrop cache<br/>(M2.3)"))
     i_damage(("Damage merging,<br/>diff (M2.3)"))
-    c_gfx["tidepool-gfx<br/>the CPU rasterizer (M2.3)<br/>planned: goldens M2.4"]
+    c_gfx["tidepool-gfx<br/>the CPU rasterizer (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
 
     i_ttf(("ttf, outline<br/>planned M2.8"))
     i_atlas(("glyph atlas<br/>planned M2.5"))
@@ -568,6 +579,9 @@ flowchart LR
 - `gfx`'s glyph blit draws coverage masks from `font`'s atlas, but `gfx`
   may depend only on `core`: `gui` hands the masks over, and no arrow
   joins `gfx` and `font`. `ttf` and `outline` serve `font`'s own atlas.
+- `gfx`'s golden scenes are tests, not part of its library: `cargo xtask
+  golden` runs them with `cargo test` and compares what they drew with
+  `tests/golden/` (6.1, ADR-0044).
 
 ## 4. Languages and toolchains
 
@@ -929,14 +943,16 @@ Everything in this section is built except `tidepool-testkit` and the
 `xtask` commands still to come. `xtask` is dev-only and never shipped. It
 uses `core` and `codec`, the two crates its matrix row allows, and starts
 one program, `cargo` (ADR-0017); `cargo xtask bench` has cargo build and
-run `tidepool-bench` (ADR-0035).
+run `tidepool-bench` (ADR-0035), and `cargo xtask golden` has it run the
+golden scenes in `tidepool-gfx`'s tests (ADR-0044).
 
 ### 6.1 xtask: the checks of ci
 
 `xtask` holds the checks behind `cargo xtask ci`, and `fuzz-smoke` (6.4).
-`crates` checks the root's and each member's manifest, each README's first
-line, sections and task IDs, and that each member's `LICENSE` and `NOTICE`
-are copies of the root's, byte for byte.
+`golden` is a step of `ci` and a command of its own, which `main.rs` runs
+for its `--bless`. `crates` checks the root's and each member's manifest,
+each README's first line, sections and task IDs, and that each member's
+`LICENSE` and `NOTICE` are copies of the root's, byte for byte.
 
 ```mermaid
 flowchart TB
@@ -944,7 +960,7 @@ flowchart TB
 
     subgraph sg_xtask["xtask"]
         c_main["main.rs, check.rs<br/>the command line,<br/>ci and its steps"]
-        c_later["golden, theme,<br/>tools, package<br/>not yet implemented<br/>planned M2.4, M3.2,<br/>M5.1, M11.6,<br/>M12.4, M14.4"]
+        c_later["theme, tools,<br/>package<br/>not yet implemented<br/>planned M3.2, M5.1,<br/>M11.6, M12.4,<br/>M14.4"]
         i_step(("Step::Own:<br/>run, returning<br/>a Report"))
         c_deps["deps.rs"]
         c_layers["layers.rs"]
@@ -954,6 +970,7 @@ flowchart TB
         c_headers["headers.rs"]
         c_workflows["workflows.rs"]
         c_ucd["ucd.rs"]
+        c_golden["golden.rs<br/>the golden frames"]
     end
     %% An invisible link: it only keeps the planned commands beside the step circle.
     c_main ~~~ c_later
@@ -963,6 +980,7 @@ flowchart TB
     f_ucd[("crates/text/ucd/17.0.0<br/>and the grapheme<br/>tables")]
     f_workflows[(".github/workflows")]
     f_features[("docs/features.jsonc")]
+    f_golden[("tests/golden/*.qoi<br/>the references<br/>target/golden<br/>what the scenes drew,<br/>actual and diff images")]
 
     p_dev -->|"cargo xtask"| c_main
     c_main -->|"each check of ci"| i_step
@@ -974,25 +992,31 @@ flowchart TB
     i_step --- c_headers
     i_step --- c_workflows
     i_step --- c_ucd
+    i_step --- c_golden
+    c_main -->|"golden, for<br/>its --bless"| c_golden
 
     c_layers -->|"reads"| f_matrix
     c_crates -->|"reads, and compares<br/>each copy<br/>with the root's"| f_readmes
     c_ucd -->|"reads, and writes<br/>the tables<br/>without --check"| f_ucd
     c_workflows -->|"reads"| f_workflows
     c_features -->|"reads, with<br/>the roadmap's<br/>task lines"| f_features
+    c_golden -->|"compares, writes<br/>a failing scene's<br/>images; --bless<br/>writes references"| f_golden
 
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class p_dev person
-    class c_main,i_step,c_deps,c_layers,c_crates,c_features,c_unsafe,c_headers,c_workflows,c_ucd built
+    class c_main,i_step,c_deps,c_layers,c_crates,c_features,c_unsafe,c_headers,c_workflows,c_ucd,c_golden built
     class c_later planned
-    class f_matrix,f_readmes,f_ucd,f_workflows,f_features store
+    class f_matrix,f_readmes,f_ucd,f_workflows,f_features,f_golden store
 ```
 
 - `headers` and `unsafe-audit` also read the source files, and `deps` the
   manifests, lockfiles and cargo configuration; those files are left out.
+- `golden` has cargo run the golden scenes of each crate in its `SCENES`
+  table that has a `golden` test, `tidepool-gfx` today, and they write
+  what they drew into `target/golden` (6.2, ADR-0044).
 - `cargo xtask site` runs these same steps through `check::run_gate`,
   then the two examples, and fills `site/` into `target/site` (6.2,
   ADR-0030).
@@ -1016,13 +1040,14 @@ flowchart TB
     c_fuzz["fuzz.rs"]
     c_site["site.rs, site/page.rs<br/>the demo page"]
     c_bench["bench.rs<br/>cargo xtask bench"]
+    c_golden["golden.rs<br/>cargo xtask golden"]
     i_gate(("check::run_gate,<br/>Gate"))
 
     i_meta(("metadata::load"))
     i_matrix(("matrix::parse,<br/>classify"))
     c_meta["metadata.rs"]
     c_matrix["matrix.rs"]
-    i_cargo(("cargo::run,<br/>capture,<br/>run_keeping_lines"))
+    i_cargo(("cargo::run,<br/>run_with_env,<br/>capture,<br/>run_keeping_lines"))
     c_cargo["cargo.rs"]
     e_cargo["cargo<br/>the one program xtask starts"]
 
@@ -1039,6 +1064,8 @@ flowchart TB
     c_site --> i_meta
     c_site -->|"cargo run<br/>--example"| i_cargo
     c_bench -->|"cargo run --release<br/>-p tidepool-bench"| i_cargo
+    c_golden -->|"the crates<br/>with scenes"| i_meta
+    c_golden -->|"cargo test of each<br/>crate's golden scenes,<br/>TIDEPOOL_GOLDEN_DIR"| i_cargo
 
     i_meta --- c_meta
     i_matrix --- c_matrix
@@ -1048,7 +1075,7 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
-    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_site,c_bench,c_meta,c_matrix,c_cargo built
+    class c_main,c_deps,c_layers,c_crates,c_unsafe,c_fuzz,c_site,c_bench,c_golden,c_meta,c_matrix,c_cargo built
     class i_meta,i_matrix,i_cargo,i_gate built
     class e_cargo external
 ```
@@ -1064,16 +1091,18 @@ flowchart LR
     c_crates["crates.rs"]
     c_features["features.rs"]
     c_site["site.rs, site/page.rs"]
+    c_golden["golden.rs"]
 
     i_cli(("core: cli::Args,<br/>CoreError"))
     i_hash(("core:<br/>hash::sha256,<br/>to_hex, fnv1a64"))
     i_fuzzapi(("core:<br/>testing::fuzz<br/>Summary, Stop,<br/>keep_died"))
     i_json(("codec:<br/>json::parse_bytes"))
     i_toml(("codec:<br/>toml::parse"))
+    i_qoi(("codec:<br/>qoi::decode,<br/>encode"))
     i_civil(("core:<br/>civil::DateTime"))
 
     c_core["tidepool-core<br/>built M0.2, M1.6, M1.8"]
-    c_codec["tidepool-codec<br/>built M1.4, M1.5, M1.7"]
+    c_codec["tidepool-codec<br/>built M1.4, M1.5, M1.7,<br/>M2.4"]
 
     c_main -->|"the command line"| i_cli
     c_fuzz --> i_cli
@@ -1087,17 +1116,20 @@ flowchart LR
     c_site -->|"writes the JSON-LD"| i_json
     c_site -->|"the year of<br/>a local build"| i_civil
     c_site -->|"--out"| i_cli
+    c_golden -->|"--bless"| i_cli
+    c_golden -->|"the references,<br/>actual and<br/>diff images"| i_qoi
 
     i_cli --- c_core
     i_hash --- c_core
     i_fuzzapi --- c_core
     i_json --- c_codec
     i_toml --- c_codec
+    i_qoi --- c_codec
     i_civil --- c_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_features,c_site,c_core,c_codec built
-    class i_cli,i_hash,i_fuzzapi,i_json,i_toml,i_civil built
+    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_features,c_site,c_golden,c_core,c_codec built
+    class i_cli,i_hash,i_fuzzapi,i_json,i_toml,i_qoi,i_civil built
 ```
 
 ### 6.4 fuzz-smoke and the fuzz targets
@@ -1112,13 +1144,13 @@ flowchart TB
     c_fuzz["xtask fuzz.rs<br/>cargo xtask fuzz-smoke"]
     e_cargo["cargo test, profile fuzz<br/>the fuzz test of each package"]
 
-    c_cfz["codec tests/fuzz.rs<br/>targets json, toml"]
+    c_cfz["codec tests/fuzz.rs<br/>targets json, toml, qoi"]
     c_tfz["text tests/fuzz.rs<br/>target encoding"]
-    c_more["fuzz targets to come:<br/>qoi, ttf, regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M2.4, M2.8,<br/>M4.8, M5.8, M6.1,<br/>M6.5, M8.1,<br/>M10.7, M10.2"]
+    c_more["fuzz targets to come:<br/>ttf, regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M2.8, M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
 
     i_target(("testing::fuzz:<br/>Target, Outcome,<br/>assert_clean"))
     i_summary(("Summary::parse,<br/>keep_died"))
-    i_cparse(("json::parse_bytes,<br/>toml::parse_bytes"))
+    i_cparse(("json::parse_bytes,<br/>toml::parse_bytes,<br/>qoi::decode, encode"))
     i_tdec(("Decoder::push,<br/>decode, encode"))
 
     subgraph sg_core["tidepool-core"]
@@ -1138,9 +1170,9 @@ flowchart TB
     c_fuzz -->|"reads the<br/>fuzz-result line"| i_summary
     c_fuzz -->|"checks rows<br/>and seeds"| f_corpus
 
-    c_cfz -->|"json, toml"| i_target
+    c_cfz -->|"json, toml, qoi"| i_target
     c_tfz -->|"encoding"| i_target
-    c_more -.->|"planned M2.4,<br/>M2.8, M4.8,<br/>M5.8, M6.1,<br/>M6.5, M8.1,<br/>M10.7, M10.2"| i_target
+    c_more -.->|"planned M2.8,<br/>M4.8, M5.8,<br/>M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
     c_cfz -->|"fuzzes"| i_cparse
     c_tfz -->|"fuzzes"| i_tdec
 
@@ -1178,14 +1210,14 @@ baseline with `codec`'s JSON and `text`'s atomic save.
 
 ```mermaid
 flowchart TB
-    c_ctests["codec tests<br/>json.rs, toml.rs"]
+    c_ctests["codec tests<br/>json.rs, toml.rs, qoi.rs"]
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
     c_gtests["gfx tests<br/>properties.rs"]
     c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
     i_pcg(("rng: Pcg32"))
-    i_cparse(("json::parse_bytes,<br/>toml::parse_bytes"))
+    i_cparse(("json::parse_bytes,<br/>toml::parse_bytes,<br/>qoi::decode, encode"))
     i_tall(("Rope, ChangeSet,<br/>Selection, History"))
     i_bjson(("json::parse_bytes,<br/>to_string_pretty"))
     i_save(("file::save"))
@@ -1243,7 +1275,7 @@ Docs:
   `languages.md`, `toolchains.md`, `mobile.md`, `agents.md`.
 - `docs/04-quality.md`: own harnesses, fakes, fuzz smoke, `xtask` checks.
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
-  ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035.
+  ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035, ADR-0044.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1255,15 +1287,17 @@ Code:
   `linux/x11.rs`.
 - `crates/codec/src/`: `lib.rs`, `limits.rs`, `error.rs`, `json.rs`,
   `json/parse.rs`, `json/write.rs`, `toml.rs`, `toml/parse.rs`,
-  `toml/table.rs`.
+  `toml/table.rs`, `qoi.rs`.
 - `crates/text/src/`: `lib.rs`, `rope.rs`, `pos.rs`, `pos/grapheme.rs`,
   `selection.rs`, `transaction.rs`, `history.rs`, `encoding.rs`, `file.rs`.
 - `crates/core/src/`: `lib.rs`, `testing.rs`, `testing/fuzz.rs`, `hash.rs`,
   `cli.rs`, `rng.rs`.
-- Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`;
-  `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`.
+- Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`, `qoi.rs`;
+  `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`;
+  `crates/gfx/tests/golden.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
-  `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`.
+  `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,
+  `golden.rs`.
 - `bench/src/`: `lib.rs`, `main.rs`, `harness.rs`, `baseline.rs`,
   `cli.rs`, `suites.rs`, `suites/text.rs`.

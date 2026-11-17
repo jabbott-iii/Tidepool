@@ -137,8 +137,9 @@
     {
       "name": "Golden frames",
       "area": "Quality",
-      "summary": "Drawn frames will be compared pixel for pixel with committed references, stored as QOI images by a codec of our own; a changed pixel will fail with images of the difference, and a reference will change only when it is updated on purpose.",
-      "tasks": ["M2.4"]
+      "summary": "Drawn frames are compared pixel for pixel with committed references, stored as QOI images by a codec of our own: 14 scenes cover every primitive of the rasterizer and jabbott.dev's backdrop at scale 1 and 2, and the gate compares them on Linux, macOS and Windows. A changed pixel fails with images of the difference, and a reference changes only when it is blessed by name.",
+      "tasks": ["M2.4"],
+      "ticked": ["M2.4"]
     },
     {
       "name": "The UI toolkit in the jabbott.dev style",

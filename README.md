@@ -14,7 +14,8 @@ selections, undo tree, encodings and atomic save, a fuzzer for the
 parsers, a benchmark harness with the text engine's suites, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
-XDG folders, and a CPU rasterizer with jabbott.dev's backdrop, are built;
+XDG folders, and a CPU rasterizer with jabbott.dev's backdrop, checked
+against golden frames by a QOI codec and harness of our own, are built;
 the `tidepool` binary opens no window yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
@@ -28,7 +29,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, layers, crates, features, unsafe-audit, headers, workflows, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd
 cargo test -p tidepool-text
 ```
 

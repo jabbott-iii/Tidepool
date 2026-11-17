@@ -14,15 +14,16 @@
 
 //! The error type for `tidepool-codec`.
 //!
-//! Ported from nadir-codec `error.rs`. Adapted for Tidepool: only the JSON
-//! and TOML variants exist so far (other formats add theirs with their
-//! roadmap tasks), and their parse errors carry the byte offset as well as
-//! the line and column. TOML also has a variant of its own for an edit that
-//! `toml::Document` refuses, which has a path step instead of a position.
+//! Ported from nadir-codec `error.rs`. Adapted for Tidepool: only the JSON,
+//! TOML and QOI variants exist so far (other formats add theirs with their
+//! roadmap tasks), and the JSON and TOML parse errors carry the byte offset
+//! as well as the line and column. TOML also has a variant of its own for an
+//! edit that `toml::Document` refuses, which has a path step instead of a
+//! position. QOI's two variants and their messages are Nadir's.
 
 use std::fmt;
 
-use crate::{json, toml};
+use crate::{json, qoi, toml};
 
 /// Errors produced by `tidepool-codec`.
 ///
@@ -84,6 +85,19 @@ pub enum CodecError {
         /// What is wrong.
         kind: toml::EditErrorKind,
     },
+    /// A QOI file is malformed or exceeds a [`Limits`](crate::Limits) bound.
+    Qoi {
+        /// The byte offset of the problem in the file. For a file cut short
+        /// ([`qoi::ErrorKind::UnexpectedEnd`]), its length.
+        offset: usize,
+        /// What is wrong.
+        kind: qoi::ErrorKind,
+    },
+    /// An image cannot be encoded as QOI.
+    QoiEncode {
+        /// Why not.
+        kind: qoi::EncodeErrorKind,
+    },
 }
 
 impl fmt::Display for CodecError {
@@ -110,6 +124,8 @@ impl fmt::Display for CodecError {
             Self::TomlEdit { step, kind } => {
                 write!(f, "TOML edit refused at step {step} of its path: {kind}")
             }
+            Self::Qoi { offset, kind } => write!(f, "QOI error at byte {offset}: {kind}"),
+            Self::QoiEncode { kind } => write!(f, "cannot encode as QOI: {kind}"),
         }
     }
 }
@@ -158,6 +174,25 @@ mod tests {
             error.to_string(),
             "TOML edit refused at step 2 of its path: the index is past the end of an array of 2 \
              elements; an edit never adds elements"
+        );
+    }
+
+    #[test]
+    fn qoi_errors_display_the_byte_or_what_cannot_be_encoded() {
+        let error = CodecError::Qoi {
+            offset: 12,
+            kind: qoi::ErrorKind::BadChannels { found: 5 },
+        };
+        assert_eq!(
+            error.to_string(),
+            "QOI error at byte 12: the channel count is 5, not 3 or 4"
+        );
+        let error = CodecError::QoiEncode {
+            kind: qoi::EncodeErrorKind::AlphaInRgb { pixel: 3 },
+        };
+        assert_eq!(
+            error.to_string(),
+            "cannot encode as QOI: pixel 3 of an RGB image has an alpha other than 255"
         );
     }
 

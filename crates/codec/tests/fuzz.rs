@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The fuzz targets of `tidepool-codec`: `json` and `toml`, one test each,
-//! named after the target (ADR-0027, `docs/04-quality.md` → "Fuzz
+//! The fuzz targets of `tidepool-codec`: `json`, `toml` and `qoi`, one test
+//! each, named after the target (ADR-0027, `docs/04-quality.md` → "Fuzz
 //! smoke").
 //!
 //! A plain `cargo test` runs each target's saved crashes
@@ -23,13 +23,14 @@
 //! optimized profile with overflow checks.
 //!
 //! Each target parses with small [`Limits`], and among its seeds are
-//! documents that sit exactly at each limit (`edge-*`), so that one
-//! mutation takes an input over it and into the check. Beyond "no panic",
-//! each checks what the module docs and [`CodecError`] promise:
+//! documents (or images) that sit exactly at each limit (`edge-*`), so that
+//! one mutation takes an input over it and into the check. Beyond "no
+//! panic", each checks what the module docs and [`CodecError`] promise:
 //!
-//! - an error's offset is in the input, at a character boundary when the
-//!   input is UTF-8, and its line and column are what that offset is;
-//! - an `InvalidUtf8` error is where the UTF-8 stops being valid;
+//! - `json` and `toml`: an error's offset is in the input, at a character
+//!   boundary when the input is UTF-8, and its line and column are what
+//!   that offset is; and an `InvalidUtf8` error is where the UTF-8 stops
+//!   being valid;
 //! - `json`: a strict JSON document is JSONC too, with the same value; JSONC
 //!   accepts more only for a comment or a trailing comma; and a value
 //!   written back, compact or pretty, reads back equal;
@@ -41,13 +42,23 @@
 //!   tree, and four edits are made on copies of it, two of them in a table
 //!   the input picks (see [`check_document`]): each is made, changing
 //!   exactly the bytes it should, or refused for a limit (or as not
-//!   replaceable, where the rules refuse it), and never as unverified.
+//!   replaceable, where the rules refuse it), and never as unverified;
+//! - `qoi`: an error's offset is in the input, at the place its kind says
+//!   (the end of the input for a file cut short, the header field it names,
+//!   a run's tag, the end marker), and a limit's error names that limit; an
+//!   image has the header's fields and size, within the limits, and the
+//!   input ends with the end marker. Every image is encoded again (see
+//!   [`check_image`]): that decodes to the same image, and encoded twice it
+//!   gives the same bytes, unless the image is RGB with an alpha other than
+//!   255, which is refused at the first such pixel.
 //!
-//! Input that is not UTF-8 stops at the first check, so it is also parsed
-//! as `String::from_utf8_lossy` gives it, through the `&str` entry points,
-//! with the same checks: the parser itself then sees every input.
+//! JSON and TOML input that is not UTF-8 stops at the first check, so it is
+//! also parsed as `String::from_utf8_lossy` gives it, through the `&str`
+//! entry points, with the same checks: the parser itself then sees every
+//! input.
 
 use tidepool_codec::json::{self, Dialect};
+use tidepool_codec::qoi::{self, Channels, ColorSpace};
 use tidepool_codec::toml::{
     self, Document, EditErrorKind, Span, Step, Table, TableKind, ValueKind,
 };
@@ -57,11 +68,15 @@ use tidepool_core::testing::fuzz::{Outcome, Target};
 /// The repository root, where `fuzz/` is.
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
-/// The limits both targets parse with. Each is at or below what a mutation
+/// The limits the targets parse with. Each is at or below what a mutation
 /// can reach from the `edge-*` seeds, which sit exactly at it, and above
 /// every other seed: the largest is `tests/json/cargo_metadata.json`, at
-/// 3,918 bytes, and every toml-test case is under 1.2 KiB. Built from the
-/// defaults, so that a field added later keeps its default.
+/// 3,918 bytes, and every toml-test case is under 1.2 KiB. `qoi` takes
+/// images of up to 64 pixels a side and 4 KiB of pixels (1,024 of them),
+/// so that a mutated header is either over a limit or decodes in
+/// microseconds; it does not check the input's length (see
+/// [`Limits::max_input_bytes`]). Built from the defaults, so that a field
+/// added later keeps its default.
 const LIMITS: Limits = {
     let mut limits = Limits::DEFAULT;
     limits.max_input_bytes = 4 * 1024;
@@ -69,6 +84,8 @@ const LIMITS: Limits = {
     limits.max_string_bytes = 1024;
     limits.max_number_bytes = 64;
     limits.max_entries = 256;
+    limits.max_image_dimension = 64;
+    limits.max_decoded_bytes = 4 * 1024;
     limits
 };
 
@@ -779,11 +796,205 @@ fn toml() {
     report(&outcome);
 }
 
+/// The 8 bytes that end a QOI file.
+const QOI_END: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 1];
+
+/// QOI's structure: the magic and the end marker; each tag (the two 8-bit
+/// ones; a run of 1 and the longest run, of 62; a lookup of slot 0 and of
+/// opaque black's slot 53; the smallest and largest diff; luma with its
+/// second byte); the header's channel and color-space values; and sides
+/// around [`LIMITS`]' 64 and the defaults' 16,384.
+const QOI_TOKENS: &[&[u8]] = &[
+    b"qoif",
+    &QOI_END,
+    b"\xfe",
+    b"\xff",
+    b"\xc0",
+    b"\xfd",
+    b"\x00",
+    b"\x35",
+    b"\x40",
+    b"\x7f",
+    b"\x80\x88",
+    b"\xbf\xff",
+    b"\x03\x00",
+    b"\x04\x01",
+    b"\0\0\0\0",
+    b"\0\0\0\x01",
+    b"\0\0\0\x20",
+    b"\0\0\0\x40",
+    b"\0\0\0\x41",
+    b"\0\0\x40\0",
+    b"\xff\xff\xff\xff",
+];
+
+/// `qoi`: [`qoi::decode`]. An error must be where its kind says (see
+/// [`check_qoi_error`]); an image must be what the header says, and is
+/// encoded again (see [`check_image`]).
+fn decode_qoi(input: &[u8]) {
+    match qoi::decode(input, LIMITS) {
+        Ok(image) => check_image(input, &image),
+        Err(CodecError::Qoi { offset, kind }) => check_qoi_error(input, offset, &kind),
+        Err(other) => panic!("a QOI decode failed with a {other:?}"),
+    }
+}
+
+/// The big-endian `u32` at `at` in `input`, if the input holds one there.
+fn be32(input: &[u8], at: usize) -> Option<u32> {
+    let bytes = input.get(at..at.checked_add(4)?)?;
+    Some(u32::from_be_bytes(bytes.try_into().ok()?))
+}
+
+/// Checks that a QOI error is in the input, at the place its kind says,
+/// and that a limit's error names that limit of [`LIMITS`].
+fn check_qoi_error(input: &[u8], offset: usize, kind: &qoi::ErrorKind) {
+    use qoi::ErrorKind as Q;
+    assert!(
+        offset <= input.len(),
+        "a QOI error at offset {offset} of {} bytes",
+        input.len()
+    );
+    let byte = input.get(offset).copied();
+    let side = be32(input, offset);
+    let rest = input.get(offset..).unwrap_or_default();
+    let fine = match kind {
+        Q::UnexpectedEnd { .. } => offset == input.len(),
+        Q::NotQoi => offset == 0 && !b"qoif".starts_with(input.get(..4).unwrap_or(input)),
+        Q::EmptyImage => matches!(offset, 4 | 8) && side == Some(0),
+        Q::DimensionTooLarge { limit } => {
+            matches!(offset, 4 | 8)
+                && *limit == LIMITS.max_image_dimension
+                && side.is_some_and(|side| side > *limit)
+        }
+        Q::TooManyBytes { limit } => {
+            let bytes = be32(input, 4)
+                .zip(be32(input, 8))
+                .and_then(|(width, height)| {
+                    u64::from(width)
+                        .checked_mul(u64::from(height))?
+                        .checked_mul(4)
+                });
+            offset == 4
+                && *limit == LIMITS.max_decoded_bytes
+                && bytes.is_none_or(|bytes| bytes > *limit as u64)
+        }
+        Q::BadChannels { found } => offset == 12 && byte == Some(*found) && !matches!(found, 3 | 4),
+        Q::BadColorSpace { found } => offset == 13 && byte == Some(*found) && *found > 1,
+        Q::RunPastEnd => offset >= 14 && byte.is_some_and(|tag| tag & 0xc0 == 0xc0 && tag < 0xfe),
+        Q::BadEndMarker => {
+            offset >= 14
+                && rest
+                    .get(..QOI_END.len())
+                    .map_or(!QOI_END.starts_with(rest), |marker| marker != QOI_END)
+        }
+        Q::TrailingBytes => {
+            offset < input.len()
+                && offset
+                    .checked_sub(QOI_END.len())
+                    .and_then(|start| input.get(start..offset))
+                    .is_some_and(|marker| marker == QOI_END)
+        }
+    };
+    assert!(
+        fine,
+        "a QOI {kind:?} error at offset {offset} of {} bytes",
+        input.len()
+    );
+}
+
+/// The checks of [`decode_qoi`] on the image `input` decoded to: the
+/// header is the input's, within [`LIMITS`], the pixels are as many as it
+/// says, and the input ends with the end marker. Then the image is encoded
+/// again: an RGB image whose chunks gave an alpha other than 255 is refused
+/// at the first such pixel; any other is written as the reference encoder
+/// writes it, which decodes to the same image and, encoded again, gives the
+/// same bytes. (The input need not be those bytes: another encoder may
+/// choose other chunks.)
+fn check_image(input: &[u8], image: &qoi::Image) {
+    let qoi::Header {
+        width,
+        height,
+        channels,
+        color_space,
+    } = image.header;
+    let fields = [
+        match channels {
+            Channels::Rgb => 3,
+            Channels::Rgba => 4,
+        },
+        match color_space {
+            ColorSpace::Srgb => 0,
+            ColorSpace::Linear => 1,
+        },
+    ];
+    assert!(
+        be32(input, 4) == Some(width)
+            && be32(input, 8) == Some(height)
+            && input.get(12..14) == Some(&fields[..]),
+        "an image's header is not the input's"
+    );
+    let side = 1..=LIMITS.max_image_dimension;
+    assert!(
+        side.contains(&width) && side.contains(&height),
+        "an image of {width} × {height} pixels decoded"
+    );
+    let len = width as usize * height as usize * 4;
+    assert!(
+        image.pixels.len() == len && len <= LIMITS.max_decoded_bytes,
+        "an image of {width} × {height} pixels has {} bytes of them",
+        image.pixels.len()
+    );
+    assert!(
+        input.ends_with(&QOI_END),
+        "an input that decoded does not end with the end marker"
+    );
+
+    let first_alpha = image
+        .pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .position(|&[.., alpha]| alpha != 255);
+    match qoi::encode(&image.header, &image.pixels) {
+        Ok(encoded) => {
+            assert!(
+                channels == Channels::Rgba || first_alpha.is_none(),
+                "an RGB image with an alpha other than 255 was encoded"
+            );
+            let again = qoi::decode(&encoded, LIMITS).expect("what the encoder wrote decodes");
+            assert!(
+                again == *image,
+                "encoded again, an image decodes differently"
+            );
+            let twice = qoi::encode(&again.header, &again.pixels).expect("an image encodes twice");
+            assert!(twice == encoded, "a second encoding differs from the first");
+        }
+        Err(CodecError::QoiEncode {
+            kind: qoi::EncodeErrorKind::AlphaInRgb { pixel },
+        }) => assert!(
+            channels == Channels::Rgb && first_alpha == Some(pixel),
+            "encoding was refused for the alpha of pixel {pixel}, but the first pixel of an RGB \
+             image with an alpha other than 255 is {first_alpha:?}"
+        ),
+        Err(other) => panic!("a decoded image cannot be encoded: {other}"),
+    }
+}
+
+#[test]
+fn qoi() {
+    let outcome = Target::new(ROOT, "qoi", decode_qoi)
+        .dictionary(QOI_TOKENS)
+        .memory_cap(MEMORY_CAP)
+        .run();
+    report(&outcome);
+}
+
 /// The `edge-*` seeds sit exactly at each limit: they parse with
 /// [`LIMITS`], and fail with that limit one lower.
 #[test]
 fn the_edge_seeds_sit_exactly_at_each_limit() {
     use json::ErrorKind as J;
+    use qoi::ErrorKind as Q;
     use toml::ErrorKind as T;
     let seed = |path: &str| {
         std::fs::read(format!("{ROOT}/fuzz/corpus/{path}"))
@@ -797,6 +1008,8 @@ fn the_edge_seeds_sit_exactly_at_each_limit() {
             "entries" => limits.max_entries -= 1,
             "number" => limits.max_number_bytes -= 1,
             "depth" => limits.max_depth -= 1,
+            "dimension" => limits.max_image_dimension -= 1,
+            "bytes" => limits.max_decoded_bytes -= 1,
             _ => panic!("{field}"),
         }
         limits
@@ -861,6 +1074,25 @@ fn the_edge_seeds_sit_exactly_at_each_limit() {
         };
         assert!(expected, "edge-{name}.toml: {kind:?}");
     }
+    // A side of exactly 64 pixels (the width at byte 4, the height at byte
+    // 8), and exactly 4 KiB of pixels in a 32 × 32 image.
+    for (file, field, at) in [
+        ("edge-width.qoi", "dimension", 4),
+        ("edge-height.qoi", "dimension", 8),
+        ("edge-bytes.qoi", "bytes", 4),
+    ] {
+        let input = seed(&format!("qoi/{file}"));
+        assert!(qoi::decode(&input, LIMITS).is_ok(), "{file}");
+        let error = qoi::decode(&input, lower(field));
+        let Err(CodecError::Qoi { offset, kind }) = error else {
+            panic!("{file}: {error:?}");
+        };
+        let expected = match field {
+            "dimension" => matches!(kind, Q::DimensionTooLarge { .. }),
+            _ => matches!(kind, Q::TooManyBytes { .. }),
+        };
+        assert!(expected && offset == at, "{file}: {kind:?} at {offset}");
+    }
     // The input limit's seeds are exactly at it, and end in multi-byte
     // characters, so that the character that does not fit is one.
     for file in ["json/edge-input.jsonc", "toml/edge-input.toml"] {
@@ -903,6 +1135,7 @@ fn the_edge_seeds_sit_exactly_at_each_limit() {
 /// from documents that reach deep into the parser; the others fail.
 #[test]
 fn the_hand_made_seeds_parse_as_they_are_meant_to() {
+    use qoi::ErrorKind as Q;
     let read = |path: &str| std::fs::read(format!("{ROOT}/fuzz/corpus/{path}")).unwrap();
     for (file, valid) in [
         ("empty-object.json", true),
@@ -949,6 +1182,57 @@ fn the_hand_made_seeds_parse_as_they_are_meant_to() {
         let result = toml::parse_bytes(&read(&format!("toml/{file}")), LIMITS);
         assert_eq!(result.is_ok(), valid, "{file}: {result:?}");
     }
+
+    // The QOI seeds the encoder wrote decode, and encode back to themselves
+    // byte for byte; two others decode, though the reference encoder would
+    // write other chunks (or, for an RGB image with an alpha, refuse); the
+    // rest fail where and as they are meant to.
+    let written = [
+        "tiny.qoi",
+        "gradient.qoi",
+        "long-run.qoi",
+        "palette.qoi",
+        "rgb-linear.qoi",
+        "translucent.qoi",
+        "every-chunk.qoi",
+        "edge-width.qoi",
+        "edge-height.qoi",
+        "edge-bytes.qoi",
+    ];
+    for file in written {
+        let input = read(&format!("qoi/{file}"));
+        let image = qoi::decode(&input, LIMITS).unwrap_or_else(|error| panic!("{file}: {error}"));
+        let encoded = qoi::encode(&image.header, &image.pixels);
+        assert_eq!(encoded.as_ref(), Ok(&input), "{file}");
+    }
+    let other = ["lookup-after-run.qoi", "rgb-with-alpha.qoi"];
+    for file in other {
+        let input = read(&format!("qoi/{file}"));
+        let image = qoi::decode(&input, LIMITS).unwrap_or_else(|error| panic!("{file}: {error}"));
+        let encoded = qoi::encode(&image.header, &image.pixels);
+        assert_ne!(encoded.as_ref(), Ok(&input), "{file}");
+    }
+    let rejected = [
+        ("run-past-end.qoi", 14, Q::RunPastEnd),
+        ("bad-end-marker.qoi", 15, Q::BadEndMarker),
+        ("trailing-bytes.qoi", 23, Q::TrailingBytes),
+        (
+            "cut-short.qoi",
+            17,
+            Q::UnexpectedEnd {
+                expected: "the rest of a chunk",
+            },
+        ),
+        ("bad-channels.qoi", 12, Q::BadChannels { found: 5 }),
+    ];
+    let listed = written.len() + other.len() + rejected.len();
+    for (file, offset, kind) in rejected {
+        let result = qoi::decode(&read(&format!("qoi/{file}")), LIMITS);
+        assert_eq!(result, Err(CodecError::Qoi { offset, kind }), "{file}");
+    }
+    // Every QOI seed is one of these, so each says what it is for.
+    let files = std::fs::read_dir(format!("{ROOT}/fuzz/corpus/qoi")).unwrap();
+    assert_eq!(files.count(), listed);
 }
 
 /// `document-fz.toml` is worded so that edit 2 of [`check_document`] picks

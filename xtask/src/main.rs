@@ -13,10 +13,10 @@
 // limitations under the License.
 
 //! Project automation for the Tidepool repository: the checks behind
-//! `cargo xtask ci`, `cargo xtask fuzz-smoke`, `cargo xtask site`, which
-//! builds the demo page, and `cargo xtask bench`, which runs the
-//! benchmarks. Later roadmap tasks add goldens, theme contrast, tool
-//! descriptors and packaging.
+//! `cargo xtask ci`, `cargo xtask golden`, which compares the golden
+//! frames, `cargo xtask fuzz-smoke`, `cargo xtask site`, which builds the
+//! demo page, and `cargo xtask bench`, which runs the benchmarks. Later
+//! roadmap tasks add theme contrast, tool descriptors and packaging.
 //!
 //! Specification: `docs/04-quality.md` → "`xtask` checks". Run it as
 //! `cargo xtask <command>`; `cargo xtask --help` lists the commands.
@@ -28,15 +28,19 @@
 //!
 //! `xtask` is dev-only tooling (layer 6 in `docs/01-architecture.md`): it
 //! is never shipped in Tidepool, and it never uploads, publishes, signs,
-//! reads secrets or calls the network (`docs/04-quality.md`). The one file
-//! it writes in the repository is the generated Unicode tables, with `cargo
-//! xtask ucd` (without `--check`); `cargo xtask site` writes the demo page
-//! into `target/site`, or the directory `--out` names.
+//! reads secrets or calls the network (`docs/04-quality.md`). The files it
+//! writes in the repository are the generated Unicode tables, with `cargo
+//! xtask ucd` (without `--check`), and the golden references of the scenes
+//! that `cargo xtask golden --bless` names; `golden` writes its images into
+//! `target/golden`, and `cargo xtask site` writes the demo page into
+//! `target/site`, or the directory `--out` names.
 //!
 //! The one outside program it starts is `cargo`, which `cargo xtask ci`
 //! exists to run (`cargo fmt`, clippy, the tests, `cargo metadata`, `cargo
-//! locate-project`), `cargo xtask fuzz-smoke` too (`cargo test` of each
-//! fuzz target, ADR-0027), `cargo xtask site`, which runs the gate's
+//! locate-project`), `cargo xtask golden`, which `ci` runs too (`cargo
+//! test` of each drawing crate's golden scenes, ADR-0044), `cargo xtask
+//! fuzz-smoke` (`cargo test` of each fuzz target, ADR-0027), `cargo xtask
+//! site`, which runs the gate's
 //! steps and `cargo run --example` of two examples (ADR-0030), and `cargo
 //! xtask bench`, which runs `cargo run --release --quiet -p tidepool-bench`
 //! with every argument after `bench` (ADR-0035); it reads the
@@ -69,6 +73,7 @@ mod deps;
 mod error;
 mod features;
 mod fuzz;
+mod golden;
 mod headers;
 mod layers;
 mod lexer;
@@ -168,7 +173,7 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
         return Err(Error::Usage("no command given".to_string()));
     };
     // A later command fails as not implemented whatever its options, so
-    // that `cargo xtask golden --bless` says what is missing.
+    // that `cargo xtask package linux` says what is missing.
     if let Some(later) = LATER.iter().find(|later| later.name == command) {
         return Err(Error::NotImplemented {
             command: later.name,
@@ -190,8 +195,13 @@ fn run(mut args: Args, default_root: &Path, out: &mut dyn Write) -> Result<bool,
     if command == "site" {
         return site::command(args, &root, out);
     }
-    // Only `ucd`, `fuzz-smoke` and `site` take options of their own; for
-    // any other command `--check` is left for `finish` to reject.
+    if command == golden::NAME {
+        let bless = golden::parse(args)?;
+        let root = absolute_root(&root)?;
+        return golden::command(&bless, &root, out);
+    }
+    // Only `ucd`, `fuzz-smoke`, `site` and `golden` take options of their
+    // own; for any other command `--check` is left for `finish` to reject.
     let check_only = command == "ucd" && args.flag("--check");
     let extra = args.finish().map_err(usage_error)?;
     if let Some(argument) = extra.first() {
@@ -259,9 +269,14 @@ fn usage() -> String {
          hang, over-allocation or a death",
         fuzz::DEFAULT_SECS
     );
+    let golden_about = format!(
+        "{}; --bless NAME... writes the references of the scenes named",
+        check::GOLDEN.about
+    );
     let commands = [("ci", ci_about.as_str())]
         .into_iter()
         .chain(COMMANDS.iter().map(|check| (check.name, check.about)))
+        .chain([(golden::NAME, golden_about.as_str())])
         .chain([
             ("fuzz-smoke", fuzz_about.as_str()),
             (
@@ -296,6 +311,8 @@ fn usage() -> String {
          each, to name the one that kills the process or reserves too much\n  \
          --out DIR     site only: build the page into DIR, which is new, empty or made by an \
          earlier run\n  \
+         --bless NAME...  golden only: write the references of the scenes named, from what \
+         they drew, once their images in target/golden have been looked at\n  \
          --help        Show this text\n\
          \n\
          Exit status: 0 if every check passed, 1 if a check failed or could not run,\n\
@@ -356,9 +373,24 @@ mod tests {
             );
         }
         assert!(text.contains(
-            "  ci            Run deps, fmt, clippy, test, layers, crates, features, unsafe-audit, \
-             headers, workflows, ucd in that order"
+            "  ci            Run deps, fmt, clippy, test, golden, layers, crates, features, \
+             unsafe-audit, headers, workflows, ucd in that order"
         ));
+        // `golden` is implemented (roadmap M2.4), and a step of `ci`.
+        assert!(
+            text.contains(
+                "\n  golden        Draw the golden scenes (cargo test of each drawing crate's \
+                 tests/golden.rs) and compare each with tests/golden/<scene>.qoi; --bless \
+                 NAME... writes the references of the scenes named\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "\n  --bless NAME...  golden only: write the references of the scenes named"
+            ),
+            "{text}"
+        );
         assert!(text.contains(
             "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
              generates (without --check: write it)\n"
@@ -377,6 +409,7 @@ mod tests {
             .unwrap();
         assert!(!later.contains("ucd"), "{later}");
         assert!(!later.contains("fuzz-smoke"), "{later}");
+        assert!(!later.contains("golden"), "{later}");
         assert!(
             text.contains("\n  --secs N      fuzz-smoke only: fuzz each target for N seconds\n"),
             "{text}"
@@ -550,7 +583,6 @@ mod tests {
         for (args, command, task) in [
             (&["tools"][..], "tools", "roadmap M5.1"),
             (&["theme"], "theme", "roadmap M3.2"),
-            (&["golden", "--bless", "scene"], "golden", "roadmap M2.4"),
             (
                 &["package", "linux"],
                 "package",
@@ -584,7 +616,7 @@ mod tests {
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--target", "yaml"]),
-            "unknown fuzz target `yaml`; the targets are: json, toml, encoding"
+            "unknown fuzz target `yaml`; the targets are: json, toml, qoi, encoding"
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--secs", "soon"]),
@@ -602,6 +634,32 @@ mod tests {
         assert_eq!(
             usage_error(&["deps", "--secs", "5"]),
             "unexpected argument `--secs` (argument 2)"
+        );
+    }
+
+    #[test]
+    fn golden_takes_bless_and_scene_names() {
+        assert_eq!(
+            usage_error(&["golden", "gfx_line"]),
+            "`golden` takes scene names only after `--bless`, but got `gfx_line`"
+        );
+        assert_eq!(
+            usage_error(&["golden", "--bless"]),
+            "`--bless` needs the names of the scenes to bless, once their images in \
+             target/golden/ have been looked at"
+        );
+        assert_eq!(
+            usage_error(&["golden", "--bless", "Gfx"]),
+            "`Gfx` is not a scene name: 1 to 64 of a-z, 0-9 and _"
+        );
+        assert_eq!(
+            usage_error(&["golden", "--check"]),
+            "unexpected argument `--check` (argument 2)"
+        );
+        // Its option belongs to it alone.
+        assert_eq!(
+            usage_error(&["deps", "--bless", "x"]),
+            "unexpected argument `--bless` (argument 2)"
         );
     }
 

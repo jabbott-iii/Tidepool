@@ -4,10 +4,10 @@ These diagrams show Tidepool in two of the C4 model's views. The container
 view shows the programs, the files they use, and the people and outside
 systems around them. The component views show the crates inside the
 `tidepool` binary, the modules inside `xtask`, and the parts that exist only
-for development: the fuzzer, the test harness, the benchmark harness, and
-the fake tool crate still to come.
+for development: the fuzzer, the golden frames, the test harness, the
+benchmark harness, and the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -173,12 +173,14 @@ GitHub Actions. It starts no program but `cargo` (ADR-0017, ADR-0027).
 
 - `xtask` runs as `cargo xtask` with one of `ci`, `deps`, `layers`,
   `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd`,
-  `fuzz-smoke` and `site`. It starts `cargo` for `fmt`, `clippy`, `test`,
-  `metadata`, `locate-project`, a `cargo test` per fuzz target, and
-  `site`'s two `cargo run --example` (ADR-0030).
-- `ci.yml` runs `cargo xtask ci` on Linux, macOS and Windows, on Linux
-  under `xvfb-run` with the window tests on (ADR-0041), then
-  `cargo xtask fuzz-smoke --secs 30` on Linux.
+  `golden`, `fuzz-smoke` and `site`. It starts `cargo` for `fmt`,
+  `clippy`, `test`, `metadata`, `locate-project`, a `cargo test` of the
+  golden scenes per drawing crate (ADR-0044), a `cargo test` per fuzz
+  target, and `site`'s two `cargo run --example` (ADR-0030).
+- `ci.yml` runs `cargo xtask ci`, whose `golden` step compares the golden
+  frames, on Linux, macOS and Windows, on Linux under `xvfb-run` with the
+  window tests on (ADR-0041), then `cargo xtask fuzz-smoke --secs 30` on
+  Linux.
 - `pages.yml` runs `cargo xtask site` once CI has passed on a push to
   `main`, and deploys the page it builds to GitHub Pages, at
   <https://jabbott.dev/Tidepool/> once the repository's Pages source is
@@ -193,7 +195,7 @@ flowchart TB
     e_pages["GitHub Pages<br/>jabbott.dev/Tidepool/"]
 
     subgraph b_dev["Dev-only, in the repository"]
-        c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd,<br/>fuzz-smoke, site, bench"]
+        c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd,<br/>golden, fuzz-smoke,<br/>site, bench"]
         c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and the text suites (M1.9)"]
         c_testkit["tidepool-testkit<br/>planned: fake tools M5.1,<br/>fake LSP server M6.1"]
         s_baseline[("bench/baseline.json<br/>the reference machine's<br/>numbers (M1.9)")]
@@ -226,13 +228,15 @@ flowchart TB
 
 ### 1.5 What the development tools read and write
 
-`xtask` reads the repository's files and changes only two things: the
-generated grapheme tables, and, after a replay that died, the name of the
+`xtask` reads the repository's files and changes only three things: the
+generated grapheme tables, the golden references of the scenes that
+`golden --bless` names, and, after a replay that died, the name of the
 input the replay died on. `site` also writes the demo page into
-`target/site`, or the directory `--out` names. `tidepool-bench`, which
-`cargo xtask bench` runs, reads `bench/baseline.json` and writes it only
-with `--save` (ADR-0035). `codeql.yml` analyzes the Rust code and the
-workflows.
+`target/site`, or the directory `--out` names, and `golden` what the
+scenes drew, and a failing scene's images, into `target/golden`.
+`tidepool-bench`, which `cargo xtask bench` runs, reads
+`bench/baseline.json` and writes it only with `--save` (ADR-0035).
+`codeql.yml` analyzes the Rust code and the workflows.
 
 ```mermaid
 flowchart LR
@@ -248,6 +252,8 @@ flowchart LR
         s_fuzz[("fuzz/corpus/TARGET<br/>the seeds<br/>fuzz/crashes/TARGET<br/>the saved crashes")]
         s_site[("site/ the templates,<br/>docs/features.jsonc")]
         s_out[("target/site<br/>the demo page")]
+        s_golden[("tests/golden/*.qoi<br/>the golden references")]
+        s_goldout[("target/golden<br/>what the scenes drew,<br/>a failing scene's<br/>actual and diff images")]
         s_baseline[("bench/baseline.json")]
     end
 
@@ -259,6 +265,9 @@ flowchart LR
     e_cargo -->|"cargo test runs<br/>the fuzz targets:<br/>reads the seeds,<br/>replays, saves crashes"| s_fuzz
     c_xtask -->|"features checks it;<br/>site fills the templates"| s_site
     c_xtask -->|"site writes it"| s_out
+    c_xtask -->|"golden decodes them;<br/>--bless writes<br/>the scenes named"| s_golden
+    c_xtask -->|"golden empties it,<br/>reads the PAM files,<br/>writes the images"| s_goldout
+    e_cargo -->|"cargo test runs<br/>the golden scenes:<br/>each writes its PAM"| s_goldout
     e_cargo -->|"cargo xtask bench:<br/>cargo run --release"| c_bench
     c_bench -->|"reads; --save<br/>writes it"| s_baseline
 
@@ -266,7 +275,7 @@ flowchart LR
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class c_xtask,c_bench built
-    class s_repo,s_ucd,s_tables,s_fuzz,s_site,s_out,s_baseline store
+    class s_repo,s_ucd,s_tables,s_fuzz,s_site,s_out,s_golden,s_goldout,s_baseline store
     class e_gha,e_cargo external
 ```
 
@@ -289,17 +298,17 @@ uses.
 `core`, `codec` and `text` are built, `sys` has its Linux declarations
 (M2.1, M2.2, M2.7), and `platform` its Linux window over X11 (M2.2), its
 clipboard and the user's and tools' folders (M2.7). Those two
-allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3).
-The other three crates are empty.
+allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3),
+and its golden scenes (M2.4). The other three crates are empty.
 
 ```mermaid
 flowchart LR
     subgraph L1["Layer 1"]
         k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>clipboard, paths,<br/>dirs (M2.7)<br/>planned: watch M4.5,<br/>process M5.7, pty M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, M11.1,<br/>Windows M12.1, M12.2"]
-        k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>planned M2.4, M10.7,<br/>M10.2, M11.3"]
+        k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>qoi: QOI images, decoded<br/>and encoded (M2.4)<br/>planned M10.7,<br/>M10.2, M11.3"]
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
-        k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>planned: goldens M2.4"]
+        k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
         k_font["tidepool-font<br/>planned M2.8: ttf, outline<br/>atlas, layout, fallback,<br/>bundled M2.5"]
         k_markdown["tidepool-markdown<br/>planned M6.5:<br/>CommonMark and<br/>GFM parser"]
     end
@@ -548,16 +557,18 @@ check reads, runs and writes.
 
 ### 3.1 Modules: the commands and the checks
 
-`main.rs` runs `ci`, one check, `fuzz-smoke`, `site` or `bench`, and exits
-0, 1 or 2. `check` holds the `ci` steps in order, and in its `LATER` table
-the commands still to come; `site` runs the same steps through `check`'s
-one runner (ADR-0030). `bench` is handled before the command line is
-parsed, so every argument after it goes to `tidepool-bench` (ADR-0035).
+`main.rs` runs `ci`, one check, `golden`, `fuzz-smoke`, `site` or `bench`,
+and exits 0, 1 or 2. `check` holds the `ci` steps in order, and in its
+`LATER` table the commands still to come; `site` runs the same steps
+through `check`'s one runner (ADR-0030). `golden` is a step of `ci`, and
+`main.rs` also runs it on its own, for its `--bless` (ADR-0044). `bench`
+is handled before the command line is parsed, so every argument after it
+goes to `tidepool-bench` (ADR-0035).
 
 ```mermaid
 flowchart LR
-    m_main["main.rs<br/>parses the command line<br/>with core::cli::Args<br/>runs ci, one check,<br/>fuzz-smoke, site or bench,<br/>exits 0, 1 or 2"]
-    m_check["check<br/>the ci steps: deps, fmt,<br/>clippy, test, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd --check<br/>LATER: tools, theme,<br/>golden, package"]
+    m_main["main.rs<br/>parses the command line<br/>with core::cli::Args<br/>runs ci, one check,<br/>golden, fuzz-smoke,<br/>site or bench,<br/>exits 0, 1 or 2"]
+    m_check["check<br/>the ci steps: deps, fmt,<br/>clippy, test, golden, layers,<br/>crates, features, unsafe-audit,<br/>headers, workflows, ucd --check<br/>LATER: tools, theme,<br/>package"]
     subgraph b_checks["The checks"]
         m_deps["deps<br/>no third-party code<br/>unless approved"]
         m_layers["layers<br/>only the matrix's edges"]
@@ -567,6 +578,7 @@ flowchart LR
         m_headers["headers<br/>the Apache-2.0 header<br/>on every source file"]
         m_workflows["workflows<br/>allowed actions, SHA pins,<br/>token permissions"]
         m_ucd["ucd<br/>the grapheme tables<br/>from the Unicode data"]
+        m_golden["golden<br/>the golden scenes against<br/>tests/golden/*.qoi;<br/>--bless writes references"]
     end
     m_fuzz["fuzz<br/>fuzz-smoke: the TARGETS<br/>table, a cargo test per<br/>target, the verdict"]
     m_site["site, with site::page<br/>the demo page: the gate,<br/>two examples, the features,<br/>into target/site"]
@@ -575,6 +587,7 @@ flowchart LR
     k_core["tidepool-core"]
 
     m_main --> m_check
+    m_main -->|"golden, for<br/>its --bless"| m_golden
     m_main -->|"fuzz-smoke"| m_fuzz
     m_main -->|"site"| m_site
     m_main -->|"bench, before<br/>parsing"| m_bench
@@ -589,15 +602,17 @@ flowchart LR
     m_check --> m_headers
     m_check --> m_workflows
     m_check --> m_ucd
+    m_check --> m_golden
     m_check -->|"fmt, clippy, test"| m_cargo
+    m_golden -->|"run_with_env:<br/>cargo test of<br/>the scenes"| m_cargo
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class m_main,m_check,m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_site,m_bench,m_cargo,k_core built
+    class m_main,m_check,m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_golden,m_fuzz,m_site,m_bench,m_cargo,k_core built
 ```
 
-- `golden`, `theme`, `tools` and `package` are names in `check`'s `LATER`
-  table and fail as not yet implemented (M2.4, M3.2, M5.1, M11.6, M12.4,
-  M14.4); `ci`'s summary lists `tools` and `theme`.
+- `theme`, `tools` and `package` are names in `check`'s `LATER` table and
+  fail as not yet implemented (M3.2, M5.1, M11.6, M12.4, M14.4); `ci`'s
+  summary lists `tools` and `theme`.
 
 ### 3.2 Modules: what the checks build on
 
@@ -614,6 +629,8 @@ flowchart LR
     m_unsafe["unsafe_audit"]
     m_headers["headers"]
     m_fuzz["fuzz"]
+    m_golden["golden"]
+    m_check["check<br/>print: a result<br/>as ci prints a step"]
     m_walk["walk<br/>finds files without<br/>following a link, reads<br/>within a size bound,<br/>escapes paths"]
     m_ucd["ucd"]
     m_metadata["metadata<br/>cargo metadata,<br/>read with codec::json"]
@@ -638,14 +655,20 @@ flowchart LR
     m_ucd -->|"hash::sha256"| k_core
     m_fuzz -->|"run_keeping_lines"| m_cargo
     m_fuzz -->|"testing::fuzz,<br/>hash::fnv1a64,<br/>cli::Args"| k_core
+    m_golden --> m_metadata
+    m_golden -->|"run_with_env"| m_cargo
+    m_golden -->|"qoi"| k_codec
+    m_golden -->|"cli::Args"| k_core
+    m_golden -->|"print"| m_check
     m_metadata -->|"capture"| m_cargo
     m_metadata -->|"json"| k_codec
     m_walk -->|"capture: cargo<br/>locate-project"| m_cargo
+    m_cargo -->|"golden::DIR_VAR,<br/>removed from<br/>every child"| m_golden
     m_cargo -->|"spawns"| e_cargo
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
-    class m_deps,m_layers,m_crates,m_unsafe,m_headers,m_fuzz,m_walk,m_ucd,m_metadata,m_matrix,m_lexer,m_cargo,m_error,k_core,k_codec built
+    class m_deps,m_layers,m_crates,m_unsafe,m_headers,m_fuzz,m_golden,m_check,m_walk,m_ucd,m_metadata,m_matrix,m_lexer,m_cargo,m_error,k_core,k_codec built
     class e_cargo external
 ```
 
@@ -682,9 +705,12 @@ flowchart LR
 
 The checks find and read their files through `walk`, which never follows a
 symbolic link and asks `cargo locate-project` which directories are
-workspace roots; `ucd` and `fuzz` also look at their own directories
-without following a link. Only `ucd` and `fuzz` change anything in the
-repository; `site` writes only its output directory.
+workspace roots; `ucd`, `fuzz` and `golden` also look at their own
+directories without following a link. Only `ucd`, `fuzz` and `golden`,
+with `--bless`, change anything in the repository. `golden` also empties
+and rewrites `target/golden` when a crate draws, with or without `--bless`; `site` writes its
+output directory, and `target/golden` through the `golden` step of its
+gate.
 
 ```mermaid
 flowchart LR
@@ -698,6 +724,7 @@ flowchart LR
         m_workflows["workflows"]
         m_ucd["ucd"]
         m_fuzz["fuzz"]
+        m_golden["golden"]
         m_site["site"]
         m_bench["bench"]
         m_steps["check: the fmt, clippy and test steps of ci"]
@@ -720,6 +747,8 @@ flowchart LR
     s_ucd[("crates/text/ucd/17.0.0")]
     s_tables[("crates/text/src/pos/grapheme/tables.rs")]
     s_fuzz[("fuzz/, fuzz/corpus/, fuzz/crashes/")]
+    s_golden[("tests/golden/SCENE.qoi<br/>the references")]
+    s_goldout[("target/golden: rendered/PACKAGE/SCENE.pam,<br/>SCENE.actual.qoi, SCENE.diff.qoi")]
 
     m_deps -->|"reads lockfiles as text, cargo configs"| s_manifests
     m_deps -->|"reads"| s_allow
@@ -738,6 +767,7 @@ flowchart LR
     m_site -->|"reads HEAD's hash<br/>in a local build"| s_git
     m_site -->|"writes the page,<br/>removes only what<br/>it wrote before"| s_out
     m_site -->|"the ci steps, then<br/>cargo run --example, twice"| e_cargo
+    m_site -->|"the gate's golden step:<br/>empties and rewrites it"| s_goldout
     m_bench -->|"cargo run --release --quiet -p tidepool-bench"| e_cargo
     m_unsafe -->|"lexes"| s_rs
     m_unsafe -->|"cargo metadata --offline --no-deps, the crate roots"| e_cargo
@@ -747,13 +777,17 @@ flowchart LR
     m_ucd -->|"writes it, or with --check compares"| s_tables
     m_fuzz -->|"checks the table against them, keeps died-HASH"| s_fuzz
     m_fuzz -->|"cargo test --profile fuzz, a target at a time"| e_cargo
+    m_golden -->|"cargo metadata --offline --no-deps: the members with a golden test"| e_cargo
+    m_golden -->|"cargo test --package PACKAGE --test golden, TIDEPOOL_GOLDEN_DIR set"| e_cargo
+    m_golden -->|"decodes each; --bless writes the scenes named"| s_golden
+    m_golden -->|"empties it, reads the PAM files, writes a failing scene's images"| s_goldout
     m_steps -->|"fmt --check, clippy -D warnings, test --workspace"| e_cargo
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_site,m_bench,m_steps built
-    class s_manifests,s_allow,s_every,s_arch,s_roadmap,s_readmes,s_license,s_rs,s_source,s_wf,s_ucd,s_tables,s_fuzz,s_features,s_site,s_git,s_out store
+    class m_deps,m_layers,m_crates,m_features,m_unsafe,m_headers,m_workflows,m_ucd,m_fuzz,m_golden,m_site,m_bench,m_steps built
+    class s_manifests,s_allow,s_every,s_arch,s_roadmap,s_readmes,s_license,s_rs,s_source,s_wf,s_ucd,s_tables,s_fuzz,s_golden,s_goldout,s_features,s_site,s_git,s_out store
     class e_cargo external
 ```
 
@@ -766,8 +800,8 @@ flowchart LR
 ## 4. The dev-only parts
 
 What exists only to test and measure Tidepool: the fuzzer, the
-property-test harness and the benchmark harness are built; the fakes are
-planned.
+property-test harness, the benchmark harness and the golden frames are
+built; the fakes are planned.
 
 ### 4.1 The fuzz engine and its targets
 
@@ -777,11 +811,12 @@ test` on the saved crashes and seeds alone, and on mutated inputs when
 
 ```mermaid
 flowchart TB
-    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json and toml in tidepool-codec, encoding in tidepool-text"]
+    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text"]
     e_cargo["cargo test --profile fuzz -p PACKAGE --test fuzz -- --exact TARGET --nocapture<br/>with TIDEPOOL_FUZZ_SECS, TIDEPOOL_FUZZ_SEED, and TIDEPOOL_FUZZ_REPLAY=1 for --replay"]
     subgraph b_codec["tidepool-codec: tests/fuzz.rs"]
         t_json["test json<br/>json::parse_bytes and json::parse, both dialects, small Limits"]
         t_toml["test toml<br/>toml::parse_bytes and toml::parse, spans checked"]
+        t_qoi["test qoi<br/>qoi::decode with small Limits, each image encoded and decoded again"]
     end
     subgraph b_text["tidepool-text: tests/fuzz.rs"]
         t_enc["test encoding<br/>decode, Decoder fed in pieces, encode"]
@@ -793,7 +828,7 @@ flowchart TB
         f_memory["memory<br/>VmHWM against memory_cap, VmPeak against reserved_cap"]
         f_paths["paths<br/>each directory looked at without following a link, made one level at a time"]
     end
-    s_corpus[("fuzz/corpus/json, toml, encoding<br/>the seeds")]
+    s_corpus[("fuzz/corpus/json, toml, qoi, encoding<br/>the seeds")]
     s_inplace[("crates/codec/tests/json and crates/codec/tests/toml-test<br/>more seeds, read in place")]
     s_crashes[("fuzz/crashes/TARGET<br/>KIND-HASH findings, .last-input, died-HASH")]
     e_proc["Linux: /proc/self/status"]
@@ -801,9 +836,11 @@ flowchart TB
     c_smoke -->|"one cargo test a target"| e_cargo
     e_cargo -->|"runs"| t_json
     e_cargo -->|"runs"| t_toml
+    e_cargo -->|"runs"| t_qoi
     e_cargo -->|"runs"| t_enc
     t_json -->|"Target"| f_api
     t_toml -->|"Target"| f_api
+    t_qoi -->|"Target"| f_api
     t_enc -->|"Target"| f_api
     f_api -->|"run_with: the saved crashes first, then the seeds"| f_paths
     f_api --> f_engine
@@ -820,15 +857,15 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_smoke,t_json,t_toml,t_enc,f_api,f_engine,f_mutate,f_memory,f_paths built
+    class c_smoke,t_json,t_toml,t_qoi,t_enc,f_api,f_engine,f_mutate,f_memory,f_paths built
     class s_corpus,s_inplace,s_crashes store
     class e_cargo,e_proc external
 ```
 
-- Each later parser adds a target with its task: `qoi` (M2.4), `ttf`
-  (M2.8), `regex` (M4.8), `vt` (M5.8), framing in `rpc` (M6.1), the
-  Markdown parser (M6.5), git's parsers (M8.1), `inflate` and `png`
-  (M10.7), and `zip` and `xml` (M10.2).
+- Each later parser adds a target with its task: `ttf` (M2.8), `regex`
+  (M4.8), `vt` (M5.8), framing in `rpc` (M6.1), the Markdown parser
+  (M6.5), git's parsers (M8.1), `inflate` and `png` (M10.7), and `zip`
+  and `xml` (M10.2).
 
 ### 4.2 Test support: property tests, benchmarks and fakes
 
@@ -846,7 +883,7 @@ in `crates/testkit/transcripts/` (M6.1).
 
 ```mermaid
 flowchart LR
-    t_codec["tidepool-codec tests<br/>tests/json.rs<br/>and tests/toml.rs"]
+    t_codec["tidepool-codec tests<br/>tests/json.rs, toml.rs<br/>and qoi.rs"]
     t_text["tidepool-text tests<br/>tests/edits.rs, model.rs,<br/>positions.rs, unit tests"]
     c_xtask["xtask"]
     c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, the binary"]
@@ -883,6 +920,62 @@ flowchart LR
 - The mock agent `tp-agent-mock` (M9.2), in `agents/`, plays the same part
   for TAP: the conformance suite runs against it.
 
+### 4.3 The golden frames
+
+`cargo xtask golden`, and the `golden` step of `ci`, draw each drawing
+crate's scenes and compare what they drew with the references in
+`tests/golden/`, exactly for `gfx` (ADR-0044). The matrix lets `xtask`
+use only `core` and `codec`, and `gfx` only `core`, so the scenes are
+tests that write what they drew as PAM files, and `xtask` reads those,
+decodes the QOI references and writes the QOI images. `golden` asks
+`cargo metadata` which members have a `golden` test; each needs a row in
+`SCENES`, which gives its tolerance.
+
+```mermaid
+flowchart TB
+    c_golden["xtask golden, xtask/src/golden.rs<br/>SCENES: tidepool-gfx, tolerance 0<br/>cargo xtask golden, with --bless SCENE..., and the golden step of ci"]
+    e_cargo["cargo test --package PACKAGE --test golden<br/>with TIDEPOOL_GOLDEN_DIR=target/golden/rendered/PACKAGE"]
+    subgraph b_gfx["tidepool-gfx: tests/golden.rs"]
+        t_scenes["14 scenes, one test each, gfx_fill_rect to gfx_backdrop_scale_2<br/>each primitive, clipping, a layer, images, glyph masks, the backdrop at scale 1 and 2"]
+    end
+    t_font["tidepool-font: tests/golden.rs<br/>scenes with a tolerance of 1<br/>planned M2.5"]
+    t_ui["tidepool-ui or tidepool-gui: tests/golden.rs<br/>planned M3.5"]
+    k_gfx["tidepool-gfx library<br/>Framebuffer, raster, image, glyph, backdrop"]
+    k_codec["tidepool-codec<br/>qoi::decode, qoi::encode"]
+    s_rendered[("target/golden/rendered/PACKAGE/SCENE.pam<br/>premultiplied RGBA, rows from the top")]
+    s_images[("target/golden/SCENE.actual.qoi and SCENE.diff.qoi<br/>a failing scene's images")]
+    s_refs[("tests/golden/SCENE.qoi<br/>the references")]
+
+    c_golden -->|"one cargo test a drawing crate"| e_cargo
+    e_cargo -->|"runs"| t_scenes
+    e_cargo -.->|"planned M2.5"| t_font
+    e_cargo -.->|"planned M3.5"| t_ui
+    t_scenes -->|"draws with"| k_gfx
+    t_scenes -->|"each writes what it drew"| s_rendered
+    c_golden -->|"empties target/golden, then reads them"| s_rendered
+    c_golden -->|"decodes each; --bless writes the scenes named"| s_refs
+    c_golden -->|"writes, for a scene that fails"| s_images
+    c_golden -->|"decode, encode"| k_codec
+
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
+    classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
+    classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class c_golden,t_scenes,k_gfx,k_codec built
+    class t_font,t_ui planned
+    class s_rendered,s_images,s_refs store
+    class e_cargo external
+```
+
+- A scene passes when its reference has its size and no channel of any
+  pixel differs from it by more than its crate's tolerance. A scene with
+  no reference fails, as does a reference that no scene drew; `--bless`
+  writes nothing when a scene command failed, a file could not be read,
+  or a name is no scene's, but another scene's failure does not stop it.
+- `ci` draws each scene twice: `test` runs the same tests with
+  `TIDEPOOL_GOLDEN_DIR` unset, so they draw and write nothing, and then
+  `golden` draws them again and compares.
+
 ## The crates
 
 Every workspace member, its layer, its `unsafe` policy, what it has and
@@ -901,10 +994,10 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-core` | `crates/core` | 0, foundations | deny | `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`, `color`, `cancel` (M0.2); `testing::fuzz` (M1.6); `path` (M1.8) | — | none |
 | `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2); the selections and properties the clipboard calls (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
 | `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2); `clipboard`, `paths` and `dirs` on Linux (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
-| `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6) | M2.4, M10.7, M10.2, M11.3 | `core`, dev only |
+| `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6); `qoi` and its fuzz target (M2.4) | M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
-| `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3) | M2.4 | `core` |
+| `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3); the golden scenes in `tests/golden.rs` (M2.4) | none: every planned module exists | `core` |
 | `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | nothing | M2.8, M2.5 | none |
 | `tidepool-markdown` | `crates/markdown` | 1, OS behavior, formats, engines | deny | nothing | M6.5 | none |
 | `tidepool-rpc` | `crates/rpc` | 2, services | deny | nothing | M6.1, M9.3, M13.1 | none |
@@ -921,7 +1014,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-gui` | `crates/gui` | 4, views and frontends | deny | nothing | M2.6, M3.5 | none |
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
 | `tidepool` (app) | `crates/app` | 5, application | deny | an empty `main` (M0.1) | M2.6, M3.4, M4.9, M7.1, M7.5, M14.4 | none |
-| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9) | `golden` (M2.4), `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
+| `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9); `golden`, a step of `ci` (M2.4) | `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
 | `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9) | suites for M4.1, M4.2, M4.4, M9.4, M14.3 | `core`, `codec`, `text` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 
@@ -934,7 +1027,9 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 - `crates/core/src/lib.rs`, `crates/core/src/testing.rs`,
   `crates/core/src/testing/fuzz.rs` and its modules `engine.rs`,
   `memory.rs`, `mutate.rs` and `paths.rs`
-- `crates/codec/src/lib.rs`, `crates/codec/tests/fuzz.rs`
+- `crates/codec/src/lib.rs`, `crates/codec/src/qoi.rs`,
+  `crates/codec/tests/fuzz.rs`; `crates/gfx/tests/golden.rs`, and the
+  references in `tests/golden/`
 - `crates/text/src/lib.rs`, `crates/text/tests/fuzz.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`; `crates/platform/src/lib.rs`,
@@ -943,9 +1038,10 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 - `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`
 - `docs/00-overview.md`; `docs/01-architecture.md` for the layers, the
   dependency matrix and the data flow; `docs/04-quality.md` for the checks,
-  fuzz smoke, benchmarks and fakes; `docs/roadmap.md` for what is planned
+  golden frames, fuzz smoke, benchmarks and fakes; `docs/roadmap.md` for
+  what is planned
 - `docs/subsystems/toolchains.md`, `agents.md`, `languages.md`,
   `editor.md`, `frontends.md`, `ui-and-theme.md`, `rendering.md`,
   `sys-and-platform.md` and `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0003, ADR-0008, ADR-0009, ADR-0010,
-  ADR-0017, ADR-0018, ADR-0027, ADR-0028 and ADR-0029
+  ADR-0017, ADR-0018, ADR-0027, ADR-0028, ADR-0029 and ADR-0044

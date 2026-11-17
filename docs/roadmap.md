@@ -1432,7 +1432,7 @@ our own rasterizer.
     of the four changed diagram files parse and render with Mermaid
     11.4.1.
 
-- [ ] **M2.4 — codec: QOI; xtask: golden harness; gfx goldens**
+- [x] **M2.4 — codec: QOI; xtask: golden harness; gfx goldens**
   - Depends: M2.3, M0.3, M1.6
   - Decide first: how `cargo xtask golden` draws its scenes. If it runs test
     binaries through cargo, that extends ADR-0017's list of `xtask`'s
@@ -1443,6 +1443,58 @@ our own rasterizer.
   - Accept: a changed pixel fails with diff images in `target/golden/`;
     QOI round-trips, and rejects malformed input without panicking.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-codec`
+  - Note (2026-11-17): ADR-0044 answers the `Decide first` line with the
+    options the user chose that day, each the recommended one: the scenes
+    are tests in `crates/gfx/tests/golden.rs` that write PAM when
+    `TIDEPOOL_GOLDEN_DIR` names a directory, and `cargo xtask golden`
+    runs them with `cargo test` (one more child of ADR-0017's) and
+    compares them with the QOI references; `golden` is a step of `ci`,
+    after `test`, so every CI runner compares.
+  - Note (2026-11-17): done. `codec::qoi` (`decode`, `encode`, `Header`,
+    `Image`, `Channels`, `ColorSpace`), ported from Nadir, writes what
+    `qoi.h` writes byte for byte and rejects what that decoder lets
+    through (a run past the last pixel, chunks that end early, a wrong
+    end marker, bytes after it); `Limits` gains `max_image_dimension`
+    (16,384) and `max_decoded_bytes` (1 GiB), and `CodecError` `Qoi` and
+    `QoiEncode`. Its fuzz target `qoi` has 17 seeds, `edge-*` ones at the
+    small limits (64 px a side, 4 KiB of pixels). `cargo xtask golden
+    [--bless <scene>...]` finds the drawing crates with `cargo metadata`
+    (members with a `golden` test target, each with a row in `SCENES`),
+    runs their scenes, compares each with `tests/golden/<scene>.qoi`
+    within its crate's tolerance (0 for `gfx`), and writes `actual` and
+    `diff` images of a failing scene; `--bless` rewrites only the scenes
+    named. It is a step of `ci` after `test`. `crates/gfx/tests/golden.rs`
+    has 14 scenes: each primitive, clipping, a layer, images, glyph masks,
+    and the backdrop at 480 × 300, scale 1 and 2. The 14 references take
+    96 KB. An independent QOI decoder (Python) read a reference back as
+    exactly the bytes its scene drew.
+  - Note (2026-11-17): checked on rustc 1.99.0, Linux x86_64. `cargo xtask
+    golden`: 14 scenes ok, in about 0.8 s as a step of the gate. A scene
+    changed by one column of pixels failed with 10 of 3,072 pixels and
+    wrote `gfx_fill_rect.actual.qoi` and `gfx_fill_rect.diff.qoi`, the
+    column in magenta; the scene was then restored. `cargo test -p
+    tidepool-codec`: 277 tests pass, 21 of them QOI's vectors and
+    property tests, and the README's and module's examples. `cargo xtask
+    fuzz-smoke --target qoi --secs 30`: 13,710,316 inputs, no finding.
+    `cargo xtask ci`: 12 of 12 steps pass, with 28 window tests skipped
+    for want of `TIDEPOOL_IT_X11` (M2.9). Clippy is clean for
+    `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` and
+    `aarch64-unknown-linux-gnu`, compiled, not run: that the scenes give
+    the same bytes on macOS and Windows is checked by CI's gate on the
+    next push (M0.4's ⏳). The 114 Mermaid blocks of `diagrams/` parse
+    and render with Mermaid 11.4.1, which rejected a planted broken one.
+  - Note (2026-11-17): reviewed. A security review of `golden` found 4 low
+    findings, all fixed: images are created as new files and references
+    renamed into place, so neither is written through a link or hard
+    link; `TIDEPOOL_GOLDEN_DIR` is removed from every other cargo child;
+    references are read one at a time; and a failed `--bless` write says
+    which references were written. Two review rounds followed, each
+    finding checked by two skeptics: round one, 15 of 18 confirmed (10
+    after removing duplicates), all fixed: `--bless` skipped a scene that
+    matched only within a tolerance above 0, a seed sat at a limit its
+    doc said it was under, and 8 in docs; round two, 6 of 9 confirmed, all
+    fixed: a temp file left by a failed write, and 5 in docs and diagrams.
+    A separate check of the diagrams confirmed 3 of 5, all fixed.
 
 - [ ] **M2.8 — font: TrueType parser and outline rasterizer; bundled font files**
   - Depends: M0.2, M1.6

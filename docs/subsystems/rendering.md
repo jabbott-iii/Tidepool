@@ -59,8 +59,11 @@ Invariants:
 
 ## Tests
 
-- Golden frames: each `raster` primitive, the backdrop, glyph runs in both
-  bundled faces at 11, 12, 13, 14, 16 and 24 px at scale 1 and 2, uppercase
+- Golden frames (`docs/04-quality.md` → "Golden frames", ADR-0044):
+  `gfx`'s scenes in `crates/gfx/tests/golden.rs` draw each `raster`
+  primitive, clipping, a layer, images, glyph masks and the backdrop at
+  scale 1 and 2, compared exactly (M2.4); `font`'s will draw glyph runs in
+  both bundled faces at 11, 12, 13, 14, 16 and 24 px at scale 1 and 2, uppercase
   letter-spaced labels.
 - Unit tests: exact pixels for every `gfx` primitive.
 - Property tests: no `gfx` draw call writes outside its clip, whatever its

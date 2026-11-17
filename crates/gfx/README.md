@@ -45,15 +45,16 @@ Built, with the roadmap task that built it:
   style, with a box-blurred copy for translucent panels. Its
   approximations are listed in the module's documentation — M2.3.
 
+- golden frames: 14 scenes in `tests/golden.rs`, one for each primitive,
+  clipping, a layer, images, glyph masks, and the backdrop at scale 1 and
+  2, which `cargo xtask golden` compares, exactly, with
+  `tests/golden/*.qoi` at the repository root (ADR-0044) — M2.4.
+
 The crate is written so that the same calls give the same bytes on every
 OS and CPU: it uses integer arithmetic, or floating-point operations that
-IEEE 754 rounds the same everywhere. The golden frames of M2.4 will check
-that across the CI runners. No draw call panics, whatever its geometry.
-
-Not yet, with the roadmap task that adds it:
-
-- golden frames for every primitive and the backdrop, with
-  `cargo xtask golden` — M2.4.
+IEEE 754 rounds the same everywhere. The golden frames check that on every
+CI runner, since `golden` is a step of `ci`. No draw call panics, whatever
+its geometry.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -122,7 +123,8 @@ fn main() -> Result<(), GfxError> {
 
 - Design: [`docs/subsystems/rendering.md`](../../docs/subsystems/rendering.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0011 (CPU
-  rendering); ADR-0004 (the jabbott.dev look).
+  rendering); ADR-0004 (the jabbott.dev look); ADR-0044 (the golden
+  scenes).
 - API reference: `cargo doc -p tidepool-gfx --open`
 
 ## Rules
@@ -138,7 +140,7 @@ fn main() -> Result<(), GfxError> {
 
 ```bash
 cargo test -p tidepool-gfx
-cargo xtask golden    # from M2.4
+cargo xtask golden
 ```
 
 `cargo xtask ci` runs the whole gate.

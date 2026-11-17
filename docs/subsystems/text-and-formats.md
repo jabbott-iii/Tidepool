@@ -848,6 +848,74 @@ assert_eq!(
 );
 ```
 
+### `qoi`
+
+`decode(&[u8], Limits)` returns an `Image`, its `Header` and its pixels;
+`encode(&Header, &[u8])` writes one. Ported from Nadir's `nadir-codec`. The
+module documentation in `crates/codec/src/qoi.rs` is authoritative; this is
+its summary.
+
+- The format is QOI 1.0: a 14-byte header (`qoif`, the width and height as
+  big-endian `u32`s, the channels, 3 or 4, and the color space, 0 for sRGB
+  or 1 for linear), the six kinds of chunk, and an end marker of seven
+  zero bytes and a one.
+- Pixels are always RGBA8, 4 bytes each, rows from the top. The header's
+  channels and color space describe the image to its reader, and change
+  nothing about how the pixels are stored: a file whose header says RGB
+  decodes to RGBA, with the alpha its chunks give (255, unless one sets
+  another). QOI's colors are not premultiplied, but the codec gives back
+  every byte it was given, whatever the caller's pixels hold.
+- `encode` writes byte for byte what the reference encoder (`qoi.h`)
+  writes: the same order of preference among the chunks, and a pixel
+  stored in the table of recently seen pixels only for the chunks that are
+  not a run. It refuses (`CodecError::QoiEncode`) a width or height of 0,
+  pixels that are not width × height × 4 bytes, and an RGB image with an
+  alpha other than 255.
+- `decode` reads any chunks a correct encoder may write, not only the
+  reference encoder's: like the reference decoder, it stores every pixel,
+  so a lookup may find one that a run stored.
+- It rejects, although the reference decoder accepts them:
+  - a run past the last pixel (`RunPastEnd`);
+  - chunks that end before the last pixel, where the reference repeats
+    the last pixel: the end marker is then read as chunks, and the file is
+    cut short or its end marker wrong;
+  - an end marker that is missing or wrong (`BadEndMarker`), and anything
+    after it (`TrailingBytes`).
+- Like the reference, it also rejects input that does not start with
+  `qoif` (`NotQoi`), a width or height of 0 (`EmptyImage`), channels other
+  than 3 or 4 (`BadChannels`) and a color space other than 0 or 1
+  (`BadColorSpace`). Input that ends too soon anywhere is `UnexpectedEnd`,
+  which says what should have come next.
+
+Errors: every failure to decode is `CodecError::Qoi { offset, kind }` with
+a `qoi::ErrorKind`, shown as "QOI error at byte {offset}: {kind}"; the
+decoder never panics. `offset` is the byte of the file where the problem
+is: 4 or 8 for the width or height, 12 or 13 for the channels or color
+space, a run's tag, the first byte of the end marker or of what follows
+it, and for `UnexpectedEnd`, the length of the input.
+
+`Limits`, each checked on the header, before the pixels are allocated:
+
+| Field | Default | Bounds |
+| :- | :- | :- |
+| `max_image_dimension` | 16,384 | The width and the height, each (`DimensionTooLarge`). `tidepool-gfx`'s `framebuffer::MAX_DIMENSION`, its largest framebuffer, kept equal by hand: `codec` does not depend on `gfx` |
+| `max_decoded_bytes` | 1 GiB | Width × height × 4 (`TooManyBytes`): exactly the largest image the default dimensions allow |
+
+Before it allocates, the decoder also checks that the file has room for
+the pixels its header claims: one chunk byte gives at most 62 pixels, so a
+file with fewer bytes after its header than a 62nd of its pixels is cut
+short, however it goes on, and a small file cannot claim a large
+allocation. `max_input_bytes` is not used: the decoder reads the file in
+place.
+
+Not supported: decoding part of an image or a stream of chunks, converting
+to or from another pixel layout (such as `tidepool-gfx`'s premultiplied
+BGRA), and color management (the color space is a label only).
+
+Tests: the hand-made vectors and the property tests are in
+`crates/codec/tests/qoi.rs`; the fuzz target `qoi` is in
+`crates/codec/tests/fuzz.rs`, with seeds in `fuzz/corpus/qoi/`.
+
 ## `tidepool-regex`
 
 - Parser → NFA → Pike VM simulation; linear time in input length for every

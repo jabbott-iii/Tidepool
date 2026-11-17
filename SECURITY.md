@@ -69,8 +69,8 @@ byte it reads from them as possibly malformed or hostile. In scope, as each
 part lands on the roadmap:
 
 - **Parsers and protocols:** the formats in `tidepool-codec` (JSON and
-  JSONC today; TOML, XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG and QOI
-  later), fonts, Markdown, the terminal's VT parser, git's output, and the
+  JSONC, TOML and QOI today; XML, plist, YAML, CSV, INI, DEFLATE, ZIP and
+  PNG later), fonts, Markdown, the terminal's VT parser, git's output, and the
   LSP, DAP and TAP messages. For example:
   - a panic, a hang or a stack overflow on any input;
   - memory use past the limits a parser is given (`Limits`);

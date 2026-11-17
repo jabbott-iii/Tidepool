@@ -9,7 +9,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.3 (2026-11-17, version 0.1), after M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -47,8 +47,9 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 their libraries; their `tests/fuzz.rs` use `core::testing::fuzz` as a
 dev-dependency, and make one `core::testing::fuzz::Target` per fuzz target.
 `xtask` uses `core` and `codec`, as the dependency matrix allows: it reads
-`cargo metadata` with `codec::json`, manifests with `codec::toml`, and the
-fuzz targets' result lines with `core::testing::fuzz::Summary`.
+`cargo metadata` with `codec::json`, manifests with `codec::toml`, the
+golden references with `codec::qoi`, and the fuzz targets' result lines
+with `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json` and the types of
 `text` (section 22), and `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
@@ -71,6 +72,7 @@ classDiagram
     class CodecError["codec::CodecError"]
     class JsonValue["codec::json::Value"]
     class TomlTable["codec::toml::Table"]
+    class QoiImage["codec::qoi::Image"]
     class Check["xtask::check::Check"]
     class Report["xtask::check::Report"]
     class Metadata["xtask::metadata::Metadata"]
@@ -84,10 +86,13 @@ classDiagram
     TomlTable ..> Limits : parse takes
     JsonValue ..> CodecError : parse fails with
     TomlTable ..> CodecError : parse fails with
+    QoiImage ..> Limits : decode takes
+    QoiImage ..> CodecError : decode fails with
     Check ..> Report : a step returns
     Check ..> XtaskError : a step fails with
     Check ..> Sha256 : ucd checks<br/>the data with
     Check ..> TomlTable : crates reads<br/>manifests into
+    Check ..> QoiImage : golden decodes<br/>references into
     Metadata ..> JsonValue : read from
     SmokeTarget ..> FuzzSummary : parses the<br/>result line into
     XtaskError ..> CoreError : Usage holds<br/>its text
@@ -985,10 +990,11 @@ classDiagram
     Target ..> Outcome : run_with turns Ran into
 ```
 
-## 10. codec: limits, errors and JSON
+## 10. codec: limits, errors, JSON and QOI
 
-Every parser takes a `Limits` and returns a `CodecError` with an offset, a
-line and a column; neither parser panics on input. `json::parse` reads
+Every parser takes a `Limits` and returns a `CodecError` with an offset,
+and for JSON and TOML a line and a column; no parser panics on input.
+`json::parse` reads
 strict JSON or, with `Dialect::Jsonc`, comments and one trailing comma. An
 object keeps its members in document order, duplicates included.
 
@@ -1001,6 +1007,8 @@ classDiagram
         +max_string_bytes: usize
         +max_number_bytes: usize
         +max_entries: usize
+        +max_image_dimension: u32
+        +max_decoded_bytes: usize
         +DEFAULT: Limits
     }
     class CodecError {
@@ -1008,6 +1016,8 @@ classDiagram
         Json
         Toml
         TomlEdit
+        Qoi
+        QoiEncode
     }
     class JsonFns["json"] {
         <<module>>
@@ -1088,7 +1098,78 @@ classDiagram
     Number *-- Repr
     CodecError *-- ErrorKind : Json
     note for Value "Array holds a Vec of Value, and<br/>Object a Vec of String and Value<br/>pairs in document order"
-    note for CodecError "Json and Toml carry offset,<br/>line, column and kind;<br/>TomlEdit a step and a kind"
+    note for CodecError "Json and Toml carry offset,<br/>line, column and kind;<br/>TomlEdit a step and a kind;<br/>Qoi offset and kind;<br/>QoiEncode a kind"
+```
+
+`qoi::decode` reads a QOI 1.0 file into an `Image`, whose pixels are
+always RGBA8, rows from the top, whatever its header's `Channels`. The
+header's width and height are checked against `max_image_dimension`, and
+the pixels' size against `max_decoded_bytes`, before the pixels are
+allocated. `qoi::encode` writes an image byte for byte as the reference
+encoder does. A file it cannot read is `CodecError::Qoi`, with the byte
+offset and a `qoi::ErrorKind`; an image it cannot write is
+`CodecError::QoiEncode`, with an `EncodeErrorKind`. `xtask`'s `golden`
+keeps its references in QOI (section 20).
+
+```mermaid
+classDiagram
+    direction TB
+    class QoiFns["qoi"] {
+        <<module>>
+        +decode(bytes, limits) Result~Image~
+        +encode(header, pixels) Result~Vec~u8~~
+    }
+    class Image["qoi::Image"] {
+        +header: Header
+        +pixels: Vec~u8~
+    }
+    class Header["qoi::Header"] {
+        +width: u32
+        +height: u32
+        +channels: Channels
+        +color_space: ColorSpace
+    }
+    class Channels["qoi::Channels"] {
+        <<enumeration>>
+        Rgb
+        Rgba
+    }
+    class ColorSpace["qoi::ColorSpace"] {
+        <<enumeration>>
+        Srgb
+        Linear
+    }
+    class ErrorKind["qoi::ErrorKind"] {
+        <<enumeration>>
+        NotQoi
+        EmptyImage
+        DimensionTooLarge
+        TooManyBytes
+        BadChannels
+        BadColorSpace
+        UnexpectedEnd
+        RunPastEnd
+        BadEndMarker
+        TrailingBytes
+    }
+    class EncodeErrorKind["qoi::EncodeErrorKind"] {
+        <<enumeration>>
+        EmptyImage
+        WrongDataSize
+        AlphaInRgb
+    }
+    class CodecError["codec::CodecError"]
+    class Limits["codec::Limits"]
+    QoiFns ..> Limits : decode takes
+    QoiFns ..> Image : decode returns
+    QoiFns ..> Header : encode takes
+    QoiFns ..> CodecError : fails with
+    Image *-- Header
+    Header *-- Channels
+    Header *-- ColorSpace
+    CodecError *-- ErrorKind : Qoi
+    CodecError *-- EncodeErrorKind : QoiEncode
+    note for Image "pixels: RGBA8, 4 bytes<br/>a pixel, width times<br/>height of them"
 ```
 
 ## 11. codec: TOML
@@ -1229,6 +1310,8 @@ classDiagram
         Json
         Toml
         TomlEdit
+        Qoi
+        QoiEncode
     }
     class ErrorKind["toml::ErrorKind"] {
         <<enumeration>>
@@ -1927,10 +2010,14 @@ Each `cargo xtask` check is a `Check`: a name, a step and a role. A step
 runs cargo with fixed arguments (`Cargo` and `Tests`), or one of `xtask`'s
 own checks (`Own`: `deps::run`, `layers::run`, `crates::run`,
 `features::run`, `unsafe_audit::run`, `headers::run`, `workflows::run`,
-`ucd::check` or `ucd::write`), which returns a `Report`. A `Compiles` step does not run
-once a `Gate` step has failed; `deps` is the gate. `ci` runs the checks in
-order and ends with a summary table that also lists the `Later` commands
-it will run once they exist (those with `in_ci`: `tools` and `theme`).
+`golden::check`, `ucd::check` or `ucd::write`), which returns a `Report`.
+A `Compiles` step does not run once a `Gate` step has failed; `deps` is
+the gate, and `clippy`, `test` and `golden` compile. `GOLDEN` is a step of
+`CI` but not in `COMMANDS`: `main` runs `golden` itself, for its
+`--bless`, and `print` prints what it found as `ci` prints a step. `ci`
+runs the checks in order and ends with a summary table that also lists
+the `Later` commands it will run once they exist (those with `in_ci`:
+`tools` and `theme`).
 Every `Later` command exits 1 with "not yet implemented" until its task
 lands. `run_gate` runs them and returns a `Gate`, each step's outcome and
 the tests counted; `run_ci` is its `passed`, and `site` keeps the rest
@@ -1943,10 +2030,12 @@ classDiagram
         <<module>>
         +COMMANDS: Check slice
         +CI: Check slice
+        +GOLDEN: Check
         +LATER: Later slice
         +run_one(check, root, out) io Result~bool~
         +run_ci(checks, later, root, out) io Result~bool~
         +run_gate(checks, later, root, out) io Result~Gate~
+        +print(name, result, out) io Result~bool~
     }
     class Gate {
         -outcomes: Vec~Outcome~
@@ -2023,7 +2112,7 @@ classDiagram
         Write
         Env
     }
-    CheckFns "1" o-- "0..*" Check : COMMANDS, CI
+    CheckFns "1" o-- "0..*" Check : COMMANDS, CI, GOLDEN
     CheckFns "1" o-- "0..*" Later : LATER
     Check *-- Step
     Check *-- Role
@@ -2039,7 +2128,7 @@ classDiagram
     note for Skips "Tests that printed SKIPPED:<br/>did not run, and are never<br/>counted as passes"
 ```
 
-## 20. xtask: fuzz-smoke's table
+## 20. xtask: fuzz-smoke's and golden's tables
 
 `cargo xtask fuzz-smoke` runs each fuzz target in `TARGETS` as a
 `cargo test` of its crate's `tests/fuzz.rs` in the `fuzz` profile, and
@@ -2085,7 +2174,7 @@ classDiagram
     class Reading["core::testing::fuzz::Reading"]
     class Kept["core::testing::fuzz::Kept"]
     class XtaskError["error::Error"]
-    SmokeFns "1" o-- "3" SmokeTarget : TARGETS
+    SmokeFns "1" o-- "4" SmokeTarget : TARGETS
     Options "1" o-- "1..*" SmokeTarget : borrows
     Options ..> Args : parse reads
     Options ..> XtaskError : parse fails with Usage
@@ -2094,7 +2183,64 @@ classDiagram
     Verdict *-- Summary : Clean, Found, Failed
     Summary *-- Reading : memory, reserved
     SmokeFns ..> Kept : keep_died
-    note for SmokeTarget "TARGETS holds json and toml<br/>in tidepool-codec, and<br/>encoding in tidepool-text"
+    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>and encoding in tidepool-text"
+```
+
+`cargo xtask golden` asks `cargo metadata` which members have a test
+target named `golden`, and runs each one's scenes as a `cargo test
+--package <crate> --test golden`, with `TIDEPOOL_GOLDEN_DIR` naming that
+crate's directory in `target/golden/rendered/`. A member with that test
+needs a row in `SCENES`, which gives its tolerance. It reads each PAM file
+a scene wrote into a `Rendered`, and judges it against its reference,
+`tests/golden/<scene>.qoi`, decoded with `codec::qoi`, into a `Verdict`
+(ADR-0044). `parse` reads `--bless` and the scene names after it;
+`check`, the step of `ci`, blesses nothing.
+
+```mermaid
+classDiagram
+    direction TB
+    class GoldenFns["golden"] {
+        <<module>>
+        +NAME: str
+        +DIR_VAR: str
+        +SCENES: Scenes slice
+        +check(root) Result~Report~
+        +parse(args) Result~BTreeSet~String~~
+        +command(bless, root, out) Result~bool~
+    }
+    class Scenes {
+        +package: str
+        +tolerance: u8
+    }
+    class Rendered {
+        -width: u32
+        -height: u32
+        -pixels: Vec~u8~
+        -tolerance: u8
+    }
+    class Verdict {
+        <<enumeration>>
+        Same
+        Differs
+        OtherSize
+        BadReference
+        NoReference
+        NotRendered
+    }
+    class Args["core::cli::Args"]
+    class QoiImage["codec::qoi::Image"]
+    class Metadata["metadata::Metadata"]
+    class Report["check::Report"]
+    class XtaskError["error::Error"]
+    GoldenFns "1" o-- "1" Scenes : SCENES
+    GoldenFns ..> Metadata : finds the crates<br/>with scenes in
+    GoldenFns ..> Args : parse reads
+    GoldenFns ..> XtaskError : parse fails with Usage
+    GoldenFns ..> Rendered : one per scene drawn
+    GoldenFns ..> Verdict : one per scene
+    GoldenFns ..> QoiImage : decodes references,<br/>encodes images
+    GoldenFns ..> Report : check returns
+    note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact"
 ```
 
 ## 21. xtask: cargo metadata, the dependency matrix and the crates check
@@ -3170,14 +3316,14 @@ The main files these diagrams were drawn from:
 - `crates/codec/src/lib.rs`, `limits.rs`, `error.rs`, `json.rs`,
   `json/number.rs`, `json/parse.rs`, `json/write.rs`, `toml.rs`,
   `toml/table.rs`, `toml/datetime.rs`, `toml/parse.rs`,
-  `toml/document.rs`, `toml/write.rs`
+  `toml/document.rs`, `toml/write.rs`, `qoi.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`
 - `crates/text/src/lib.rs`, `rope.rs`, `rope/node.rs`, `rope/iter.rs`,
   `pos.rs`, `pos/grapheme.rs`, `selection.rs`, `transaction.rs`,
   `history.rs`, `encoding.rs`, `file.rs`, `error.rs`
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `error.rs`, `fuzz.rs`,
-  `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`, `crates.rs`,
-  `ucd.rs`, `Cargo.toml`
+  `golden.rs`, `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`,
+  `crates.rs`, `ucd.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
   `suites.rs`, `suites/text.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
@@ -3195,7 +3341,8 @@ The main files these diagrams were drawn from:
   `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
-  ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042)
+  ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
+  ADR-0044)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

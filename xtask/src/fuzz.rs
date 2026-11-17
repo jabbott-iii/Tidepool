@@ -86,6 +86,10 @@ pub(crate) const TARGETS: &[Target] = &[
         package: "tidepool-codec",
     },
     Target {
+        name: "qoi",
+        package: "tidepool-codec",
+    },
+    Target {
         name: "encoding",
         package: "tidepool-text",
     },

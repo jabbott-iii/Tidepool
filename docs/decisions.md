@@ -310,7 +310,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0017 — `xtask` runs `cargo` itself, as a narrow exception to rule 2
 
-- **Status:** Accepted; extended by ADR-0030 (`cargo xtask site`'s children: the gate's steps, run in-process, and `cargo run --example` of one example each of `tidepool-codec` and `tidepool-text`); extended by ADR-0035 (`cargo xtask bench`'s child: `cargo run --release --quiet -p tidepool-bench`)
+- **Status:** Accepted; extended by ADR-0030 (`cargo xtask site`'s children: the gate's steps, run in-process, and `cargo run --example` of one example each of `tidepool-codec` and `tidepool-text`); extended by ADR-0035 (`cargo xtask bench`'s child: `cargo run --release --quiet -p tidepool-bench`); extended by ADR-0044 (`cargo xtask golden`'s children, from `ci`, `site` and `golden`: `cargo test --package <crate> --test golden` of each drawing crate)
 - **Date:** 2026-11-01
 - **Context:** `AGENTS.md` rule 2 says only `tidepool-toolchain` finds,
   installs, updates or spawns outside programs. `cargo xtask ci` (M0.3)
@@ -2620,3 +2620,125 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** a log, trace or crash report is to record key events,
   which name the keys pressed; or a type that holds user text needs its
   text in `Debug` for a reason this ADR did not weigh.
+
+## ADR-0044 — Golden scenes draw in each drawing crate's `tests/golden.rs` and write PAM; `cargo xtask golden` runs them with `cargo test`, compares them with QOI references, and is a step of `ci`
+
+- **Status:** Accepted
+- **Date:** 2026-11-17
+- **Context:**
+  - M2.4 builds the golden harness of `docs/04-quality.md` → "Golden
+    frames": scenes drawn offscreen at a fixed size and scale, references
+    in `tests/golden/*.qoi`, a per-scene tolerance (exact for `gfx`),
+    `actual` and `diff` images in `target/golden/` on a mismatch, and
+    `--bless` for the scenes named. Its `Decide first` line asks how
+    `cargo xtask golden` draws the scenes.
+  - The dependency matrix (`docs/01-architecture.md`) lets `tidepool-gfx`
+    use only `core`, so its tests can draw but cannot read or write QOI;
+    `xtask` may use only `core` and `codec`, so it can read and write QOI
+    but cannot draw. `cargo xtask layers` checks dev-dependencies too.
+    `font` (M2.5) and `ui` (M3.5) have the same rows as `gfx`.
+  - ADR-0017 lets `xtask` start only `cargo`, with a listed set of
+    children (extended by ADR-0027, ADR-0030 and ADR-0035).
+  - M2.3 made `gfx`'s output bit-identical on every OS for the same draw
+    calls (`docs/subsystems/rendering.md` → Invariants), and its note left
+    the comparison across CI's runners to M2.4. `docs/04-quality.md` said
+    goldens run on Linux CI only until M11/M12 add per-OS references for
+    platform-specific scenes, and `ci` did not list `golden` among its
+    later steps.
+  - Nadir solved the same constraint the same way (its ADR-0017), with GL
+    scenes; Tidepool's are CPU scenes, so there is no renderer to name or
+    check.
+  - On 2026-11-17 the user chose the recommended option of each question:
+    scenes in test binaries that write PAM, compared by `xtask`; and
+    `golden` as a step of `ci`, so every runner compares.
+- **Decision:**
+  - **Scenes are tests.** Each crate that draws has a dev-only
+    integration test, `tests/golden.rs`, with one `#[test]` per scene,
+    named after it (`[a-z0-9_]`, at most 64 bytes). `gfx`'s comes with
+    M2.4; `font`'s with M2.5, and `ui`'s, drawn by `gui`, with M3.5. A
+    scene draws at a fixed size and scale; `gfx`'s draw into a
+    `gfx::Framebuffer`. M2.4 changes no matrix row: `font`'s row allows
+    only `core`, so its scenes write their own coverage, unless M2.5
+    decides a `font` → `gfx` dev-dependency.
+  - **They write PAM only when asked.** When `TIDEPOOL_GOLDEN_DIR` names
+    a directory, a scene writes what it drew there as `<scene>.pam`
+    (Netpbm PAM: `DEPTH 4`, `MAXVAL 255`, `TUPLTYPE RGB_ALPHA`, rows from
+    the top), holding the framebuffer's premultiplied bytes in RGBA order,
+    unchanged, so the comparison is of exactly what was drawn. Unset, the
+    scenes draw and write nothing, so the gate's `cargo test` still runs
+    every scene and fails on a panic or a scene's own checks.
+  - **`cargo xtask golden` runs them and compares.** It empties
+    `target/golden/`, runs each drawing crate's scenes with `cargo test
+    --package <crate> --test golden`, `TIDEPOOL_GOLDEN_DIR` naming a
+    directory of its own under `target/golden/rendered/` for that crate,
+    and compares each PAM with `tests/golden/<scene>.qoi`, decoded with
+    `codec::qoi`. This extends ADR-0017's list of children by one cargo
+    command per drawing crate, with its rules: an argv vector, the root
+    as its directory, standard input closed, `CARGO_NET_OFFLINE=true`;
+    the child's output goes to the terminal. The PAM reader, the
+    comparison, the diff images and the QOI files are `xtask`'s.
+  - **The comparison.** Each drawing crate has one tolerance, in
+    `xtask`'s table of scene commands: the largest difference in a
+    channel that still counts as the same, 0 for `gfx` (exact) and, from
+    M2.5, 1 for `font`'s coverage. A scene passes when it has a reference
+    of its size and no pixel differs by more than the tolerance; it fails
+    when it has no reference, its reference is another size or does not
+    decode, or a pixel differs; a reference that no scene drew fails, as
+    does an entry in `tests/golden/` that is not a regular file named
+    `<scene>.qoi`, and a scene name drawn by two crates. A failing scene
+    gets `target/golden/<scene>.actual.qoi` and, when the sizes match,
+    `<scene>.diff.qoi`: magenta where a pixel differs, the reference in
+    dim gray elsewhere, opaque everywhere.
+  - **`--bless <scene>...`** writes the references of the scenes named,
+    and only those, from what they drew in the same run, once every scene
+    command has succeeded. It needs at least one name, and fails, writing
+    nothing, on a name that no scene drew. Removing a reference is done
+    by hand.
+  - **A step of `ci`.** `golden`, without `--bless`, is a step of `cargo
+    xtask ci` right after `test`, and like it is not run once `deps`
+    fails. So CI compares the shared references on Linux, macOS and
+    Windows, and `cargo xtask site`, which runs the gate's steps, runs it
+    too. Scenes that are specific to an OS wait for M11/M12's per-OS
+    references.
+- **Consequences:**
+  - M2.4 touches `codec` (`qoi`), `gfx` (its scenes, tests only) and
+    `xtask`, and no workflow: `ci.yml` already runs `cargo xtask ci`.
+  - Every scene draws twice in `ci`: once in `test`, writing nothing, and
+    once in `golden`. The test binary is already built by then.
+  - The PAM writer (in each crate's `tests/golden.rs`) and the reader (in
+    `xtask`) are two copies of one small format; a unit test in `xtask`
+    pins what the reader accepts.
+  - A translucent pixel is stored premultiplied, so an image viewer,
+    which reads QOI's alpha as straight, shows it darker than it is.
+    Scenes draw over an opaque background, so their images look right,
+    but where one copies translucent pixels on purpose (`gfx_image`).
+  - A reference is shared by every OS. A change to `gfx`'s arithmetic that
+    moves one pixel fails `ci` everywhere until the reference is
+    re-blessed with review (`CONTRIBUTING.md`).
+  - `ci`'s summary and the demo page's gate tab gain a step, and `golden`
+    is no longer listed as not yet implemented.
+  - The drawing crates are found with `cargo metadata`, a child ADR-0017
+    already allows: the workspace's members with a test target named
+    `golden`, each needing its row and tolerance in `xtask`'s table. A
+    workspace with none and no references, as in `xtask`'s fixtures,
+    passes; a crate with the test and no row fails. `xtask` removes
+    `TIDEPOOL_GOLDEN_DIR` from every other cargo child.
+- **Alternatives considered:**
+  - `gfx`, `font` and `ui` compare in `cargo test`, with a dev-dependency
+    on `codec`: every `cargo test` compares, but it adds three matrix
+    edges, and the comparison and diff images need a crate all three may
+    use, which is more edges.
+  - A dev-only binary crate that links the drawing crates and `codec`, run
+    by `cargo run`, as `tidepool-bench` is: a new member, matrix row and
+    README, and the task spreads past three crates.
+  - A QOI encoder copied into each crate's tests, so the scenes could
+    compare themselves: a second encoder to keep byte-identical.
+  - Raw pixels with the size in the file name instead of PAM: a few lines
+    shorter, but no check of its own, and no viewer opens it.
+  - Goldens in a Linux-only CI step, as `docs/04-quality.md` had it: the
+    claim that `gfx` gives the same bytes everywhere would go unchecked
+    on macOS and Windows until M11/M12.
+- **Revisit when:** a crate other than `xtask` needs to compare images
+  in-process; one tolerance per crate is too coarse for a scene; a scene
+  must differ by OS (M11/M12); or the scenes make `ci`'s `golden` step
+  take more than 30 s on a CI runner.

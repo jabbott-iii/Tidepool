@@ -57,7 +57,7 @@ and `a11y` land in M3.1.
 ```bash
 cargo test -p tidepool-ui
 cargo xtask theme    # from M3.2
-cargo xtask golden    # from M2.4
+cargo xtask golden    # ui's scenes from M3.5
 ```
 
 `cargo xtask ci` runs the whole gate.

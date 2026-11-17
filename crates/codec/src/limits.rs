@@ -18,8 +18,11 @@
 //! that bound JSON (input size and number length are new), defaults sized
 //! for `cargo metadata` and language-server traffic instead of game assets,
 //! and a `const` [`Limits::DEFAULT`] like `tidepool_core::cli::Limits`. The
-//! image and audio bounds stay in Nadir; decompression bounds arrive with
-//! `inflate` and `zip`.
+//! image bounds came with `qoi` (M2.4): Nadir's `max_texture_dimension` is
+//! [`Limits::max_image_dimension`] here, and both it and
+//! [`Limits::max_decoded_bytes`] default to the largest framebuffer
+//! `tidepool-gfx` makes, not to a game's textures. The audio bounds stay in
+//! Nadir; decompression bounds arrive with `inflate` and `zip`.
 
 /// Upper bounds a parser enforces on its input, so that a malformed or
 /// hostile document cannot exhaust memory or the stack.
@@ -68,6 +71,11 @@
 pub struct Limits {
     /// The longest input accepted, in bytes. Checked first, before anything
     /// is parsed.
+    ///
+    /// The text formats (JSON and TOML) check it. [`qoi`](crate::qoi) does
+    /// not: its decoder reads the file in place and allocates only the
+    /// pixels, which [`max_decoded_bytes`](Self::max_decoded_bytes) bounds,
+    /// and it rejects a file with anything after its end marker.
     pub max_input_bytes: usize,
     /// How deeply arrays and objects may nest. A document that is only a
     /// scalar has depth 0; `[[1]]` has depth 2.
@@ -94,6 +102,16 @@ pub struct Limits {
     /// The most elements one array, or members one object or TOML table,
     /// may have. The bound is per container, not for the whole document.
     pub max_entries: usize,
+    /// The widest, or tallest, image a decoder accepts, in pixels. Checked
+    /// on the header, before the pixels are allocated.
+    pub max_image_dimension: u32,
+    /// The most bytes a decoder may produce for one file. An image takes 4
+    /// bytes a pixel (RGBA8). Checked on the header, before the output is
+    /// allocated.
+    ///
+    /// It bounds the output. The QOI decoder holds nothing else that grows
+    /// with the file: it reads the input in place.
+    pub max_decoded_bytes: usize,
 }
 
 impl Limits {
@@ -120,12 +138,22 @@ impl Limits {
     ///   TOML array to 56 MB of values (56 bytes each); and one TOML table
     ///   to 96 MB of entries (96 bytes each) and 16 MB of index, besides
     ///   what the values and keys hold.
+    /// - `max_image_dimension`: 16,384 pixels, the largest width or height
+    ///   of a framebuffer in `tidepool-gfx` (its `framebuffer::MAX_DIMENSION`,
+    ///   a 4K display at scale 4), so that any frame it draws can be read
+    ///   back. This crate does not depend on `tidepool-gfx`: the two are kept
+    ///   equal by hand.
+    /// - `max_decoded_bytes`: 1 GiB, exactly the largest image those
+    ///   dimensions allow, 16,384 × 16,384 pixels of 4 bytes. Lower it to
+    ///   read images from an untrusted source.
     pub const DEFAULT: Self = Self {
         max_input_bytes: 64 * 1024 * 1024,
         max_depth: 128,
         max_string_bytes: 16 * 1024 * 1024,
         max_number_bytes: 1024,
         max_entries: 1_000_000,
+        max_image_dimension: 16_384,
+        max_decoded_bytes: 1024 * 1024 * 1024,
     };
 }
 
@@ -149,5 +177,9 @@ mod tests {
         assert_eq!(limits.max_string_bytes, 16_777_216);
         assert_eq!(limits.max_number_bytes, 1024);
         assert_eq!(limits.max_entries, 1_000_000);
+        assert_eq!(limits.max_image_dimension, 16_384);
+        assert_eq!(limits.max_decoded_bytes, 1_073_741_824);
+        // The largest image fits exactly.
+        assert_eq!(16_384 * 16_384 * 4, limits.max_decoded_bytes);
     }
 }

@@ -36,13 +36,14 @@
 //! ([`run_keeping_lines`]).
 
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 
 use crate::error::Error;
+use crate::golden;
 use crate::walk;
 
 /// What a line must start with to report a test that did not run
@@ -398,12 +399,26 @@ pub(crate) const OFFLINE: (&str, &str) = ("CARGO_NET_OFFLINE", "true");
 ///
 /// [`Error::Spawn`] if cargo cannot be started.
 pub(crate) fn run(root: &Path, args: &[&str]) -> Result<bool, Error> {
-    let status = command(root, args)
-        .status()
-        .map_err(|source| Error::Spawn {
-            command: display(args),
-            source,
-        })?;
+    run_with_env(root, args, &[])
+}
+
+/// [`run`], with `env` added to cargo's environment: for `golden`, which
+/// names the directory its scenes write to (ADR-0044).
+///
+/// # Errors
+///
+/// [`Error::Spawn`] if cargo cannot be started.
+pub(crate) fn run_with_env(
+    root: &Path,
+    args: &[&str],
+    env: &[(&str, &OsStr)],
+) -> Result<bool, Error> {
+    let mut command = command(root, args);
+    command.envs(env.iter().copied());
+    let status = command.status().map_err(|source| Error::Spawn {
+        command: display(args),
+        source,
+    })?;
     Ok(status.success())
 }
 
@@ -546,7 +561,11 @@ fn base(root: &Path, args: &[&str]) -> Command {
         .args(args)
         .current_dir(root)
         .stdin(Stdio::null())
-        .env(OFFLINE.0, OFFLINE.1);
+        .env(OFFLINE.0, OFFLINE.1)
+        // Only `golden`'s child gets it, set again by `run_with_env`: one
+        // left in the environment would have the gate's `cargo test` write
+        // the scenes' files there (ADR-0044).
+        .env_remove(golden::DIR_VAR);
     command
 }
 
@@ -584,6 +603,25 @@ mod tests {
         assert_eq!(
             display(&["metadata", "--manifest-path", "a\n::error::x/Cargo.toml"]),
             "cargo metadata --manifest-path a\\n::error::x/Cargo.toml"
+        );
+    }
+
+    #[test]
+    fn only_golden_s_child_names_where_the_scenes_write() {
+        let golden_dir = |command: &Command| {
+            command
+                .get_envs()
+                .filter(|(name, _)| *name == golden::DIR_VAR)
+                .map(|(_, value)| value.map(OsStr::to_os_string))
+                .collect::<Vec<_>>()
+        };
+        // Removed, whatever this process's environment holds.
+        assert_eq!(golden_dir(&command(Path::new("."), &["test"])), [None]);
+        let mut with = command(Path::new("."), &["test"]);
+        with.envs([(golden::DIR_VAR, OsStr::new("/repo/target/golden/rendered"))]);
+        assert_eq!(
+            golden_dir(&with),
+            [Some(OsString::from("/repo/target/golden/rendered"))]
         );
     }
 

@@ -33,14 +33,63 @@ as a pass.
 
 ### Golden frames
 
-- Scenes are drawn offscreen by test binaries into a framebuffer at a fixed
-  size and scale, then encoded as QOI.
-- `cargo xtask golden` compares them to `tests/golden/` with a per-scene
-  tolerance (default: exact for `gfx`, ≤ 1/255 per channel for `font`
-  coverage). On mismatch it writes `actual` and `diff` images to
-  `target/golden/`.
-- `--bless` replaces references only for the scenes named, and only after
-  the user has reviewed the diff images.
+The design is ADR-0044's; `xtask/src/golden.rs`'s module documentation is
+authoritative, and this summarizes it.
+
+- **Scenes are tests.** Each crate that draws has a dev-only integration
+  test, `tests/golden.rs`, with one test per scene, named after it (1 to
+  64 of `a-z`, `0-9` and `_`, unique across crates), at a fixed size and
+  scale, at most 4,096 px a side. `gfx`'s 14 scenes (M2.4) draw into a
+  `gfx::Framebuffer`, over an opaque background, and cover every
+  primitive, clipping, a layer, images, glyph masks and the backdrop at
+  scale 1 and 2. `font`'s join with M2.5: its matrix row allows only
+  `core`, so its scenes write their own coverage, unless M2.5 decides a
+  `font` → `gfx` dev-dependency. `ui`'s are drawn by `gui` (M3.5), whose
+  row allows `gfx`, `font` and `ui`.
+- **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
+  what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
+  top): the framebuffer's premultiplied bytes, unchanged. Unset, the
+  scenes draw and write nothing; `xtask` removes it from every cargo child
+  but `golden`'s, so the gate's `cargo test` never writes them.
+- **`cargo xtask golden`** finds the drawing crates with `cargo
+  metadata`: the workspace's members with a test target named `golden`,
+  each of which needs a row in `SCENES` (`xtask/src/golden.rs`), which
+  gives its tolerance; a member with the test and no row, or a row whose
+  member has no such test, fails, and a row that is not a member draws
+  nothing (as in `xtask`'s fixtures). It empties `target/golden/`, runs
+  `cargo test --package <crate> --test golden` for each drawing crate with
+  the variable naming `target/golden/rendered/<crate>/`, and compares each
+  scene with `tests/golden/<scene>.qoi`, decoded with `codec::qoi`. A
+  scene passes when no channel of any pixel differs by more than its
+  crate's tolerance (its line then gives the largest difference, if any): 0 for `gfx` (exact); from M2.5, 1 for `font`'s
+  coverage. A scene with no reference, a reference of another size or
+  that does not decode, a reference no scene drew, anything else in
+  `tests/golden/`, a scene name two crates draw, a scene file that is not
+  a PAM it reads, a failed scene command, and drawing crates that drew
+  nothing with no references to compare each fail; a workspace with no
+  drawing crate and no references passes. A failing scene gets `target/golden/<scene>.actual.qoi`
+  and, when the sizes match, `<scene>.diff.qoi`: magenta where a pixel
+  differs, the reference in dim gray elsewhere. It reads one reference at
+  a time.
+- **Writes.** `golden` refuses a symbolic link on the way to
+  `target/golden/` or `tests/golden/`, and checks again before it writes;
+  it creates each image as a new file, which the OS refuses at a link,
+  and writes a reference to `.<scene>.qoi.tmp` beside it, then renames it
+  over the old one, which replaces a link or a hard link instead of
+  writing through it. A workspace with no drawing crate leaves
+  `target/golden/` as it is.
+- **A step of `ci`**, right after `test`, so every CI runner, Linux, macOS
+  and Windows, compares the shared references: `gfx` gives the same bytes
+  on every OS (`docs/subsystems/rendering.md`).
+- **`--bless <scene>...`** writes the references of the scenes named, and
+  only those, from what they drew in the same run, after the user has
+  looked at their images, unless a reference is already exactly the scene
+  (one within a tolerance above 0 is rewritten); it writes nothing when a scene command failed,
+  a file could not be read, or a name is no scene's, and the first
+  reference it cannot write stops the rest, with a violation naming those
+  written before it. Removing a reference is done by hand.
+- A translucent pixel is stored premultiplied, so a viewer shows it darker
+  than it is; `gfx_image` keeps some on purpose.
 - Theme changes (`themes/tidepool-dark.toml`) must re-bless with review.
 
 ### Fakes
@@ -75,8 +124,9 @@ The design is ADR-0027's; the engine's rustdoc
   `fuzz/corpus/` or `fuzz/crashes/` has no row, or when a row's
   `fuzz/corpus/<target>/` is missing or holds no regular file that is not
   hidden. `fuzz/NOTICE.md` says where a saved input may come from.
-- **Targets now** (M1.6). The parsers run with small `Limits` (4 KiB of
-  input, depth 32, strings of 1 KiB, numbers of 64 bytes, 256 entries),
+- **Targets now** (M1.6, and `qoi` from M2.4). The parsers run with small
+  `Limits` (4 KiB of input, depth 32, strings of 1 KiB, numbers of 64
+  bytes, 256 entries, images of 64 px a side and 4 KiB of pixels),
   and their corpora hold `edge-*` seeds that sit exactly at each limit, so
   that one mutation crosses it; the decoder of `text::encoding` takes no
   `Limits`. Each has a 16 MiB written-memory cap.
@@ -85,9 +135,10 @@ The design is ADR-0027's; the engine's rustdoc
   | :- | :- | :- | :- | :- |
   | `json` | `codec` | `json::parse_bytes`, both dialects; and for input that is not UTF-8, `json::parse` of its lossy decoding | an error's offset is in the input, at a character boundary, with its line and column, and an `InvalidUtf8` one where the UTF-8 stops; strict JSON reads the same as JSONC, and JSONC accepts more only for a comment or a trailing comma; the compact and pretty output read back equal | `crates/codec/tests/json/` (the RFC 8259 examples and the other hand-made vectors) |
   | `toml` | `codec` | `toml::parse_bytes`; for input that parses, `toml::Document::parse_bytes` and four edits, each on a copy; and for input that is not UTF-8, `toml::parse` of its lossy decoding | the same error checks; every span is a non-empty range of characters of the input, and holds what its kind says (quotes, a bare key's name, a boolean's word, `[`, `[[` or `{`); the document holds the input and the parser's tree; the edits (the leaf that starts last becomes a string that needs escapes; `fz = 7`, and a new table with a key in it, go into a table of any kind that an FNV-1a hash of the input picks, so that a replay picks it again; a new table with a key in it goes into the root) each change exactly the bytes they should and read back holding the value, or are refused for a limit (or, for a `fz` that is a table, as not replaceable) and change nothing; a refusal as unverified is a finding | `crates/codec/tests/toml-test/`, valid and invalid (ADR-0026) |
+  | `qoi` | `codec` | `qoi::decode` | an error's offset is in the input and names the byte it describes (the magic, a zero or too-large side, more pixels than `max_decoded_bytes`, the channels or color-space byte, a run past the last pixel, a wrong end marker, bytes after it); an image that decodes has the input's header, within the limits, as many pixels as it says, and ends with the end marker; `qoi::encode` refuses an RGB image at its first pixel whose alpha is not 255, and otherwise writes what decodes to the same image and encodes again to the same bytes | — |
   | `encoding` | `text` | `encoding::Decoder`, fed in pieces that the input decides, and `decode` | the pieces decode as the whole does; the text and the detected format are what `std` decodes; the runs of replaced bytes keep their promises; `original_bytes()` is the input; a text decoded without a replacement encodes back to it | — |
 
-  Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, QOI, TrueType,
+  Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, TrueType,
   Markdown, regex compile, VT parser, JSON-RPC framing, LSP messages, TAP
   messages, git porcelain v2, cargo JSON diagnostics, tool version
   strings, each with its parser's task.
@@ -329,7 +380,7 @@ The design is ADR-0027's; the engine's rustdoc
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro outside `sys`/`platform` that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
@@ -337,7 +388,7 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
-| `cargo xtask golden [--bless]` | Not yet implemented (M2.4). Planned: a golden frame or TUI snapshot differs |
+| `cargo xtask golden [--bless <scene>...]` | A scene's command fails; a scene differs from its reference by more than its crate's tolerance, or has no reference, or a reference of another size or that does not decode; a reference no scene drew, or anything else in `tests/golden/`; a scene file that is not a PAM it reads, or a scene name two crates draw; a member with a `golden` test and no row in `SCENES`, or a row whose member has no such test; drawing crates drew nothing and there are no references; `cargo metadata` fails; or `target/golden/`, `tests/golden/` or a directory on the way to either is a symbolic link, or cannot be read or written. With `--bless`, also a name that no scene drew; then nothing is written ("Golden frames", ADR-0044). A step of `ci`, without `--bless`. TUI snapshots join with M7 |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/` is a link or not a directory, a directory in `fuzz/corpus/` or `fuzz/crashes/` has no row in its table, or a row has no seeds (then nothing runs); or a target panics, hangs, takes the written or the reserved memory past its cap, fails its own check, reports another seed or too few seconds, or its test fails, does not build, does not run or dies, or cargo fails before it runs ("Fuzz smoke", above). Not a step of `ci` |
 | `cargo xtask bench [filter] [--save --machine NAME]` | Reports only, and is not a step of `ci`: it fails only when cargo cannot build or start `tidepool-bench`, or that binary exits 1 for a bad argument, a filter that matches no suite, a failed suite, or a baseline that cannot be read, parsed or written (or, with `--save`, was recorded on another machine). A median more than 10% slower than the baseline's is marked, not failed ("Benchmarks", ADR-0035) |
 | `cargo xtask workflows` | A workflow in `.github/workflows/` has no row in the check's table, uses an action its row does not allow, pins one by anything but a full commit SHA with a `# v…` comment, gives its token more than its row allows, uses `pull_request_target`, or checks out without `persist-credentials: false` (ADR-0022); or it is written in a form the check cannot read line by line (below); or there is no workflow to check, a workflow is over 1 MiB or not UTF-8, an entry there named like a workflow is not a regular file, or a symbolic link is in or on the way to `.github/workflows/` |
@@ -365,14 +416,18 @@ as far as HEAD's hash when the `TIDEPOOL_SITE_*` variables are not set,
 and its examples' output ("Demo page"). It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
 signatures (none of it is kept or printed), or the whole of a file a check
-parses. The one file it writes in the repository is the generated Unicode
-tables, with `cargo xtask ucd` without `--check` (below), and the one it
-renames is a dead replay's `fuzz/crashes/<target>/.last-input`, to
-`died-<hash>`; the fuzz tests that `fuzz-smoke` runs save their findings
+parses. The files it writes in the repository are the generated Unicode
+tables, with `cargo xtask ucd` without `--check` (below), and, with
+`golden --bless`, the references `tests/golden/<scene>.qoi` of the scenes
+named, each written to `.<scene>.qoi.tmp` and renamed over it ("Golden
+frames"); the other file it renames is a dead replay's
+`fuzz/crashes/<target>/.last-input`, to `died-<hash>`; the fuzz tests that `fuzz-smoke` runs save their findings
 to `fuzz/crashes/` ("Fuzz smoke"), and `bench`'s child writes
-`bench/baseline.json`, only with `--save` ("Benchmarks"). Besides those, `site` writes the demo
-page into `target/site`, or its `--out` directory, and removes there only
-what an earlier run wrote. It opens no sockets, and its cargo children run with
+`bench/baseline.json`, only with `--save` ("Benchmarks"). Besides those,
+every `golden` run with a drawing crate, `ci`'s and `site`'s included, empties `target/golden/`
+and writes the scenes' files and a failing scene's images there, and
+`site` writes the demo page into `target/site`, or its `--out` directory,
+and removes there only what an earlier run wrote. It opens no sockets, and its cargo children run with
 `CARGO_NET_OFFLINE=true`. The tests that `ci` runs inherit the environment,
 so with a `TIDEPOOL_IT_*` variable set, a real-tool test may still reach the
 network through its tool.
@@ -384,8 +439,10 @@ network through its tool.
 - `cargo xtask <command> [--root DIR]`. Every command takes no other
   argument, except `ucd`, which also accepts `--check` (once);
   `fuzz-smoke`, which accepts `--secs N`, `--target T`, `--seed S` and
-  `--replay`, each once ("Fuzz smoke"); and `site`, which accepts
-  `--out DIR` (once; "Demo page"). An unknown target, or a value that
+  `--replay`, each once ("Fuzz smoke"); `site`, which accepts
+  `--out DIR` (once; "Demo page"); and `golden`, which accepts `--bless`
+  and the names of the scenes to bless, only with it ("Golden frames").
+  An unknown target, or a value that
   does not parse, is a usage error. `bench` is the exception: when it is
   the first argument, `xtask` parses nothing after it and passes every
   argument on to `tidepool-bench`, `--help` and `--root` included
@@ -414,8 +471,10 @@ network through its tool.
   information replaced by `…` (`git+https://…@host/repo`). Not covered:
   cargo's message text can still name a value that is not a URL, such as a
   `rustc` path or an `include` file. And `ci`'s fmt, clippy and test steps
-  (and `site`'s run of them), and `fuzz-smoke`'s tests, stream cargo's
-  output as cargo prints it, and `bench`'s child passes on as printed both
+  (and `site`'s run of them), `golden`'s `cargo test --package <crate>
+  --test golden` of each drawing crate (from `ci`, `site` and `golden`
+  itself, ADR-0044), and `fuzz-smoke`'s tests, stream cargo's output as
+  cargo prints it, and `bench`'s child passes on as printed both
   cargo's build output and `tidepool-bench`'s own, a panicking suite's
   message included (ADR-0035). So
   keep secrets out of the repository's cargo files; cargo reads
@@ -438,9 +497,10 @@ network through its tool.
     leading spaces it ignores. So every line starts with text `xtask`
     wrote.
   - Not covered by `xtask`: `ci`'s fmt, clippy and test steps (and
-    `site`'s run of them), and
-    `fuzz-smoke`'s tests, stream cargo's output as cargo prints it, and the
-    code they build and test can print anything. `bench`'s child does the
+    `site`'s run of them), `golden`'s `cargo test` of each drawing crate
+    (from `ci`, `site` and `golden`), and `fuzz-smoke`'s tests, stream
+    cargo's output as cargo prints it, and the code they build and test
+    can print anything. `bench`'s child does the
     same with cargo's build output and `tidepool-bench`'s own, which
     escapes the names it reads from the baseline and the command line but
     not a panicking suite's message, printed by the panic hook as it is
@@ -452,8 +512,8 @@ network through its tool.
     workflow commands, and so do the fuzz-smoke step and `pages.yml`'s
     build step, so none acts as
     one, though a paused line still shows in the log as printed (M0.11, "CI
-    (GitHub Actions)"). Run locally, the streamed steps and `bench` can
-    still send escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
+    (GitHub Actions)"). Run locally, the streamed steps, `golden` and
+    `bench` can still send escape sequences to the terminal. What `fuzz-smoke` quotes of a child's
     line in its own messages is escaped, as any check's message is.
 - When every violation `deps` found is an out-of-date lockfile (below), its
   last line is `deps: FAILED (N violations; only out-of-date lockfiles)`
@@ -462,8 +522,8 @@ network through its tool.
   The Claude Code hook (`.claude/hooks/deps-guard.sh`) relies on it. In
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
-- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2), `golden`
-  (M2.4) and `package` (M11.6, M12.4, M14.4).
+- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2) and
+  `package` (M11.6, M12.4, M14.4).
   Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
@@ -473,23 +533,27 @@ network through its tool.
   exception named in `AGENTS.md` rule 2, ADR-0017): the cargo that
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
   children are `cargo metadata`, `cargo locate-project`, `ci`'s fmt,
-  clippy and test steps, `fuzz-smoke`'s `cargo test` of each target
-  (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*` variables,
+  clippy and test steps, `golden`'s `cargo test --package <crate> --test
+  golden` of each drawing crate, from `ci`, `site` and `golden` itself,
+  which also gets `TIDEPOOL_GOLDEN_DIR` (ADR-0044), `fuzz-smoke`'s `cargo
+  test` of each target (ADR-0027), which also gets the `TIDEPOOL_FUZZ_*`
+  variables,
   `site`'s: the same steps as `ci`'s, run in-process, and `cargo run
   --quiet -p <package> --example <name>` of each example the page shows
   (ADR-0030), and `bench`'s `cargo run --release --quiet -p
   tidepool-bench -- <args>`, given every argument after `bench`
   unchanged, `--help` and `--root` included, and whose success is
   `xtask`'s (ADR-0035). It runs no
-  other program; the parsers run in those test processes, and the
-  examples and the suites in their own, never in
+  other program; the parsers and the golden scenes run in those test
+  processes, and the examples and the suites in their own, never in
   `xtask`. Each child is an argv vector, never a shell, and runs in the
   root with standard input closed and `CARGO_NET_OFFLINE=true`. `cargo
   metadata`, `cargo locate-project` and `fuzz-smoke`'s tests, whose output
   `xtask` reads, also get `CARGO_TERM_COLOR=never`, which overrides the
   environment and `term.color` (`fuzz-smoke` reads only the tests' result
   lines and cargo's and libtest's fixed ones in what they print); the fmt,
-  clippy and test steps keep cargo's own colour setting. If
+  clippy and test steps and `golden`'s scenes keep cargo's own colour
+  setting. If
   `CARGO_TARGET_DIR` (or else
   `CARGO_BUILD_TARGET_DIR`) is set and not empty, every child gets
   `CARGO_TARGET_DIR` made absolute against the directory `xtask` started in.
@@ -1380,17 +1444,19 @@ network through its tool.
 
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-  `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`,
-  `ucd` (as `ucd --check`). Each step
+  `golden` (without `--bless`, ADR-0044), `layers`, `crates`, `features`,
+  `unsafe-audit`, `headers`, `workflows`, `ucd` (as `ucd --check`). Each step
   starts with a `== <step>: ...` heading; the cargo steps print cargo's own
   output. `cargo xtask site` runs the same steps, in-process, for the demo
   page ("Demo page", below).
 - It keeps going after a failure, so one run reports every problem, with
-  one exception. Once `deps` has failed or could not run, clippy and test
-  are not run, because they would build and run the code `deps` rejected
+  one exception. Once `deps` has failed or could not run, clippy, test and
+  `golden` are not run, because they would build and run the code `deps`
+  rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
   runs. `layers`, `crates`, `features`, `unsafe-audit`, `headers`,
-  `workflows` and `ucd` are not gates, and run after clippy and test. So code that `deps` accepts but they reject,
+  `workflows` and `ucd` are not gates, and run after clippy, test and
+  `golden`. So code that `deps` accepts but they reject,
   such as a vendored crate that cargo made a member, is still compiled, and
   its build scripts and tests run, before they report it.
 - The cargo steps are cargo children like the others: offline, with
@@ -1414,7 +1480,7 @@ network through its tool.
   `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
   while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
   SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme`.
+  SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 
@@ -1672,9 +1738,9 @@ network through its tool.
   one that fails when run fails only the Pages build, after CI passed;
   and the build runs the gate a second time, on one OS, so the page shows
   that run's times and counts, not CI's.
-- Goldens run on Linux CI only until M11/M12 add per-OS references for
-  platform-specific scenes (the CPU rasterizer is deterministic, so shared
-  scenes share references).
+- Goldens run on every CI runner, as a step of the gate (ADR-0044): the
+  CPU rasterizer is deterministic, so the scenes share references. Scenes
+  specific to an OS wait for the per-OS references of M11/M12.
 - Nightly (later): real-tool jobs. Android on Linux (SDK installed by
   Tidepool's own `toolchain` code, licenses accepted by a human-reviewed
   workflow input), iOS on macOS runners with Xcode.

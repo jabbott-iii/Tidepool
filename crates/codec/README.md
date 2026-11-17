@@ -9,7 +9,8 @@ It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), an IDE
 for Linux, macOS and Windows, written in Rust with no third-party crates.
 Its library uses no other crate (its tests use `core`'s harness), and today
 `xtask` reads `cargo metadata` with its `json` and the members' manifests
-with its `toml`, and `tidepool-bench` reads and writes its baseline with its
+with its `toml`, and reads and writes the golden frames' references with
+its `qoi`, and `tidepool-bench` reads and writes its baseline with its
 `json`; `rpc`, `toolchain`, `syntax`, `workspace` and every crate
 above them but `vcs` and `tui` may use it, as their rows of the matrix
 allow.
@@ -39,10 +40,19 @@ Built, with the roadmap task that built it:
   write-back, and TOML's spans and document edits; seeded from
   `fuzz/corpus/<target>/` and, read in place, `tests/json/` and
   `tests/toml-test/` — M1.6, M1.5.
+- `qoi`: QOI images (specification 1.0), ported from Nadir. It decodes a
+  file into RGBA8 pixels, rows from the top, and encodes them byte for
+  byte as the reference encoder does. It rejects, at the byte where it
+  finds them, what the reference decoder lets through (a run past the last
+  pixel, chunks that end early, a missing or wrong end marker, bytes after
+  it), and images over `Limits`' `max_image_dimension` (16,384 pixels a
+  side, `tidepool-gfx`'s largest framebuffer) or `max_decoded_bytes`
+  (1 GiB), before allocating them. Its fuzz target `qoi` decodes with
+  images of 64 pixels a side and 4 KiB of pixels, checks each error's
+  place, and encodes and decodes again every image it decodes — M2.4.
 
 Not yet, with the roadmap task that adds it:
 
-- `qoi` — M2.4.
 - `inflate`, `deflate` and `png` — M10.7.
 - `zip` and `xml` — M10.2.
 - `plist` — M11.3.
@@ -168,6 +178,43 @@ fn main() -> Result<(), CodecError> {
 }
 ```
 
+Encode an image as QOI and decode it again. Pixels are RGBA8, rows from
+the top; a file that is malformed, or breaks a limit, is an error with the
+byte where the decoder found the problem:
+
+```rust
+use tidepool_codec::qoi::{self, Channels, ColorSpace, Header};
+use tidepool_codec::{CodecError, Limits};
+
+fn main() -> Result<(), CodecError> {
+    let header = Header {
+        width: 2,
+        height: 2,
+        channels: Channels::Rgba,
+        color_space: ColorSpace::Srgb,
+    };
+    let pixels = [
+        255, 0, 0, 255, 255, 0, 0, 255, // a red row
+        0, 0, 255, 128, 0, 0, 255, 128, // a translucent blue row
+    ];
+    let file = qoi::encode(&header, &pixels)?;
+    let image = qoi::decode(&file, Limits::DEFAULT)?;
+    assert_eq!(image.header, header);
+    assert_eq!(image.pixels, pixels);
+
+    let small = Limits { max_image_dimension: 1, ..Limits::DEFAULT };
+    let error = qoi::decode(&file, small).expect_err("2 pixels wide");
+    assert_eq!(
+        error.to_string(),
+        "QOI error at byte 4: the image is wider or taller than the limit of 1 pixels"
+    );
+    let cut = &file[..file.len() - 1];
+    let error = qoi::decode(cut, Limits::DEFAULT).expect_err("cut short");
+    assert!(error.to_string().starts_with("QOI error at byte 29: the file ends"));
+    Ok(())
+}
+```
+
 `cargo run -p tidepool-codec --example formats` runs the example whose
 output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
 
@@ -182,6 +229,8 @@ output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
   `tests/fuzz.rs`); ADR-0031 (`toml::Document` writes TOML 1.0 for the
   text it creates, and keeps the text an edit does not change byte for
   byte).
+- Format: the QOI specification 1.0 (qoiformat.org), which `src/qoi.rs`
+  follows, decoding more strictly where its module docs say.
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what
   each target runs and checks.
 - API reference: `cargo doc -p tidepool-codec --open`
@@ -195,9 +244,9 @@ output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
   [`parsers.md`](../../.claude/rules/parsers.md),
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its
   `Cargo.toml`.
-- For `json` and `toml`, the module docs in `src/json.rs` and
-  `src/toml.rs` are authoritative, and the spec summarizes them: change both
-  together.
+- For `json`, `toml` and `qoi`, the module docs in `src/json.rs`,
+  `src/toml.rs` and `src/qoi.rs` are authoritative, and the spec summarizes
+  them: change both together.
 - `tests/toml-test/` is third-party data (MIT, toml-test v2.2.0), copied
   byte for byte with its notice in `tests/toml-test/NOTICE.md`. Never edit,
   rename or add files there; a newer release replaces the directory and its
@@ -216,6 +265,7 @@ output Tidepool's demo page shows: JSONC, TOML 1.1, errors and `Limits`.
 cargo test -p tidepool-codec
 cargo xtask fuzz-smoke --target json
 cargo xtask fuzz-smoke --target toml
+cargo xtask fuzz-smoke --target qoi
 ```
 
 `cargo test` replays the fuzz targets' seeds and saved crashes;

@@ -39,7 +39,9 @@ use std::time::{Duration, Instant};
 
 use crate::cargo::{Skips, TestCounts};
 use crate::error::Error;
-use crate::{cargo, crates, deps, features, headers, layers, ucd, unsafe_audit, walk, workflows};
+use crate::{
+    cargo, crates, deps, features, golden, headers, layers, ucd, unsafe_audit, walk, workflows,
+};
 
 /// What a check found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -174,6 +176,16 @@ pub(crate) const WORKFLOWS: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask golden` without `--bless`, the step of `ci` (ADR-0044).
+/// Not in [`COMMANDS`]: `main` runs it, since it takes `--bless`.
+pub(crate) const GOLDEN: Check = Check {
+    name: golden::NAME,
+    about: "Draw the golden scenes (cargo test of each drawing crate's tests/golden.rs) and \
+            compare each with tests/golden/<scene>.qoi",
+    step: Step::Own(golden::check),
+    role: Role::Compiles,
+};
+
 /// What `ucd` does, with and without `--check`.
 const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
                          generates (without --check: write it)";
@@ -242,6 +254,7 @@ pub(crate) const CI: &[Check] = &[
         step: Step::Tests(TEST),
         role: Role::Compiles,
     },
+    GOLDEN,
     LAYERS,
     CRATES,
     FEATURES,
@@ -273,11 +286,6 @@ pub(crate) const LATER: &[Later] = &[
         name: "theme",
         task: "roadmap M3.2",
         in_ci: true,
-    },
-    Later {
-        name: "golden",
-        task: "roadmap M2.4",
-        in_ci: false,
     },
     Later {
         name: "package",
@@ -383,8 +391,23 @@ fn verdict(name: &str, violations: usize, stale_lockfiles: usize, skipped: usize
 /// every violation is an out-of-date lockfile, it reads `deps: FAILED (1
 /// violation; only out-of-date lockfiles)` ([`verdict`]).
 fn run_reported(check: &Check, root: &Path, out: &mut dyn Write) -> io::Result<Ran> {
-    let name = check.name;
-    match run_step(check.step, root) {
+    report(check.name, run_step(check.step, root), out)
+}
+
+/// Prints what the check `name` found, or why it could not run, as `ci`
+/// prints a step: for a command such as `golden --bless` that is not run
+/// through a [`Check`]. Returns whether it passed.
+pub(crate) fn print(
+    name: &str,
+    result: Result<Report, Error>,
+    out: &mut dyn Write,
+) -> io::Result<bool> {
+    Ok(report(name, result, out)?.passed)
+}
+
+/// [`run_reported`] for a check that has run, as `name`.
+fn report(name: &str, result: Result<Report, Error>, out: &mut dyn Write) -> io::Result<Ran> {
+    match result {
         Ok(report) => {
             for note in &report.notes {
                 writeln!(out, "{}", printable(note))?;
@@ -978,8 +1001,8 @@ mod tests {
                 in_ci: true,
             },
             Later {
-                name: "golden",
-                task: "roadmap M2.4",
+                name: "package",
+                task: "roadmap M11.6",
                 in_ci: false,
             },
         ];
@@ -1287,6 +1310,7 @@ mod tests {
                 ("fmt", Role::Independent),
                 ("clippy", Role::Compiles),
                 ("test", Role::Compiles),
+                ("golden", Role::Compiles),
                 ("layers", Role::Independent),
                 ("crates", Role::Independent),
                 ("features", Role::Independent),
@@ -1321,6 +1345,7 @@ mod tests {
                 Some("cargo clippy --workspace --all-targets -- -D warnings"),
             ),
             ("test", Some("cargo test --workspace")),
+            ("golden", None),
             ("layers", None),
             ("crates", None),
             ("features", None),
@@ -1336,6 +1361,12 @@ mod tests {
                 (Step::Cargo(args) | Step::Tests(args), Some(command)) => {
                     assert_eq!(cargo::display(args), command, "{name}");
                     assert_eq!(check.about, command, "{name}");
+                }
+                // `golden` is a command of its own, run by `main` for its
+                // `--bless`: the step runs what the command runs without it.
+                (Step::Own(run), None) if name == golden::NAME => {
+                    let golden_check: fn(&Path) -> Result<Report, Error> = golden::check;
+                    assert!(std::ptr::fn_addr_eq(run, golden_check));
                 }
                 (Step::Own(run), None) => {
                     let own = COMMANDS
@@ -1388,7 +1419,7 @@ mod tests {
             .iter()
             .map(|check| check.name)
             .chain(LATER.iter().map(|later| later.name))
-            .chain(["ci", "fuzz-smoke", "site", crate::bench::NAME])
+            .chain(["ci", "fuzz-smoke", "site", golden::NAME, crate::bench::NAME])
             .collect();
         let count = names.len();
         names.sort_unstable();

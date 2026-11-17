@@ -4031,6 +4031,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "fmt",
             "clippy",
             "test",
+            "golden",
             "layers",
             "crates",
             "features",
@@ -4055,6 +4056,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("fmt", "FAILED"),
             ("clippy", "ok"),
             ("test", "ok"),
+            ("golden", "ok"),
             ("layers", "ok"),
             ("crates", "ok"),
             ("features", "ok"),
@@ -4071,7 +4073,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
     );
     assert!(
         summary.ends_with(
-            "ci: FAILED: 1 of 11 steps failed: fmt; not yet implemented: tools, theme\n"
+            "ci: FAILED: 1 of 12 steps failed: fmt; not yet implemented: tools, theme\n"
         ),
         "{summary}"
     );
@@ -4134,6 +4136,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     // ucd: tables that are not what the Unicode data generates.
     fixture.write("crates/text/src/pos/grapheme/tables.rs", "// stale\n");
+    // golden: a file among the references that is not one.
+    fixture.write("tests/golden/notes.txt", "notes\n");
 
     let run = fixture.run("ci");
     run.expect_code(1);
@@ -4144,6 +4148,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("fmt", "FAILED"),
             ("clippy", "FAILED"),
             ("test", "FAILED"),
+            ("golden", "FAILED"),
             ("layers", "FAILED"),
             ("crates", "FAILED"),
             ("features", "FAILED"),
@@ -4160,8 +4165,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 10 of 11 steps failed: fmt, clippy, test, layers, crates, features, \
-         unsafe-audit, headers, workflows, ucd; not yet implemented: tools, theme"
+        "ci: FAILED: 11 of 12 steps failed: fmt, clippy, test, golden, layers, crates, \
+         features, unsafe-audit, headers, workflows, ucd; not yet implemented: tools, theme"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -4178,6 +4183,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
          SHA",
         "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/17.0.0 \
          generates (first difference at line 1); run cargo xtask ucd",
+        "violation: tests/golden/notes.txt: not a reference",
     ] {
         assert!(output.contains(reason), "`{reason}` missing:\n{output}");
     }
@@ -4215,6 +4221,7 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("fmt", "ok"),
             ("clippy", "not"),
             ("test", "not"),
+            ("golden", "not"),
             ("layers", "FAILED"),
             ("crates", "ok"),
             ("features", "ok"),
@@ -4231,8 +4238,8 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 11 steps failed: deps, layers; not run: clippy, test; not yet \
-         implemented: tools, theme"
+        "ci: FAILED: 2 of 12 steps failed: deps, layers; not run: clippy, test, golden; not \
+         yet implemented: tools, theme"
     );
     assert!(
         run.stdout.contains(
@@ -4332,6 +4339,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("fmt", "ok"),
             ("clippy", "ok"),
             ("test", "ok"),
+            ("golden", "ok"),
             ("layers", "ok"),
             ("crates", "ok"),
             ("features", "ok"),
@@ -4362,7 +4370,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -4561,7 +4569,7 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
     assert!(run.stdout.contains("\n== deps: "), "{}", run.stdout);
     assert!(
         run.stdout.contains(
-            "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, theme\n"
+            "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme\n"
         ),
         "{}",
         run.stdout
@@ -4590,13 +4598,13 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
         // Four tests passed, three of which printed `SKIPPED:`: one pass.
         "<dd>1 passed</dd>",
         "<div><dt>Skipped</dt><dd>3</dd></div>",
-        "<dd>11 of 11 passed</dd>",
+        "<dd>12 of 12 passed</dd>",
         "<dd>5 in the workspace</dd>",
         "<dd>1 of 2 tasks</dd>",
         "--example formats\nformats &lt;ok&gt; &amp; 🌊</pre>",
         "--example editing\nediting │ café</pre>",
         "</span>\n== summary\ndeps ",
-        "ci: ok (3 tests SKIPPED): 11 of 11 steps passed; not yet implemented: tools, \
+        "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, \
          theme</pre>",
     ] {
         assert!(html.contains(expected), "missing {expected:?}");
@@ -4765,7 +4773,7 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
     run.expect_code(1);
     assert!(
         run.stdout
-            .contains("ci: ok (3 tests SKIPPED): 11 of 11 steps passed"),
+            .contains("ci: ok (3 tests SKIPPED): 12 of 12 steps passed"),
         "{}",
         run.stdout
     );
