@@ -45,8 +45,11 @@
 //! window. An idle tree damages nothing, and its frame is `None`.
 //!
 //! The bounds of a command are geometric. A frontend that anti-aliases
-//! grows each damage rect by its filter's reach (for `gui`, a device pixel,
-//! M3.5).
+//! keeps each command's ink inside its bounds cut to the clips around it:
+//! growing the damage alone would miss the ink of a command a clip cuts
+//! off, which is damaged for nothing. `gui` clips each command's ink to
+//! its bounds, cut to the clips around it and rounded out to whole device
+//! pixels (M3.5, ADR-0048).
 //!
 //! # Sanitizing
 //!

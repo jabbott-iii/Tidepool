@@ -1885,7 +1885,7 @@ JetBrains Mono text over the jabbott.dev backdrop.
     4 to 5, within the 300 ms budget. `ui` has no OS code, so nothing was
     built for macOS or Windows.
 
-- [ ] **M3.5 — gui: draw-list painter and ui goldens**
+- [x] **M3.5 — gui: draw-list painter and ui goldens**
   - Depends: M3.1, M2.6
   - Do: `gui` paints every `ui::draw` primitive with `gfx` and `font`, and
     implements `TextMetrics` with `font::layout`; a test binary renders
@@ -1893,6 +1893,73 @@ JetBrains Mono text over the jabbott.dev backdrop.
   - Accept: a golden scene for each draw primitive at scale 1 and 2; a
     frame changes only pixels inside its damage.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-gui`
+  - Note (2026-11-18): the task has no `Decide first` line, but no task
+    builds the icon set that numbers `IconId`s, and an `ImageId` is a
+    handle the frontend resolves. ADR-0048 records the options the user
+    chose that day, each the recommended one: icons are outlines
+    registered with the painter and filled by `font`'s rasterizer, and
+    images are premultiplied framebuffers registered with it and scaled
+    bilinearly.
+  - Note (2026-11-18): done. `gui::paint::Painter` paints a `ui` frame
+    into a framebuffer, its damage only (rounded out, at most 8 rects,
+    cut to the target and a base it copies in first), with `gfx` and
+    `font`: every command, clips, layers (each a framebuffer as large as
+    what it inks, grown by at least its size, at most 8 nested), icons and
+    images. A rect's edges round to the nearest device pixel, borders and
+    bracket thickness snap as CSS snaps a border width, and each
+    command's ink is clipped to its bounds cut to its clips, so a frame
+    touches only its damage. Lines and cut corners are filled in 64 px
+    tiles fixed in device space, as `gfx`'s path fill sums coverage from
+    the corner of its clip, so painting the damage gives exactly what
+    painting the whole frame gives. `gui::metrics::FontMetrics` is `ui`'s
+    `TextMetrics` with `font::layout`, measured at the scale painted;
+    `gui::icon::Icon` holds an outline in a square viewbox, y down.
+    `ui`'s grid now places each column at the sum of the one before, as
+    its rows were, so that grid cells share their edges at any scale (a
+    12-cell grid 121 units wide left column 60 unpainted at scale 1).
+    `crates/gui/tests/golden.rs` has 23 scenes, `ui_*`: each command,
+    clips and layers at scale 1 and 2, and a mix at 1.5; `SCENES` gains
+    `tidepool-gui` with a tolerance of 0. The user looked at the 23
+    images and agreed to bless them; their references take 216 KB.
+    `crates/gui/tests/paint.rs` paints random `ui` trees changed frame by
+    frame at scales 1 to 2 and checks that each frame changes only its
+    damage and that a shadow tree painted whole after every step, idle
+    ones too, gives the same pixels; a second property aims slivers of
+    anti-aliased ink past a clipping node's edge. All 600 seeds tried
+    passed both; without the tiles, seeds 36, 109, 275 and 278 of the
+    first failed. In a release build at 2560 × 1600, a full paint of 12
+    small faded nodes took about 2 ms, where a layer as large as its clip
+    had taken 328 ms.
+  - Note (2026-11-18): reviewed in two rounds, each finding put to two
+    skeptics. Round one, five reviewers (the painter, metrics and icons,
+    the tests, a security review, the docs against the code): 15 of 18
+    upheld, all fixed: seams where `ui` places neighbours (edges summed
+    in `f64`), a layer the size of its clip, a 4,096 px icon drawing
+    nothing, an icon's error reported as text's, a NaN cut drawing a
+    rect, the damage grown for no reason, three tests that could not
+    fail, and five docs. Round two checked the fixes, 13 of 14
+    confirmed, and found 7 more upheld: grid seams, a layer copied once a
+    row, painting the damage differing by a level from painting the whole
+    on anti-aliased paths, a NaN text origin drawn at the window's edge,
+    tiny icon viewboxes, and two weak tests; all fixed.
+  - Note (2026-11-18): the docs and diagrams this task changed were
+    checked against the code by four readers, each finding put to two
+    skeptics: 16 of 24 upheld, all fixed (ADR-0048's account of the tiles
+    and of what fails `paint`, the layers' size, `ui`'s draw docs, and
+    golden passages and sources in the diagrams that still named `gfx`
+    and `font` alone).
+  - Note (2026-11-18): checked on rustc 1.99.0, Linux. `cargo xtask
+    golden`: 45 scenes ok, the 23 of `gui` exactly. `cargo test -p
+    tidepool-gui`: 53 unit tests, 23 scenes, 2 properties and 6 doc tests
+    pass, its window test skipped for want of `TIDEPOOL_IT_X11`. `cargo
+    xtask ci`: 13 of 13 steps pass, 2,031 tests, with the 29 window tests
+    skipped; `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 13 of 13,
+    none skipped. `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-gui
+    -p tidepool-ui --no-deps` is clean. The 123 Mermaid blocks of
+    `diagrams/` parse and render with Mermaid 11.17.2, which rejected a
+    planted broken one. `gui` has no OS code in the painter, so nothing
+    was built for macOS or Windows: that the scenes give the same bytes
+    there is checked by CI's gate on the next push (M0.4's ⏳).
 
 - [ ] **M3.6 — ui: controls**
   - Depends: M3.2, M3.5

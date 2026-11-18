@@ -1,7 +1,7 @@
 # Diagrams
 
 Pictures of how Tidepool fits together, drawn from the code and the docs as
-of roadmap task M3.2 (2026-11-18, version 0.1). Each file is Markdown with
+of roadmap task M3.5 (2026-11-18, version 0.1). Each file is Markdown with
 Mermaid blocks, which GitHub draws. Most of Tidepool is still a design, so
 the diagrams draw both: what the code has is solid, and what the roadmap
 plans is dashed and labelled with the task that builds it (ADR-0029).

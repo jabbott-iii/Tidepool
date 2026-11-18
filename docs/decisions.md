@@ -3044,3 +3044,176 @@ decides; the roadmap task that first depends on one asks for the decision.
   contrast when it loads one, and the formula may move to `core`); a
   widget uses a pair the file does not list; a second theme ships in
   `themes/`; or jabbott.dev's tokens change (ADR-0004).
+
+## ADR-0048 — M3.5's painter: `gui` paints `ui`'s frames with `gfx` and `font` into the damage alone; icons are outlines registered with it, rasterized by `font`; images are registered and scaled bilinearly
+
+- **Status:** Accepted
+- **Date:** 2026-11-18
+- **Context:**
+  - M3.5 has `gui` paint every `ui::draw` command with `gfx` and `font`,
+    implement `ui`'s `TextMetrics` with `font::layout`, and draw `ui`
+    scenes for `cargo xtask golden`: one for each command at scale 1 and
+    2, and a frame that changes only the pixels inside its damage.
+  - Commands are in logical units, `f32`, and carry straight-alpha
+    colors (ADR-0046). `gfx` draws crisp rects, borders and brackets in
+    whole device pixels, and anti-aliased polygons, lines, cut corners
+    and pills; `font` sets text in device pixels, sizes in 1/64 px, the
+    pen's x to a quarter pixel and the baseline on a whole pixel.
+  - `ui`'s damage is logical rects, at most 32, from each changed
+    node's painted bounds: the union of its commands' `bounds`, cut to
+    its clipping ancestors' bounds and the window. `ui`'s `draw` docs
+    left `gui` to grow each rect by the reach of its anti-aliasing, a
+    device pixel. `ui`'s rows and columns place a node's next sibling at
+    the `f32` sum of its position and size; its grid placed column `k`
+    at the area's left plus `k` times the column's width and the gap.
+  - `gfx` fills a line, a polygon and a cut-corner rect with a cut as a
+    path, summing each pixel's coverage across the part of the path
+    inside the clip, from that part's corner: where the clip's edges
+    fall can move a pixel's coverage by one level.
+  - No roadmap task builds the icon set that numbers `IconId`s (M3.1's
+    note); `docs/01-architecture.md` plans `assets/icons` as hand-made,
+    SVG-like path data. An `ImageId` is "a handle the frontend
+    resolves".
+  - `font::outline` fills quadratic contours, holes winding the other
+    way, by exact-area accumulation, the same on every CPU, within
+    `font::Limits`, and has a fuzz target (M2.8). `gfx::raster::polygon`
+    fills one path: contours joined by bridge edges cancel exactly only
+    while no bridge crosses a side of the area it accumulates, which
+    depends on the clip.
+  - On 2026-11-18 the user chose the recommended option of each of two
+    questions: vector icons registered with the painter, and images
+    registered with it and scaled bilinearly.
+- **Decision:**
+  - **The painter.** `gui::paint::Painter` holds the bundled faces, a
+    glyph atlas 1,024 px a side, and the icons and images registered with
+    it. `Painter::paint(target, base, frame, scale)` makes each damage
+    rect device pixels, rounded out to whole pixels, merges them as
+    `gfx::damage::Damage` does (at most 8, none overlapping), and cuts
+    them to the target and the base, which lies at the target's top-left.
+    In each it copies the base, then draws the whole list clipped to the
+    rect. It returns those rects, the only pixels it touched, to present.
+  - **Geometry.** Logical units times the scale. A rect's edges are each
+    rounded to the nearest device pixel, its right and bottom edges summed
+    in `f32` as `ui` places the next sibling, so neighbours share an edge
+    at any scale; `ui`'s grid places each column at the sum of the one
+    before, as its rows already were, so that its cells do too; a border's width and a bracket's thickness are snapped as
+    CSS snaps a border width (under one device pixel, one; above,
+    floored); a bracket's arm is rounded. Lines, the cut of a cut corner
+    and a pill's ends stay anti-aliased; a line, and a cut-corner rect
+    with a cut, is filled one 64 px tile of a grid fixed in device space
+    at a time, so that where a damage rect's edges fall cannot move its
+    coverage: a tile it may cover in part is a framebuffer of its own, at
+    most 64 px a side, composited into the damage; a tile a line does not
+    come near is skipped, and one a cut-corner rect covers whole is
+    filled. A text's size is times the
+    scale, its pen's x split into a whole pixel and a quarter, its
+    baseline rounded to a whole pixel.
+  - **Clips and the damage.** A clip's rect is rounded as a rect is.
+    Each command's ink is also clipped to its own `bounds`, cut to the
+    list's clips and rounded out to whole device pixels, which is what
+    `ui` damages when the command changes: so a frame touches only
+    pixels inside its damage, no anti-aliasing reaches past it, which is
+    therefore not grown, and painting the damage alone gives what
+    painting the whole frame gives. `ui` cannot know that registering an
+    icon or image changed what a command draws: the caller damages the
+    nodes that draw it.
+  - **Layers.** A layer is a framebuffer made when a command first inks
+    inside it, covering that ink, grown to hold what inks after, by at
+    least its width or height each way it must and never past the clip it
+    was pushed in, and composited at `round(opacity × 255)` where it is popped;
+    an opacity of 1 draws straight through and 0 draws nothing. At most 8
+    nest; deeper, a layer's commands draw into the layer around it. A pop
+    that ends no push of its kind is ignored and pushes left open are
+    closed at the end, so any list paints, not only `Tree::frame`'s.
+  - **Text metrics.** `gui::metrics::FontMetrics` implements
+    `TextMetrics` with `font::layout` at the scale it is made for, in
+    logical units: an advance is the line's pen, ascent and descent the
+    face's `hhea`, and a line's height its size times its line height.
+    A style takes the bundled face CSS's font matching would: italic
+    before weight (JetBrains Mono Italic at any weight), then the
+    nearest weight (500 → 400, 700 → 600 where the family lacks it);
+    Saira has no italic, and none is synthesized. A text whose size
+    `font` cannot set (over 2,048 device px per em, or under 1/128)
+    measures 0 wide with no ascent or descent, keeps its line's height,
+    and draws nothing. `Painter::metrics` gives the metrics to pass to
+    `Tree::frame`.
+  - **Icons.** `gui::icon::Icon`: contours of `font`'s `OutlinePoint`s,
+    on and off the curve as in TrueType, in a square viewbox, y growing
+    down as in SVG, the viewbox's side at least 1/65,536, every point
+    inside the viewbox, holes winding the other way. `Painter::set_icon` registers one for an `IconId`;
+    `Command::Icon` rasterizes it with `font::outline::rasterize` at the
+    rect's device size, scaled uniformly to fit, its far edge on the last
+    pixel, and centred on whole pixels, clipped to the rect, and blends
+    the coverage in its color. `GuiError::Icon` refuses a bad viewbox,
+    point or contour end.
+    An id with no icon draws a hollow box a device pixel wide, as `font`
+    draws a `.notdef`; an icon beyond `font`'s limits (4,096 px a side)
+    draws nothing.
+  - **Images.** `Painter::set_image` registers a premultiplied
+    `gfx::Framebuffer` for an `ImageId`; `Command::Image` draws it scaled
+    to the rounded rect with `gfx::image::blit_scaled`'s bilinear filter.
+    An id with no image draws nothing.
+  - **Golden scenes.** `crates/gui/tests/golden.rs` paints `ui` trees
+    over the theme's `bg`: a scene named `ui_*` for each command, clips
+    and layers too, at scale 1 and 2, and one at 1.5. `SCENES` gains
+    `tidepool-gui` with a tolerance of 0: its pixels are `gfx`'s integer
+    blending of `font`'s coverage, the same on every OS.
+  - **The window** still shows the first frame (M2.6); painting `ui`'s
+    frames there is the shell's (M3.4).
+- **Consequences:**
+  - Neither `gfx` nor `font` changes, and `gui` gains no matrix edge.
+    `ui`'s grid places its columns by sum, which moves a cell's edge by
+    a few ulps at most, and changes no test of `ui`.
+  - A line or cut corner costs a framebuffer of at most 64 px a side,
+    allocated and composited, for each tile of a damage rect that it may
+    cover in part.
+  - A text whose line reaches a damage rect's rows, starting left of its
+    right edge, is laid out to find its bounds, in each such rect; an
+    icon is rasterized each time it is drawn; a glyph over half the
+    atlas's side (512 px) is rasterized each time, uncached. Caches come
+    when a profile asks for them.
+  - A glyph or icon that cannot be rasterized draws nothing; only a
+    framebuffer that cannot be allocated, a layer's or a path tile's,
+    fails `paint`, leaving its damage partly painted, for the caller to repaint whole (`Tree::invalidate_all`).
+  - The painter paints only where both the target and the base are.
+  - The icon set's file format, and who registers its icons, are the
+    task's that builds it.
+- **Alternatives considered:**
+  - Coverage masks registered per icon, scaled bilinearly: soft when
+    scaled, and a path-based icon set would need a rasterizer of its own
+    to make them.
+  - A placeholder box for every icon until the icon set exists: icons not
+    really painted.
+  - Icons filled with `gfx::raster::polygon`, contours joined by bridge
+    edges: exact only while no bridge crosses the clip's sides, so a
+    partial repaint could differ from a whole one; or a multi-contour
+    polygon in `gfx`: a change to `gfx` for what `font` already does,
+    curves included.
+  - Nearest filtering for images: blocky when enlarged.
+  - Growing the damage by a device pixel without clipping each command
+    to its bounds, as `ui`'s docs had it: ink a clipping ancestor cuts
+    off, which `ui` damages nothing for, could be left stale; and with
+    the clip to bounds, the growth only repaints unchanged pixels.
+  - A layer covering the whole clip it is pushed in: a full paint of a
+    2560 × 1600 window holding 12 small faded nodes took 328 ms in a
+    release build, against about 2 ms once each layer covers its ink.
+  - Rect edges summed in `f64`: neighbours `ui` placed left seams or
+    overlaps of a device pixel, 317 of them over row widths 100 to 1,999
+    at scale 1 with 2 to 7 equal fills. Leaving `ui`'s grid as it was: a
+    grid of 12 equal cells 121 units wide left column 60 unpainted at
+    scale 1.
+  - A layer grown to just what inks: a faded column of 100 rows drawing
+    full-width rules reallocated and copied its layer once a row, 118 ms
+    a full paint.
+  - Making `gfx`'s path fill sum from a corner its clip does not move: a
+    change to `gfx`, and that corner is what bounds the work for a path
+    reaching far outside the window. Accepting a level's difference at
+    anti-aliased edges: painting the damage would no longer be painting
+    the whole frame, and the property that checks it would need a
+    tolerance.
+  - A golden tolerance of 1, as `font`'s: nothing here rounds differently
+    on different CPUs.
+- **Revisit when:** a task builds the icon set; a profile shows text
+  layout or icon rasterizing in a frame's cost; a widget nests more than
+  8 layers; or the shell (M3.4) needs the backdrop's blurred copy under a
+  translucent panel, for which no command exists.

@@ -82,7 +82,7 @@ const RENDERED: &str = "rendered";
 pub(crate) const DIR_VAR: &str = "TIDEPOOL_GOLDEN_DIR";
 
 /// The largest side of a scene or a reference, in pixels. Scenes are small
-/// on purpose; the largest so far is 480 × 300.
+/// on purpose; the largest so far is 1,344 × 472 (`font_mono_scale_2`).
 const MAX_SIDE: u32 = 4096;
 
 /// The most bytes of pixels one scene or reference may hold:
@@ -116,11 +116,11 @@ impl Scenes {
 }
 
 /// The crates that draw scenes, in the order they run, with their
-/// tolerances: `gfx` exactly (M2.4), and `font` within 1, for the
-/// coverage its scenes blend themselves (M2.5); `ui` or `gui` joins with
-/// M3.5. A crate draws scenes when it is a member of the workspace with a
-/// test target named `golden` ([`select`]); each such crate needs its row
-/// here.
+/// tolerances: `gfx` exactly (M2.4); `font` within 1, for the coverage
+/// its scenes blend themselves (M2.5); and `gui` exactly, painting `ui`'s
+/// draw lists with `gfx` and `font` (M3.5, ADR-0048). A crate draws scenes
+/// when it is a member of the workspace with a test target named `golden`
+/// ([`select`]); each such crate needs its row here.
 pub(crate) const SCENES: &[Scenes] = &[
     Scenes {
         package: "tidepool-gfx",
@@ -129,6 +129,10 @@ pub(crate) const SCENES: &[Scenes] = &[
     Scenes {
         package: "tidepool-font",
         tolerance: 1,
+    },
+    Scenes {
+        package: "tidepool-gui",
+        tolerance: 0,
     },
 ];
 

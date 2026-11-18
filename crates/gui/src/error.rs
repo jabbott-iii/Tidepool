@@ -22,8 +22,11 @@ use tidepool_font::FontError;
 use tidepool_gfx::GfxError;
 use tidepool_platform::surface::PixelsError;
 
+use crate::icon::IconError;
+
 /// Errors produced by `tidepool-gui`: an error of a crate it draws or
-/// presents with, kept whole as its [source](std::error::Error::source).
+/// presents with, kept whole as its [source](std::error::Error::source),
+/// or an icon it refused.
 ///
 /// Non-exhaustive: later tasks may add variants.
 #[derive(Debug)]
@@ -31,12 +34,15 @@ use tidepool_platform::surface::PixelsError;
 pub enum GuiError {
     /// The window could not be opened, waited on or presented to.
     Platform(tidepool_platform::Error),
-    /// A framebuffer, the backdrop or a glyph's mask could not be made.
+    /// A framebuffer, the backdrop, a glyph's mask or a layer could not be
+    /// made.
     Gfx(GfxError),
     /// The bundled faces, the glyph atlas or a line of text failed.
     Font(FontError),
     /// The frame could not be viewed as the window's pixels.
     Pixels(PixelsError),
+    /// An [`Icon`](crate::Icon) was refused (M3.5).
+    Icon(IconError),
 }
 
 impl fmt::Display for GuiError {
@@ -46,6 +52,7 @@ impl fmt::Display for GuiError {
             Self::Gfx(error) => write!(f, "drawing: {error}"),
             Self::Font(error) => write!(f, "setting text: {error}"),
             Self::Pixels(error) => write!(f, "presenting: {error}"),
+            Self::Icon(error) => write!(f, "an icon: {error}"),
         }
     }
 }
@@ -57,6 +64,7 @@ impl std::error::Error for GuiError {
             Self::Gfx(error) => Some(error),
             Self::Font(error) => Some(error),
             Self::Pixels(error) => Some(error),
+            Self::Icon(error) => Some(error),
         }
     }
 }
@@ -76,6 +84,12 @@ impl From<GfxError> for GuiError {
 impl From<FontError> for GuiError {
     fn from(error: FontError) -> Self {
         Self::Font(error)
+    }
+}
+
+impl From<IconError> for GuiError {
+    fn from(error: IconError) -> Self {
+        Self::Icon(error)
     }
 }
 
@@ -117,5 +131,12 @@ mod tests {
             "{platform}"
         );
         assert!(platform.source().is_some());
+
+        let icon = GuiError::from(IconError::Point { index: 2 });
+        assert_eq!(
+            icon.to_string(),
+            "an icon: point 2 is not finite or lies outside the viewbox"
+        );
+        assert!(icon.source().is_some());
     }
 }

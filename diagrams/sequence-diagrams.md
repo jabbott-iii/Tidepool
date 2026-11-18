@@ -9,7 +9,7 @@ first frame. The rest of sections 8 to 13 are the flows the specs plan,
 from startup to signing an Android package; most of their code does not
 exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.5 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1 and M3.2. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -91,7 +91,7 @@ sequenceDiagram
         Cargo-->>Ci: exit status, and the lines that<br/>start with SKIPPED (Skips)
         Ci->>Dev: a skipped line for each,<br/>then test: ok (N SKIPPED)
         Ci->>Own: golden::check(root):<br/>the scenes drawn and<br/>compared (section 1.1)
-        Own->>Cargo: cargo metadata --no-deps,<br/>then cargo test --package<br/>tidepool-gfx --test golden,<br/>TIDEPOOL_GOLDEN_DIR set
+        Own->>Cargo: cargo metadata --no-deps,<br/>then cargo test --package<br/>PACKAGE --test golden for each<br/>of SCENES, TIDEPOOL_GOLDEN_DIR set
         Cargo-->>Own: exit status, and each<br/>scene has written<br/>its PAM file
         Own-->>Ci: a Report
         Ci->>Dev: a line for each scene,<br/>then golden: ok
@@ -129,10 +129,11 @@ tools`.
 
 `golden` asks `cargo metadata` which members have a test target named
 `golden`, then runs each one's scenes in a `cargo test` of its own, and
-compares what they drew, exactly for `gfx`, with `tests/golden/`
-(`xtask/src/golden.rs`, ADR-0044). The scenes run in the test process,
-which can draw but not write QOI; `xtask`, which may not depend on `gfx`,
-reads what they wrote. `ci` runs it as a step, blessing nothing;
+compares what they drew, exactly for `gfx` and `gui` and within 1 for
+`font`, with `tests/golden/` (`xtask/src/golden.rs`, ADR-0044,
+ADR-0048). The scenes run in test processes, which can draw but not
+write QOI; `xtask`, which may not depend on the crates that draw, reads
+what they wrote. `ci` runs it as a step, blessing nothing;
 `cargo xtask golden` runs the same, and with `--bless` and scene names
 also writes those scenes' references.
 
@@ -141,7 +142,7 @@ sequenceDiagram
     actor Dev as Developer or CI job
     participant Gold as xtask golden
     participant Cargo as cargo children
-    participant Test as test process,<br/>gfx tests/golden.rs
+    participant Test as test process, a<br/>crate's tests/golden.rs
     participant Out as target/golden
     participant Ref as tests/golden
 
@@ -151,11 +152,11 @@ sequenceDiagram
     end
     Gold->>Cargo: cargo metadata<br/>--offline --no-deps
     Cargo-->>Gold: the members: those with a<br/>golden test, each with a row<br/>in SCENES, or a violation
-    Gold->>Out: refuse links, empty it,<br/>make rendered/tidepool-gfx<br/>(left as it is when no crate draws)
-    loop each crate with scenes, in SCENES order (tidepool-gfx, tolerance 0)
-        Gold->>Cargo: cargo test --package tidepool-gfx<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/tidepool-gfx
+    Gold->>Out: refuse links, empty it,<br/>make rendered/PACKAGE for each<br/>(left as it is when no crate draws)
+    loop each crate with scenes, in SCENES order: tidepool-gfx, tolerance 0, tidepool-font, 1, and tidepool-gui, 0
+        Gold->>Cargo: cargo test --package PACKAGE<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/PACKAGE
         Note over Gold,Cargo: run_with_env: an argv vector,<br/>stdin closed, CARGO_NET_OFFLINE=true,<br/>its output straight to the terminal
-        Cargo->>Test: build, run the 14 scene tests
+        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 23
         Test->>Out: each scene draws into a Framebuffer<br/>and writes SCENE.pam: premultiplied<br/>RGBA, rows from the top
         Test-->>Cargo: exit status
         Cargo-->>Gold: exit status, a failure<br/>being a violation
@@ -512,7 +513,8 @@ From `cargo tp` to the first frame. 8.1 and 8.2 draw it as
 `docs/01-architecture.md` → "The main loop" and
 `docs/subsystems/frontends.md` plan it: M3.4 adds the loop and the shell,
 on ADR-0012, which is Proposed until then, and the GUI frontend the app
-drives (M3.4, M3.5). 8.3 draws what the binary does today: it opens the
+drives (M3.4), whose painter is built (M3.5, ADR-0048). 8.3 draws what
+the binary does today: it opens the
 GUI's window and shows the first frame, the backdrop and a line in each
 bundled face (M2.6, ADR-0045), its text in `text` and `text-3` from
 `ui`'s bundled theme (M3.2, ADR-0047). `platform`'s window and events are built
@@ -528,11 +530,11 @@ sequenceDiagram
     actor User
     participant Cli as tidepool main<br/>(M3.4)
     participant Cfg as Config load<br/>(M3.4, M4.7)
-    participant Fe as gui frontend<br/>(M3.4, M3.5)
+    participant Fe as gui frontend (M3.4),<br/>its painter (built)
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over User,Disp: planned M3.4, M3.5.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3),<br/>font's bundled faces and atlas (M2.5), and<br/>gui's first frame (M2.6, in 8.3).
+    Note over User,Disp: planned M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3),<br/>font's bundled faces and atlas (M2.5),<br/>gui's first frame (M2.6, in 8.3) and<br/>its painter (M3.5).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: Config::load(args)
@@ -555,12 +557,12 @@ sequenceDiagram
 sequenceDiagram
     participant Shell as App, the shell<br/>(M3.4)
     participant Cli as tidepool main<br/>(M3.4)
-    participant Fe as gui frontend<br/>(M3.4, M3.5)
+    participant Fe as gui frontend (M3.4),<br/>its painter (built)
     participant Gfx as gfx and<br/>font (built)
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over Shell,Disp: planned M3.4, M3.5.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3),<br/>font (M2.5) and gui's first frame<br/>(M2.6, in 8.3) are built.
+    Note over Shell,Disp: planned M3.4.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3),<br/>font (M2.5), gui's first frame<br/>(M2.6, in 8.3) and its painter<br/>(M3.5) are built.
     Cli->>Cli: an mpsc channel for<br/>workers, child readers<br/>and timers
     Cli->>Shell: App::new(config, tx,<br/>frontend.waker())
     loop every turn of the main loop
@@ -573,7 +575,7 @@ sequenceDiagram
         Shell-->>Cli: a Frame, its draw list<br/>and damage, or None<br/>when nothing is damaged
         opt a Frame
             Cli->>Fe: present(frame)
-            Fe->>Gfx: rasterize the<br/>damaged parts
+            Fe->>Gfx: Painter::paint: the<br/>damaged parts (built)
             Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
             Plat->>Disp: XPutImage of<br/>the damaged rects
         end
@@ -640,11 +642,12 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-whole flow is planned in M3.4, M3.5, M4.1, M4.2, M4.3 and M4.6;
+whole flow is planned in M3.4, M4.1, M4.2, M4.3 and M4.6;
 `Transaction` and `History` are built (M1.2), and so are core's
 `InputEvent` (M0.2), `platform`'s events (M2.2), `gui`'s first frame
-(M2.6, 8.3), which uses no input yet, and `ui`'s routing of an event and
-its frames with their damage (M3.1, ADR-0046).
+(M2.6, 8.3), which uses no input yet, `ui`'s routing of an event and
+its frames with their damage (M3.1, ADR-0046), and `gui`'s painter of
+those frames (M3.5, ADR-0048).
 
 ### 9.1 The key, to the focused editor
 
@@ -697,16 +700,16 @@ sequenceDiagram
 sequenceDiagram
     participant ML as app main loop<br/>(M3.4)
     participant View as editor view (M4.1)<br/>and ui Tree::frame (built)
-    participant Fe as gui frontend<br/>(M3.5)
+    participant Fe as gui frontend: present<br/>(M3.4), the painter (built)
     participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M3.4, M3.5, M4.1.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3) and font (M2.5) are built.
+    Note over ML,Bg: planned M3.4, M4.1.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3), font (M2.5)<br/>and gui's painter (M3.5) are built.
     ML->>View: build_frame(metrics):<br/>Tree::frame(size, metrics)
     View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage, or None<br/>when nothing is damaged
     ML->>Fe: present(frame)
-    Fe->>Fe: rasterize only the<br/>damaged rects with gfx<br/>and font (built), M3.5
+    Fe->>Fe: Painter::paint: only<br/>the damaged rects, with<br/>gfx and font (M3.5)
     Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
     Plat->>Disp: XPutImage
     Note over ML,Disp: Keystroke to pixels: p99 within 16 ms<br/>at 1920x1080 on the reference machine
@@ -1001,12 +1004,13 @@ sequenceDiagram
   `golden.rs`, `theme.rs`
 - `crates/core/src/testing/fuzz.rs`, `fuzz/engine.rs`, `fuzz/paths.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
-  `crates/gfx/tests/golden.rs`
+  `crates/gfx/tests/golden.rs`, `crates/font/tests/golden.rs`,
+  `crates/gui/tests/golden.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `transaction.rs`,
   `history.rs`, `pos.rs`, `lib.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
-- `crates/gui/src/frontend.rs`, `first_frame.rs`
+- `crates/gui/src/frontend.rs`, `first_frame.rs`, `paint.rs`
 - `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`, `theme.rs`;
   `themes/tidepool-dark.toml`
 - `AGENTS.md` (rules 2, 6, 7 and 8)
@@ -1020,5 +1024,5 @@ sequenceDiagram
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
   ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
-  ADR-0045, ADR-0046, ADR-0047
+  ADR-0045, ADR-0046, ADR-0047, ADR-0048
 - `docs/roadmap.md`: the tasks named in each section

@@ -47,7 +47,10 @@ authoritative, and this summarizes it.
   blend the coverage over an opaque background themselves: both faces at
   11 to 24 px, the uppercase letter-spaced labels with Saira's weights,
   and fallback, truncation, wrapping and tabs, at scale 1 and 2. `ui`'s
-  are drawn by `gui` (M3.5), whose row allows `gfx`, `font` and `ui`.
+  23 scenes, named `ui_*`, are drawn by `gui` (M3.5, ADR-0048), whose row
+  allows `gfx`, `font` and `ui`: `ui` trees, laid out and painted by
+  `gui`'s painter over the theme's `bg`, one for each draw command,
+  clips and layers included, at scale 1 and 2, and a mix of them at 1.5.
 - **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
   what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
   top): the framebuffer's premultiplied bytes, unchanged. Unset, the
@@ -64,6 +67,7 @@ authoritative, and this summarizes it.
   scene with `tests/golden/<scene>.qoi`, decoded with `codec::qoi`. A
   scene passes when no channel of any pixel differs by more than its
   crate's tolerance (its line then gives the largest difference, if any): 0 for `gfx` (exact); 1 for `font`'s
+  coverage; 0 for `gui`, whose pixels are `gfx`'s blending of `font`'s
   coverage. A scene with no reference, a reference of another size or
   that does not decode, a reference no scene drew, anything else in
   `tests/golden/`, a scene name two crates draw, a scene file that is not

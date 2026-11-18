@@ -96,13 +96,15 @@ its reader panic (`tests/theme.rs`). The fuzz target `theme`, in
 place; it checks that a theme it reads keeps the format's rules and that
 a refusal names a key on a line of the input (ADR-0027, ADR-0047).
 
+`tidepool-gui` paints these draw lists into pixels with `gfx` and `font`,
+measures text for them with `font` (its `FontMetrics`), and draws golden
+frames of `ui`'s scenes (M3.5, ADR-0048).
+
 Not yet, with the roadmap task that adds it:
 
 - the controls, with the component styles derived from the theme's
   tokens — M3.6.
 - collections and overlays — M3.3.
-- painting a draw list into pixels is `tidepool-gui`'s, with golden
-  frames of `ui`'s scenes — M3.5.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -219,7 +221,7 @@ fn main() -> Result<(), UiError> {
 cargo test -p tidepool-ui
 cargo xtask theme
 cargo xtask fuzz-smoke --target theme
-cargo xtask golden    # ui's scenes from M3.5
+cargo xtask golden    # ui's scenes, which tidepool-gui paints (M3.5)
 ```
 
 `cargo xtask ci` runs the whole gate.

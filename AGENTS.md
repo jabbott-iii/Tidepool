@@ -62,7 +62,15 @@ each task once it is done and verified.
   target, which gives the first frame its two text colors, and `cargo xtask
   theme`, a step of `ci`, which
   prints its contrast table and fails when a pair it uses for text falls
-  below WCAG AA (M3.2, ADR-0047).
+  below WCAG AA (M3.2, ADR-0047); and in `tidepool-gui` the draw-list
+  painter, `Painter`, which paints `ui`'s frames into a framebuffer with
+  `gfx` and `font`, their damage only: every draw command, clips, layers,
+  icons (outlines it fills with `font`'s rasterizer) and images
+  registered with it; `FontMetrics`, `ui`'s `TextMetrics` with
+  `font::layout`; and 23 golden scenes of `ui` trees it paints, compared
+  exactly, with property tests that a frame changes only its damage
+  (M3.5, ADR-0048). The window still shows the first frame until the
+  shell (M3.4).
 - **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

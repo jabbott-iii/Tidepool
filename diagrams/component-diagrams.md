@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.5 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1 and M3.2. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -49,9 +49,9 @@ agents, languages and toolchains offer one another, and 1.3 what all of
 them stand on. Only formats and text (`codec` and `text`), `xtask`,
 `sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
 (M2.2, M2.7), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
-(M2.5), `gui`'s first frame (M2.6) and `ui`'s tree, layout, input
-routing, draw lists and accessibility tree (M3.1) and its theme (M3.2)
-have code behind their interfaces; the app opens that frame's window (M2.6). Each arrow names the crate in
+(M2.5), `gui`'s first frame (M2.6) and painter (M3.5) and `ui`'s tree,
+layout, input routing, draw lists and accessibility tree (M3.1) and its
+theme (M3.2) have code behind their interfaces; the app opens that frame's window (M2.6). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -64,7 +64,7 @@ flowchart TB
     i_front(("Frontend<br/>planned M3.4, M7.1"))
     i_editor(("editor views<br/>and commands<br/>planned M4.1, M4.6"))
 
-    c_front["Frontends<br/>tidepool-gui (M2.6)<br/>tidepool-tui<br/>planned M7.1"]
+    c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
@@ -87,7 +87,8 @@ flowchart TB
     i_front -.- c_front
     i_editor -.- c_editor
 
-    c_front -.->|"gui, tui:<br/>planned M3.5, M7.1"| i_draw
+    c_front -->|"gui (M3.5)"| i_draw
+    c_front -.->|"tui:<br/>planned M7.1"| i_draw
     c_front -->|"gui (M3.2)"| i_theme
     c_front -->|"gui (M2.6)"| i_raster
     c_front -->|"gui (M2.6)"| i_glyphs
@@ -157,7 +158,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    c_front["Frontends<br/>tidepool-gui (M2.6)<br/>tidepool-tui<br/>planned M7.1"]
+    c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
@@ -514,10 +515,12 @@ flowchart TB
 
 `gfx`, `font` and `ui` are pure: no `unsafe` and no OS calls. `ui` lays
 out in logical units and emits draw lists in resolved colors (M3.1,
-ADR-0046); `gui`, which draws only the first frame today (M2.6), is to
-rasterize them with `gfx` and `font` (M3.5, 3.4), and `tui` to map them
-onto cells (M7.1). `TextMetrics` is a trait that `ui` defines, with
-`FixedMetrics` for tests (M3.1), and that each frontend is to implement.
+ADR-0046); `gui` paints them with `gfx` and `font`, their damage only
+(M3.5, ADR-0048, 3.4), though its window still shows the first frame
+(M2.6) until the shell (M3.4), and `tui` is to map them onto cells
+(M7.1). `TextMetrics` is a trait that `ui` defines, with `FixedMetrics`
+for tests (M3.1); `gui` implements it as `FontMetrics` (M3.5), and `tui`
+is to (M7.1).
 Widgets live in the tree's nodes, and the tree routes each event to them
 and up through their ancestors (ADR-0046). `theme` reads a theme file's
 tokens into a `Theme`, and bundles `themes/tidepool-dark.toml`, from
@@ -528,7 +531,7 @@ the component styles derived from the tokens come with the controls
 ```mermaid
 flowchart TB
     c_editor["tidepool-editor<br/>planned M4.1, M4.3"]
-    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>draw lists planned M3.5"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the painter, M3.5"]
     c_tui["tidepool-tui<br/>planned M7.1"]
     c_bridge["OS accessibility bridges<br/>AT-SPI, NSAccessibility,<br/>UI Automation<br/>planned M14.2"]
 
@@ -544,8 +547,8 @@ flowchart TB
     c_editor -.->|"editor view,<br/>planned M4.1"| i_tree
     c_editor -.->|"editor view,<br/>planned M4.1"| i_drawlist
     c_editor -.->|"explorer and tabs,<br/>planned M4.3"| i_widgets
-    c_gui -.->|"paints,<br/>planned M3.5"| i_drawlist
-    c_gui -.->|"implements,<br/>planned M3.5"| i_metrics
+    c_gui -->|"paints (M3.5)"| i_drawlist
+    c_gui -->|"implements as<br/>FontMetrics (M3.5)"| i_metrics
     c_gui -->|"text, text-3 of<br/>tidepool_dark (M3.2)"| i_theme
     c_tui -.->|"maps onto cells,<br/>planned M7.1"| i_drawlist
     c_tui -.->|"implements,<br/>planned M7.1"| i_metrics
@@ -576,11 +579,12 @@ flowchart TB
 ### 3.4 tidepool-gfx and tidepool-font
 
 `gui` is the only crate in the binary that uses them, for the first frame
-today (M2.6); `tidepool-bench` measures `font`'s atlas (6.5).
+(M2.6) and the painter (M3.5); `tidepool-bench` measures `font`'s atlas
+(6.5).
 
 ```mermaid
 flowchart LR
-    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>draw-list painter<br/>planned M3.5"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the draw-list painter, M3.5"]
 
     i_fb(("Framebuffer, View<br/>(M2.3)"))
     i_raster(("raster, blend, clip,<br/>image, glyph blit<br/>(M2.3)"))
@@ -594,12 +598,13 @@ flowchart LR
     c_font["tidepool-font<br/>TrueType and outlines (M2.8)<br/>bundled faces, fallback,<br/>layout, atlas, golden<br/>scenes (M2.5)"]
 
     c_gui -->|"M2.6"| i_fb
-    c_gui -->|"image copy,<br/>glyph blit (M2.6)"| i_raster
+    c_gui -->|"image copy, glyph<br/>blit (M2.6); every<br/>primitive, layers (M3.5)"| i_raster
     c_gui -->|"M2.6"| i_backdrop
-    c_gui -->|"exposes (M2.6)"| i_damage
+    c_gui -->|"exposes (M2.6),<br/>painted damage (M3.5)"| i_damage
     c_gui -->|"M2.6"| i_atlas
     c_gui -->|"lines, bundled<br/>faces (M2.6)"| i_layout
-    c_gui -.->|"TextMetrics,<br/>planned M3.5"| i_layout
+    c_gui -->|"TextMetrics (M3.5)"| i_layout
+    c_gui -->|"icons (M3.5)"| i_ttf
 
     i_fb --- c_gfx
     i_raster --- c_gfx
@@ -983,7 +988,8 @@ Everything in this section is built except `tidepool-testkit` and the
 uses `core` and `codec`, the two crates its matrix row allows, and starts
 one program, `cargo` (ADR-0017); `cargo xtask bench` has cargo build and
 run `tidepool-bench` (ADR-0035), and `cargo xtask golden` has it run the
-golden scenes in `tidepool-gfx`'s and `tidepool-font`'s tests (ADR-0044).
+golden scenes in `tidepool-gfx`'s, `tidepool-font`'s and `tidepool-gui`'s
+tests (ADR-0044, ADR-0048).
 
 ### 6.1 xtask: the checks of ci
 
@@ -1061,8 +1067,8 @@ flowchart TB
 - `headers` and `unsafe-audit` also read the source files, and `deps` the
   manifests, lockfiles and cargo configuration; those files are left out.
 - `golden` has cargo run the golden scenes of each crate in its `SCENES`
-  table that has a `golden` test, `tidepool-gfx` and `tidepool-font`
-  today, and they write
+  table that has a `golden` test, `tidepool-gfx`, `tidepool-font` and
+  `tidepool-gui` today, and they write
   what they drew into `target/golden` (6.2, ADR-0044).
 - `cargo xtask site` runs these same steps through `check::run_gate`,
   then the two examples, and fills `site/` into `target/site` (6.2,
@@ -1277,8 +1283,9 @@ of layout and of the accessibility invariant use the harness and `Pcg32`
 (M3.1), and so does its test of mutated theme files (M3.2); its library
 uses `core`'s `geom`, `color` and `input`, and `codec`'s TOML parser
 (2.1). `gui`'s library uses `core`'s `geom` and `color` and `ui`'s theme
-(M3.2), and the `tidepool` binary `core`'s `cli` (M2.6), outside this
-view. `xtask` also uses `core`'s `cli`, `hash` and
+(M3.2), draw lists and `TextMetrics` (M3.5), and its property tests of
+the painter's damage use the harness and `Pcg32` (M3.5); the `tidepool`
+binary uses `core`'s `cli` (M2.6), outside this view. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
 measures `text`'s library with inputs drawn from `Pcg32`, and `font`'s
 atlas filling with the bundled Saira (M2.5), and keeps its baseline with
@@ -1291,6 +1298,7 @@ flowchart TB
     c_gtests["gfx tests<br/>properties.rs"]
     c_ftests["font tests<br/>bundled.rs"]
     c_utests["ui tests<br/>layout.rs, a11y.rs,<br/>theme.rs"]
+    c_guitests["gui tests<br/>paint.rs, M3.5"]
     c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
@@ -1325,6 +1333,8 @@ flowchart TB
     c_ftests -->|"pins coverage"| i_sha
     c_utests --> i_check
     c_utests --> i_pcg
+    c_guitests --> i_check
+    c_guitests --> i_pcg
     c_bench -->|"the text suites"| i_tall
     c_bench -->|"the font suite"| i_fill
     c_bench -->|"inputs"| i_pcg
@@ -1344,7 +1354,7 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_gtests,c_ftests,c_utests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text,c_font6 built
+    class c_ctests,c_ttests,c_gtests,c_ftests,c_utests,c_guitests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text,c_font6 built
     class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha,i_fill built
     class c_testkit,i_fakes planned
 ```
@@ -1364,7 +1374,7 @@ Docs:
 - `docs/04-quality.md`: own harnesses, fakes, fuzz smoke, `xtask` checks.
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
   ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035, ADR-0044,
-  ADR-0046, ADR-0047.
+  ADR-0046, ADR-0047, ADR-0048.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1383,11 +1393,13 @@ Code:
   `cli.rs`, `rng.rs`.
 - `crates/ui/src/`: `lib.rs`, `tree.rs`, `layout.rs`, `focus.rs`,
   `input.rs`, `metrics.rs`, `draw.rs`, `a11y.rs`, `theme.rs`, `error.rs`;
-  `themes/tidepool-dark.toml`; `crates/gui/src/first_frame.rs`.
+  `themes/tidepool-dark.toml`; `crates/gui/src/first_frame.rs`,
+  `paint.rs`, `metrics.rs`, `icon.rs`.
 - Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`, `qoi.rs`;
   `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`;
   `crates/gfx/tests/golden.rs`; `crates/font/tests/golden.rs`;
-  `crates/ui/tests/layout.rs`, `a11y.rs`, `theme.rs`.
+  `crates/ui/tests/layout.rs`, `a11y.rs`, `theme.rs`;
+  `crates/gui/tests/golden.rs`, `paint.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
   `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,

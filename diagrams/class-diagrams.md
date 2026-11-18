@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.5 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1 and M3.2. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -60,8 +60,9 @@ with `core::color::Color`, and the fuzz targets' result lines with
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
-framebuffer and backdrop, `font`'s faces, layout and atlas, `ui`'s
-`Theme`, and `core`'s geometry and colors (section 27). `tidepool-ui` uses
+framebuffer, primitives, layers and backdrop, `font`'s faces, layout,
+atlas and outline rasterizer, `ui`'s `Theme`, draw lists and
+`TextMetrics`, and `core`'s geometry and colors (section 27). `tidepool-ui` uses
 `core`'s geometry, colors and input events, and `TextLength` to keep a
 value out of `Debug`, and reads theme files with `codec::toml` within a
 `codec::Limits`, wrapping a `codec::CodecError` in its `UiError` (section
@@ -2252,7 +2253,7 @@ classDiagram
     GoldenFns ..> Verdict : one per scene
     GoldenFns ..> QoiImage : decodes references,<br/>encodes images
     GoldenFns ..> Report : check returns
-    note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact; and<br/>tidepool-font, with 1"
+    note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact;<br/>tidepool-font, with 1;<br/>and tidepool-gui, with 0"
 ```
 
 `cargo xtask theme` (M3.2, ADR-0047) lists the regular `.toml` files
@@ -3537,7 +3538,7 @@ classDiagram
   that fails is remembered with its error until `clear`. `FontError` gains
   `Faces` and `Atlas` (section 29).
 
-## 27. gui: the first frame
+## 27. gui: the first frame and the painter
 
 `tidepool-gui` (M2.6, ADR-0045) opens a `platform` window and draws the
 first frame into it. A `Gui` owns the window, the `FirstFrame` that draws,
@@ -3584,6 +3585,7 @@ classDiagram
         Gfx
         Font
         Pixels
+        Icon
     }
     class Window["platform::window::Window"]
     class Event["platform::events::Event"]
@@ -3617,6 +3619,82 @@ classDiagram
 - `Gui` and `Window` are neither `Send` nor `Sync`: the window stays on
   the thread that opened it. `Turn` is `Copy`. `GuiError` wraps the
   error of the crate that failed (section 29).
+
+The painter (M3.5, ADR-0048) paints `ui`'s frames, which the window shows
+from the shell on (M3.4). A `Painter` owns the bundled faces, an `Atlas`,
+and the `Icon`s and images (premultiplied `gfx` framebuffers) registered
+for `ui`'s `IconId`s and `ImageId`s. `paint` takes a target framebuffer,
+a base view, a `ui::draw::Frame` and the scale, paints the frame's damage
+only, and returns it as a `gfx` `Damage`; while it walks the list a layer
+is a framebuffer made where something inks. `metrics` lends a
+`FontMetrics`, which implements `ui`'s `TextMetrics` with `font::layout`
+at that scale, to give `Tree::frame`; `metrics::face` picks the bundled
+face for a `TextStyle`. An `Icon` keeps its contours as a `font` `Outline`,
+y negated, which `font::outline::rasterize` fills; `Icon::new` refuses
+with an `IconError` in `GuiError::Icon`.
+
+```mermaid
+classDiagram
+    direction LR
+    class Painter["gui::paint::Painter"] {
+        -faces: Faces
+        -atlas: Atlas
+        -icons: BTreeMap of IconId and Icon
+        -images: BTreeMap of ImageId and Framebuffer
+        +new() Result~Painter~
+        +metrics(scale) FontMetrics
+        +set_icon(id, icon) Option~Icon~
+        +set_image(id, image) Option~Framebuffer~
+        +paint(target, base, frame, scale) Result~Damage~
+    }
+    class FontMetrics["gui::metrics::FontMetrics"] {
+        -faces: borrowed Faces
+        -scale: Scale
+        +new(faces, scale) FontMetrics
+        +line(style) LineMetrics
+        +width(text, style) f32
+    }
+    class TextMetrics["ui::metrics::TextMetrics"] {
+        <<trait>>
+    }
+    class Icon["gui::icon::Icon"] {
+        -side: f32
+        -outline: Outline
+        +new(side, points, contour_ends) Result~Icon~
+        +side() f32
+    }
+    class IconError["gui::icon::IconError"] {
+        <<enumeration>>
+        Side
+        TooManyPoints
+        Point
+        ContourEnds
+    }
+    class Frame["ui::draw::Frame"]
+    class View["gfx::framebuffer::View"]
+    class Framebuffer["gfx::framebuffer::Framebuffer"]
+    class Damage["gfx::damage::Damage"]
+    class Faces["font::fallback::Faces"]
+    class Atlas["font::atlas::Atlas"]
+    class Outline["font::outline::Outline"]
+
+    Painter *-- Faces
+    Painter *-- Atlas
+    Painter "1" *-- "0..*" Icon : by IconId
+    Painter "1" *-- "0..*" Framebuffer : images by ImageId
+    Painter ..> FontMetrics : metrics lends
+    Painter ..> Frame : paints
+    Painter ..> View : the base
+    Painter ..> Damage : paint returns
+    FontMetrics ..|> TextMetrics
+    FontMetrics o-- Faces : borrows the painter's
+    Icon *-- Outline
+    Icon ..> IconError : new refuses with
+```
+
+- A `Painter` holds no window: the shell (M3.4) gives it the window's
+  framebuffer and the backdrop. `FontMetrics` borrows the painter's
+  faces, so `Tree::frame` measures with the faces the painter draws.
 
 ## 28. ui: the tree, layout, events, frames, the accessibility tree and the theme
 
@@ -4059,8 +4137,9 @@ that caused the failure, except `BenchError::Write`, which keeps the
 failed save's message as text. `BenchError` and `GuiError` wrap other
 crates': `BenchError`'s `Text` holds the `TextError` of a text operation a
 suite runs, and its `Font` the `FontError` of a font operation; each of
-`GuiError`'s variants holds the error of the crate it names, `platform`'s
-two, `gfx`'s or `font`'s. `UiError` names the node, role, index or limit a
+`GuiError`'s variants but `Icon` holds the error of the crate it names,
+`platform`'s two, `gfx`'s or `font`'s; `Icon` holds the
+`gui::icon::IconError` that refused an icon. `UiError` names the node, role, index or limit a
 call ran into, and wraps a theme file's errors: `codec`'s `CodecError` in
 `ThemeSyntax`, and `ui::theme::ThemeError`, which implements only
 `Display`, in `Theme` (28.3). `xtask`
@@ -4156,6 +4235,7 @@ classDiagram
         Gfx
         Font
         Pixels
+        Icon
     }
     class UiError["ui::UiError"] {
         <<enumeration>>
@@ -4168,6 +4248,7 @@ classDiagram
         Theme
     }
     class ThemeError["ui::theme::ThemeError"]
+    class IconError["gui::icon::IconError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
     class FacesErrorKind["font::fallback::ErrorKind"]
@@ -4228,6 +4309,9 @@ classDiagram
     GuiError *-- PixelsError : Pixels
     GuiError *-- GfxError : Gfx
     GuiError *-- FontError : Font
+    GuiError *-- IconError : Icon
+    Display <|.. IconError
+    StdError <|.. IconError
     Display <|.. UiError
     StdError <|.. UiError
     UiError *-- CodecError : ThemeSyntax
@@ -4254,8 +4338,8 @@ is described in words here.
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
-  draw-list painter is planned (M3.5), besides its first frame (section
-  27), and the TUI's renderer and input decoder (M7.1).
+  first frame and draw-list painter are built (section 27), and the
+  TUI's renderer and input decoder are planned (M7.1).
 - `tidepool-toolchain`: the registry's tool states `Missing`, `Found`,
   `Outdated`, `Installing` and `Broken`, planned (M5.1); the `Spawn`
   builder and the `SecretArg` and `SecretEnv` types that redact
@@ -4300,7 +4384,8 @@ The main files these diagrams were drawn from:
 - `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
   `ttf/tables.rs`, `outline.rs`, `bundled.rs`, `fallback.rs`, `layout.rs`,
   `atlas.rs`
-- `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`
+- `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`,
+  `paint.rs`, `metrics.rs`, `icon.rs`
 - `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
   `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
   `draw.rs`, `a11y.rs`, `theme.rs`; `themes/tidepool-dark.toml`
@@ -4311,7 +4396,7 @@ The main files these diagrams were drawn from:
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044, ADR-0045, ADR-0046, ADR-0047)
+  ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

@@ -23,18 +23,39 @@ automatically when no display is available, with a message).
 - Opens a `platform::Window`, keeps a `gfx::Framebuffer` at device
   resolution, and rasterizes the damaged parts of each draw list with `gfx`
   and `font`.
-- Until it paints `ui`'s draw lists (M3.5), it draws the first frame (M2.6,
-  ADR-0045): `Gui::turn` waits for the window's events and presents what
-  an expose asks for, from a frame that `first_frame::FirstFrame` draws
-  anew, on the calling thread, whenever the window's size or scale has
-  changed: jabbott.dev's backdrop (`gfx::backdrop`) and a line in each
-  bundled face, its name in `text-3` and a sample in `text`, from the
-  typography table (`docs/subsystems/ui-and-theme.md`), the two text
-  colors from `ui`'s bundled `tidepool-dark` theme (M3.2, ADR-0047); the
-  backdrop's are `gfx`'s `BackdropStyle::jabbott_dev()`, whose `bg` a
-  test holds to the theme's. The rustdoc
-  of `gui`'s modules is authoritative.
-- Implements `TextMetrics` with `font::layout` (M3.5).
+- **The painter** (M3.5, ADR-0048): `paint::Painter::paint` paints a
+  `ui::draw::Frame` into a framebuffer, its damage only. Each damage rect
+  is rounded out to whole device pixels, at most 8 kept, and cut to the
+  target and a base image (the backdrop, or a flat `bg`), which is copied
+  in first; then the whole list is drawn, clipped to the rect. Each
+  command's ink is clipped to its own bounds, cut to its clips and rounded
+  out, so a frame touches only pixels in its damage and painting the
+  damage gives what painting the whole frame gives. Rect edges round to
+  the nearest device pixel (the right and bottom summed in `f32`, as
+  `ui` places a neighbour); border widths and bracket thickness snap as
+  CSS snaps a border width; lines, cuts and pills are anti-aliased; text
+  is set on a whole-pixel baseline from a quarter-pixel pen. A layer is a
+  framebuffer covering what inks in it, at most 8 nested. Icons are
+  outlines in a square viewbox (`icon::Icon`), registered with the
+  painter and filled by `font::outline::rasterize` at their device size;
+  images are premultiplied framebuffers registered with it and scaled
+  bilinearly; the caller damages what draws an id whose registration
+  changed. The rustdoc of `gui`'s modules is authoritative.
+- **Text metrics** (M3.5): `metrics::FontMetrics` implements
+  `TextMetrics` with `font::layout`, in logical units at the scale it is
+  made for, as the painter draws: a style takes the bundled face CSS's
+  font matching would (italic before weight; no synthesized slant).
+- **The window** still shows the first frame (M2.6, ADR-0045) until the
+  shell paints `ui`'s frames in it (M3.4): `Gui::turn` waits for the
+  window's events and presents what an expose asks for, from a frame that
+  `first_frame::FirstFrame` draws anew, on the calling thread, whenever
+  the window's size or scale has changed: jabbott.dev's backdrop
+  (`gfx::backdrop`) and a line in each bundled face, its name in `text-3`
+  and a sample in `text`, from the typography table
+  (`docs/subsystems/ui-and-theme.md`), the two text colors from `ui`'s
+  bundled `tidepool-dark` theme (M3.2, ADR-0047); the backdrop's are
+  `gfx`'s `BackdropStyle::jabbott_dev()`, whose `bg` a test holds to the
+  theme's.
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
 - Clipboard: the window's, from `platform::clipboard`. A paste is asked
@@ -63,8 +84,12 @@ automatically when no display is available, with a message).
 
 ## Tests
 
-- GUI: golden frames of each draw primitive (M3.5) and of the shell
-  (M3.4); an Xvfb smoke test,
+- GUI: golden frames of each draw command, clips and layers included,
+  at scale 1 and 2, and a mix at 1.5 (`crates/gui/tests/golden.rs`,
+  `ui_*`, compared exactly, M3.5), and of the shell (M3.4); property tests
+  that a painted frame changes only pixels inside its damage, and that
+  painting the damage gives what painting the whole frame gives, idle
+  frames included (`crates/gui/tests/paint.rs`, M3.5); an Xvfb smoke test,
   `crates/gui/tests/window.rs`, that opens the window, sees the first
   frame presented and an idle turn present nothing, gated by
   `TIDEPOOL_IT_X11` and run by Linux CI's gate (M2.6, ADR-0041).

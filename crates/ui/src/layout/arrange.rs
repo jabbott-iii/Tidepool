@@ -651,10 +651,13 @@ impl Tree {
         let mut rects = Vec::with_capacity(items.len());
         let mut y = area.y;
         for (row, &height) in items.chunks(columns).zip(&heights) {
-            for (column, &item) in row.iter().enumerate() {
-                let x = area.x + column as f32 * (column_width + gap_x);
+            // Each column at the sum of the one before, as each row is, so
+            // that a cell's right edge is its neighbour's left in `f32`.
+            let mut x = area.x;
+            for &item in row {
                 let cell = Rect::new(x, y, column_width, height);
                 rects.push(in_cell(cell, item, style.align_x, style.align_y));
+                x += column_width + gap_x;
             }
             y += height + gap_y;
         }

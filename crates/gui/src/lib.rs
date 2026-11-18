@@ -16,11 +16,16 @@
 //!
 //! Specification: `docs/subsystems/frontends.md`.
 //!
-//! Today it shows the first frame (M2.6, ADR-0045): [`Gui`] opens a window
-//! through `tidepool-platform` and presents, each time the window is
-//! exposed, what [`first_frame::FirstFrame`] draws with `gfx` and `font`:
-//! jabbott.dev's backdrop and a line in each of the seven bundled faces.
-//! The draw-list painter, which draws `ui`'s frames, comes with M3.5.
+//! - [`Painter`] paints `ui`'s frames, their damage only, into a
+//!   framebuffer with `gfx` and `font`: every draw-list command, the icons
+//!   ([`Icon`]) and images registered with it, clips and layers; and
+//!   [`FontMetrics`] measures text for `ui` as the painter draws it (M3.5,
+//!   ADR-0048).
+//! - [`Gui`] opens a window through `tidepool-platform` and presents, each
+//!   time the window is exposed, the first frame (M2.6, ADR-0045): what
+//!   [`first_frame::FirstFrame`] draws with `gfx` and `font`, jabbott.dev's
+//!   backdrop and a line in each of the seven bundled faces. Painting
+//!   `ui`'s frames in the window comes with the shell (M3.4).
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -30,6 +35,9 @@
 mod error;
 pub mod first_frame;
 mod frontend;
+pub mod icon;
+pub mod metrics;
+pub mod paint;
 
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]
@@ -38,3 +46,6 @@ struct ReadmeDoctests;
 
 pub use error::GuiError;
 pub use frontend::{Gui, Turn};
+pub use icon::Icon;
+pub use metrics::FontMetrics;
+pub use paint::Painter;

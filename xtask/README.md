@@ -80,8 +80,9 @@ Built, with the roadmap task that built it:
 - `golden [--bless <scene>...]`, a step of `ci` after `test`: it finds
   the drawing crates with `cargo metadata`, the members with a test target
   named `golden`, each with its row and tolerance in `SCENES` in
-  `src/golden.rs` (`tidepool-gfx`, exactly, and `tidepool-font`, within
-  1, from M2.5), and runs `cargo test --package
+  `src/golden.rs` (`tidepool-gfx`, exactly; `tidepool-font`, within
+  1, from M2.5; and `tidepool-gui`, exactly, from M3.5), and runs `cargo
+  test --package
   <crate> --test golden` of each with
   `TIDEPOOL_GOLDEN_DIR` naming where the scenes write their PAM files,
   compares each with `tests/golden/<scene>.qoi` within its crate's
