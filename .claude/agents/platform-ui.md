@@ -39,4 +39,5 @@ Read `docs/subsystems/sys-and-platform.md`, `docs/03-platforms.md`,
   the user reviews diffs); layout/contrast checks.
 - `/verify` passes; report what you ran and which platforms you could and
   could not build or test on.
-- A proposed commit message; nothing committed.
+- A proposed commit message, with no attribution lines (`AGENTS.md` rule
+  11); nothing committed.

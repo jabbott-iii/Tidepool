@@ -34,5 +34,5 @@ are first-class first (ADR-0005). `AGENTS.md` is your rulebook. Read
   CommonMark spec examples; fake-server transcripts.
 - Real rust-analyzer tests gated by `TIDEPOOL_IT_RA=1`, printing
   `SKIPPED: <reason>` otherwise.
-- `/verify` passes; report what you ran. Propose a commit message; commit
-  nothing.
+- `/verify` passes; report what you ran. Propose a commit message, with no
+  attribution lines (`AGENTS.md` rule 11); commit nothing.

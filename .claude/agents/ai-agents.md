@@ -43,5 +43,5 @@ your rulebook. Read `docs/subsystems/agents.md`, ADR-0009 in
 - TAP conformance suite; deny-list, consent, latency, stale-result and
   crash tests; opt-in network tests print `SKIPPED:` otherwise.
 - `security-reviewer` has reviewed context assembly and consent changes.
-- `/verify` passes; report what you ran. Propose a commit message; commit
-  nothing.
+- `/verify` passes; report what you ran. Propose a commit message, with no
+  attribution lines (`AGENTS.md` rule 11); commit nothing.

@@ -71,6 +71,7 @@ paste output here
 - [ ] New source files start with the license header (ADR-0021).
 - [ ] No secrets, keys, keystores, signing material, tokens or build output (`target/`) are included.
 - [ ] If a coding agent wrote part of this change, I have reviewed all of it, and the agent followed `AGENTS.md`.
+- [ ] No commit message, and not this description, credits a coding agent or tool: no `Co-Authored-By:` line for one, no "Generated with" line (CONTRIBUTING.md, "Commits and pull requests").
 
 ## Security and compatibility
 

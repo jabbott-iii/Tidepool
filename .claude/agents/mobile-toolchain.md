@@ -48,5 +48,5 @@ existing code. `.claude/rules/toolchains-and-secrets.md` applies.
   `SKIPPED: <reason>` when not run. Never claim an artifact verified unless
   the verifier ran.
 - `security-reviewer` has reviewed the change.
-- `/verify` passes; report what you ran. Propose a commit message; commit
-  nothing.
+- `/verify` passes; report what you ran. Propose a commit message, with no
+  attribution lines (`AGENTS.md` rule 11); commit nothing.

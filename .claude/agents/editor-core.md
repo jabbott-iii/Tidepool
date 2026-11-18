@@ -40,4 +40,5 @@ existing code.
   goldens for views.
 - `/verify` passes; report the commands you actually ran and their results,
   and what you could not run.
-- Public items documented; a proposed commit message; nothing committed.
+- Public items documented; a proposed commit message, with no attribution
+  lines (`AGENTS.md` rule 11); nothing committed.

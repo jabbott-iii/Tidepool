@@ -45,4 +45,4 @@ task's acceptance criteria in `docs/roadmap.md` first.
 ## Report
 Commands run and exact results (pass/fail counts), what was not run and
 why, coverage gaps noticed, flaky behavior observed, and a proposed commit
-message. Commit nothing.
+message, with no attribution lines (`AGENTS.md` rule 11). Commit nothing.

@@ -100,9 +100,14 @@ up on:
 - **The Tidepool binary opens no sockets.** Network access happens only in
   child processes such as `curl` and `git`. The one exception is Xlib's
   connection to the local X server, over a Unix socket only (ADR-0039).
-- **Smallest complete change.** No unrelated refactors, renames or
-  reformatting. Keep public APIs, file formats and protocols unless the
-  issue agreed to break one, and record a break in `docs/decisions.md`.
+- **Smallest complete change.** No unrelated refactors, renames,
+  reformatting, upgrades or new abstractions. Keep the compatibility of
+  public APIs, file formats, protocols, configuration, data and behavior
+  unless the issue agreed to break it, and record a break in
+  `docs/decisions.md`.
+- **Never weaken a check to make it pass.** Tests, lints, validation,
+  limits and security checks stay as strong as they were; if one seems
+  wrong, say why on the issue.
 - **Report what you ran, honestly.** Never say a check passed unless you
   ran it and saw it pass, and say which checks you did not run. A test
   that printed `SKIPPED:` did not pass.
@@ -288,6 +293,10 @@ features` reads `docs/features.jsonc` with the roadmap's task lines.
 - A commit's subject starts with the area it changes and names the roadmap
   task, as in `text: rope, positions and UAX #29 graphemes (M1.1)` or
   `docs: accept ADR-0017 (xtask runs cargo itself)`.
+- A commit message or pull request description credits no coding agent or
+  tool: no `Co-Authored-By:` line for one, and no "Generated with …"
+  line. Naming a tool the change is about is fine, and Dependabot's own
+  pull requests keep their trailers.
 - Keep a pull request to one issue or task. Split unrelated work into
   issues of its own.
 - Do not commit build output (`target/`) or generated files the docs do not
@@ -303,7 +312,8 @@ any agent, and `CLAUDE.md` and `.claude/` add Claude Code's skills
 dependency hook and permission guardrails.
 
 - Agents never commit, push or rewrite history: they leave their changes
-  uncommitted for a person to review, with a proposed commit message.
+  uncommitted for a person to review, with a proposed commit message
+  that has no attribution lines (above).
 - You are responsible for every line you submit, whoever or whatever wrote
   it. Review an agent's change as you would anyone's, and run the checks
   yourself.

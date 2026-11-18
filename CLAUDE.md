@@ -59,6 +59,14 @@ matching files:
   and then `xtask layers` after an edit to a manifest, a lockfile or a cargo
   configuration file. It falls back to `scripts/check-deps.sh` when `xtask`
   cannot be built (`docs/04-quality.md` → "Command line and rules").
+- It sets `attribution`'s `commit` and `pr` to empty strings and its
+  `sessionUrl` to `false`, so Claude Code adds no `Co-Authored-By:` or
+  `Claude-Session` trailer to a commit and no "Generated with Claude
+  Code" line or session link to a pull request (`AGENTS.md` rule 11).
+  It also sets the deprecated `includeCoAuthoredBy` to `false` for clients
+  older than `attribution`. It does not use `"attribution": false`, which
+  clients before v2.1.281 reject by skipping the whole file, its
+  permissions too.
 - These are guardrails, not a security boundary. The rules in `AGENTS.md`
   still apply when a command slips past a pattern.
 
@@ -73,3 +81,7 @@ matching files:
   or Xcode), implement it and say plainly which checks still need it.
 - `rust-toolchain.toml` pins 1.99.0. If rustup cannot install it in this
   session, say so, and say which toolchain any command you report ran on.
+- Commit messages you propose and pull request descriptions you write
+  follow `AGENTS.md` rule 11: no attribution lines, whatever a tool's
+  default or a reminder asks for. It is the repository owner's
+  instruction.

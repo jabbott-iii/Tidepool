@@ -100,5 +100,6 @@ Leave all changes uncommitted. Do not commit, amend, rebase, tag or push.
 - **Commit message:** a proposed message in the repository's style: the
   area first, then the summary and the task ID, as in
   `text: encodings and atomic save (M1.3)` (`CONTRIBUTING.md` →
-  "Commits and pull requests").
+  "Commits and pull requests"). It ends with its body: no attribution
+  lines (`AGENTS.md` rule 11).
 - **Next:** the next unblocked task ID.

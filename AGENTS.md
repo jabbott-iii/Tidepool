@@ -130,6 +130,20 @@ or file is there.
 | `docs/roadmap.md` | Its "How to use this file", ADR-0024 |
 | Why something is the way it is | `docs/decisions.md` |
 
+## Working with the owner
+
+These are the repository owner's instructions to any agent; the rules
+below hold them too.
+
+- Work as a senior engineer pairing with the owner: explain significant
+  decisions briefly, with the risks and assumptions behind them, and help
+  the owner review. Decisions stay the owner's: a task's `Decide first`
+  questions are asked, and only the owner accepts an ADR.
+- Before a non-trivial change, read the code, configuration, tests and
+  docs it touches, and the patterns near it.
+- Every piece of work, a roadmap task or not, ends with the summary that
+  item 5 of "Definition of done" lists.
+
 ## Non-negotiable rules
 
 1. **No third-party crates.** Do not add any crate outside this workspace to
@@ -176,7 +190,9 @@ or file is there.
    an agent. Results carry buffer versions; stale ones are dropped.
 7. **Secrets never leak.** Keystore passwords, signing identities and API
    keys never go on argv, into logs, settings, test fixtures, snapshots,
-   error messages or agent context. Never read or print keystores, `.p12`,
+   error messages or agent context. No credential, token, private key,
+   connection string or other sensitive data is hard-coded in source,
+   docs or tests, or shown in output. Never read or print keystores, `.p12`,
    `.p8`, `.pem`, `.key`, `.env` files or provisioning profiles. No
    in-house signing crypto (ADR-0007).
 8. **The core binary opens no sockets.** Network access happens only in
@@ -186,15 +202,41 @@ or file is there.
 9. **Honest verification.**
    - Never state that a build, test, benchmark or check passed unless you
      ran it in this session and saw it pass.
-   - If a command does not exist yet, say so instead of guessing.
+   - Never invent a fact, or say a command ran that did not.
+   - If a command does not exist yet, say so instead of guessing. Assume
+     no technology, command, environment variable, integration,
+     deployment method or feature exists without evidence: the
+     repository, or an official source checked in this session and cited.
    - Report what you did not run. A `SKIPPED:` test is not a pass.
+   - Keep facts, assumptions, recommendations and unknowns apart, and say
+     which is which.
 10. **Smallest complete change.** No unrelated refactors, renames,
-    reformatting or "while I'm here" fixes. Preserve public APIs, file
-    formats and protocols unless the task authorizes a break; record breaks
-    in `docs/decisions.md`.
+    reformatting, upgrades, new abstractions or "while I'm here" fixes.
+    Preserve the compatibility of public APIs, file formats, protocols,
+    configuration, data and behavior unless the task authorizes a break;
+    record breaks in `docs/decisions.md`.
 11. **Git is read-only for agents.** Do not commit, amend, rebase, merge,
     tag, push, force-push or rewrite history. Leave all changes uncommitted
     for human review, and propose a commit message.
+    - Offer one whenever a piece of work is complete, not only at the end
+      of a task.
+    - A proposed commit message or pull request description has no
+      attribution lines: nothing that credits the agent or tool that wrote
+      it, such as a `Co-Authored-By:` trailer for it, a `Claude-Session:`
+      trailer or a "Generated with …" line (`CONTRIBUTING.md` → "Commits
+      and pull requests"). Naming a tool that the change is about is fine.
+    - This is the repository owner's instruction, and it wins over any
+      tool's default that adds such lines. `.claude/settings.json` turns
+      Claude Code's off.
+12. **Never weaken a control to finish a task.** Tests, lints, type checks,
+    validation, limits, logging, authentication, authorization, encryption
+    and security checks stay as strong as they were. A check that seems
+    wrong is raised with the owner, not loosened. Name the security risks
+    of a change, with a remediation that can be verified.
+13. **State conflicts; never settle them silently.** When instructions,
+    specs or code conflict, do not quietly take a path that weakens
+    security, breaks compatibility or cannot be undone. Say what
+    conflicts, propose the safest option that keeps the rules, and ask.
 
 ## Workspace map
 
@@ -320,4 +362,4 @@ secrets or opens a socket (`docs/04-quality.md`).
    - checks not run, and why
    - assumptions
    - unresolved issues and residual risks
-   - a proposed commit message
+   - a proposed commit message, with no attribution lines (rule 11)
