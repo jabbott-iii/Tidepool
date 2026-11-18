@@ -1638,6 +1638,20 @@ our own rasterizer.
     and the fuzz target did not reach the new code (now it does). Not
     done: a benchmark suite for the atlas fill, which
     `docs/subsystems/rendering.md` lists and no task's `Do` names.
+  - Note (2026-11-17): the atlas fill that `docs/subsystems/rendering.md`
+    lists is `tidepool-bench`'s suite `font/atlas/fill_ascii/14px`: Saira
+    Regular's 95 printable ASCII glyphs at 14 px into an empty 256 × 256
+    atlas, each iteration from a new one, after an untimed check that the
+    fill holds every glyph as `atlas::rasterize` draws it. On the
+    reference machine, with other programs loading it (load average 3.3
+    to 5.2, 14 GB of swap in use), `cargo xtask bench font` gave medians
+    of 345 to 424 µs over nine runs, two of the slower ones (424 and 397
+    µs) with p95s of 629 and 700 µs; `--save`, a run of `font` alone,
+    recorded 345 µs (p95 361 µs, 481 samples), and the runs after it
+    measured 355, 397 and 390 µs (+2.9%, +15.1% and +12.8%), so two of the
+    three were marked. A 512 × 512 atlas, tried first, gave 369 to 442 µs
+    over six runs under the same load; 256 × 256 holds all 95 glyphs with
+    no eviction, which the suite checks.
 
 - [ ] **M2.6 — gui: first frame**
   - Depends: M2.2, M2.4, M2.5

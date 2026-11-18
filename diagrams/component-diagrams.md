@@ -538,7 +538,8 @@ flowchart TB
 
 ### 3.4 tidepool-gfx and tidepool-font
 
-`gui` is the only crate that will use them.
+`gui` is the only crate in the binary that will use them;
+`tidepool-bench` measures `font`'s atlas today (6.5).
 
 ```mermaid
 flowchart LR
@@ -1216,8 +1217,9 @@ too (M2.3); its library uses `core`'s `geom` and `color`. `font`'s
 tests use `core`'s FNV-1a hash to pin the bundled faces' coverage, besides
 the fuzz engine (M2.8); its library uses no crate. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
-measures `text`'s library with inputs drawn from `Pcg32`, and keeps its
-baseline with `codec`'s JSON and `text`'s atomic save.
+measures `text`'s library with inputs drawn from `Pcg32`, and `font`'s
+atlas filling with the bundled Saira (M2.5), and keeps its baseline with
+`codec`'s JSON and `text`'s atomic save.
 
 ```mermaid
 flowchart TB
@@ -1225,7 +1227,7 @@ flowchart TB
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
     c_gtests["gfx tests<br/>properties.rs"]
     c_ftests["font tests<br/>bundled.rs"]
-    c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, the binary"]
+    c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
     i_pcg(("rng: Pcg32"))
@@ -1234,6 +1236,7 @@ flowchart TB
     i_bjson(("json::parse_bytes,<br/>to_string_pretty"))
     i_save(("file::save"))
     i_sha(("hash: fnv1a64"))
+    i_fill(("bundled::load,<br/>Atlas::glyph"))
 
     subgraph sg_core["tidepool-core"]
         c_testing["testing<br/>the property harness, M0.2"]
@@ -1242,6 +1245,7 @@ flowchart TB
     end
     c_codec["tidepool-codec library"]
     c_text["tidepool-text library"]
+    c_font6["tidepool-font library"]
 
     c_testkit["tidepool-testkit<br/>an empty library<br/>planned M5.1, M6.1"]
     i_fakes(("fake tools,<br/>fake LSP server<br/>planned M5.1, M6.1"))
@@ -1256,6 +1260,7 @@ flowchart TB
     c_gtests --> i_pcg
     c_ftests -->|"pins coverage"| i_sha
     c_bench -->|"the text suites"| i_tall
+    c_bench -->|"the font suite"| i_fill
     c_bench -->|"inputs"| i_pcg
     c_bench -->|"baseline.json"| i_bjson
     c_bench -->|"writes the<br/>baseline"| i_save
@@ -1268,12 +1273,13 @@ flowchart TB
     i_bjson --- c_codec
     i_tall --- c_text
     i_save --- c_text
+    i_fill --- c_font6
     i_fakes -.- c_testkit
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_gtests,c_ftests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text built
-    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha built
+    class c_ctests,c_ttests,c_gtests,c_ftests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text,c_font6 built
+    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha,i_fill built
     class c_testkit,i_fakes planned
 ```
 
@@ -1316,4 +1322,4 @@ Code:
   `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,
   `golden.rs`.
 - `bench/src/`: `lib.rs`, `main.rs`, `harness.rs`, `baseline.rs`,
-  `cli.rs`, `suites.rs`, `suites/text.rs`.
+  `cli.rs`, `suites.rs`, `suites/text.rs`, `suites/font.rs`.

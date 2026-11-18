@@ -18,6 +18,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
+use tidepool_font::FontError;
 use tidepool_text::TextError;
 
 /// Why a run, or one suite, could not do its job. Every one of them ends a
@@ -35,6 +36,8 @@ pub enum BenchError {
     },
     /// A text operation that a suite's setup or routine runs failed.
     Text(TextError),
+    /// A font operation that a suite's setup or routine runs failed.
+    Font(FontError),
     /// A suite's own check of what its routine does failed.
     Check(String),
     /// One suite failed: its setup or check returned an error, it
@@ -93,6 +96,7 @@ impl fmt::Display for BenchError {
                 printable(filter)
             ),
             Self::Text(error) => write!(f, "{error}"),
+            Self::Font(error) => write!(f, "{error}"),
             Self::Check(detail) => f.write_str(detail),
             Self::Suite { name, detail } => write!(f, "suite `{name}` failed: {detail}"),
             Self::SuitesFailed { names } => {
@@ -128,6 +132,7 @@ impl std::error::Error for BenchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Text(error) => Some(error),
+            Self::Font(error) => Some(error),
             Self::Read { source, .. } => Some(source),
             Self::Output(error) => Some(error),
             _ => None,
@@ -138,6 +143,12 @@ impl std::error::Error for BenchError {
 impl From<TextError> for BenchError {
     fn from(error: TextError) -> Self {
         Self::Text(error)
+    }
+}
+
+impl From<FontError> for BenchError {
+    fn from(error: FontError) -> Self {
+        Self::Font(error)
     }
 }
 

@@ -182,5 +182,7 @@ Invariants:
 - Property tests: no `gfx` draw call writes outside its clip, whatever its
   geometry; merged damage and frame diffs cover every changed pixel; the
   same draw calls give the same bytes twice.
-- Benchmarks: full-frame raster at 1920×1080 and 2560×1440; atlas fill for
-  the ASCII range at 14 px.
+- Benchmarks: atlas fill for the ASCII range at 14 px,
+  `font/atlas/fill_ascii/14px` in `tidepool-bench`, with its baseline on
+  the reference machine (M2.5); full-frame raster at 1920×1080 and
+  2560×1440 has no suite yet, and no task's `Do` names it.

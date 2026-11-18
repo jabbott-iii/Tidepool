@@ -7,6 +7,11 @@
     "threads": 16
   },
   "suites": {
+    "font/atlas/fill_ascii/14px": {
+      "median_ns": 345356,
+      "p95_ns": 360562,
+      "samples": 481
+    },
     "text/grapheme/combining_marks/100mb": {
       "median_ns": 1027676828,
       "p95_ns": 1043626173,

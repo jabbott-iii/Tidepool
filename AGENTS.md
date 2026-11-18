@@ -44,7 +44,8 @@ tp` opens no window yet, though `tidepool-platform` can open one on Linux
   target and the bundled Saira and JetBrains Mono files in `assets/fonts/`
   (M2.8), and those faces compiled in, the fallback chain, text layout
   (kerning, letter-spacing, tabs, ellipsis and wrapping) and the glyph
-  atlas, with golden scenes of both faces at scale 1 and 2 (M2.5).
+  atlas, with golden scenes of both faces at scale 1 and 2 (M2.5), and a
+  `tidepool-bench` suite filling the atlas, with its baseline (M2.5).
 - **Not built:** everything else. 17 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks

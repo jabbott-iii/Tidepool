@@ -5,7 +5,8 @@ the bundled Saira and JetBrains Mono faces. Pure; malformed fonts return
 errors.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
-`tidepool-gui` lays out and draws text with it, beside `gfx`; it needs only
+`tidepool-gui` lays out and draws text with it, beside `gfx`, and
+`tidepool-bench` measures its atlas's fill; it needs only
 `tidepool-core`, and its library uses no crate at all (its tests use
 `core`'s fuzz engine and FNV-1a hash).
 

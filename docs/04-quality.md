@@ -366,15 +366,19 @@ The design is ADR-0027's; the engine's rustdoc
   the `baseline` module's rustdoc shows the file.
 - **Suites:** rope edits, position conversions, a 10,000-caret keystroke
   with its undo and redo, typing into 100 MB, and grapheme queries on
-  crafted 100 MB lines (M1.9). Highlighting a 10k-line file, project
-  search, frame build + raster at 1080p, glyph atlas fill and startup come
-  with their tasks, which record them with `--save` on the reference
-  machine (ADR-0035).
+  crafted 100 MB lines (M1.9); and filling an empty glyph atlas with
+  Saira's printable ASCII at 14 px (M2.5). Highlighting a 10k-line file,
+  project search, frame build + raster at 1080p and startup come with
+  their tasks, which record them with `--save` on the reference machine
+  (ADR-0035).
 - A change that slows a suite by more than 10% against the baseline must
   say so and why. Repeat a run that marks a suite before reading it as a
-  slowdown: the baseline was recorded from a whole run, and a suite run
-  alone, left to the scheduler, landed from −4% to +17% of its baseline
-  median over eight runs on the reference machine (roadmap M1.9's note).
+  slowdown: the text suites' baseline was recorded from a whole run, and a
+  suite run alone, left to the scheduler, landed from −4% to +17% of its
+  baseline median over eight runs on the reference machine (roadmap
+  M1.9's note); the font suite's was recorded from a run of `font` alone,
+  under load, and later runs landed from +2.9% to +15.1% of it (roadmap
+  M2.5's note).
 
 ### Responsiveness
 

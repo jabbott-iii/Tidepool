@@ -6,11 +6,11 @@ p95, against a JSON baseline. Dev-only; it never ships.
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
 development tooling: `cargo xtask bench` builds its binary in the release
 profile and runs its suites, which may measure any crate of the workspace
-(ADR-0035). Today they measure `tidepool-text`.
+(ADR-0035). Today they measure `tidepool-text` and `tidepool-font`.
 
 Layer 6, tools (dev-only). It may use any workspace crate, as its row of the
 dependency matrix in [`docs/01-architecture.md`](../docs/01-architecture.md)
-says; it uses `core`, `codec` and `text`.
+says; it uses `core`, `codec`, `text` and `font`.
 
 ## Status
 
@@ -41,6 +41,13 @@ Built, with the roadmap task that built it:
 - `bench/baseline.json`, the 18 text suites recorded with `--save` on the
   reference machine, where two runs back to back agreed within 10% on
   every median (the roadmap's note on M1.9 has the numbers) — M1.9.
+- `suites::font`, `font/atlas/fill_ascii/14px`: the bundled Saira
+  Regular's 95 printable ASCII glyphs at 14 px, read, rasterized and
+  packed into an empty 256 × 256 atlas, each iteration from a new one,
+  after an untimed check that one fill holds every glyph as
+  `atlas::rasterize` draws it; recorded in the baseline with `--save` on
+  the reference machine (the roadmap's note on M2.5 has the numbers) —
+  M2.5.
 
 Not yet, with the roadmap task that adds it:
 
@@ -128,7 +135,8 @@ assert!(summary.p95_ns >= summary.median_ns);
 
 ```bash
 cargo test -p tidepool-bench     # the harness, baseline and report, with fake suites
-cargo xtask bench text           # the suites themselves, in release
+cargo xtask bench text           # the text suites themselves, in release
+cargo xtask bench font           # the font suite
 ```
 
 The tests never build a 100 MB text: they run the 400 KB suites, and the

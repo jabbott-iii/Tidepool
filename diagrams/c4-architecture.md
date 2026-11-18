@@ -196,7 +196,7 @@ flowchart TB
 
     subgraph b_dev["Dev-only, in the repository"]
         c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd,<br/>golden, fuzz-smoke,<br/>site, bench"]
-        c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and the text suites (M1.9)"]
+        c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and the text suites (M1.9),<br/>the atlas fill (M2.5)"]
         c_testkit["tidepool-testkit<br/>planned: fake tools M5.1,<br/>fake LSP server M6.1"]
         s_baseline[("bench/baseline.json<br/>the reference machine's<br/>numbers (M1.9)")]
     end
@@ -885,7 +885,8 @@ used by the tests of `codec` and `text`. The benchmark harness,
 `tidepool-bench` (M1.9), warms each suite up, takes samples within a time
 budget, and reports the median and p95 against `bench/baseline.json`; its
 suites measure the text engine: rope edits, positions, 10,000-caret
-keystrokes, typing and graphemes (ADR-0035). `tidepool-testkit` is an
+keystrokes, typing and graphemes (ADR-0035), and the glyph atlas's fill
+(M2.5). `tidepool-testkit` is an
 empty crate; its edges are the matrix's row for it. `testkit` keeps fake
 tools in
 `crates/testkit/fake-tools/` (M5.1), and the fake LSP server's transcripts
@@ -896,12 +897,13 @@ flowchart LR
     t_codec["tidepool-codec tests<br/>tests/json.rs, toml.rs<br/>and qoi.rs"]
     t_text["tidepool-text tests<br/>tests/edits.rs, model.rs,<br/>positions.rs, unit tests"]
     c_xtask["xtask"]
-    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, the binary"]
+    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>the binary"]
     s_baseline[("bench/baseline.json")]
     c_testkit["tidepool-testkit<br/>dev-only<br/>planned M5.1: fake tools<br/>planned M6.1: fake LSP<br/>server, transcripts"]
     k_core["tidepool-core<br/>testing: check,<br/>check_sized,<br/>assert_approx<br/>rng: Pcg32"]
     k_codec["tidepool-codec"]
     k_text["tidepool-text"]
+    k_font["tidepool-font"]
     k_rpc["tidepool-rpc<br/>planned M6.1"]
 
     t_codec -->|"dev-dependency:<br/>property tests"| k_core
@@ -909,6 +911,7 @@ flowchart LR
     c_xtask -->|"cargo xtask bench:<br/>through cargo run<br/>--release"| c_bench
     c_bench -->|"read and written<br/>with codec::json"| s_baseline
     c_bench -->|"measures; file::save<br/>writes the baseline"| k_text
+    c_bench -->|"measures the<br/>atlas's fill"| k_font
     c_bench -->|"json"| k_codec
     c_bench -->|"cli::Args,<br/>rng::Pcg32"| k_core
     c_testkit -.->|"planned M5.1"| k_core
@@ -918,7 +921,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class t_codec,t_text,c_xtask,c_bench,k_core,k_codec,k_text built
+    class t_codec,t_text,c_xtask,c_bench,k_core,k_codec,k_text,k_font built
     class s_baseline store
     class c_testkit,k_rpc planned
 ```
@@ -1032,7 +1035,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
 | `tidepool` (app) | `crates/app` | 5, application | deny | an empty `main` (M0.1) | M2.6, M3.4, M4.9, M7.1, M7.5, M14.4 | none |
 | `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9); `golden`, a step of `ci` (M2.4) | `theme` (M3.2), `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
-| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9) | suites for M4.1, M4.2, M4.4, M9.4, M14.3 | `core`, `codec`, `text` |
+| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5) | suites for M4.1, M4.2, M4.4, M9.4, M14.3 | `core`, `codec`, `text`, `font` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 
 ## Sources

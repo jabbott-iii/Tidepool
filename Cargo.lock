@@ -16,6 +16,7 @@ version = "0.1.0"
 dependencies = [
  "tidepool-codec",
  "tidepool-core",
+ "tidepool-font",
  "tidepool-text",
 ]
 

@@ -52,8 +52,9 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 `cargo metadata` with `codec::json`, manifests with `codec::toml`, the
 golden references with `codec::qoi`, and the fuzz targets' result lines
 with `core::testing::fuzz::Summary`.
-`tidepool-bench` uses `core::cli::Args`, `codec::json` and the types of
-`text` (section 22), and `tidepool-sys` no workspace crate (section 23).
+`tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
+`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 27), and
+`tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), and `tidepool-gfx` `core`'s geometry and
 colors (section 25).
@@ -2398,7 +2399,8 @@ given; `run_suite` makes the `Bencher` from `Settings` and returns the
 compares each `Summary` with the `Entry` of the same name in a `Baseline`
 recorded on a `Machine` with the same `Facts`, and with `--save` writes the
 merged `Baseline` back. `suites::all` lists the 18 text suites, which use
-`tidepool-text`'s `Rope` and `History`.
+`tidepool-text`'s `Rope` and `History`, then the font suite, which fills
+`tidepool-font`'s `Atlas` (M2.5).
 
 ```mermaid
 classDiagram
@@ -3485,8 +3487,9 @@ the kind of a font's, a glyph's, an outline's, a set of faces' or an
 atlas's problem, `ttf::ErrorKind`, `outline::ErrorKind`,
 `fallback::ErrorKind` or `atlas::ErrorKind`, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
-failed save's message as text. Only `BenchError` wraps another crate's: its
-`Text` holds the `TextError` of a text operation a suite runs. `xtask`
+failed save's message as text. Only `BenchError` wraps other crates': its
+`Text` holds the `TextError` of a text operation a suite runs, and its
+`Font` the `FontError` of a font operation. `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -3581,6 +3584,7 @@ classDiagram
         <<enumeration>>
         Usage
         Text
+        Font
         Suite
         Read
         OtherMachine
@@ -3623,6 +3627,7 @@ classDiagram
     TextError *-- IoError : Io, NotWritable
     XtaskError *-- IoError : Read, Spawn, Output, Write
     BenchError *-- TextError : Text
+    BenchError *-- FontError : Font
     BenchError *-- IoError : Read, Output
     PlatformError *-- IoError : Io
 ```
@@ -3674,7 +3679,7 @@ The main files these diagrams were drawn from:
   `golden.rs`, `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`,
   `crates.rs`, `ucd.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
-  `suites.rs`, `suites/text.rs`
+  `suites.rs`, `suites/text.rs`, `suites/font.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`, `linux/evdev.rs`
 - `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,

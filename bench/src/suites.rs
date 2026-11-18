@@ -13,16 +13,17 @@
 // limitations under the License.
 
 //! The suites, one module per crate measured. Each suite's name starts
-//! with the crate's (`text/`), so that `cargo xtask bench text` runs all of
-//! that crate's.
+//! with the crate's (`text/`, `font/`), so that `cargo xtask bench text`
+//! runs all of that crate's.
 
+pub mod font;
 pub mod text;
 
 use crate::Suite;
 
-/// Every suite, in the order a run takes them.
+/// Every suite, in the order a run takes them: `text`'s, then `font`'s.
 pub fn all() -> Vec<Suite> {
-    text::SUITES.to_vec()
+    [text::SUITES, font::SUITES].concat()
 }
 
 #[cfg(test)]
@@ -43,7 +44,17 @@ mod tests {
                 "{name}"
             );
         }
-        assert!(names.iter().all(|name| name.starts_with("text/")));
+        // Each module's suites are under its own crate's name.
+        for (prefix, module) in [("text/", text::SUITES), ("font/", font::SUITES)] {
+            for suite in module {
+                assert!(
+                    suite.name.starts_with(prefix),
+                    "{} is not under {prefix}",
+                    suite.name
+                );
+            }
+        }
+        assert_eq!(names.len(), text::SUITES.len() + font::SUITES.len());
         let count = names.len();
         names.sort_unstable();
         names.dedup();

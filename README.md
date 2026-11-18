@@ -11,7 +11,8 @@ workspace and its checks, the contribution workflow, license headers, the
 core library, JSON, TOML and its document model, which writes edits
 back, the text engine's rope, positions,
 selections, undo tree, encodings and atomic save, a fuzzer for the
-parsers, a benchmark harness with the text engine's suites, and a
+parsers, a benchmark harness with the text engine's suites and the
+glyph atlas's, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
