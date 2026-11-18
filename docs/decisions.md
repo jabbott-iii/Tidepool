@@ -2742,3 +2742,111 @@ decides; the roadmap task that first depends on one asks for the decision.
   in-process; one tolerance per crate is too coarse for a scene; a scene
   must differ by OS (M11/M12); or the scenes make `ci`'s `golden` step
   take more than 30 s on a CI runner.
+
+## ADR-0045 — M2.6's first frame: the backdrop is built on the main thread once the window is exposed; `gfx` and `font` are optimized in the dev profile; the text's colors are token stand-ins until M3.2; the frame shows a line of each of the seven bundled faces
+
+- **Status:** Accepted
+- **Date:** 2026-11-17
+- **Context:**
+  - M2.6 opens a window, draws jabbott.dev's backdrop and a line of each
+    face, and must reach the first frame within 300 ms of a cold start
+    on the reference machine (`docs/00-overview.md`), checked with
+    `cargo tp -- --print-startup-time`. M2.3's note left it to M2.6 to
+    settle how the backdrop fits in that budget.
+  - Measured on the reference machine on 2026-11-17, with a scratch
+    program outside the workspace, at a load average of about 4: in a
+    release build, `Window::open` took 8 to 20 ms, `bundled::load` under
+    1 ms, `Backdrop::ensure` 99 ms at best at 1280 × 800 (113 to 147 ms
+    under that load) and 189 ms at 1920 × 1080, about half of each the
+    blurred copy, and `present` of the whole window 3 to 5 ms. COSMIC,
+    through XWayland, resizes the new 1280 × 800 window to 1232 × 662
+    about 1 ms after its first `Exposed`, and exposes it again.
+  - `cargo tp` is `cargo run --package tidepool`, a dev build, where
+    `Backdrop::ensure` took 3.9 s at 1280 × 800. With `tidepool-gfx` and
+    `tidepool-font` at `opt-level = 3` in the dev profile it took 127 to
+    140 ms, and the frame was presented 154 ms after the program began. A
+    clean build of the two crates' tests took 7.7 s instead of 3.8 s.
+  - `.claude/rules/ui-style.md` and `AGENTS.md` forbid literal colors
+    outside `themes/` and tests, and the theme's tokens come with M3.2,
+    which depends on M3.1. The first frame's text needs a color before
+    then.
+  - `docs/01-architecture.md` → "The main loop" asks that a handler that
+    could take more than about 1 ms move its work to a worker. The loop
+    and the shell come with M3.4.
+  - On 2026-11-17 the user chose the recommended option of each of four
+    questions: the backdrop on the main thread, once; `gfx` and `font`
+    optimized in the dev profile; token stand-in constants; and a line of
+    each of the seven faces.
+- **Decision:**
+  - **The backdrop.** `gui` builds the frame on the main thread when it
+    has an `Exposed` to answer and its frame is not of the window's
+    size, at the size the window has then, as of the events
+    `wait_events` returned with the `Exposed`. Then it presents the
+    damage. A resize that comes while it draws, as COSMIC's does about
+    1 ms after the first `Exposed`, is drawn on the next turn, so there
+    the first frame is drawn twice. A later resize rebuilds it the same
+    way. `gfx` is unchanged: no threads, and the blurred copy
+    is built with the base, as `Backdrop::ensure` does.
+  - **The dev profile.** The workspace's `Cargo.toml` sets `opt-level =
+    3` for `tidepool-gfx` and `tidepool-font` in `[profile.dev.package]`,
+    keeping the dev profile's debug assertions, overflow checks and
+    debug info, so `cargo tp` reaches its first frame within the budget.
+    `docs/05-release.md` → "Cargo profiles" lists it. The budget is also
+    checked on a release build.
+  - **Colors until M3.2.** `gui` has one constant for each token its
+    frame uses, `text` (`#eef2f3`) and `text-3` (`#7d898e`), named for
+    the token and citing `docs/subsystems/ui-and-theme.md` → Tokens, in
+    one module, as `gui`'s only literal colors outside its tests.
+    M3.2's theme replaces them. The backdrop's colors stay
+    `gfx::backdrop::BackdropStyle::jabbott_dev()`'s, which M2.3 made.
+  - **What it shows.** Over the backdrop, one line in each bundled face:
+    Saira 400, 500, 600 and 700 and JetBrains Mono 400, 400 italic and
+    600. Each line names its face in `text-3`, then a sample in `text`.
+    Sizes and tracking are from the typography table: Saira's chrome is
+    uppercase and tracked, and Saira 400's and JetBrains Mono's samples
+    are as written.
+  - **The startup time.** `--print-startup-time` prints, on standard
+    output, the time from the start of `main` to the return of the first
+    `present`, and the program runs on until its window is closed. The
+    time before `main` (the exec, the loader and Rust's start-up) is not
+    in it, so M2.6's check measures it separately.
+- **Consequences:**
+  - The default window's first frame takes about 115 to 150 ms in a
+    release build on the reference machine, and a full-screen 1920 × 1080
+    one about 210 ms. A window of 2560 × 1440 or more, or one at scale 2
+    of that size, would miss the budget: its backdrop alone takes 328 to
+    772 ms (M2.3's notes). The reference machine's panel is 1920 × 1080.
+  - Until M3.4, a resize stops the main thread for 50 to 250 ms while
+    the backdrop is rebuilt, against `docs/01-architecture.md`'s rule of
+    about 1 ms a handler. M3.4's loop moves that work off the main
+    thread, or makes it fast enough; its task carries a note.
+  - `gfx`'s and `font`'s tests, golden scenes included, run optimized
+    in `cargo test`, which makes them faster and their clean build about
+    4 s slower, and stepping through them in a debugger shows less.
+    Their bytes do not change: Rust contracts no floating-point
+    operations at any `opt-level`, and `cargo xtask golden` compares the
+    scenes with the same references. The `release`, `xtask`, `fuzz` and
+    `bench` builds are unchanged.
+  - Two literal colors live in `gui` until M3.2; that task's note says to
+    remove them. `.claude/rules/ui-style.md` names the exception.
+- **Alternatives considered:**
+  - Building the backdrop on several threads inside `gfx`, the same bytes
+    4 to 6 times faster at any size: `gfx` would spawn threads, which it
+    does not today, with more code and review than the task needs.
+  - Presenting the flat `bg` and the text first, then the backdrop from a
+    worker: a first frame in about 15 ms, but the backdrop pops in, and
+    the first frame would not show it.
+  - Building the blurred copy only when first asked for: half the cost,
+    but a change to `gfx`'s API for a copy nothing draws before M3.5.
+  - Checking the budget on a release build only: `cargo tp` would take
+    about 4 s to show its first frame.
+  - Making `cargo tp` a release build: every run would pay for thin LTO
+    and one codegen unit across the whole binary.
+  - Writing `themes/tidepool-dark.toml` now: part of M3.2, which depends
+    on M3.1.
+  - One line per family: Saira's 500 and 700 and JetBrains Mono's italic
+    and 600 would go unseen.
+- **Revisit when:** the first frame takes more than 250 ms on the
+  reference machine, at its default size or full screen; the reference
+  machine's panel changes; M3.4's loop handles resizes; or M3.2's theme
+  lands.

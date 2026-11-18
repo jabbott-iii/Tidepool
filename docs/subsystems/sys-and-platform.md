@@ -139,7 +139,9 @@ crates/sys/src/
   tidepool-platform` (ADR-0039). Linux CI's gate runs under `xvfb-run
   -a` with the variable set, so it runs them (ADR-0041); `cargo xtask ci`
   run plainly on Linux, and the demo page's build, skip them. macOS and
-  Windows build no window tests yet.
+  Windows build none of `platform`'s window tests yet (they are in its
+  Linux backend); `gui`'s window test, which every system builds, prints
+  `SKIPPED:` there (M2.6).
 - PTY tests spawn `/bin/sh -c 'printf …'` through the `Pty` API (argv, not
   a shell string from user input) and check output and exit status.
 - Terminal guard test: a child process panics in raw mode; the terminal

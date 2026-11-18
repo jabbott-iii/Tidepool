@@ -1,8 +1,9 @@
 # Tidepool — zero-dependency IDE (Rust; Linux, macOS, Windows)
 
-**Status:** in development, at version 0.1, and still headless: `cargo
-tp` opens no window yet, though `tidepool-platform` can open one on Linux
-(M2.2). `docs/roadmap.md` ticks each task once it is done and verified.
+**Status:** in development, at version 0.1: `cargo tp` opens a window on
+Linux and shows its first frame, jabbott.dev's backdrop and a line in each
+bundled face, and does nothing else yet (M2.6). `docs/roadmap.md` ticks
+each task once it is done and verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
   M0.9–M0.11), with doc tests that forbid `unsafe` outside `sys` and
@@ -45,11 +46,14 @@ tp` opens no window yet, though `tidepool-platform` can open one on Linux
   (M2.8), and those faces compiled in, the fallback chain, text layout
   (kerning, letter-spacing, tabs, ellipsis and wrapping) and the glyph
   atlas, with golden scenes of both faces at scale 1 and 2 (M2.5), and a
-  `tidepool-bench` suite filling the atlas, with its baseline (M2.5).
-- **Not built:** everything else. 17 of the 26 workspace members are empty
-  crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
-  does nothing. Each crate's `README.md` says what it has and which tasks
-  add the rest.
+  `tidepool-bench` suite filling the atlas, with its baseline (M2.5); and
+  the first frame, in `tidepool-gui` and the `tidepool` binary: `cargo tp`
+  opens a window on Linux and draws the backdrop and a line in each
+  bundled face within the startup budget, and `--print-startup-time`
+  prints the time it took (M2.6, ADR-0045).
+- **Not built:** everything else. 15 of the 26 workspace members are empty
+  crates with a doc comment. Each crate's `README.md` says what it has and
+  which tasks add the rest.
 - **Next:** the first unticked task whose dependencies are all ticked,
   skipping one whose remaining work needs an OS, tool or person this
   session does not have (`/next-task` picks it). A task's `Decide first`
@@ -219,7 +223,7 @@ These exist now:
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`, or a new, empty or earlier `DIR`: runs the gate and the `tidepool-codec` and `tidepool-text` examples, and fills `site/`, starting only `cargo` and with no network. `pages.yml` publishes it at https://jabbott.dev/Tidepool/ after CI passes on `main` (ADR-0030) |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
-| `cargo tp` | Builds and runs the `tidepool` binary, which does nothing until M2.6 |
+| `cargo tp` | Builds and runs the `tidepool` binary, which opens a window on Linux and shows the first frame until it is closed (M2.6); `cargo tp -- --print-startup-time` also prints the time from the start of `main` to that frame (ADR-0045) |
 
 Planned. Until its task lands, each exits 1 with "not yet implemented":
 
@@ -230,7 +234,8 @@ Planned. Until its task lands, each exits 1 with "not yet implemented":
 | `cargo xtask package <os>` | M11.6, M12.4, M14.4 |
 
 `cargo tp -- --tui` starts the terminal UI from M7.1; until then the binary
-ignores its arguments and exits 0.
+refuses every argument but `--print-startup-time` (a `--` only ends the
+options), and exits 2.
 
 `xtask` never uploads, publishes, signs with real credentials, reads
 secrets or opens a socket (`docs/04-quality.md`).
@@ -251,8 +256,9 @@ secrets or opens a socket (`docs/04-quality.md`).
 - **Text positions** are byte offsets; lines end at LF, CR LF or a lone CR;
   a bad position is an error, never a panic (ADR-0019). Every buffer edit
   goes through its `History` (ADR-0020).
-- **UI:** widgets use theme tokens, never literal colors; chrome labels are
-  uppercase, user content never is.
+- **UI:** widgets use theme tokens, never literal colors (until M3.2's
+  theme, `tidepool-gui` holds two stand-ins for `text` and `text-3`,
+  ADR-0045); chrome labels are uppercase, user content never is.
 - **Docs:** every `pub` item has a doc comment.
 - **License header:** every source file (Rust, shell scripts, workflows,
   and the demo page's HTML, CSS and JavaScript) starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its

@@ -5,6 +5,11 @@ version = 4
 [[package]]
 name = "tidepool"
 version = "0.1.0"
+dependencies = [
+ "tidepool-core",
+ "tidepool-gui",
+ "tidepool-platform",
+]
 
 [[package]]
 name = "tidepool-agent"
@@ -52,6 +57,12 @@ dependencies = [
 [[package]]
 name = "tidepool-gui"
 version = "0.1.0"
+dependencies = [
+ "tidepool-core",
+ "tidepool-font",
+ "tidepool-gfx",
+ "tidepool-platform",
+]
 
 [[package]]
 name = "tidepool-lang"

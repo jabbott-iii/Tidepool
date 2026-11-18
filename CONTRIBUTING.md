@@ -123,14 +123,16 @@ Nothing else is downloaded: the workspace has no third-party crates, and
 
 | System | You need |
 | :- | :- |
-| Linux (x86_64) | Nothing more today. From M2.2, an X11 session or Wayland with XWayland to run the GUI, and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests, which run with `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform` (ADR-0039). Tidepool loads `libX11` at run time, so no development packages are needed |
+| Linux (x86_64) | An X11 session, or Wayland with XWayland, to run the GUI (`cargo tp`, from M2.6), and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests, which run with `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform -p tidepool-gui` (ADR-0039). Tidepool loads `libX11` at run time, so no development packages are needed |
 | macOS 13+ | The Xcode command-line tools (`xcode-select --install`), for the linker |
 | Windows 10 1809+ (x86_64) | The MSVC build tools and the Windows SDK (Visual Studio Build Tools) |
 
-Everything built so far is headless and is meant to build and test on all
-three; CI's macOS and Windows runs are still to be confirmed (M0.4), and
-the Claude Code hook is known not to handle Windows paths yet (M12.5). The
-GUI comes to Linux first (M2), then macOS (M11) and Windows (M12).
+Everything built so far but the window is headless, and is meant to
+build and test on all three; CI's macOS and Windows runs are still to be
+confirmed (M0.4), and the Claude Code hook is known not to handle Windows
+paths yet (M12.5). The GUI comes to Linux first: `cargo tp` shows its
+first frame there (M2.6), and fails on macOS and Windows until M11 and
+M12 bring their windows.
 
 Real-tool tests run only when you ask for them, with `TIDEPOOL_IT_RA=1`
 (rust-analyzer), `TIDEPOOL_IT_GIT=1`, `TIDEPOOL_IT_ANDROID=1` or
@@ -156,7 +158,7 @@ Windows, and the same commands CI runs:
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
 | `cargo xtask bench [FILTER] [--save --machine NAME]` | Runs the benchmark suites whose names contain `FILTER` in a release build, and reports each median and p95 against `bench/baseline.json` when that was recorded on a machine like yours. Not part of `ci`; only `--save` writes the baseline (ADR-0035) |
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`: runs the gate and the two library examples, and fills `site/`. Not part of `ci`; the Pages workflow runs it after CI passes on `main` and publishes https://jabbott.dev/Tidepool/ |
-| `cargo tp` | Runs Tidepool, which does nothing yet (M2.6 opens the first window) |
+| `cargo tp` | Runs Tidepool, which opens a window on Linux and shows its first frame until you close it (M2.6); `cargo tp -- --print-startup-time` also prints the time to that frame |
 
 On the way, each with its roadmap task: `theme` (M3.2), `tools` (M5.1)
 and `package` (M11.6, M12.4, M14.4).
@@ -231,8 +233,10 @@ in the pull request.
   citation of the official header, and wrapped safely in
   `tidepool-platform`. See
   [`.claude/rules/unsafe-and-ffi.md`](.claude/rules/unsafe-and-ffi.md).
-- **UI:** colors, sizes and fonts come from theme tokens; chrome labels are
-  uppercase and user content never is
+- **UI:** colors, sizes and fonts come from theme tokens (until M3.2's
+  theme, `tidepool-gui` holds two literal colors standing in for `text`
+  and `text-3`, ADR-0045); chrome labels are uppercase and user content
+  never is
   ([`docs/subsystems/ui-and-theme.md`](docs/subsystems/ui-and-theme.md)).
 
 ## Tests

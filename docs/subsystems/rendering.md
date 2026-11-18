@@ -33,9 +33,11 @@ Invariants:
 - The backdrop approximates the site's CSS where the browser uses a
   Gaussian or clips to a rounded box; each approximation is listed in
   `backdrop`'s module docs. A rebuild is CPU work that grows with the
-  window: a few hundred milliseconds for 1920×1080 in a release build
-  (M2.3's note in `docs/roadmap.md`), which M2.6 weighs against the
-  first frame's budget.
+  window: about 190 ms for 1920×1080 at scale 1, and more for larger
+  windows, in a release build (M2.3's note in `docs/roadmap.md`). `gui` rebuilds it on the main
+  thread when the window is first exposed and when its size changes, and
+  `gfx` and `font` are optimized in the dev profile, so that `cargo tp`
+  meets the first frame's budget too (ADR-0045).
 
 ## `tidepool-font`
 

@@ -1,7 +1,7 @@
 # Diagrams
 
 Pictures of how Tidepool fits together, drawn from the code and the docs as
-of roadmap task M2.8 (2026-11-17, version 0.1). Each file is Markdown with
+of roadmap task M2.6 (2026-11-17, version 0.1). Each file is Markdown with
 Mermaid blocks, which GitHub draws. Most of Tidepool is still a design, so
 the diagrams draw both: what the code has is solid, and what the roadmap
 plans is dashed and labelled with the task that builds it (ADR-0029).
@@ -9,9 +9,9 @@ plans is dashed and labelled with the task that builds it (ADR-0029).
 | File | Shows |
 | :- | :- |
 | [`c4-architecture.md`](c4-architecture.md) | C4 views: the containers (the `tidepool` binary and the dev tools, the files they use, the managed tools and agents they drive) and the components inside them: the crates by layer with the dependency matrix's edges, `xtask`'s modules, the fuzz engine and its targets, and the golden frames |
-| [`class-diagrams.md`](class-diagrams.md) | UML class diagrams of the types the code has, in `core`, `codec`, `text`, `xtask`, `bench`, `sys`, `platform`, `gfx` and `font`, and a list of the main types the specs name for the crates still to come |
+| [`class-diagrams.md`](class-diagrams.md) | UML class diagrams of the types the code has, in `core`, `codec`, `text`, `xtask`, `bench`, `sys`, `platform`, `gfx`, `font` and `gui`, and a list of the main types the specs name for the crates still to come |
 | [`component-diagrams.md`](component-diagrams.md) | UML component diagrams: each subsystem's crates with the interfaces they provide and the ones they require |
-| [`sequence-diagrams.md`](sequence-diagrams.md) | UML sequence diagrams: `cargo xtask ci` and its `golden` step, `fuzz-smoke` and a fuzz run, loading and saving a file, an edit with undo and redo; and, planned, startup, a keystroke, an LSP request, a tool install, an agent's proposal and an Android build |
+| [`sequence-diagrams.md`](sequence-diagrams.md) | UML sequence diagrams: `cargo xtask ci` and its `golden` step, `fuzz-smoke` and a fuzz run, loading and saving a file, an edit with undo and redo, the first frame; and, planned, startup's main loop, a keystroke, an LSP request, a tool install, an agent's proposal and an Android build |
 | [`data-flow-and-state.md`](data-flow-and-state.md) | Data-flow diagrams of a file, a tool install, an agent's context and fuzz smoke; state diagrams of a fuzz run, the undo history, a saved file, workspace trust, vim modes, a managed tool and a language session |
 
 ## Reading them

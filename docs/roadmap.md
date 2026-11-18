@@ -1284,10 +1284,15 @@ our own rasterizer.
     options the user chose that day, each the recommended one: the gate
     step runs `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci` on Linux and
     `cargo xtask ci` elsewhere; `pages.yml` is unchanged.
+  - Note (2026-11-17): M2.6 adds `gui`'s window test,
+    `crates/gui/tests/window.rs`, which every system builds: the Linux
+    job runs it with `platform`'s, and the macOS and Windows jobs print
+    `SKIPPED:` for it, since nothing sets `TIDEPOOL_IT_X11` there.
   - ⏳ needs the user: push, and see the Linux job of `ci.yml` run the
-    seven window tests (its gate's summary reads `ci: ok` with no
-    `SKIPPED` count), while the macOS and Windows jobs, which build no
-    window tests, are as before.
+    29 window tests, 28 of `platform`'s and `gui`'s one (its gate's
+    summary reads `ci: ok` with no `SKIPPED` count), while the macOS and
+    Windows jobs build only `gui`'s, which prints `SKIPPED:` there
+    (M2.6).
 
 - [x] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8
@@ -1653,7 +1658,7 @@ our own rasterizer.
     over six runs under the same load; 256 × 256 holds all 95 glyphs with
     no eviction, which the suite checks.
 
-- [ ] **M2.6 — gui: first frame**
+- [x] **M2.6 — gui: first frame**
   - Depends: M2.2, M2.4, M2.5
   - Do: `gui` opens a window and draws the backdrop and a line of each
     face; `cargo tp` runs it.
@@ -1665,6 +1670,73 @@ our own rasterizer.
     (M2.3's notes), against the 300 ms budget from cold start to the
     first frame; how the first frame meets the budget with the backdrop
     is this task's to settle.
+  - Note (2026-11-17): ADR-0045 settles it with the options the user
+    chose that day, each the recommended one: `gui` builds the backdrop on
+    the main thread once the window is exposed, at the size it has then;
+    `tidepool-gfx` and `tidepool-font` are optimized (`opt-level = 3`) in
+    the dev profile, where `Backdrop::ensure` took 3.9 s, so `cargo tp`
+    meets the budget; the text's two colors are stand-ins for the `text`
+    and `text-3` tokens until M3.2; and the frame shows a line of each of
+    the seven bundled faces.
+  - Note (2026-11-17): the `tp` alias was `run --package tidepool --`, so
+    `cargo tp -- --print-startup-time`, as this task's `Verify` line and
+    `AGENTS.md` write it, handed the program a `--` before the flag, which
+    then read as a file. The user chose that day to drop the alias's `--`
+    (`.cargo/config.toml`, `docs/01-architecture.md`), so `cargo tp --
+    <arguments>` is plain `cargo run`.
+  - Note (2026-11-17): done. `tidepool-gui` has `Gui` (`open`, `size` and
+    `turn`, with its `Turn`), `first_frame::FirstFrame`, the stand-ins for
+    `text` and `text-3` in `tokens`, checked against the spec's token
+    table, and `GuiError`. The `tidepool` binary opens the window at
+    `WindowConfig::default()`'s 1280 × 800 logical px and turns until it is
+    asked to close; `--print-startup-time` prints `first frame: <ms> ms`,
+    from the start of `main` to the return of the first `present`, and any
+    other argument exits 2. COSMIC resizes the new window to 1232 × 662
+    about 1 ms after its first expose, while the first frame is being
+    drawn, so the frame is drawn twice at startup: at 1280 × 800,
+    presented 117 to 181 ms after `main` began, and at 1232 × 662, 207 to
+    274 ms (a scratch probe, three runs). A draft took the events already
+    waiting before drawing; that missed the resize, since `wait_events`
+    already returns everything waiting, and was removed.
+  - Note (2026-11-17): checked on rustc 1.99.0, on the reference machine
+    under other load (load average 3.7 to 5.7). `cargo tp --
+    --print-startup-time`, a dev build with `gfx` and `font` optimized:
+    120.4 to 188.7 ms over 10 runs of the final code, and 122.6 to
+    165.9 ms over 10 runs before the review's fixes. A release build,
+    timed by a script from its `exec` to the line it prints: 121.9 to
+    179.6 ms over 10 runs, 0.9 to 1.3 ms of it before `main` and in the
+    pipe; earlier, 116.4 to 201.8 ms from `main` over 10 runs. Each is
+    within the 300 ms budget. Idle, an open window used 0 CPU ticks in
+    10 s, its one thread asleep in `poll`. The user looked at the window
+    that day and found it right, and its close button ended the process
+    with status 0. `cargo xtask ci`: 12 of 12 steps pass, with 29 window
+    tests skipped for want of `TIDEPOOL_IT_X11`; `TIDEPOOL_IT_X11=1
+    xvfb-run -a cargo xtask ci`: 12 of 12, none skipped, `gui`'s window
+    test included; its `golden` step passes with `gfx` and `font`
+    optimized in the dev profile. `RUSTDOCFLAGS='-D warnings' cargo doc
+    -p tidepool-gui -p tidepool --no-deps` is clean, and so is clippy for
+    `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` and
+    `aarch64-unknown-linux-gnu`, compiled, not run.
+  - Note (2026-11-17): reviewed by a subagent: no fault found in the
+    turn's handling of events or the glyphs' placement. Fixed from its
+    findings: `cargo fmt`, a rustdoc link to a private module, and a
+    window over `gfx`'s 16,384 px a side ending the program (the frame is
+    now clamped to it, and `present` clips); and tests added for the
+    turn's events, a line's quarter-pixel placement, and the binary's
+    command line run as a process; and the binary's messages escape
+    bidirectional controls and line separators too, as `xtask`'s do.
+  - Note (2026-11-17): the docs and diagrams this task changed were
+    checked against the code by four readers, each finding put to two
+    skeptics: 22 findings, none refuted by both, all fixed. Among them,
+    stale sentences M2.6 made untrue (`diagrams/`' section 2 intro on who
+    declares dependencies, the frontends' present tense, 8.1's backdrop
+    built while opening, the macOS and Windows window tests, M2.9's
+    count of 29 window tests), ADR-0045's text on the resize, now drawn
+    on the next turn, and on literal colors, now `gui`'s only ones, which
+    the user kept that day, and
+    `site/llms.txt`'s layers missing M2.5. The 118 Mermaid blocks of
+    `diagrams/` parse and render with Mermaid 11.4.1, which rejected a
+    planted broken one.
 
 **Exit criteria (M2):** `cargo tp` opens a Linux window with crisp Saira and
 JetBrains Mono text over the jabbott.dev backdrop.
@@ -1689,6 +1761,9 @@ JetBrains Mono text over the jabbott.dev backdrop.
   - Accept: the contrast table in the spec is reproduced exactly; a token
     change that breaks AA fails the check.
   - Verify: `cargo xtask theme`
+  - Note (2026-11-17): `tidepool-gui` holds stand-ins for the `text` and
+    `text-3` tokens from M2.6 (ADR-0045), its only literal colors; this
+    task replaces them with the theme's.
 
 - [ ] **M3.5 — gui: draw-list painter and ui goldens**
   - Depends: M3.1, M2.6
@@ -1729,6 +1804,11 @@ JetBrains Mono text over the jabbott.dev backdrop.
   - Accept: shell golden at 1280×800 and 1920×1080; resize and HiDPI work;
     no redraw when idle.
   - Verify: `cargo xtask golden`; `xvfb-run cargo test -p tidepool`
+  - Note (2026-11-17): from M2.6, `gui` rebuilds the backdrop on the main
+    thread when the window is resized, 50 to 250 ms at the reference
+    machine's sizes (ADR-0045), against the loop's rule of about 1 ms a
+    handler; this task moves that work off the main thread or makes it
+    fast enough.
 
 **Exit criteria (M3):** the empty Tidepool shell, side by side with
 jabbott.dev, reads as the same design (human review).

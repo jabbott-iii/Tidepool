@@ -2,7 +2,8 @@
 
 These diagrams show the types the built crates have: `tidepool-core`,
 `tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
-`tidepool-sys`, `tidepool-platform`, `tidepool-gfx` and `tidepool-font`.
+`tidepool-sys`, `tidepool-platform`, `tidepool-gfx`, `tidepool-font` and
+`tidepool-gui`.
 Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
@@ -10,14 +11,14 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.5 (2026-11-17, version 0.1), after M2.8, M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.5, M2.8, M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 28, and drawn in the other files of `diagrams/` under the names
+section 29, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -53,11 +54,13 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 golden references with `codec::qoi`, and the fuzz targets' result lines
 with `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
-`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 27), and
+`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 28), and
 `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
-Linux declarations (section 24), and `tidepool-gfx` `core`'s geometry and
-colors (section 25).
+Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
+colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
+framebuffer and backdrop, `font`'s faces, layout and atlas, and `core`'s
+geometry and colors (section 27).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2511,7 +2514,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 27.
+- `BenchError` is in section 28.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2668,7 +2671,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 27.
+- `MissingSymbols` is in section 28.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -3045,7 +3048,7 @@ classDiagram
     DamageFns ..> Damage : diff makes
 ```
 
-- `gfx` does not use `platform`: `gui` (M2.6) builds a
+- `gfx` does not use `platform`: `gui` (M2.6, section 27) builds a
   `platform::surface::Pixels` from a framebuffer's `bytes`, `size` and
   `stride` (ADR-0040), so no line joins them.
 - `Framebuffer`'s equality compares the bounds and the bytes; `Damage`'s
@@ -3161,7 +3164,8 @@ against `Limits`; a `Font` then gives glyph ids, metrics, names, the
 `OS/2` style, kerning and outlines. `outline::rasterize` turns an
 `Outline`, in font units with y up, into a `Bitmap` of 8-bit coverage in
 device pixels, placed from the pen on the baseline with y down: the layout
-of `gfx::glyph::Mask`, which `gui` will hand it to (M2.6). The faces,
+of `gfx::glyph::Mask`, which `gui` builds over the atlas's copy of it,
+a region of the `AtlasGlyph`'s pixels (M2.6). The faces,
 layout and the atlas built on them are in 26.2 (M2.5).
 
 ```mermaid
@@ -3290,7 +3294,7 @@ classDiagram
 - A `Font` keeps its bytes and the ranges and headers of the tables it
   checked; a glyph's data is read, and checked, only when its outline is
   asked for. `FontError` names the `Tag` of a table or the `GlyphId` of a
-  glyph; it is in section 27.
+  glyph; it is in section 28.
 - `Limits` and every type above but `Font`, `Outline` and `Bitmap` are
   `Copy`. `Outline::new` checks its contour ends and that every point is
   finite.
@@ -3474,9 +3478,83 @@ classDiagram
   from outliving the next call to `Atlas::glyph`, which may move glyphs
   when it evicts. A glyph is at most `glyph_limit()` a side, and a key
   that fails is remembered with its error until `clear`. `FontError` gains
-  `Faces` and `Atlas` (section 27).
+  `Faces` and `Atlas` (section 28).
 
-## 27. Error enums across crates
+## 27. gui: the first frame
+
+`tidepool-gui` (M2.6, ADR-0045) opens a `platform` window and draws the
+first frame into it. A `Gui` owns the window, the `FirstFrame` that draws,
+the frame last drawn with the scale it was drawn at, and the damage the
+window's exposes asked for. Each `turn` waits for the window's events and
+returns a `Turn`. `FirstFrame::draw` makes a new `gfx::Framebuffer` of the
+window's size: the `Backdrop`'s base, then a line in each bundled face,
+set with `font::layout` and blended from the `Atlas` with
+`gfx::glyph::draw`. The frame reaches `present` as a `platform::surface::Pixels`
+view of its bytes (ADR-0040). The token stand-ins are two constants, not
+types.
+
+```mermaid
+classDiagram
+    direction LR
+    class Gui["gui::Gui"] {
+        -window: Window
+        -first_frame: FirstFrame
+        -frame: Option of Framebuffer and Scale
+        -damage: Damage
+        -events: Vec~Event~
+        +open(config) Result~Gui~
+        +size() DeviceSize
+        +turn(deadline) Result~Turn~
+    }
+    class Turn["gui::Turn"] {
+        +presented: bool
+        +close_requested: bool
+    }
+    class FirstFrame["gui::first_frame::FirstFrame"] {
+        -faces: Faces
+        -atlas: Atlas
+        -backdrop: Backdrop
+        -style: BackdropStyle
+        +new() Result~FirstFrame~
+        +draw(size, scale) Result~Framebuffer~
+    }
+    class GuiError["gui::GuiError"] {
+        <<enumeration>>
+        Platform
+        Gfx
+        Font
+        Pixels
+    }
+    class Window["platform::window::Window"]
+    class Event["platform::events::Event"]
+    class Pixels["platform::surface::Pixels"]
+    class Framebuffer["gfx::framebuffer::Framebuffer"]
+    class Damage["gfx::damage::Damage"]
+    class Backdrop["gfx::backdrop::Backdrop"]
+    class BackdropStyle["gfx::backdrop::BackdropStyle"]
+    class Faces["font::fallback::Faces"]
+    class Atlas["font::atlas::Atlas"]
+
+    Gui "1" *-- "1" Window
+    Gui "1" *-- "1" FirstFrame
+    Gui "1" *-- "0..1" Framebuffer : the frame drawn
+    Gui *-- Damage
+    Gui "1" *-- "0..*" Event : a turn's events
+    Gui ..> Pixels : presents
+    Gui ..> Turn : turn returns
+    Gui ..> GuiError
+    FirstFrame *-- Faces
+    FirstFrame *-- Atlas
+    FirstFrame *-- Backdrop
+    FirstFrame *-- BackdropStyle
+    FirstFrame ..> Framebuffer : draw makes
+```
+
+- `Gui` and `Window` are neither `Send` nor `Sync`: the window stays on
+  the thread that opened it. `Turn` is `Copy`. `GuiError` wraps the
+  error of the crate that failed (section 28).
+
+## 28. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
@@ -3487,9 +3565,11 @@ the kind of a font's, a glyph's, an outline's, a set of faces' or an
 atlas's problem, `ttf::ErrorKind`, `outline::ErrorKind`,
 `fallback::ErrorKind` or `atlas::ErrorKind`, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
-failed save's message as text. Only `BenchError` wraps other crates': its
-`Text` holds the `TextError` of a text operation a suite runs, and its
-`Font` the `FontError` of a font operation. `xtask`
+failed save's message as text. `BenchError` and `GuiError` wrap other
+crates': `BenchError`'s `Text` holds the `TextError` of a text operation a
+suite runs, and its `Font` the `FontError` of a font operation; each of
+`GuiError`'s variants holds the error of the crate it names, `platform`'s
+two, `gfx`'s or `font`'s. `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -3576,6 +3656,13 @@ classDiagram
         Faces
         Atlas
     }
+    class GuiError["gui::GuiError"] {
+        <<enumeration>>
+        Platform
+        Gfx
+        Font
+        Pixels
+    }
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
     class FacesErrorKind["font::fallback::ErrorKind"]
@@ -3630,11 +3717,18 @@ classDiagram
     BenchError *-- FontError : Font
     BenchError *-- IoError : Read, Output
     PlatformError *-- IoError : Io
+    Display <|.. GuiError
+    StdError <|.. GuiError
+    GuiError *-- PlatformError : Platform
+    GuiError *-- PixelsError : Pixels
+    GuiError *-- GfxError : Gfx
+    GuiError *-- FontError : Font
 ```
 
-## 28. Planned types
+## 29. Planned types
 
-The other 17 members are empty crates, so they have no class diagram yet.
+The other 15 members are empty crates, so they have no class diagram yet;
+the `tidepool` binary's few types are private to its `main.rs`.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
@@ -3646,9 +3740,9 @@ is described in words here.
   the `DrawList`, planned (M3.1); the theme's token set, planned (M3.2).
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
-  `present`, `clipboard`). No task names the trait itself; the GUI's first
-  frame is planned (M2.6) and the TUI's renderer and input decoder
-  (M7.1).
+  `present`, `clipboard`). No task names the trait itself; the GUI's
+  draw-list painter is planned (M3.5), besides its first frame (section
+  27), and the TUI's renderer and input decoder (M7.1).
 - `tidepool-toolchain`: the registry's tool states `Missing`, `Found`,
   `Outdated`, `Installing` and `Broken`, planned (M5.1); the `Spawn`
   builder and the `SecretArg` and `SecretEnv` types that redact
@@ -3693,17 +3787,19 @@ The main files these diagrams were drawn from:
 - `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
   `ttf/tables.rs`, `outline.rs`, `bundled.rs`, `fallback.rs`, `layout.rs`,
   `atlas.rs`
+- `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`,
+  `tokens.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
-  `crates/font/Cargo.toml`,
+  `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
   `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044)
+  ADR-0044, ADR-0045)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
-  `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font` and
-  `bench`
+  `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font`,
+  `crates/gui` and `bench`

@@ -124,7 +124,7 @@ policy approves it.
 ```toml
 [alias]
 xtask = "run --profile xtask --package xtask --"
-tp    = "run --package tidepool --"
+tp    = "run --package tidepool"
 ```
 
 Workspace lints (`Cargo.toml`); every member uses `[lints] workspace = true`:

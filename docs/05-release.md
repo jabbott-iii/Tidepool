@@ -18,7 +18,18 @@ strip = "debuginfo"   # full symbols archived separately per build
 [profile.xtask]
 inherits = "release"
 debug = false
+
+[profile.dev.package.tidepool-gfx]
+opt-level = 3
+
+[profile.dev.package.tidepool-font]
+opt-level = 3
 ```
+
+The dev profile optimizes the two drawing crates and keeps its debug
+assertions, overflow checks and debug info, so that `cargo tp`, a dev
+build, reaches its first frame within the 300 ms budget; unoptimized,
+the backdrop alone takes about 4 s (ADR-0045).
 
 ## Versioning
 

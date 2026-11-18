@@ -4,11 +4,12 @@ These diagrams follow Tidepool's flows through time: who calls whom, in
 what order, and what comes back. Sections 1 to 7 are read from the code:
 `cargo xtask ci` and its `golden` step, `cargo xtask fuzz-smoke` and its
 engine, and loading,
-saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
-the flows the specs plan, from startup to signing an Android package; most
-of their code does not exist yet, and what does is marked (built).
+saving, editing and undoing text in `tidepool-text`, and so is 8.3, the
+first frame. The rest of sections 8 to 13 are the flows the specs plan,
+from startup to signing an Android package; most of their code does not
+exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4 and M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8 and M2.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -25,14 +26,14 @@ Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), 
 | `par` / `and` | Steps that run at the same time, on different threads |
 | Note | What a step means, or the rule or budget it keeps |
 | "(planned)" in the section title, and a note at the top naming the tasks | The whole flow is planned: not built yet |
-| A task ID in a participant's label, such as "(M2.6)" | That participant is planned, and that task builds it |
+| A task ID in a participant's label, such as "(M3.4)" | That participant is planned, and that task builds it |
 | "(built)" in a participant's label | That participant exists in the code now, inside a planned flow |
 
 UML draws an answer as a dashed arrow, and Mermaid cannot dash a
 participant's box, so a sequence diagram marks planned work by its title,
 its note and its participants' labels instead of by dashes. Names in
-messages are the code's (sections 1 to 7) or the specs' (sections 8 to
-13). Paths are relative to the repository root. A planned flow too long
+messages are the code's (sections 1 to 7, and 8.3) or the specs' (the
+rest of sections 8 to 13). Paths are relative to the repository root. A planned flow too long
 for one picture is drawn in numbered parts, read in order.
 
 ## 1. `cargo xtask ci`
@@ -500,30 +501,32 @@ sequenceDiagram
     Note over Caller,Buf: Undo at the root and redo with no child give None. A commit after an<br/>undo starts a branch and keeps the old one, which jump_to reaches<br/>through the lowest common ancestor.
 ```
 
-## 8. Startup to the first frame (planned)
+## 8. Startup to the first frame
 
-From `cargo tp` to the first frame, as `docs/01-architecture.md` → "The
-main loop" and `docs/subsystems/frontends.md` plan it. M2.6 draws the first
-frame (the backdrop and a line of each face); M3.4 adds the loop and the
-shell, on ADR-0012, which is Proposed until then. The binary today is an
-empty `main` (M0.1); `platform`'s window and events are built (M2.2), and
-so are `gfx` (the framebuffer and the backdrop, M2.3) and `font` (the
-bundled faces, layout and the atlas, M2.5). The frontend draws with `gfx`
-and `font`, libraries it calls: drawn as the frontend's own steps in 8.1,
-and as one participant in 8.2.
+From `cargo tp` to the first frame. 8.1 and 8.2 draw it as
+`docs/01-architecture.md` → "The main loop" and
+`docs/subsystems/frontends.md` plan it: M3.4 adds the loop and the shell,
+on ADR-0012, which is Proposed until then, and the GUI frontend the app
+drives (M3.4, M3.5). 8.3 draws what the binary does today: it opens the
+GUI's window and shows the first frame, the backdrop and a line in each
+bundled face (M2.6, ADR-0045). `platform`'s window and events are built
+(M2.2), and so are `gfx` (the framebuffer and the backdrop, M2.3) and
+`font` (the bundled faces, layout and the atlas, M2.5). The frontend
+draws with `gfx` and `font`, libraries it calls: drawn as the frontend's
+own steps in 8.1, and as one participant in 8.2 and 8.3.
 
-### 8.1 Opening the frontend
+### 8.1 Opening the frontend (planned)
 
 ```mermaid
 sequenceDiagram
     actor User
     participant Cli as tidepool main<br/>(M3.4)
     participant Cfg as Config load<br/>(M3.4, M4.7)
-    participant Fe as gui frontend<br/>(M2.6)
+    participant Fe as gui frontend<br/>(M3.4, M3.5)
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over User,Disp: planned M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3), and<br/>font's bundled faces and atlas (M2.5).
+    Note over User,Disp: planned M3.4, M3.5.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3),<br/>font's bundled faces and atlas (M2.5), and<br/>gui's first frame (M2.6, in 8.3).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: Config::load(args)
@@ -536,22 +539,22 @@ sequenceDiagram
         Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix:N only<br/>(ADR-0039),<br/>XCreateWindow
         Plat->>Plat: the scale<br/>from Xft.dpi
         Fe->>Fe: font (built): bundled::load<br/>parses Saira and JetBrains<br/>Mono, compiled in
-        Fe->>Fe: gfx (built): Framebuffer::new<br/>at device resolution,<br/>Backdrop::ensure builds<br/>the backdrop layers
+        Fe->>Fe: font (built): Atlas::new,<br/>and an empty gfx Backdrop<br/>cache, the backdrop and<br/>Framebuffer built on the<br/>first expose (8.3)
     end
 ```
 
-### 8.2 The main loop, to the first frame
+### 8.2 The main loop, to the first frame (planned)
 
 ```mermaid
 sequenceDiagram
     participant Shell as App, the shell<br/>(M3.4)
     participant Cli as tidepool main<br/>(M3.4)
-    participant Fe as gui frontend<br/>(M2.6)
+    participant Fe as gui frontend<br/>(M3.4, M3.5)
     participant Gfx as gfx and<br/>font (built)
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over Shell,Disp: planned M2.6, M3.4.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3)<br/>and font (M2.5) are built.
+    Note over Shell,Disp: planned M3.4, M3.5.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3),<br/>font (M2.5) and gui's first frame<br/>(M2.6, in 8.3) are built.
     Cli->>Cli: an mpsc channel for<br/>workers, child readers<br/>and timers
     Cli->>Shell: App::new(config, tx,<br/>frontend.waker())
     loop every turn of the main loop
@@ -572,6 +575,53 @@ sequenceDiagram
     Note over Shell,Disp: Cold start to first frame within 300 ms for the GUI,<br/>checked with cargo tp -- --print-startup-time (M2.6).<br/>Idle: no redraw.
 ```
 
+### 8.3 The first frame today (M2.6)
+
+Read from the code: `crates/app/src/main.rs` and `tidepool-gui`'s
+`frontend.rs` and `first_frame.rs` (ADR-0045). There is no settings file,
+shell or worker yet: `main` turns the GUI until its window is asked to
+close.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Main as tidepool main
+    participant Gui as gui Gui
+    participant First as gui FirstFrame
+    participant Draw as gfx and font
+    participant Plat as platform window<br/>and events
+    participant Disp as X server,<br/>through XWayland
+
+    User->>Main: cargo tp -- --print-startup-time
+    Main->>Main: Instant::now, then<br/>Args::from_env, the flag,<br/>finish: any other<br/>argument exits 2
+    Main->>Gui: Gui::open(WindowConfig::default())
+    Gui->>Plat: Window::open: Tidepool,<br/>1280 x 800 logical px
+    Plat->>Disp: one Display over unix:N,<br/>XCreateWindow, mapped
+    Gui->>First: FirstFrame::new
+    First->>Draw: bundled::load,<br/>Atlas::new(1024, 1024)
+    loop until the window is asked to close
+        Main->>Gui: turn(None)
+        Gui->>Plat: wait_events(None)
+        Plat-->>Gui: exposes, a resize,<br/>a close request, input
+        opt an expose, and no frame of the window's size and scale
+            Gui->>First: draw(size, scale)
+            First->>Draw: Backdrop::ensure,<br/>Framebuffer::new, image::copy
+            First->>Draw: layout::line of each label and<br/>sample, Atlas::glyph, glyph::draw
+            Draw-->>First: the frame
+        end
+        opt damage left inside the frame
+            Gui->>Plat: present(Pixels view, damage rects)
+            Plat->>Disp: XPutImage of each rect
+        end
+        Gui-->>Main: Turn: presented, close_requested
+        opt the first present, with --print-startup-time
+            Main-->>User: first frame: 131.5 ms, on stdout
+        end
+    end
+    Main-->>User: exit status 0
+    Note over Main,Disp: On COSMIC the window is resized to 1232 x 662 about 1 ms after its<br/>first expose, while the first frame is drawn, so the next turn draws it again.<br/>Idle, wait_events sleeps in poll and the process uses no CPU.
+```
+
 ## 9. A keystroke to pixels, on the main thread (planned)
 
 One key press, from the X server to the pixels on screen, all on the main
@@ -579,9 +629,10 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-whole flow is planned in M2.6, M3.1, M3.4, M4.1, M4.2, M4.3 and M4.6;
+whole flow is planned in M3.1, M3.4, M3.5, M4.1, M4.2, M4.3 and M4.6;
 `Transaction` and `History` are built (M1.2), and so are core's
-`InputEvent` (M0.2) and `platform`'s events (M2.2).
+`InputEvent` (M0.2), `platform`'s events (M2.2) and `gui`'s first frame
+(M2.6, 8.3), which uses no input yet.
 
 ### 9.1 The key, to the focused editor
 
@@ -590,11 +641,11 @@ sequenceDiagram
     actor User
     participant Disp as X server
     participant Plat as platform events<br/>(built)
-    participant Fe as gui frontend<br/>(M2.6)
+    participant Fe as gui frontend<br/>(M3.4)
     participant ML as app main loop<br/>(M3.4)
     participant Ui as ui input and<br/>focus (M3.1)
 
-    Note over User,Ui: planned M2.6, M3.1, M3.4.<br/>core's InputEvent (M0.2) and platform's<br/>events (M2.2) are built.
+    Note over User,Ui: planned M3.1, M3.4.<br/>core's InputEvent (M0.2) and platform's<br/>events (M2.2) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
@@ -633,12 +684,12 @@ sequenceDiagram
 sequenceDiagram
     participant ML as app main loop<br/>(M3.4)
     participant View as editor view and ui<br/>draw list (M4.1, M3.1)
-    participant Fe as gui frontend<br/>(M2.6)
+    participant Fe as gui frontend<br/>(M3.5)
     participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M2.6, M3.1, M3.4, M4.1.<br/>platform's present and Waker (M2.2),<br/>gfx (M2.3) and font (M2.5) are built.
+    Note over ML,Bg: planned M3.1, M3.4, M3.5, M4.1.<br/>platform's present and Waker (M2.2),<br/>gfx (M2.3) and font (M2.5) are built.
     ML->>View: build_frame(metrics)
     View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage
     ML->>Fe: present(frame)
@@ -942,6 +993,7 @@ sequenceDiagram
   `history.rs`, `pos.rs`, `lib.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
+- `crates/gui/src/frontend.rs`, `first_frame.rs`
 - `AGENTS.md` (rules 2, 6, 7 and 8)
 - `docs/00-overview.md` → "Performance budgets"
 - `docs/01-architecture.md` → "Dependency matrix", "The main loop", "Data
@@ -952,5 +1004,6 @@ sequenceDiagram
   `ui-and-theme.md`, `editor.md`, `languages.md`, `toolchains.md`,
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
-  ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044
+  ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
+  ADR-0045
 - `docs/roadmap.md`: the tasks named in each section

@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4 and M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8 and M2.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -48,20 +48,22 @@ down: 1.1 what the app, the frontends and the editor use, 1.2 what the
 agents, languages and toolchains offer one another, and 1.3 what all of
 them stand on. Only formats and text (`codec` and `text`), `xtask`,
 `sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
-(M2.2, M2.7), `gfx`'s rasterizer (M2.3) and `font`'s atlas and layout
-(M2.5) have code behind their interfaces; the app is its crate root (M0.1). Each arrow names the crate in
+(M2.2, M2.7), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
+(M2.5) and `gui`'s first frame (M2.6) have code behind their interfaces;
+the app opens that frame's window (M2.6). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
 
 ```mermaid
 flowchart TB
-    c_app["App: tidepool, the binary<br/>an empty main today, M0.1<br/>main loop planned M3.4"]
+    c_app["App: tidepool, the binary<br/>the first frame, M2.6<br/>main loop planned M3.4"]
 
+    i_gui(("Gui, Turn (M2.6)"))
     i_front(("Frontend<br/>planned M3.4, M7.1"))
     i_editor(("editor views<br/>and commands<br/>planned M4.1, M4.6"))
 
-    c_front["Frontends<br/>tidepool-gui<br/>tidepool-tui<br/>planned M2.6, M7.1"]
+    c_front["Frontends<br/>tidepool-gui (M2.6)<br/>tidepool-tui<br/>planned M7.1"]
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
 
     i_draw(("widget tree,<br/>DrawList,<br/>TextMetrics<br/>planned M3.1"))
@@ -76,14 +78,16 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
 
+    c_app -->|"app (M2.6)"| i_gui
     c_app -.->|"app:<br/>planned M3.4, M7.1"| i_front
     c_app -.->|"app:<br/>planned M4.1"| i_editor
+    i_gui --- c_front
     i_front -.- c_front
     i_editor -.- c_editor
 
     c_front -.->|"gui, tui:<br/>planned M3.5, M7.1"| i_draw
-    c_front -.->|"gui:<br/>planned M2.6"| i_raster
-    c_front -.->|"gui:<br/>planned M2.6"| i_glyphs
+    c_front -->|"gui (M2.6)"| i_raster
+    c_front -->|"gui (M2.6)"| i_glyphs
     c_editor -.->|"editor:<br/>planned M4.1"| i_draw
     c_editor -.->|"editor:<br/>planned M9.4, M9.5"| i_agentf
     c_editor -.->|"editor:<br/>planned M6.2, M6.6, M6.7"| i_langf
@@ -98,14 +102,14 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_render,i_raster,i_glyphs built
-    class c_front,c_editor,c_agents,c_lang,c_tools planned
+    class c_app,c_front,c_render,i_gui,i_raster,i_glyphs built
+    class c_editor,c_agents,c_lang,c_tools planned
     class i_front,i_editor,i_draw,i_agentf,i_langf,i_toolf planned
 ```
 
 - The app's matrix row is "all crates above", so it may use every crate in
   the rows above its own (not `xtask`, `tidepool-bench` or
-  `tidepool-testkit`); only its two main uses are drawn.
+  `tidepool-testkit`); only its main uses are drawn.
 - The editor never depends on `gui` or `tui`, and the frontends never
   depend on the editor: the app connects them (`docs/01-architecture.md`).
 - `Frontend` is the common interface of `docs/subsystems/frontends.md`. The
@@ -149,7 +153,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    c_front["Frontends<br/>tidepool-gui<br/>tidepool-tui<br/>planned M2.6, M7.1"]
+    c_front["Frontends<br/>tidepool-gui (M2.6)<br/>tidepool-tui<br/>planned M7.1"]
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
@@ -169,7 +173,7 @@ flowchart LR
     e_os["OS libraries<br/>libc and libX11,<br/>AppKit and Win32 later"]
     e_cargo["cargo"]
 
-    c_front -.->|"gui:<br/>planned M2.6"| i_os_win
+    c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
     c_editor -.->|"editor, workspace:<br/>planned M4.1, M4.2, M4.3"| i_text
     c_editor -.->|"workspace:<br/>planned M4.7"| i_codec
@@ -197,8 +201,8 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_fmt,c_os,i_text,i_codec,i_os_win built
-    class c_front,c_editor,c_agents,c_lang,c_tools planned
+    class c_xtask,c_front,c_fmt,c_os,i_text,i_codec,i_os_win built
+    class c_editor,c_agents,c_lang,c_tools planned
     class i_os_term,i_regex,i_os_watch,i_os_proc planned
     class e_os,e_cargo external
 ```
@@ -392,7 +396,8 @@ window, events and present (M2.2), so both are drawn solid with their
 planned modules in their labels. `gfx` has its rasterizer and the
 backdrop (M2.3), and `font` its TrueType parser and glyph rasterizer
 (M2.8) and its atlas, layout and fallback (M2.5), so both are drawn solid
-too; `ui` is an empty library.
+too, as is `gui`, which draws the first frame with them (M2.6); `ui` is an
+empty library.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -404,7 +409,7 @@ will use and the declarations under it, and 3.2 the rest of `platform`.
 
 ```mermaid
 flowchart TB
-    c_gui["tidepool-gui<br/>planned M2.6"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6"]
     c_tui["tidepool-tui<br/>planned M7.1"]
 
     i_window(("window: Window::open,<br/>WindowConfig, CursorShape<br/>(M2.2)"))
@@ -418,9 +423,9 @@ flowchart TB
     c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>selections, M2.7<br/>more planned M4.5 on"]
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
-    c_gui -.->|"planned M2.6"| i_window
-    c_gui -.->|"planned M2.6"| i_events
-    c_gui -.->|"planned M2.6"| i_surface
+    c_gui -->|"M2.6"| i_window
+    c_gui -->|"M2.6"| i_events
+    c_gui -->|"M2.6"| i_surface
     c_gui -.->|"planned M4.2"| i_clip
     c_tui -.->|"planned M7.1"| i_terminal
 
@@ -437,8 +442,8 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_platform,c_sys,i_decl,i_window,i_events,i_surface,i_clip built
-    class c_gui,c_tui planned
+    class c_platform,c_sys,c_gui,i_decl,i_window,i_events,i_surface,i_clip built
+    class c_tui planned
     class i_terminal planned
     class e_os external
 ```
@@ -453,7 +458,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    c_app["tidepool, the app<br/>an empty main, M0.1<br/>main loop planned M3.4"]
+    c_app["tidepool, the app<br/>the first frame, M2.6<br/>main loop planned M3.4"]
     c_workspace["tidepool-workspace<br/>planned M4.5, M4.7"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
@@ -491,15 +496,17 @@ flowchart TB
 
 ### 3.3 tidepool-ui
 
-`gfx`, `font` and `ui` are pure: no `unsafe` and no OS calls. `ui` lays out
-in logical units and emits draw lists; `gui` rasterizes them with `gfx` and
-`font` (3.4), and `tui` maps them onto cells. `TextMetrics` is a trait that
-`ui` defines and each frontend implements.
+`gfx`, `font` and `ui` are pure: no `unsafe` and no OS calls. `ui` is to
+lay out in logical units and emit draw lists (M3.1); `gui`, which draws
+only the first frame today (M2.6), is to rasterize them with `gfx` and
+`font` (M3.5, 3.4), and `tui` to map them onto cells (M7.1).
+`TextMetrics` is to be a trait that `ui` defines and each frontend
+implements.
 
 ```mermaid
 flowchart TB
     c_editor["tidepool-editor<br/>planned M4.1, M4.3"]
-    c_gui["tidepool-gui<br/>planned M3.5"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>draw lists planned M3.5"]
     c_tui["tidepool-tui<br/>planned M7.1"]
     c_bridge["OS accessibility bridges<br/>AT-SPI, NSAccessibility,<br/>UI Automation<br/>planned M14.2"]
 
@@ -527,8 +534,10 @@ flowchart TB
     i_metrics -.- c_ui
     i_a11y -.- c_ui
 
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_editor,c_gui,c_tui,c_bridge,c_ui planned
+    class c_gui built
+    class c_editor,c_tui,c_bridge,c_ui planned
     class i_widgets,i_tree,i_theme,i_drawlist,i_metrics,i_a11y planned
 ```
 
@@ -538,12 +547,12 @@ flowchart TB
 
 ### 3.4 tidepool-gfx and tidepool-font
 
-`gui` is the only crate in the binary that will use them;
-`tidepool-bench` measures `font`'s atlas today (6.5).
+`gui` is the only crate in the binary that uses them, for the first frame
+today (M2.6); `tidepool-bench` measures `font`'s atlas (6.5).
 
 ```mermaid
 flowchart LR
-    c_gui["tidepool-gui<br/>planned M2.6, M3.5"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>draw-list painter<br/>planned M3.5"]
 
     i_fb(("Framebuffer, View<br/>(M2.3)"))
     i_raster(("raster, blend, clip,<br/>image, glyph blit<br/>(M2.3)"))
@@ -556,11 +565,12 @@ flowchart LR
     i_layout(("layout, Faces,<br/>bundled (M2.5)"))
     c_font["tidepool-font<br/>TrueType and outlines (M2.8)<br/>bundled faces, fallback,<br/>layout, atlas, golden<br/>scenes (M2.5)"]
 
-    c_gui -.->|"planned M2.6"| i_fb
-    c_gui -.->|"planned M2.6"| i_raster
-    c_gui -.->|"planned M2.6"| i_backdrop
-    c_gui -.->|"planned M3.5"| i_damage
-    c_gui -.->|"planned M2.6"| i_atlas
+    c_gui -->|"M2.6"| i_fb
+    c_gui -->|"image copy,<br/>glyph blit (M2.6)"| i_raster
+    c_gui -->|"M2.6"| i_backdrop
+    c_gui -->|"exposes (M2.6)"| i_damage
+    c_gui -->|"M2.6"| i_atlas
+    c_gui -->|"lines, bundled<br/>faces (M2.6)"| i_layout
     c_gui -.->|"TextMetrics,<br/>planned M3.5"| i_layout
 
     i_fb --- c_gfx
@@ -573,8 +583,7 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_gfx,i_fb,i_raster,i_backdrop,i_damage,c_font,i_ttf,i_atlas,i_layout built
-    class c_gui planned
+    class c_gui,c_gfx,i_fb,i_raster,i_backdrop,i_damage,c_font,i_ttf,i_atlas,i_layout built
 ```
 
 - `gfx`'s glyph blit draws coverage masks from `font`'s atlas, but `gfx`
@@ -1215,7 +1224,9 @@ only code from `core` that the tests of `codec` and `text` use, and neither
 library uses `core`. `gfx`'s property tests use the harness and `Pcg32`
 too (M2.3); its library uses `core`'s `geom` and `color`. `font`'s
 tests use `core`'s FNV-1a hash to pin the bundled faces' coverage, besides
-the fuzz engine (M2.8); its library uses no crate. `xtask` also uses `core`'s `cli`, `hash` and
+the fuzz engine (M2.8); its library uses no crate. `gui`'s library uses
+`core`'s `geom` and `color`, and the `tidepool` binary its `cli` (M2.6),
+outside this view. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
 measures `text`'s library with inputs drawn from `Pcg32`, and `font`'s
 atlas filling with the bundled Saira (M2.5), and keeps its baseline with

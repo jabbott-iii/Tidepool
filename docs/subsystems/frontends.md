@@ -23,6 +23,15 @@ automatically when no display is available, with a message).
 - Opens a `platform::Window`, keeps a `gfx::Framebuffer` at device
   resolution, and rasterizes the damaged parts of each draw list with `gfx`
   and `font`.
+- Before `ui`'s draw lists (M3.5), it draws the first frame (M2.6,
+  ADR-0045): `Gui::turn` waits for the window's events and presents what
+  an expose asks for, from a frame that `first_frame::FirstFrame` draws
+  anew, on the calling thread, whenever the window's size or scale has
+  changed: jabbott.dev's backdrop (`gfx::backdrop`) and a line in each
+  bundled face, its name in `text-3` and a sample in `text`, from the
+  typography table (`docs/subsystems/ui-and-theme.md`). The two colors
+  are stand-ins for the theme's tokens until M3.2. The rustdoc of `gui`'s
+  modules is authoritative.
 - Implements `TextMetrics` with `font::layout`.
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
@@ -52,7 +61,11 @@ automatically when no display is available, with a message).
 
 ## Tests
 
-- GUI: golden frames of the shell; Xvfb smoke test on Linux CI.
+- GUI: golden frames of each draw primitive (M3.5) and of the shell
+  (M3.4); an Xvfb smoke test,
+  `crates/gui/tests/window.rs`, that opens the window, sees the first
+  frame presented and an idle turn present nothing, gated by
+  `TIDEPOOL_IT_X11` and run by Linux CI's gate (M2.6, ADR-0041).
 - TUI: cell-grid snapshots (`tests/golden/tui/`) for the shell, vim mode
   chips, popups and resize; input decoder tables for xterm, kitty, tmux and
   the Linux console sequences; a pseudo-terminal integration test runs

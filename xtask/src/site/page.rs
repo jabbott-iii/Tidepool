@@ -1244,7 +1244,7 @@ mod tests {
             for expected in [
                 "# Tidepool\n\n> Tidepool is a zero-dependency IDE",
                 "run on each commit of `main` that passes CI",
-                "nothing opens a window yet. 19 of 23 roadmap tasks done at commit 0123456 of \
+                "and does nothing else yet. 19 of 23 roadmap tasks done at commit 0123456 of \
                  2026-11-08 (site: the demo page <M0.14> & its \"gate\").\n",
                 "Rust 1.99.0, edition 2024; 26 crates in the workspace; third-party crates: None",
                 "Here: 11 of 11 steps passed; 1,234 tests passed, 0 failed and 0 ignored, and 1 \

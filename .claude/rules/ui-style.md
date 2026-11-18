@@ -14,7 +14,9 @@ Read `docs/subsystems/ui-and-theme.md` first. The reference is jabbott.dev's
 stylesheet (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`).
 
 - **Tokens only.** Widgets and views take colors, sizes and fonts from the
-  theme. No literal colors in code outside `themes/` and tests.
+  theme. No literal colors in code outside `themes/` and tests, but for
+  `tidepool-gui`'s stand-ins for `text` and `text-3` in
+  `crates/gui/src/tokens.rs`, until M3.2's theme replaces them (ADR-0045).
 - **Uppercase is for chrome** (labels, buttons, eyebrows, table headers,
   section titles), with the spec's letter-spacing. Never transform user
   content: file names, paths, code, symbols, search text, commit messages.

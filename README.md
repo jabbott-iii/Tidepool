@@ -6,7 +6,7 @@ terminal UI with vim-style modal editing, and first-class Rust and Markdown
 support. It will also build and sign Android and iOS apps, and offer AI
 features through plugged-in language agents.
 
-**Status:** in development, at version 0.1, and still headless. The guarded
+**Status:** in development, at version 0.1. The guarded
 workspace and its checks, the contribution workflow, license headers, the
 core library, JSON, TOML and its document model, which writes edits
 back, the text engine's rope, positions,
@@ -18,8 +18,10 @@ changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
 against golden frames by a QOI codec and harness of our own, and a
 TrueType parser, glyph rasterizer, glyph atlas and text layout, with
-fallback, for the bundled Saira and JetBrains Mono, are built;
-the `tidepool` binary opens no window yet.
+fallback, for the bundled Saira and JetBrains Mono, are built; and
+`cargo tp` opens a Linux window that shows the first frame,
+jabbott.dev's backdrop and a line in each bundled face, and does nothing
+else yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
 what is built and what is planned.
