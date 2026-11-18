@@ -15,7 +15,9 @@
 //! The golden scenes of `ui`'s draw lists, painted by `tidepool-gui`
 //! (ADR-0044, ADR-0048, `docs/04-quality.md` → "Golden frames"): one test
 //! per scene, named after it, for each draw command, clips and layers
-//! included, at scale 1 and 2, and a mix of them at 1.5.
+//! included, at scale 1 and 2, and a mix of them at 1.5; and, in
+//! [`controls`], for each of `ui`'s controls in each state at scale 1 and 2
+//! (ADR-0049).
 //!
 //! Each scene is a `ui` tree whose widgets paint commands in window
 //! coordinates, laid out and painted by [`Painter`] over the bundled
@@ -46,6 +48,10 @@ use tidepool_ui::layout::Style;
 use tidepool_ui::metrics::{Family, TextStyle, Weight};
 use tidepool_ui::theme::{Theme, Token};
 use tidepool_ui::{Node, NodeId, Tree, Widget};
+
+// The controls' scenes (M3.6), in a module of this target, so that `cargo
+// xtask golden` runs them with the rest.
+mod controls;
 
 /// Names the directory the scenes write to.
 const DIR_VAR: &str = "TIDEPOOL_GOLDEN_DIR";

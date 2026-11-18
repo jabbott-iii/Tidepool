@@ -3217,3 +3217,176 @@ decides; the roadmap task that first depends on one asks for the decision.
   layout or icon rasterizing in a frame's cost; a widget nests more than
   8 layers; or the shell (M3.4) needs the backdrop's blurred copy under a
   translucent panel, for which no command exists.
+
+## ADR-0049 — M3.6's controls: the tree holds the theme; the site's component colors become tokens; `ui` gains `text` for grapheme editing; pressed and disabled looks, and no blurred glows
+
+- **Status:** Accepted
+- **Date:** 2026-11-18
+- **Context:**
+  - M3.6 builds `tidepool-ui`'s controls from the spec's Components
+    table: buttons (ghost, teal, amber with cut corners, slate), chips, a
+    text input, the search field, a scrollbar, the focus outline, the
+    status dot, the section title, eyebrow, kicker and breadcrumbs, with
+    golden frames of each in each state (rest, hover, focus, active,
+    disabled) at scale 1 and 2, and a role and a name for each in the
+    accessibility tree.
+  - ADR-0047 left to the controls how a widget reaches the theme when it
+    paints, and the component styles derived from its tokens. ADR-0046
+    has widgets paint resolved colors from the tree's state, and promised
+    a call that repaints every node when a token's value changes.
+  - jabbott.dev's stylesheet (`assets/css/style.css`) paints its
+    components with colors that are not among the spec's tokens: the
+    ghost button's fill, white at 3%; the teal button's border, teal at
+    55%, which is also a chip's hover border; the teal button's hover
+    fill, teal at 20%; the slate button's hover fill, `#34444a`; the
+    search field's focus ring, teal at 15%; and the status dot's halo,
+    green at 16%. It has no pressed (`:active`) or disabled styles, no
+    plain text input and no scrollbar style, and its glows are blurred
+    `box-shadow`s (the ghost button's inset glow, the teal button's hover
+    glow, the status dot's soft glow), which no `ui::draw` command paints.
+  - Moving a caret or deleting by Unicode scalar value splits a grapheme
+    cluster, such as an emoji with a skin tone. `tidepool-text`, whose row
+    of the matrix is `core` alone, has extended grapheme cluster
+    boundaries on a `&str` (`text::pos::grapheme`, M1.1); `ui`'s row was
+    `core`, `codec`.
+  - A widget's event handler gets no `TextMetrics`; `Tree::handle` takes
+    only the event, and 75 calls in the repository use it.
+  - On 2026-11-18 the user chose the recommended option of each of four
+    questions: the tree holds the theme; the site's component colors
+    become tokens; `ui` gains `text`; pressed and disabled looks, and no
+    blurred glows.
+- **Decision:**
+  - **The tree holds the theme.** `Tree` holds an `Arc<Theme>`, by
+    default the bundled `tidepool-dark`, parsed once for the process
+    (`Theme::bundled`). `PaintContext::theme` gives it to a widget as it
+    paints; `Tree::theme` reads it, and `Tree::set_theme` replaces it,
+    lays the tree out again and repaints every node, damaging the whole
+    window. `Tree::frame`, `Tree::handle` and `Widget::measure` do not
+    change: sizes do not come from the theme.
+  - **Component tokens.** The theme file gains eight color tokens, all
+    required, and the spec's token table eight rows; the format stays
+    version 1, since `themes/tidepool-dark.toml` is the only theme file
+    and Tidepool loads no user theme yet:
+    `ghost` `rgba(255,255,255,0.03)` (the ghost button's fill),
+    `teal-line` `rgba(92,203,203,0.55)` (the teal button's border, a
+    hovered chip's or field's border), `teal-fill`
+    `rgba(92,203,203,0.20)` (the teal button's hover fill), `slate-hi`
+    `#34444a` (the slate button's hover fill, a pressed chip's fill),
+    `teal-ring` `rgba(92,203,203,0.15)` (a focused field's 3 px ring),
+    and the status dot's halos at the site's 16%: `green-halo`
+    `rgba(61,220,151,0.16)`, `amber-halo` `rgba(242,194,0,0.16)` and
+    `error-halo` `rgba(255,138,128,0.16)`. Each translucent one has its
+    `solid` value over `bg` and a 256-color index. `[[contrast.use]]`
+    gains every pair the controls set text in that it did not list, so
+    `cargo xtask theme` checks them; the printed contrast table does not
+    change.
+  - **Sizes stay constants** in `ui::widgets`, from the spec's
+    Typography and Components tables (the IDE's denser scale): buttons
+    30 and 24 high, labels in Saira 12 px 600, uppercase, tracked
+    0.10em (chips 0.08em), chips 24 high, fields 30 high in Saira 13 px
+    500, the focus outline 2 px wide 3 px outside the bounds, the status
+    dot 8 px with a 3 px halo; `cut` comes from the theme.
+  - **`ui` gains `text`.** `tidepool-ui`'s row is `core`, `codec`,
+    `text`. The text input and the search field keep one line of text as
+    a `String` and move and delete by extended grapheme cluster with
+    `text::pos::grapheme`: typing and `Text` events insert (control
+    characters dropped, line breaks and tabs made spaces, at most
+    `MAX_INPUT_BYTES`), Left, Right, Home and End move, with Shift they
+    select, Backspace and Delete delete, Ctrl+A selects all, Enter emits
+    `Submit` and Escape `Dismiss`; clipboard keys go to the owner, which
+    holds the clipboard. A click or a drag places the caret by the
+    caret stops of the last paint: a widget may keep what it measured as
+    it painted (in a `Cell` or `RefCell`), since its handler has no
+    metrics. A secret field paints a bullet a grapheme and keeps its
+    text out of its semantics and `Debug` (ADR-0043).
+  - **Activation.** A button, a chip or a link is activated by a click,
+    the release of a primary press it captured while the pointer is over
+    it (on the hit path, so not where a clip or a node above hides it);
+    by Enter going down, not repeating; or by Space coming up after it
+    went down on the
+    control, as a browser's button is, so that the space Space types,
+    which comes between, is the control's whatever the owner does on the
+    activation. Space's activation is called off if, while it is held,
+    keyboard focus moves or the window loses it (which the tree counts,
+    `EventContext::focus_moves`, as a widget sees no focus leave it),
+    another key but a modifier goes down on it, or a primary press lands
+    on it.
+  - **Controls give themselves semantics.** `ui::widgets::Control` is a
+    `Widget` that says its `Semantics`, `Style` and whether it takes
+    focus, and builds its `Node`; `widgets::update` changes a control in
+    the tree and sets its semantics again. A handler sets its node's
+    semantics through `EventContext::set_semantics`, applied when it
+    returns as `Tree::set_semantics` is, so a field's value and a chip's
+    checked state follow it.
+  - **States.** A control paints from its node's `NodeState`:
+    - *hover*: the site's `:hover`;
+    - *pressed* (the task's "active"): the hover look with the fill one
+      step stronger: ghost `teal-wash`, teal `teal-glow`, a chip
+      `slate-hi`; where the palette has no stronger fill, a rim: a
+      slate button gains a `teal-line` border, and an amber button, or a
+      selected chip, keeps its rest fill inside a 2 px rim of its hover
+      fill; a link's text turns `teal`;
+    - *focus*: the 2 px `teal` outline 3 px outside the bounds when focus
+      shows (`:focus-visible`); a field shows a `teal` border and its
+      3 px `teal-ring` whenever it has focus, and no outline, as the
+      site's `.search input:focus`;
+    - *disabled*: the rest look in a layer at 40% opacity, with no hover
+      or pressed look. WCAG 2.x exempts inactive controls from its
+      contrast minimums, so no disabled pair is listed.
+    The site has no plain text input or scrollbar: a text input is the
+    search field's `slate` as a rect; a scrollbar has no track and a
+    `line-2` thumb at rest, a `line` track and a `teal-glow` thumb when
+    hovered, and a `teal` thumb when pressed.
+    A control that takes no focus (the status dot, the titles, a
+    breadcrumb that is the current page, the scrollbar) paints the same
+    with focus elsewhere; the solid rings, the field's focus ring and the
+    status dot's halo, are translucent pills or rects behind the shape.
+  - **No blurred glows.** The ghost button's inset glow, the teal
+    button's hover glow and the status dot's soft glow are left out;
+    `ui::draw` gains no command.
+  - **Golden scenes.** Each control is a scene of `tidepool-gui`'s
+    `golden` test target (ADR-0044), in a module of it,
+    `tests/controls/mod.rs`: a grid of cells, a row for each variant and
+    a column for each state, each cell its own tree put in that state by
+    real events (a pointer move, Tab, a press without its release) or
+    `Tree::set_enabled`, painted by `Painter` and copied into the scene,
+    at scale 1 and 2.
+- **Consequences:**
+  - The theme's token set grows from 26 to 34; a theme file without the
+    eight is refused, naming the first missing key. The fuzz target's
+    seeds that are whole themes gain them.
+  - Building `ui` builds `text`; `gui`, and so `app`, build it through
+    `ui`, and `editor` and `tui` will when they depend on `ui` (M4.1,
+    M7.1).
+  - A theme reload is `Tree::set_theme`; widgets never hold a theme.
+  - The controls' look differs from the site's where it had glows, and
+    where the site had no style (pressed, disabled, the plain text input,
+    the scrollbar), it is this ADR's.
+  - Placing a caret with the pointer uses what the last paint measured,
+    so a click before the first frame puts the caret at the end; the
+    editor view (M4.1) faces the same lack of metrics in handlers and
+    may revisit it.
+  - Fields never blink their caret, as motion is opt-in and an idle tree
+    damages nothing.
+- **Alternatives considered:**
+  - Each control holding an `Arc<Theme>`: no change to the tree, but a
+    theme reload means the owner rebuilds or updates every control.
+  - `Tree::frame` taking the theme: every caller changes, and `measure`
+    still cannot see it.
+  - The site's extra colors as literal alphas of tokens in code: no
+    format change, but a theme could not restyle them, and code would
+    hold literal alphas. Using the nearest existing tokens: the controls
+    drift from the site.
+  - Sizes in the theme's `[sizes]`: every theme would have to carry the
+    spec's type scale.
+  - Moving and deleting by `char`: no matrix change, but Backspace splits
+    a grapheme cluster.
+  - `Tree::handle` taking `TextMetrics`: exact caret placement at any
+    time, but 75 calls change, and the editor view's needs are not known
+    yet.
+  - A blurred-glow draw command: closer to the site, but a new command
+    for `gui`'s painter, its goldens and `tui`.
+- **Revisit when:** Tidepool loads a user's theme (then missing component
+  tokens may default from the others); the editor view (M4.1) needs
+  metrics in its handlers; a control needs a glow to read as the site's;
+  or jabbott.dev gains pressed, disabled or input styles (ADR-0004).

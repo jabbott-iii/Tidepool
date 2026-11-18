@@ -8,12 +8,13 @@ nothing about pixels, fonts or terminals.
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
 `editor` builds its views with it, and `tidepool-gui` and `tidepool-tui`
 render its draw lists; it needs `tidepool-core`, whose geometry, colors and
-input types it uses, and `tidepool-codec`, whose TOML parser reads theme
-files (ADR-0047).
+input types it uses, `tidepool-codec`, whose TOML parser reads theme
+files (ADR-0047), and `tidepool-text`, whose grapheme cluster boundaries
+its fields edit by (ADR-0049).
 
-Layer 2, services. It may use `core` and `codec`, as its row of the
-dependency matrix in [`docs/01-architecture.md`](../../docs/01-architecture.md)
-says.
+Layer 2, services. It may use `core`, `codec` and `text`, as its row of
+the dependency matrix in
+[`docs/01-architecture.md`](../../docs/01-architecture.md) says.
 
 ## Status
 
@@ -72,8 +73,8 @@ Built, with the roadmap task that built it:
   that. A field holding a secret leaves its value `None` — M3.1.
 - `theme`: `Theme`, read from a theme file by `Theme::parse` within
   `codec`'s `Limits`, and `Theme::tidepool_dark`, the bundled
-  `themes/tidepool-dark.toml` compiled in: a value for each of the 26
-  color `Token`s, with the solid color over `bg` and the 256-color index
+  `themes/tidepool-dark.toml` compiled in: a value for each color
+  `Token` (26; M3.6 adds eight for the controls), with the solid color over `bg` and the 256-color index
   where the file gives them, the cut-corner size and the two fonts. A
   key that is missing or unknown, a wrong type, a color that does not
   parse, a `solid` for an opaque value, a translucent `bg`, an index out
@@ -84,13 +85,33 @@ Built, with the roadmap task that built it:
   `[contrast]` table is `cargo xtask theme`'s, which prints the spec's
   contrast table from it and fails when a pair the theme uses for text is
   below WCAG AA (ADR-0047) — M3.2.
+- `widgets`: the controls, in jabbott.dev's design language — `Button`
+  (ghost, teal, amber with cut corners, slate; 30 or 24 high), `Chip`,
+  `TextInput` (a text input or the search field: one line of at most
+  4,096 bytes, moved in and deleted by grapheme cluster, with selection,
+  a caret placed by the pointer, and a secret mode that keeps its text
+  out of its semantics and `Debug`), `ScrollBar`, `focus_outline`,
+  `StatusDot`, `SectionTitle`, `Eyebrow`, `Kicker` and `Breadcrumbs`,
+  a builder of a navigation row of `Crumb`s. Each control is a
+  `Control`, which gives its node its role and the name it is given,
+  focusable or not; `widgets::update` changes one and its semantics, and a handler
+  sets its node's through `EventContext::set_semantics`. Each paints its
+  rest, hover, pressed, focus and disabled looks in the tree's theme,
+  which `PaintContext::theme` gives it: the tree holds the bundled theme
+  (`Theme::bundled`, read once) until `Tree::set_theme` replaces it and
+  repaints every node. The site's component colors that its `:root`
+  lacks are eight more tokens; pressed and disabled looks, and no
+  blurred glows, are ADR-0049's — M3.6.
 
 The tests check, among the rest, that children never overflow a parent
 that does not scroll and that layout is idempotent and deterministic, over
 random trees with random styles (`tests/layout.rs`), and that every
 focusable node has a role and a name over random sequences of changes
 (`tests/a11y.rs`); and that random edits of the bundled theme never make
-its reader panic (`tests/theme.rs`). The fuzz target `theme`, in
+its reader panic (`tests/theme.rs`); and that random edits of a field
+keep its text one line within its limit and its caret and selection on
+grapheme cluster boundaries (`tests/widgets.rs`, which also tests each
+control's role, name, actions and colors). The fuzz target `theme`, in
 `tests/fuzz.rs`, reads with small `Limits`, from seeds made by hand in
 `fuzz/corpus/theme/`, some exactly at each limit, and from `themes/` in
 place; it checks that a theme it reads keeps the format's rules and that
@@ -98,13 +119,14 @@ a refusal names a key on a line of the input (ADR-0027, ADR-0047).
 
 `tidepool-gui` paints these draw lists into pixels with `gfx` and `font`,
 measures text for them with `font` (its `FontMetrics`), and draws golden
-frames of `ui`'s scenes (M3.5, ADR-0048).
+frames of `ui`'s scenes (M3.5, ADR-0048) and of each control in each
+state (M3.6, ADR-0049).
 
 Not yet, with the roadmap task that adds it:
 
-- the controls, with the component styles derived from the theme's
-  tokens — M3.6.
-- collections and overlays — M3.3.
+- collections and overlays: list, tree view, table, tab strip, splitter,
+  card, code block, tooltip, toast, modal and the command palette —
+  M3.3.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -202,7 +224,9 @@ fn main() -> Result<(), UiError> {
   jabbott.dev design language); ADR-0046 (widgets in the tree's nodes,
   routing up through ancestors, and resolved colors in draw lists);
   ADR-0047 (theme files read with `codec::toml`, their format, and the
-  pairs `cargo xtask theme` checks).
+  pairs `cargo xtask theme` checks); ADR-0049 (the controls: the tree
+  holds the theme, component tokens, grapheme editing with `text`, and
+  the states' looks).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules
@@ -221,7 +245,7 @@ fn main() -> Result<(), UiError> {
 cargo test -p tidepool-ui
 cargo xtask theme
 cargo xtask fuzz-smoke --target theme
-cargo xtask golden    # ui's scenes, which tidepool-gui paints (M3.5)
+cargo xtask golden    # ui's scenes and controls, which tidepool-gui paints (M3.5, M3.6)
 ```
 
 `cargo xtask ci` runs the whole gate.

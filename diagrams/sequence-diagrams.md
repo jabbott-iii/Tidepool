@@ -9,7 +9,7 @@ first frame. The rest of sections 8 to 13 are the flows the specs plan,
 from startup to signing an Android package; most of their code does not
 exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M3.5 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1 and M3.2. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.6 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2 and M3.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -156,7 +156,7 @@ sequenceDiagram
     loop each crate with scenes, in SCENES order: tidepool-gfx, tolerance 0, tidepool-font, 1, and tidepool-gui, 0
         Gold->>Cargo: cargo test --package PACKAGE<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/PACKAGE
         Note over Gold,Cargo: run_with_env: an argv vector,<br/>stdin closed, CARGO_NET_OFFLINE=true,<br/>its output straight to the terminal
-        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 23
+        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 39, 16 of them<br/>the controls' (M3.6)
         Test->>Out: each scene draws into a Framebuffer<br/>and writes SCENE.pam: premultiplied<br/>RGBA, rows from the top
         Test-->>Cargo: exit status
         Cargo-->>Gold: exit status, a failure<br/>being a violation
@@ -1005,7 +1005,7 @@ sequenceDiagram
 - `crates/core/src/testing/fuzz.rs`, `fuzz/engine.rs`, `fuzz/paths.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
   `crates/gfx/tests/golden.rs`, `crates/font/tests/golden.rs`,
-  `crates/gui/tests/golden.rs`
+  `crates/gui/tests/golden.rs`, `crates/gui/tests/controls/mod.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `transaction.rs`,
   `history.rs`, `pos.rs`, `lib.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`

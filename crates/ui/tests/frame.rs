@@ -413,6 +413,34 @@ fn style_and_enablement_changes_repaint() {
 }
 
 #[test]
+fn a_fragments_own_clip_bounds_its_damage() {
+    // A long run of text clipped to its field, as a text input paints it:
+    // its change damages the clip, not the run's whole width.
+    let mut tree = Tree::new();
+    let root = tree.root();
+    let clip = Rect::new(10.0, 0.0, 50.0, 20.0);
+    let wide = Rect::new(10.0, 0.0, 300.0, 20.0);
+    let node = tree
+        .insert(
+            root,
+            Node::new(Style::default().fixed(60.0, 20.0)).with_widget(Raw(vec![
+                Command::PushClip { rect: clip },
+                rect(wide, A),
+                Command::PopClip,
+                rect(Rect::new(0.0, 0.0, 5.0, 5.0), A),
+            ])),
+        )
+        .expect("insert");
+    tree.frame(WINDOW, &METRICS).expect("the first frame");
+    tree.widget_mut::<Raw>(node).expect("raw").0[1] = rect(wide, B);
+    assert_eq!(
+        damage(&mut tree, WINDOW),
+        Some(vec![Rect::new(0.0, 0.0, 60.0, 20.0)]),
+        "the clipped run and the rect outside the clip, not 300 wide"
+    );
+}
+
+#[test]
 fn a_fragments_pushes_and_pops_are_balanced() {
     let mut tree = Tree::new();
     let root = tree.root();

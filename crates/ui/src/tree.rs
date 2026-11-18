@@ -47,6 +47,7 @@
 
 use std::any::Any;
 use std::fmt;
+use std::sync::Arc;
 
 use tidepool_core::geom::{Point, Rect, Size};
 use tidepool_core::input::InputEvent;
@@ -57,6 +58,7 @@ use crate::error::UiError;
 use crate::input::{EventContext, Handled};
 use crate::layout::{Memo, Placement, Style};
 use crate::metrics::TextMetrics;
+use crate::theme::Theme;
 
 mod arena;
 
@@ -345,6 +347,11 @@ pub struct Tree {
     pub(crate) paint_queue: Vec<NodeId>,
     /// Damage waiting for the next frame: removed nodes' painted bounds.
     pub(crate) damage: Vec<Rect>,
+    /// What widgets paint with (ADR-0049).
+    pub(crate) theme: Arc<Theme>,
+    /// How many times keyboard focus moved to another node, or the window
+    /// lost focus ([`EventContext::focus_moves`](crate::input::EventContext::focus_moves)).
+    pub(crate) focus_moves: u64,
 }
 
 impl Default for Tree {
@@ -354,7 +361,8 @@ impl Default for Tree {
 }
 
 impl Tree {
-    /// A tree of one node, the root, with the default style.
+    /// A tree of one node, the root, with the default style, painting
+    /// with the bundled theme ([`Theme::bundled`]).
     ///
     /// The window counts as focused until a
     /// [`FocusLost`](InputEvent::FocusLost) says otherwise.
@@ -384,6 +392,8 @@ impl Tree {
             frame_size: None,
             paint_queue: Vec::new(),
             damage: Vec::new(),
+            theme: Theme::bundled(),
+            focus_moves: 0,
         };
         tree.mark(root);
         tree
@@ -715,6 +725,24 @@ impl Tree {
     /// [`FocusLost`](InputEvent::FocusLost) said.
     pub const fn window_focused(&self) -> bool {
         self.window_focused
+    }
+
+    /// The theme widgets paint with, through
+    /// [`PaintContext::theme`] (ADR-0049).
+    pub fn theme(&self) -> &Arc<Theme> {
+        &self.theme
+    }
+
+    /// Paints with `theme` from the next frame: the tree is laid out again
+    /// and every node repainted, which damages the whole window
+    /// ([`Tree::invalidate_all`]). A theme equal to the one held changes
+    /// nothing.
+    pub fn set_theme(&mut self, theme: Arc<Theme>) {
+        if Arc::ptr_eq(&theme, &self.theme) || *theme == *self.theme {
+            return;
+        }
+        self.theme = theme;
+        self.invalidate_all();
     }
 }
 

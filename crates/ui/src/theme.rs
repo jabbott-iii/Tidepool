@@ -68,6 +68,7 @@
 //! ```
 
 use std::fmt;
+use std::sync::{Arc, OnceLock};
 
 use tidepool_codec::Limits;
 use tidepool_codec::toml::{self, Span, Table, Value, ValueKind};
@@ -159,11 +160,32 @@ pub enum Token {
     OnTeal,
     /// `comment`: comments in code, only on `editor-bg`.
     Comment,
+    /// `ghost`, translucent: the ghost button's fill (ADR-0049).
+    Ghost,
+    /// `teal-line`, translucent: the teal button's border; a hovered
+    /// chip's or field's border (ADR-0049).
+    TealLine,
+    /// `teal-fill`, translucent: the teal button's hover fill (ADR-0049).
+    TealFill,
+    /// `slate-hi`: the slate button's hover fill; a pressed chip's fill
+    /// (ADR-0049).
+    SlateHi,
+    /// `teal-ring`, translucent: a focused field's ring (ADR-0049).
+    TealRing,
+    /// `green-halo`, translucent: the halo of a status dot that is ready
+    /// (ADR-0049).
+    GreenHalo,
+    /// `amber-halo`, translucent: the halo of a status dot that is busy
+    /// (ADR-0049).
+    AmberHalo,
+    /// `error-halo`, translucent: the halo of a status dot that failed
+    /// (ADR-0049).
+    ErrorHalo,
 }
 
 impl Token {
     /// How many tokens there are.
-    pub const COUNT: usize = 26;
+    pub const COUNT: usize = 34;
 
     /// Every token, in the order the spec lists them.
     pub const ALL: [Self; Self::COUNT] = [
@@ -193,6 +215,14 @@ impl Token {
         Self::OnAmber,
         Self::OnTeal,
         Self::Comment,
+        Self::Ghost,
+        Self::TealLine,
+        Self::TealFill,
+        Self::SlateHi,
+        Self::TealRing,
+        Self::GreenHalo,
+        Self::AmberHalo,
+        Self::ErrorHalo,
     ];
 
     /// The token's name in the spec and in theme files: `bg-raise`.
@@ -224,6 +254,14 @@ impl Token {
             Self::OnAmber => "on-amber",
             Self::OnTeal => "on-teal",
             Self::Comment => "comment",
+            Self::Ghost => "ghost",
+            Self::TealLine => "teal-line",
+            Self::TealFill => "teal-fill",
+            Self::SlateHi => "slate-hi",
+            Self::TealRing => "teal-ring",
+            Self::GreenHalo => "green-halo",
+            Self::AmberHalo => "amber-halo",
+            Self::ErrorHalo => "error-halo",
         }
     }
 
@@ -277,10 +315,25 @@ impl Theme {
     }
 
     /// The bundled `tidepool-dark` theme, jabbott.dev's tokens
-    /// ([`TIDEPOOL_DARK_TOML`]).
+    /// ([`TIDEPOOL_DARK_TOML`]), read again at each call.
     pub fn tidepool_dark() -> Self {
         Self::parse(TIDEPOOL_DARK_TOML, LIMITS)
             .expect("the bundled theme is valid: `ui`'s tests read it")
+    }
+
+    /// The bundled `tidepool-dark` theme, read once for the process and
+    /// shared: what a new [`Tree`](crate::Tree) paints with (ADR-0049).
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use tidepool_ui::theme::Theme;
+    ///
+    /// assert!(Arc::ptr_eq(&Theme::bundled(), &Theme::bundled()));
+    /// assert_eq!(*Theme::bundled(), Theme::tidepool_dark());
+    /// ```
+    pub fn bundled() -> Arc<Self> {
+        static BUNDLED: OnceLock<Arc<Theme>> = OnceLock::new();
+        Arc::clone(BUNDLED.get_or_init(|| Arc::new(Self::tidepool_dark())))
     }
 
     /// The theme's name.

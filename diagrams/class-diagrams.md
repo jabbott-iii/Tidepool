@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.5 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1 and M3.2. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.6 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2 and M3.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -64,9 +64,10 @@ framebuffer, primitives, layers and backdrop, `font`'s faces, layout,
 atlas and outline rasterizer, `ui`'s `Theme`, draw lists and
 `TextMetrics`, and `core`'s geometry and colors (section 27). `tidepool-ui` uses
 `core`'s geometry, colors and input events, and `TextLength` to keep a
-value out of `Debug`, and reads theme files with `codec::toml` within a
-`codec::Limits`, wrapping a `codec::CodecError` in its `UiError` (section
-28).
+value out of `Debug`, reads theme files with `codec::toml` within a
+`codec::Limits`, wrapping a `codec::CodecError` in its `UiError`, and
+moves and deletes in its fields by `text::pos::grapheme`'s cluster
+boundaries (section 28).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -3696,7 +3697,7 @@ classDiagram
   framebuffer and the backdrop. `FontMetrics` borrows the painter's
   faces, so `Tree::frame` measures with the faces the painter draws.
 
-## 28. ui: the tree, layout, events, frames, the accessibility tree and the theme
+## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme and the controls
 
 `tidepool-ui` (M3.1, ADR-0046) keeps a retained `Tree`: an arena of
 `Slot`s, each with a generation and at most one node's `NodeData`, so a
@@ -3707,8 +3708,9 @@ that layout uses, and records what the last layout gave each node in a
 `Placement`, its last paint as a fragment of `Command`s, and a few
 measured sizes in its `Memo`. The tree itself holds the focus, the hover
 path from the pointer's last position, the node a press captured, the
-node the next layout scrolls into view, and the nodes and damage waiting
-for the next frame.
+node the next layout scrolls into view, the nodes and damage waiting
+for the next frame, and the `Theme` its widgets paint with, an `Arc` of
+the bundled one by default (ADR-0049).
 
 ### 28.1 The tree, its nodes and their widgets
 
@@ -3726,6 +3728,7 @@ classDiagram
         -reveal: Option~NodeId~
         -paint_queue: Vec~NodeId~
         -damage: Vec~Rect~
+        -theme: Arc~Theme~
         +new() Tree
         +insert(parent, node) Result~NodeId~
         +remove(id) Result
@@ -3735,6 +3738,8 @@ classDiagram
         +layout(size, metrics)
         +scroll_into_view(id) Result
         +focus_next() Option~NodeId~
+        +theme() Arc~Theme~
+        +set_theme(theme)
     }
     class Slot["ui::tree::Slot"] {
         -generation: u32
@@ -3834,8 +3839,10 @@ classDiagram
         +ascent: f32
         +descent: f32
     }
+    class Theme["ui::theme::Theme"]
 
     Tree "1" *-- "1..*" Slot
+    Tree o-- Theme : an Arc, the bundled<br/>theme by default
     Slot "1" *-- "0..1" NodeData
     NodeData *-- Style : style, sane
     NodeData *-- Semantics
@@ -3860,16 +3867,21 @@ classDiagram
   thread touches the tree (`docs/01-architecture.md` → "Threading
   model"). `Widget: Any`, so `widget` and `widget_mut` downcast to the
   owner's own type.
+- `set_theme` with a theme unlike the one held lays the tree out again
+  and repaints every node, damaging the whole window; widgets never hold
+  a theme (ADR-0049).
 - The `Role` box lists some of its variants.
 
 ### 28.2 Events, frames and the accessibility tree
 
 `Tree::handle` gives each widget on the event's path an `EventContext`,
-which records what the handler asks for in `Requests`; the tree applies
-them once the handler returns and gathers the `Response`. `Tree::frame`
-repaints the nodes in its queue, each widget painting into a `DrawList`
-through a `PaintContext`, and returns a `Frame`: the whole tree's
-commands and the damage. `Tree::accessibility` returns a `Snapshot`.
+which records what the handler asks for in `Requests`, new semantics for
+its node among them (M3.6); the tree applies them once the handler
+returns and gathers the `Response`. `Tree::frame` repaints the nodes in
+its queue, each widget painting into a `DrawList` through a
+`PaintContext`, which lends it the metrics and the tree's theme
+(ADR-0049), and returns a `Frame`: the whole tree's commands and the
+damage. `Tree::accessibility` returns a `Snapshot`.
 
 ```mermaid
 classDiagram
@@ -3888,16 +3900,20 @@ classDiagram
         -node: NodeId
         -bounds: Rect
         -state: NodeState
+        -focus_moves: u64
+        +focus_moves() u64
         +emit(kind)
         +request_focus()
         +request_paint()
         +request_layout()
+        +set_semantics(semantics)
     }
     class Requests["ui::input::Requests"] {
         -actions: Vec~ActionKind~
         -focus: bool
         -paint: bool
         -layout: bool
+        -semantics: Option~Semantics~
     }
     class Handled["ui::input::Handled"] {
         <<enumeration>>
@@ -3924,6 +3940,7 @@ classDiagram
         +bounds() Rect
         +state() NodeState
         +metrics() TextMetrics
+        +theme() Theme
     }
     class DrawList["ui::draw::DrawList"] {
         -commands: Vec~Command~
@@ -3972,6 +3989,7 @@ classDiagram
         <<trait>>
     }
     class TextLength["core::input::TextLength"]
+    class Theme["ui::theme::Theme"]
 
     Tree ..> InputEvent : handle takes
     Tree ..> EventContext : makes one per handler
@@ -3979,6 +3997,7 @@ classDiagram
     Widget ..> EventContext : event
     Widget ..> Handled : event returns
     Widget ..> PaintContext : paint
+    PaintContext o-- Theme : the tree's
     Widget ..> DrawList : paint fills
     Tree ..> Response : handle returns
     Response "1" *-- "0..*" Action
@@ -4006,10 +4025,12 @@ classDiagram
 
 `Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
 within the `Limits` it is given, and reads its tables into a `Theme`: a
-name, a `TokenColor` for each of the 26 `Token`s, in the order of
+name, a `TokenColor` for each of the 34 `Token`s, in the order of
 `Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
 two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
-of `themes/tidepool-dark.toml` compiled in, within `LIMITS`. A file that
+of `themes/tidepool-dark.toml` compiled in, within `LIMITS`, at each
+call; `Theme::bundled` parses it once for the process and shares it as
+an `Arc`, which a new `Tree` paints with (ADR-0049). A file that
 is not TOML, or breaks the limits, fails with `UiError::ThemeSyntax`,
 holding the `CodecError`; one that is TOML but not a theme, with
 `UiError::Theme`, holding a `ThemeError`: the key, its line and a
@@ -4029,12 +4050,13 @@ classDiagram
     }
     class Theme["ui::theme::Theme"] {
         -name: String
-        -colors: 26 TokenColor
+        -colors: 34 TokenColor
         -cut: f32
         -font_ui: String
         -font_mono: String
         +parse(text, limits) Result~Theme~
         +tidepool_dark() Theme
+        +bundled() Arc~Theme~
         +name() str
         +token(token) TokenColor
         +color(token) Color
@@ -4053,8 +4075,10 @@ classDiagram
         TealGlow
         EditorBg
         Comment
+        TealLine
+        GreenHalo
         +COUNT: usize
-        +ALL: 26 Token
+        +ALL: 34 Token
         +name() str
         +from_name(name) Option~Token~
     }
@@ -4096,14 +4120,14 @@ classDiagram
         <<trait>>
     }
 
-    Theme "1" *-- "26" TokenColor : colors, one per Token
+    Theme "1" *-- "34" TokenColor : colors, one per Token
     TokenColor *-- Color : value, solid
     Theme ..> Token : token, color,<br/>solid, ansi take
     Theme ..> Family : font takes
     Theme ..> Limits : parse takes
     Theme ..> TomlTable : parse reads
     Theme ..> UiError : parse fails with
-    ThemeFns ..> Theme : tidepool_dark parses<br/>TIDEPOOL_DARK_TOML
+    ThemeFns ..> Theme : tidepool_dark and bundled<br/>parse TIDEPOOL_DARK_TOML
     UiError *-- CodecError : ThemeSyntax
     UiError *-- ThemeError : Theme
     ThemeError *-- ThemeErrorKind
@@ -4111,9 +4135,10 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-- The `Token` box lists 8 of its 26 variants, the rows of the spec's
+- The `Token` box lists 10 of its 34 variants, the rows of the spec's
   token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
-  `comment`.
+  `comment`, and eight ADR-0049 added for the controls' component colors,
+  from `ghost` to `error-halo`, such as `teal-line` and `green-halo`.
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
 - `UiError`'s box lists only its two theme variants; section 29 has the
@@ -4122,6 +4147,198 @@ classDiagram
   `CodecError` of `ThemeSyntax`.
 - `ui` reads only that the file's `[contrast]` is a table; `cargo xtask
   theme` reads the rest (section 20).
+
+### 28.4 The controls
+
+`ui::widgets` (M3.6, ADR-0049) has the controls of the spec's Components
+table. Each is a plain struct that implements `Widget` and `Control`:
+`Control` says the control's `Semantics`, its `Style` and whether it
+takes focus, and `node` makes the `Node` that holds it, so that every
+control has its role and the name its owner gives it, focusable or not;
+the tree refuses a focusable one a blank name. `widgets::update`
+changes the control of a type at a node and gives the node its semantics
+again, failing with `UiError::WrongWidget` when the node holds another
+type. A control paints its node's `NodeState` (rest, hover, pressed,
+focus, disabled) in the tokens of the theme `PaintContext::theme` gives
+it, at the module's size constants and in its text styles;
+`focus_outline` paints the `teal` outline outside a control's bounds.
+`TextInput` is a text input, or, of `FieldKind::Search`, the search
+field: one line of at most `MAX_INPUT_BYTES`, whose caret and selection
+move and delete by extended grapheme cluster with `text::pos::grapheme`,
+and which keeps where its last paint put the clusters, since a handler
+gets no metrics. `Breadcrumbs` is a builder: `insert` adds a navigation
+row with a `Crumb` and a separator for each segment.
+
+```mermaid
+classDiagram
+    direction LR
+    class WidgetsFns["ui::widgets"] {
+        <<module>>
+        +BUTTON_HEIGHT: f32
+        +CHIP_HEIGHT: f32
+        +FIELD_HEIGHT: f32
+        +FOCUS_WIDTH: f32
+        +DISABLED_OPACITY: f32
+        +BUTTON_LABEL: TextStyle
+        +update~W~(tree, id, change) Result
+        +focus_outline(list, bounds, theme)
+    }
+    class Control["ui::widgets::Control"] {
+        <<trait>>
+        +semantics() Semantics
+        +style() Style
+        +focusable() bool
+        +node() Node
+    }
+    class Widget["ui::tree::Widget"] {
+        <<trait>>
+    }
+    class Button["ui::widgets::Button"] {
+        -label: String
+        -kind: ButtonKind
+        -size: ButtonSize
+        +new(label, kind) Button
+        +size(size) Button
+        +set_label(label)
+        +set_kind(kind)
+    }
+    class ButtonKind["ui::widgets::ButtonKind"] {
+        <<enumeration>>
+        Ghost
+        Teal
+        Amber
+        Slate
+    }
+    class ButtonSize["ui::widgets::ButtonSize"] {
+        <<enumeration>>
+        Regular
+        Small
+    }
+    class Chip["ui::widgets::Chip"] {
+        -label: String
+        -selected: bool
+        +new(label) Chip
+        +selected(selected) Chip
+        +set_selected(selected)
+    }
+    class TextInput["ui::widgets::TextInput"] {
+        -kind: FieldKind
+        -name: String
+        -text: String
+        -caret: usize
+        -anchor: usize
+        -secret: bool
+        +new(name) TextInput
+        +search(name) TextInput
+        +secret() TextInput
+        +set_text(text)
+        +selection() Range~usize~
+        +selected_text() Option~str~
+        +replace_selection(text) bool
+    }
+    class FieldKind["ui::widgets::FieldKind"] {
+        <<enumeration>>
+        Text
+        Search
+    }
+    class ScrollBar["ui::widgets::ScrollBar"] {
+        -axis: Axis
+        -content: f32
+        -viewport: f32
+        -offset: f32
+        +new(axis, name) ScrollBar
+        +set_range(content, viewport)
+        +set_offset(offset)
+        +max_offset() f32
+    }
+    class StatusDot["ui::widgets::StatusDot"] {
+        -name: String
+        -status: Status
+        +new(name, status) StatusDot
+        +set_status(status)
+    }
+    class Status["ui::widgets::Status"] {
+        <<enumeration>>
+        Ready
+        Busy
+        Failed
+        Off
+        +name() str
+    }
+    class Line["ui::widgets::labels::Line"] {
+        -text: String
+        -shown: String
+    }
+    class SectionTitle["ui::widgets::SectionTitle"]
+    class Eyebrow["ui::widgets::Eyebrow"]
+    class Kicker["ui::widgets::Kicker"]
+    class Breadcrumbs["ui::widgets::Breadcrumbs"] {
+        -name: String
+        -segments: Vec~String~
+        +new(name, segments) Breadcrumbs
+        +insert(tree, parent) Result~NodeId~
+        +set_segments(tree, nav, segments) Result
+    }
+    class Crumb["ui::widgets::Crumb"] {
+        -text: String
+        -current: bool
+        +new(text, current) Crumb
+        +is_current() bool
+    }
+    class Grapheme["text::pos::grapheme"] {
+        <<module>>
+        +is_boundary(text, byte) bool
+        +next_boundary(text, byte) Option~usize~
+        +prev_boundary(text, byte) Option~usize~
+        +graphemes(text) StrGraphemes
+    }
+    class Tree["ui::tree::Tree"]
+    class Node["ui::tree::Node"]
+    class Semantics["ui::a11y::Semantics"]
+    class Theme["ui::theme::Theme"]
+    class Axis["ui::layout::Axis"]
+    class UiError["ui::UiError"]
+
+    Control ..> Widget : its supertrait
+    Control <|.. Button
+    Control <|.. Chip
+    Control <|.. TextInput
+    Control <|.. ScrollBar
+    Control <|.. StatusDot
+    Control <|.. SectionTitle
+    Control <|.. Eyebrow
+    Control <|.. Kicker
+    Control <|.. Crumb
+    Control ..> Node : node makes
+    Control ..> Semantics : semantics says
+    Button *-- ButtonKind
+    Button *-- ButtonSize
+    TextInput *-- FieldKind
+    TextInput ..> Grapheme : moves and deletes<br/>by cluster
+    ScrollBar *-- Axis
+    StatusDot *-- Status
+    SectionTitle *-- Line
+    Eyebrow *-- Line
+    Kicker *-- Line
+    Breadcrumbs ..> Crumb : insert makes one<br/>a segment
+    Breadcrumbs ..> Tree : insert adds<br/>a navigation row to
+    WidgetsFns ..> Tree : update changes<br/>a control in
+    WidgetsFns ..> UiError : update fails with<br/>WrongWidget
+    WidgetsFns ..> Theme : focus_outline<br/>takes teal from
+```
+
+- `Control` is `Widget + Sized`, so each control implements both; only
+  its realizations of `Control` are drawn. A control that takes no
+  focus (the status dot, the titles, the current page's crumb, the
+  scrollbar) still has its role, and the name its owner gives it.
+- The module box lists some of its size constants and text styles.
+  `SectionTitle`, `Eyebrow` and `Kicker` each wrap a private `Line`,
+  which paints its text uppercase, as chrome is; a field's text and a
+  crumb are painted as written, and every accessible name is as written.
+- A secret `TextInput` paints a bullet a cluster, never gives its text as
+  its node's value, and its `Debug`, as every field's, shows its text's
+  length only (ADR-0043). The separators between crumbs are a private
+  widget that the accessibility tree leaves out.
 
 ## 29. Error enums across crates
 
@@ -4243,6 +4460,7 @@ classDiagram
         RootNode
         Unnamed
         NotFocusable
+        WrongWidget
         TooDeep
         ThemeSyntax
         Theme
@@ -4331,10 +4549,9 @@ is described in words here.
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
 - `tidepool-ui`, besides its tree, layout, events, frames, accessibility
-  tree and theme (section 28): the controls (M3.6) and collections and
-  overlays (M3.3), each a `Widget`, with the component styles derived
-  from the theme's tokens and the way a widget reaches the theme when it
-  paints (ADR-0047).
+  tree, theme and controls (section 28): the collections and overlays,
+  planned (M3.3): the list, tree view, table, tab strip, splitter, card
+  with its tab, code block, tooltip, toast, modal and command palette.
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
@@ -4388,7 +4605,9 @@ The main files these diagrams were drawn from:
   `paint.rs`, `metrics.rs`, `icon.rs`
 - `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
   `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
-  `draw.rs`, `a11y.rs`, `theme.rs`; `themes/tidepool-dark.toml`
+  `draw.rs`, `a11y.rs`, `theme.rs`, `widgets.rs`, and `widgets/`
+  (`breadcrumbs.rs`, `button.rs`, `chip.rs`, `field.rs`, `labels.rs`,
+  `scrollbar.rs`); `themes/tidepool-dark.toml`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -4396,7 +4615,7 @@ The main files these diagrams were drawn from:
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048)
+  ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

@@ -39,6 +39,10 @@ Built, with the roadmap task that built it:
   `font::layout`, and `metrics::face` picks a style's bundled face as
   CSS would. 23 golden scenes of `ui` trees, compared exactly — M3.5
   (ADR-0048).
+- 16 golden scenes of `ui`'s controls, each in each state at scale 1 and
+  2, every cell a tree of its own put in its state by real events
+  (`tests/controls/mod.rs`, a module of the `golden` target) — M3.6
+  (ADR-0049).
 
 Not yet, with the roadmap task that adds it:
 

@@ -225,10 +225,10 @@ pub struct Grid {
 /// What the backdrop is drawn from: every layer's geometry and colors.
 ///
 /// [`BackdropStyle::jabbott_dev`] gives the site's. The theme
-/// (`tidepool_ui::theme`, M3.2) does not carry a backdrop style: its
-/// component styles come with the controls (M3.6, ADR-0047), and until then
-/// `gui` draws `jabbott_dev()`, whose `bg` a test of `gui` holds to the
-/// theme's. Equality lets the cache see a change of style.
+/// (`tidepool_ui::theme`, M3.2) does not carry a backdrop style, nor do the
+/// controls' component tokens (M3.6, ADR-0049), so `gui` draws
+/// `jabbott_dev()`, whose `bg` a test of `gui` holds to the theme's.
+/// Equality lets the cache see a change of style.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackdropStyle {
     /// The color under everything (`var(--bg)`).

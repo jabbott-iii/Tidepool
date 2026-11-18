@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             report.notes.last().map(String::as_str),
             Some(
-                "themes/tidepool-dark.toml: 27 pairs used for text, 27 at or above the contrast \
+                "themes/tidepool-dark.toml: 40 pairs used for text, 40 at or above the contrast \
                  their size needs"
             )
         );
@@ -1054,12 +1054,27 @@ mod tests {
             "teal-glow = { value = \"rgba(92,203,203,0.56)\" }",
         );
         let at = line("on = [\"teal-glow\"]") - 1;
+        // The controls' pairs on `teal-glow` (ADR-0049) fail at 0.56 too: a
+        // pressed teal button's label over `bg`, and a field's selection
+        // over `slate`.
+        let pressed = line("text = \"teal-hi\"");
+        let field = line("over = \"slate\"") - 2;
         assert_eq!(
             checked(&text).violations,
-            [format!(
-                "themes/t.toml:{at}: `text` on `teal-glow` over `editor-bg` is 4.45:1, below the \
-                 4.5:1 that normal text needs"
-            )]
+            [
+                format!(
+                    "themes/t.toml:{at}: `text` on `teal-glow` over `editor-bg` is 4.45:1, below \
+                     the 4.5:1 that normal text needs"
+                ),
+                format!(
+                    "themes/t.toml:{pressed}: `teal-hi` on `teal-glow` is 3.55:1, below the 4.5:1 \
+                     that normal text needs"
+                ),
+                format!(
+                    "themes/t.toml:{field}: `text` on `teal-glow` over `slate` is 3.57:1, below \
+                     the 4.5:1 that normal text needs"
+                ),
+            ]
         );
         let glow = Color::rgba(92, 203, 203, 143);
         assert!(contrast(Color::rgb(0xee, 0xf2, 0xf3), composite(glow, bg)) > NORMAL);

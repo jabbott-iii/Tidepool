@@ -56,7 +56,8 @@
 //!   releases a capture. They go to no widget.
 //!
 //! A widget's handler gets an [`EventContext`], through which it emits
-//! [`Action`]s for the owner and asks for focus, a repaint or a relayout.
+//! [`Action`]s for the owner, asks for focus, a repaint or a relayout, and
+//! sets its node's semantics.
 //! The requests are applied once the handler returns. What no widget
 //! handled comes back with [`Response::handled`] `false`, for the owner
 //! (`editor`, `app`) to handle.
@@ -66,6 +67,7 @@
 use tidepool_core::geom::{Point, Rect};
 use tidepool_core::input::{InputEvent, Key, Modifiers, MouseButton, ScrollDelta};
 
+use crate::a11y::Semantics;
 use crate::layout::MAX_EXTENT;
 use crate::tree::{NodeId, NodeState, Tree};
 
@@ -125,6 +127,7 @@ pub(crate) struct Requests {
     focus: bool,
     paint: bool,
     layout: bool,
+    semantics: Option<Semantics>,
 }
 
 /// What a widget's [`event`](crate::tree::Widget::event) handler gets: its
@@ -134,6 +137,7 @@ pub struct EventContext<'a> {
     node: NodeId,
     bounds: Rect,
     state: NodeState,
+    focus_moves: u64,
     requests: &'a mut Requests,
 }
 
@@ -151,6 +155,14 @@ impl EventContext<'_> {
     /// The node's interaction state as the event arrived.
     pub const fn state(&self) -> NodeState {
         self.state
+    }
+
+    /// How many times, before this event, keyboard focus moved from one
+    /// node to another, or the window lost focus: a node that sees the
+    /// same count at two events kept focus between them, as a button
+    /// that activates when Space comes up checks (ADR-0049). It wraps.
+    pub const fn focus_moves(&self) -> u64 {
+        self.focus_moves
     }
 
     /// Emits an action of this node for the owner, in
@@ -174,6 +186,15 @@ impl EventContext<'_> {
     /// the next frame: its size may have changed.
     pub fn request_layout(&mut self) {
         self.requests.layout = true;
+    }
+
+    /// Gives the node `semantics` once the handler returns, as
+    /// [`Tree::set_semantics`] does: a field's new value, a toggle's new
+    /// state (ADR-0049). Semantics that it refuses, with no role or no
+    /// name for a focusable node, leave the node's as they were; the last
+    /// call wins.
+    pub fn set_semantics(&mut self, semantics: Semantics) {
+        self.requests.semantics = Some(semantics);
     }
 }
 
@@ -263,6 +284,7 @@ impl Tree {
             InputEvent::FocusGained => self.window_focused = true,
             InputEvent::FocusLost => {
                 self.window_focused = false;
+                self.focus_moves = self.focus_moves.wrapping_add(1);
                 self.release_capture();
             }
         }
@@ -388,6 +410,7 @@ impl Tree {
         };
         let bounds = self.bounds(id).unwrap_or_default();
         let mut requests = Requests::default();
+        let focus_moves = self.focus_moves;
         let Some(widget) = self.get_mut(id).and_then(|node| node.widget.as_mut()) else {
             return Handled::No;
         };
@@ -395,6 +418,7 @@ impl Tree {
             node: id,
             bounds,
             state,
+            focus_moves,
             requests: &mut requests,
         };
         let handled = widget.event(&mut cx, event);
@@ -413,6 +437,11 @@ impl Tree {
         }
         if requests.focus && self.can_focus(id) {
             self.change_focus(Some(id), keyboard);
+        }
+        if let Some(semantics) = requests.semantics {
+            // Refused only for a focusable node without a role or a name,
+            // which keeps the semantics it had, as documented.
+            let _ = self.set_semantics(id, semantics);
         }
         handled
     }
@@ -491,7 +520,7 @@ fn distance(value: f32) -> f32 {
 }
 
 /// Returns `true` for Control, Shift, Alt and Super, left or right.
-fn is_modifier(key: Key) -> bool {
+pub(crate) fn is_modifier(key: Key) -> bool {
     matches!(
         key,
         Key::LeftControl

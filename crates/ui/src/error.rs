@@ -66,6 +66,12 @@ pub enum UiError {
         /// The id given.
         id: NodeId,
     },
+    /// The node holds no widget of the type asked for
+    /// ([`widgets::update`](crate::widgets::update)).
+    WrongWidget {
+        /// The id given.
+        id: NodeId,
+    },
     /// The node would be more than [`MAX_DEPTH`](crate::tree::MAX_DEPTH)
     /// levels below the root.
     TooDeep {
@@ -115,6 +121,9 @@ impl fmt::Display for UiError {
                 f,
                 "node {id} cannot take focus: it is not focusable, is disabled or is hidden"
             ),
+            Self::WrongWidget { id } => {
+                write!(f, "node {id} holds no widget of the type asked for")
+            }
             Self::TooDeep { max } => {
                 write!(f, "a node may be at most {max} levels below the root")
             }
@@ -175,6 +184,10 @@ mod tests {
             (
                 UiError::NotFocusable { id: root },
                 "node 0v0 cannot take focus: it is not focusable, is disabled or is hidden",
+            ),
+            (
+                UiError::WrongWidget { id: root },
+                "node 0v0 holds no widget of the type asked for",
             ),
             (
                 UiError::TooDeep { max: MAX_DEPTH },

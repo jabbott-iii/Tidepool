@@ -29,6 +29,14 @@ bar = { value = "rgba(30,37,40,0.72)", solid = "#191e20", ansi = 234 }
 on-amber = { value = "#111111" }
 on-teal = { value = "#071012" }
 comment = { value = "#6f7d82" }
+ghost = { value = "rgba(255,255,255,0.03)", solid = "#121314", ansi = 233 }
+teal-line = { value = "rgba(92,203,203,0.55)", solid = "#387576", ansi = 66 }
+teal-fill = { value = "rgba(92,203,203,0.20)", solid = "#1b3233", ansi = 235 }
+slate-hi = { value = "#34444a", ansi = 238 }
+teal-ring = { value = "rgba(92,203,203,0.15)", solid = "#17292a", ansi = 235 }
+green-halo = { value = "rgba(61,220,151,0.16)", solid = "#132d23", ansi = 235 }
+amber-halo = { value = "rgba(242,194,0,0.16)", solid = "#30290b", ansi = 235 }
+error-halo = { value = "rgba(255,138,128,0.16)", solid = "#32201f", ansi = 235 }
 
 [sizes]
 cut = 10
@@ -118,13 +126,5 @@ font-mono = "JetBrains Mono"
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
+# padding padding padding padding padding padding padding padding pa
 ################################################################################

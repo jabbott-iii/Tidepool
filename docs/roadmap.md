@@ -1961,7 +1961,7 @@ JetBrains Mono text over the jabbott.dev backdrop.
     was built for macOS or Windows: that the scenes give the same bytes
     there is checked by CI's gate on the next push (M0.4's ⏳).
 
-- [ ] **M3.6 — ui: controls**
+- [x] **M3.6 — ui: controls**
   - Depends: M3.2, M3.5
   - Do: from the spec's Components table: buttons (ghost, teal, amber with
     cut corners, slate), chips, text input, search field, scrollbar, the
@@ -1971,6 +1971,78 @@ JetBrains Mono text over the jabbott.dev backdrop.
     focus, active, disabled) at scale 1 and 2; each has a role and name in
     the accessibility tree.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-ui`
+  - Note (2026-11-18): the task has no `Decide first` line, but ADR-0047
+    left to the controls how a widget reaches the theme and the component
+    styles, which change `ui`'s API, the theme file and the dependency
+    matrix. ADR-0049 records the options the user chose that day, each
+    the recommended one: the tree holds the theme; the colors the site's
+    components use beyond its `:root` become eight theme tokens; `ui`
+    gains `text` for editing by grapheme cluster (its row is now `core`,
+    `codec`, `text`); and pressed and disabled looks, with no blurred
+    glows.
+  - Note (2026-11-18): done. `ui::widgets` has `Button` (ghost, teal,
+    amber cut by the theme's `cut`, slate; 30 or 24 high), `Chip`,
+    `TextInput` (a text input or the search field: one line of at most
+    4,096 bytes moved in and deleted by grapheme cluster, with selection,
+    a caret placed by the stops of the last paint, and a secret mode),
+    `ScrollBar`, `focus_outline`, `StatusDot`, `SectionTitle`, `Eyebrow`,
+    `Kicker`, and `Breadcrumbs`, which builds a row of `Crumb`s. Each
+    control is a `Control`, which gives its node its role and the name it
+    is given, changed with `widgets::update`. The tree holds an
+    `Arc<Theme>` (`Tree::theme`, `set_theme`, `Theme::bundled`) that
+    `PaintContext::theme` gives widgets; `EventContext` gains
+    `set_semantics` and `focus_moves`; `UiError` gains `WrongWidget`; a
+    fragment's painted bounds are cut to the clips it pushes. Buttons,
+    chips and links activate on a click, on Enter going down, and on
+    Space coming up after it went down on them, unless focus moved, the
+    window lost it or another key went down between. The theme has 34
+    color tokens and 40 text pairs, all at AA. `crates/gui/tests/
+    controls/mod.rs`, a module of the `golden` target, paints 16 scenes,
+    `ui_*`: a grid for each control, a row for each variant and a column
+    for each state, every cell its own tree put in its state by real
+    events, at scale 1 and 2. The user looked at two contact sheets of the
+    16 images and agreed to bless them; their references take 424 KB.
+    Besides `ui` and `gui`'s tests, the change touches `xtask`'s theme
+    tests (the pairs they count), a doc comment of `gfx` and `text`'s
+    README.
+  - Note (2026-11-18): reviewed in four rounds, each finding of the last
+    three put to two skeptics. A first reviewer found 6, all fixed: a
+    click after an edit used caret stops of the old text and put the
+    caret inside a char, so the next edit panicked; Space's typed space
+    went to the owner; `widgets::update` and `Breadcrumbs::insert` left
+    a blank name or a row behind on error; and a long field damaged past
+    its clip. Four finders then found 17, 15 upheld by both skeptics, all
+    fixed: Space activating on its key going down, so the space it typed
+    reached a field the owner focused on activation; a release over
+    another node activating the pressed control; Ctrl+Shift+A taken as
+    Ctrl+A; the scrollbar overflowing on huge ranges; `teal-line`'s solid
+    a level off; breadcrumbs leaving a separator behind; tests that
+    could not fail or checked one control's colors only; and six docs.
+    The fixes' check found 9 more upheld, all fixed: a Space release the
+    platform reports after the window lost focus, or after focus left and
+    came back, activating (the tree now counts focus moves), Shift
+    calling Space off, four weak tests and four docs. A last check found
+    3, fixed. Numpad keys with Num Lock off are a documented limit: a
+    field keeps them as keys that type text, since `core`'s keys name
+    places, not what Num Lock makes of them.
+  - Note (2026-11-18): checked on rustc 1.99.0, Linux. `cargo xtask
+    golden`: 61 scenes ok, the 16 new ones exactly. `cargo test -p
+    tidepool-ui`: 42 unit tests, 3 a11y, 12 frame, 2 fuzz, 19 input, 22
+    layout, 2 theme, 28 widgets and 15 doc tests pass; a property test of
+    random edits, clicks and frames fails at its 49th case with the stale
+    stops' fix reverted, and each fix of the reviews was reverted once to
+    see its test fail. `cargo xtask theme`: 40 of 40 pairs at AA, the
+    table the spec's. `cargo xtask fuzz-smoke --target theme`: 2,213,999
+    inputs in 60 s, clean. `cargo xtask ci`: 13 of 13 steps pass, 2,101
+    tests, with the 29 window tests skipped; `TIDEPOOL_IT_X11=1 xvfb-run
+    -a cargo xtask ci`: 13 of 13, none skipped. `RUSTDOCFLAGS='-D
+    warnings' cargo doc -p tidepool-ui -p tidepool-gui -p tidepool-gfx -p
+    tidepool-text --no-deps` is clean. The 124 Mermaid blocks of
+    `diagrams/` parse and render with Mermaid 11.17.2, loaded from
+    jsdelivr in the app's browser, which rejected a planted broken one;
+    the 14 SVGs of `site/index.html` parse as XML. `ui` has no OS code,
+    so nothing was built for macOS or Windows: that the scenes give the
+    same bytes there is checked by CI's gate on the next push (M0.4's ⏳).
 
 - [ ] **M3.3 — ui: collections and overlays**
   - Depends: M3.6

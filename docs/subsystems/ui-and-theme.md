@@ -6,17 +6,19 @@ stylesheet (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`),
 whose own header calls it a dark "capsuleer UI": deep-space backdrop,
 translucent hairline panels, teal signal accents and squared uppercase type.
 
-`ui` depends on `core`, and on `codec`, whose TOML parser reads theme
-files (ADR-0047). It knows nothing about pixels, fonts or terminals: it lays
-out in logical units and emits draw lists that `gui` and `tui` render. Widgets live in the tree's nodes, which routes events to them
+`ui` depends on `core`, on `codec`, whose TOML parser reads theme
+files (ADR-0047), and on `text`, whose grapheme cluster boundaries its
+fields edit by (ADR-0049). It knows nothing about pixels, fonts or
+terminals: it lays out in logical units and emits draw lists that `gui`
+and `tui` render. Widgets live in the tree's nodes, which routes events to them
 and up through their ancestors, and draw lists carry resolved colors
 (ADR-0046).
 
 ## Contents
 
 M3.1 built `tree`, `layout`, `focus`, `input`, `metrics`, `draw` and
-`a11y`, and M3.2 `theme`. `widgets` are planned, with their tasks in the
-crate's `README.md`; no roadmap task builds `anim` yet. The rustdoc of each built module is authoritative; its row
+`a11y`, M3.2 `theme`, and M3.6 the controls of `widgets`; its collections
+and overlays are planned (M3.3), and no roadmap task builds `anim` yet. The rustdoc of each built module is authoritative; its row
 summarizes it.
 
 | Module | Provides |
@@ -26,24 +28,27 @@ summarizes it.
 | `focus` | The tab order (focusable, enabled, visible nodes in pre-order), `focus_next` and `focus_previous`, wrapping, and `focus-visible`: shown after a key, not after a click |
 | `input` | `Tree::handle`: key and text events go to the focused node, pointer events to the node under the pointer (or the one a press captured), then up through their ancestors until a widget handles one; the defaults, Tab moving focus and the wheel scrolling, come after; widgets emit actions for the owner, and what none handled comes back to it. `hit_test` respects clips and paint order |
 | `metrics` | `TextStyle` and the `TextMetrics` trait (implemented by `gui` with `font`, M3.5, and by `tui` with cells, M7.1), and `FixedMetrics` for tests and headless use |
-| `draw` | `DrawList` of `Command`s in logical units and resolved `core::Color`s (ADR-0046): rect, cut-corner rect, pill, border, bracket corners, line, text run, icon (an `IconId`), image, clip push/pop, layer opacity. `Tree::frame` repaints only the nodes whose data, state or layout changed, and returns the whole tree's list with the damage, the rects whose paint changed, or `None` when nothing did |
-| `theme` | `Theme`, the token set read from a theme file (`themes/*.toml`, the format of ADR-0047) by `Theme::parse` within `codec::Limits`, and the bundled `tidepool-dark` (`Theme::tidepool_dark`): a value for each `Token`, with its solid color and 256-color index where the file gives them, `cut` and the two fonts; a key that is missing or unknown, a wrong type, a color that does not parse or a translucent `bg` is refused, naming the key and, unless it is missing, its line. The component styles derived from tokens, and how a widget reaches the theme when it paints, come with the controls (M3.6, M3.3) |
-| `widgets` | Button, chip, tab strip, tree view, list, table, text input, search field, scrollbar, splitter, tooltip, toast, modal, command palette, status dot, card, section title, eyebrow, kicker |
+| `draw` | `DrawList` of `Command`s in logical units and resolved `core::Color`s (ADR-0046), which a widget takes from the tree's theme through `PaintContext::theme` (ADR-0049): rect, cut-corner rect, pill, border, bracket corners, line, text run, icon (an `IconId`), image, clip push/pop, layer opacity. `Tree::frame` repaints only the nodes whose data, state or layout changed, and returns the whole tree's list with the damage, the rects whose paint changed, or `None` when nothing did |
+| `theme` | `Theme`, the token set read from a theme file (`themes/*.toml`, the format of ADR-0047) by `Theme::parse` within `codec::Limits`, and the bundled `tidepool-dark` (`Theme::tidepool_dark`): a value for each `Token`, with its solid color and 256-color index where the file gives them, `cut` and the two fonts; a key that is missing or unknown, a wrong type, a color that does not parse or a translucent `bg` is refused, naming the key and, unless it is missing, its line. The tree holds the theme its widgets paint with (`Tree::theme`, `Tree::set_theme`, which repaints every node), the bundled one by default, read once (`Theme::bundled`); the controls' component colors are tokens too (ADR-0049) |
+| `widgets` | The controls (M3.6, ADR-0049): `Button` (ghost, teal, amber, slate; 30 or 24 high), `Chip`, `TextInput` (a text input or the search field, one line edited by grapheme cluster), `ScrollBar`, `StatusDot`, `SectionTitle`, `Eyebrow`, `Kicker` and `Crumb`, each a `Control` that gives its node a role and the name it is given, changed with `widgets::update`; `Breadcrumbs`, which builds a navigation row of crumbs; and `focus_outline`, which the focusable controls paint. Planned (M3.3): tab strip, tree view, list, table, splitter, card, code block, tooltip, toast, modal, command palette |
 | `a11y` | Accessibility tree: role, name, value, state per node (exposed to OS bridges in M14.2); `Tree::accessibility`'s snapshot leaves out nodes of no role and hidden ones |
 | `anim` | Optional, timer-driven transitions (hover fades, status pulse); off when reduced motion is set |
 
 ## Invariants
 
 - Layout is deterministic for the same tree, metrics and size.
-- Every interactive widget has a role and an accessible name. The tree
-  refuses a focusable node without them (M3.1); a control that takes no
-  focus gives itself `Semantics` (M3.6).
+- Every focusable widget has a role and an accessible name: the tree
+  refuses a focusable node without them (M3.1). Every control, focusable
+  or not, gives its node its role and the name its owner gives it
+  (`Control::node`, M3.6); the owner names the ones that take no focus,
+  the scrollbar among them, which the tree cannot check.
 - A secret (a password, a key) is never a node's `Semantics` value, and
   `Debug` shows a text a widget paints, or a node's value, as its length
   only (ADR-0043).
-- Widgets never read colors directly; they take a token's value from a
-  `Theme` (M3.2). Until the controls (M3.6), a widget paints the colors
-  its owner gives it, and the owner takes them from the theme (ADR-0046).
+- Widgets never read colors directly; they take a token's value from the
+  tree's `Theme`, which `PaintContext::theme` gives them as they paint
+  (ADR-0049). A widget never holds a theme; `Tree::set_theme` repaints
+  every node.
 - **Uppercase is for chrome only.** Labels, eyebrows, buttons, table
   headers and section titles are uppercase with letter-spacing, as on the
   site. User content (file names, paths, code, symbols, search text,
@@ -56,7 +61,9 @@ summarizes it.
 Values are taken from jabbott.dev's `:root`. "Solid" values are the
 translucent tokens composited over `bg`, for surfaces drawn without a
 backdrop and for the TUI. `on-amber`, `on-teal` and `comment` are the
-colors the contrast rules below name (ADR-0047). The file writes each
+colors the contrast rules below name (ADR-0047). The last eight, from
+`ghost` on, are the colors the site's components use beyond its `:root`,
+which the controls take as tokens (ADR-0049). The file writes each
 color as `value`, `solid` and `ansi` (the 256-color index), `cut` under
 `[sizes]` and the fonts under `[fonts]`; `ui::theme`'s rustdoc is the
 format's reference.
@@ -89,6 +96,14 @@ format's reference.
 | `on-amber` | `#111111` | — | — | Text on `amber`: the primary button's label |
 | `on-teal` | `#071012` | — | — | Text on `teal`: an active chip's label |
 | `comment` | `#6f7d82` | — | — | Comments in code, only on `editor-bg` |
+| `ghost` | `rgba(255,255,255,0.03)` | `#121314` | 233 | Ghost button fill |
+| `teal-line` | `rgba(92,203,203,0.55)` | `#387576` | 66 | Teal button border; hovered chip and field border |
+| `teal-fill` | `rgba(92,203,203,0.20)` | `#1b3233` | 235 | Teal button hover fill |
+| `slate-hi` | `#34444a` | — | 238 | Slate button hover fill; pressed chip |
+| `teal-ring` | `rgba(92,203,203,0.15)` | `#17292a` | 235 | Focused field's 3 px ring |
+| `green-halo` | `rgba(61,220,151,0.16)` | `#132d23` | 235 | Status dot halo: ready |
+| `amber-halo` | `rgba(242,194,0,0.16)` | `#30290b` | 235 | Status dot halo: busy |
+| `error-halo` | `rgba(255,138,128,0.16)` | `#32201f` | 235 | Status dot halo: failed |
 | `cut` | 10 px | — | — | Cut-corner size for primary buttons |
 | `font-ui` | Saira | — | — | UI chrome |
 | `font-mono` | JetBrains Mono | — | — | Code, terminal, numbers, paths |
@@ -160,9 +175,25 @@ the same ratios and tracking. Users can scale the whole UI.
 | Table | `.prose th/td` | Problems, SDK packages, devices, git changes: uppercase `teal` headers on `slate` at 60% with a 1 px `teal` underline; `line` row rules; hover wash 2.5% white |
 | Code block | `.highlighter-rouge`, `.code-bar` | Markdown preview and hover docs: `editor-bg`, 1 px `line-2` border, 2 px `teal` left border, a code bar with the language label and COPY |
 | Breadcrumbs | `.breadcrumbs` | Editor breadcrumb: uppercase separators `/` in `teal`, path segments as written |
-| Focus | `:focus-visible` | 2 px `teal` outline, 3 px offset, keyboard focus only |
+| Focus | `:focus-visible` | 2 px `teal` outline, 3 px offset, keyboard focus only; a field shows its `teal` border and 3 px `teal-ring` instead, whenever it has focus |
 | Selection | `::selection` | `teal-glow` (35%); on `editor-bg` that is `#275152`; text stays `text` (7.81:1) |
 | Backdrop | `.space` (radial gradients, planet, stars, grid) | Welcome screen and empty editor area only. Rendered once per size into the backdrop cache; the star drift animation is off unless `ui.ambient_motion = true` |
+
+The site has no pressed, disabled, plain text input or scrollbar style,
+and paints glows with blurred `box-shadow`s; the controls' states are
+ADR-0049's. A control paints from its node's `NodeState`:
+
+| State | Look |
+| :- | :- |
+| Rest | As the Components table above; a text input is a `slate` rect, its text `text` and its placeholder `text-2`; a scrollbar has no track and a `line-2` thumb, a pill 6 wide in its 10 and at least 24 long |
+| Hover | The site's `:hover`: ghost gains a `teal` border and a `teal-hi` label; teal a `teal-fill` fill and a `teal` border; amber is `amber-hi`; slate `slate-hi` with a `teal-hi` label; a chip and a field gain a `teal-line` border, but a selected chip turns `teal-hi`; a scrollbar gains a `line` track and a `teal-glow` thumb; a link's text is `teal-hi` |
+| Pressed (the task's "active") | The hover look with the fill one step stronger: ghost `teal-wash`, teal `teal-glow`, a chip `slate-hi`; a slate button gains a `teal-line` border; an amber button and a selected chip keep their rest fill inside a 2 px rim of their hover fill; a scrollbar's thumb is `teal`; a link's text is `teal` |
+| Focus | The focus outline when focus shows; a field's border and ring whenever it has focus, with its caret, which does not blink |
+| Disabled | The rest look in a layer at 40% opacity, with no hover or pressed look (WCAG exempts inactive controls from its minimums) |
+
+The ghost button's inset glow, the teal button's hover glow and the status
+dot's soft glow are left out, as no draw command blurs; the field's focus
+ring and the dot's halo are solid, translucent shapes behind it.
 
 ## Editor colors
 
@@ -208,7 +239,17 @@ From the site's syntax palette (`.highlight .*`):
 ## Tests
 
 - Golden frames for every widget in each state (rest, hover, focus,
-  active, disabled) at scale 1 and 2 (M3.6, M3.3).
+  active, disabled) at scale 1 and 2: the controls' 16 scenes, painted by
+  `gui` (`crates/gui/tests/controls/mod.rs`, M3.6), each a grid of a row
+  for each variant and a column for each state, every cell its own tree
+  put in its state by real events; the collections' and overlays' come
+  with M3.3.
+- The controls' behavior (`tests/widgets.rs`, M3.6): each one's role and
+  name, what activates or changes it, the tokens it paints in each state,
+  fields edited by grapheme cluster, the scrollbar dragged and paged, the
+  tree's theme; and a property test of random edits, after each of which
+  a field's text is one line within its limit and its caret and
+  selection on cluster boundaries.
 - Layout property tests: children never overflow a non-scrolling parent;
   layout is idempotent and deterministic (`tests/layout.rs`, M3.1).
 - A property test that every focusable node has a role and a name through

@@ -50,7 +50,12 @@ authoritative, and this summarizes it.
   23 scenes, named `ui_*`, are drawn by `gui` (M3.5, ADR-0048), whose row
   allows `gfx`, `font` and `ui`: `ui` trees, laid out and painted by
   `gui`'s painter over the theme's `bg`, one for each draw command,
-  clips and layers included, at scale 1 and 2, and a mix of them at 1.5.
+  clips and layers included, at scale 1 and 2, and a mix of them at 1.5;
+  and 16 more of `ui`'s controls (M3.6, ADR-0049), in a module of the
+  same target (`crates/gui/tests/controls/mod.rs`): each a grid of a row
+  for each variant and a column for each state (rest, hover, focus,
+  pressed, disabled), every cell a tree of its own put in its state by
+  real events, at scale 1 and 2.
 - **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
   what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
   top): the framebuffer's premultiplied bytes, unchanged. Unset, the

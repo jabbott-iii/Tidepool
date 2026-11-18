@@ -71,7 +71,7 @@ policy approves it.
 | `tidepool-syntax` | `core`, `codec`, `text`, `regex` |
 | `tidepool-term` | `core`, `platform` |
 | `tidepool-workspace` | `core`, `platform`, `codec`, `text`, `regex` |
-| `tidepool-ui` | `core`, `codec` |
+| `tidepool-ui` | `core`, `codec`, `text` |
 | `tidepool-lang` | `core`, `codec`, `text`, `markdown`, `rpc`, `toolchain`, `syntax`, `workspace` |
 | `tidepool-vcs` | `core`, `text`, `toolchain` |
 | `tidepool-agent` | `core`, `codec`, `text`, `rpc`, `toolchain`, `workspace` |

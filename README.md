@@ -21,8 +21,10 @@ TrueType parser, glyph rasterizer, glyph atlas and text layout, with
 fallback, for the bundled Saira and JetBrains Mono, and the UI toolkit's
 widget tree, with its layout, focus, input routing, draw lists and
 accessibility tree, its theme of jabbott.dev's tokens, checked for
-WCAG AA contrast, and the painter that draws its frames into pixels, the
-changed parts only, are built; and
+WCAG AA contrast, its controls (buttons, chips, text and search fields,
+the scrollbar, status dots, titles and breadcrumbs), and the painter
+that draws its frames into pixels, the changed parts only, are built;
+and
 `cargo tp` opens a Linux window that shows the first frame,
 jabbott.dev's backdrop and a line in each bundled face, and does nothing
 else yet.

@@ -44,11 +44,15 @@
 //! focusable node has a role and a name.
 //!
 //! [`theme`] reads a theme file's tokens into a [`Theme`], and bundles
-//! `tidepool-dark`, jabbott.dev's tokens (ADR-0047).
+//! `tidepool-dark`, jabbott.dev's tokens (ADR-0047); the tree holds the
+//! theme its widgets paint with. [`widgets`] has the controls, in
+//! jabbott.dev's design language: buttons, chips, fields, the scrollbar,
+//! the status dot, titles and breadcrumbs (ADR-0049).
 //!
 //! `ui` depends on `tidepool-core`, whose geometry, colors and input types
-//! it uses, and on `tidepool-codec`, whose TOML parser reads theme files.
-//! It has no `unsafe`, no OS calls and no fonts.
+//! it uses, on `tidepool-codec`, whose TOML parser reads theme files, and
+//! on `tidepool-text`, whose grapheme cluster boundaries its fields edit
+//! by. It has no `unsafe`, no OS calls and no fonts.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -64,6 +68,7 @@ pub mod layout;
 pub mod metrics;
 pub mod theme;
 pub mod tree;
+pub mod widgets;
 
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]

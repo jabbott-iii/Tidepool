@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 tidepool-core = { path = "../core" }
 tidepool-codec = { path = "../codec" }
+tidepool-text = { path = "../text" }
 
 [lints]
 workspace = true

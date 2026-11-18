@@ -145,6 +145,7 @@ impl Tree {
     pub(crate) fn change_focus(&mut self, focus: Option<NodeId>, visible: bool) {
         let old = self.focus;
         if old != focus {
+            self.focus_moves = self.focus_moves.wrapping_add(1);
             if let Some(old) = old {
                 self.mark_path(old);
             }

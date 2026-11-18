@@ -21,17 +21,17 @@
 //!
 //! Commands are in logical units and window coordinates, and carry
 //! resolved colors, straight-alpha [`Color`]s (ADR-0046): a widget paints
-//! a token's value from the theme, [`Theme`](crate::theme::Theme) (M3.2);
-//! how it reaches the theme when it paints comes with the controls (M3.6,
-//! ADR-0047). `gui` paints a list
+//! a token's value from the tree's theme, which [`PaintContext::theme`]
+//! gives it (ADR-0049). `gui` paints a list
 //! with `gfx` and `font` (M3.5); `tui` maps it onto cells (M7.1).
 //!
 //! # Fragments and damage
 //!
 //! Each node keeps the commands its widget painted last, its *fragment*,
 //! and their *painted bounds*: the union of the commands'
-//! [`bounds`](Command::bounds), cut to the node's clip (its clipping
-//! ancestors' bounds, not its own) and the window. A frame repaints only
+//! [`bounds`](Command::bounds), each cut to the node's clip (its clipping
+//! ancestors' bounds, not its own), to the clips the fragment pushed
+//! around it, and to the window. A frame repaints only
 //! the nodes marked for it, and damages a node's old and new painted
 //! bounds when its fragment or those bounds changed. Nodes are marked by
 //! being inserted, a [`Tree::widget_mut`], a handler's request, a change
@@ -80,6 +80,7 @@ use tidepool_core::input::TextLength;
 
 use crate::layout::{intersect, sane_size};
 use crate::metrics::{TextMetrics, TextStyle};
+use crate::theme::Theme;
 use crate::tree::{NodeId, NodeState, Tree};
 
 /// The most damage rects a [`Frame`] has; more become their bounding rect.
@@ -562,12 +563,14 @@ pub struct Frame {
 }
 
 /// What a widget's [`paint`](crate::tree::Widget::paint) gets: its node,
-/// bounds and state, and the metrics to measure text with.
+/// bounds and state, the metrics to measure text with, and the theme to
+/// take colors from.
 pub struct PaintContext<'a> {
     node: NodeId,
     bounds: Rect,
     state: NodeState,
     metrics: &'a dyn TextMetrics,
+    theme: &'a Theme,
 }
 
 impl<'a> PaintContext<'a> {
@@ -589,6 +592,12 @@ impl<'a> PaintContext<'a> {
     /// The metrics to measure text with.
     pub const fn metrics(&self) -> &'a dyn TextMetrics {
         self.metrics
+    }
+
+    /// The tree's theme, to take every color from ([`Tree::theme`],
+    /// ADR-0049).
+    pub const fn theme(&self) -> &'a Theme {
+        self.theme
     }
 }
 
@@ -651,6 +660,7 @@ impl Tree {
                 bounds: node.placement.rect,
                 state,
                 metrics,
+                theme: &self.theme,
             };
             widget.paint(&cx, &mut list);
         }
@@ -813,16 +823,38 @@ fn balance(commands: Vec<Command>) -> Vec<Command> {
     out
 }
 
-/// The union of the commands' bounds, each cut to `clip`; `None` if none
-/// covers any area. A rect with a NaN in it covers none.
+/// The union of the commands' bounds, each cut to `clip` and to the clips
+/// the commands themselves pushed around it, which a frontend clips its ink
+/// to as well; `None` if none covers any area. A rect with a NaN in it
+/// covers none. The commands are a fragment, whose pushes and pops
+/// [`balance`] has paired.
 fn painted_bounds(commands: &[Command], clip: Rect, metrics: &dyn TextMetrics) -> Option<Rect> {
-    commands
-        .iter()
-        .filter_map(|command| command.bounds(metrics))
-        .filter(|rect| !has_nan(*rect))
-        .map(|rect| intersect(rect, clip))
-        .filter(|rect| !rect.is_empty())
-        .reduce(union)
+    let mut clips = vec![clip];
+    let mut painted: Option<Rect> = None;
+    for command in commands {
+        let current = clips.last().copied().unwrap_or(clip);
+        match command {
+            Command::PushClip { rect } => clips.push(intersect(*rect, current)),
+            Command::PopClip => {
+                if clips.len() > 1 {
+                    clips.pop();
+                }
+            }
+            _ => {
+                let Some(rect) = command.bounds(metrics) else {
+                    continue;
+                };
+                if has_nan(rect) {
+                    continue;
+                }
+                let rect = intersect(rect, current);
+                if !rect.is_empty() {
+                    painted = Some(painted.map_or(rect, |painted| union(painted, rect)));
+                }
+            }
+        }
+    }
+    painted
 }
 
 /// Damage rects cut to `window`, without empty ones and duplicates, or
