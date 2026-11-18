@@ -301,7 +301,8 @@ uses.
 clipboard and the user's and tools' folders (M2.7). Those two
 allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3),
 and its golden scenes (M2.4). `font` has its TrueType parser and glyph
-rasterizer (M2.8). The other two crates are empty.
+rasterizer (M2.8), and the bundled faces, fallback, layout, the glyph
+atlas and its golden scenes (M2.5). The other two crates are empty.
 
 ```mermaid
 flowchart LR
@@ -311,7 +312,7 @@ flowchart LR
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
         k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
-        k_font["tidepool-font<br/>ttf, outline, Limits,<br/>FontError (M2.8)<br/>planned M2.5: atlas,<br/>layout, fallback, bundled"]
+        k_font["tidepool-font<br/>ttf, outline, Limits,<br/>FontError (M2.8)<br/>bundled, fallback,<br/>layout, atlas, golden<br/>scenes (M2.5)"]
         k_markdown["tidepool-markdown<br/>planned M6.5:<br/>CommonMark and<br/>GFM parser"]
     end
     subgraph L0["Layer 0: foundations"]
@@ -933,21 +934,26 @@ flowchart LR
 
 `cargo xtask golden`, and the `golden` step of `ci`, draw each drawing
 crate's scenes and compare what they drew with the references in
-`tests/golden/`, exactly for `gfx` (ADR-0044). The matrix lets `xtask`
-use only `core` and `codec`, and `gfx` only `core`, so the scenes are
-tests that write what they drew as PAM files, and `xtask` reads those,
+`tests/golden/`, exactly for `gfx` and within 1 for `font` (ADR-0044).
+The matrix lets `xtask` use only `core` and `codec`, and `gfx` and `font`
+only `core`, so the scenes are tests that write what they drew as PAM
+files (`font`'s blending their glyphs' coverage themselves), and `xtask`
+reads those,
 decodes the QOI references and writes the QOI images. `golden` asks
 `cargo metadata` which members have a `golden` test; each needs a row in
 `SCENES`, which gives its tolerance.
 
 ```mermaid
 flowchart TB
-    c_golden["xtask golden, xtask/src/golden.rs<br/>SCENES: tidepool-gfx, tolerance 0<br/>cargo xtask golden, with --bless SCENE..., and the golden step of ci"]
+    c_golden["xtask golden, xtask/src/golden.rs<br/>SCENES: tidepool-gfx, tolerance 0; tidepool-font, tolerance 1<br/>cargo xtask golden, with --bless SCENE..., and the golden step of ci"]
     e_cargo["cargo test --package PACKAGE --test golden<br/>with TIDEPOOL_GOLDEN_DIR=target/golden/rendered/PACKAGE"]
     subgraph b_gfx["tidepool-gfx: tests/golden.rs"]
         t_scenes["14 scenes, one test each, gfx_fill_rect to gfx_backdrop_scale_2<br/>each primitive, clipping, a layer, images, glyph masks, the backdrop at scale 1 and 2"]
     end
-    t_font["tidepool-font: tests/golden.rs<br/>scenes with a tolerance of 1<br/>planned M2.5"]
+    subgraph b_font["tidepool-font: tests/golden.rs"]
+        t_font["8 scenes, one test each, font_saira to font_layout_scale_2<br/>both faces at 11 to 24 px, the uppercase labels, fallback, truncation, wrapping and tabs, at scale 1 and 2"]
+    end
+    k_font["tidepool-font library<br/>bundled, layout, Atlas"]
     t_ui["tidepool-ui or tidepool-gui: tests/golden.rs<br/>planned M3.5"]
     k_gfx["tidepool-gfx library<br/>Framebuffer, raster, image, glyph, backdrop"]
     k_codec["tidepool-codec<br/>qoi::decode, qoi::encode"]
@@ -957,10 +963,12 @@ flowchart TB
 
     c_golden -->|"one cargo test a drawing crate"| e_cargo
     e_cargo -->|"runs"| t_scenes
-    e_cargo -.->|"planned M2.5"| t_font
+    e_cargo -->|"runs"| t_font
     e_cargo -.->|"planned M3.5"| t_ui
     t_scenes -->|"draws with"| k_gfx
     t_scenes -->|"each writes what it drew"| s_rendered
+    t_font -->|"lays out and rasterizes with"| k_font
+    t_font -->|"each writes what it blended"| s_rendered
     c_golden -->|"empties target/golden, then reads them"| s_rendered
     c_golden -->|"decodes each; --bless writes the scenes named"| s_refs
     c_golden -->|"writes, for a scene that fails"| s_images
@@ -970,8 +978,8 @@ flowchart TB
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_golden,t_scenes,k_gfx,k_codec built
-    class t_font,t_ui planned
+    class c_golden,t_scenes,t_font,k_gfx,k_font,k_codec built
+    class t_ui planned
     class s_rendered,s_images,s_refs store
     class e_cargo external
 ```
@@ -1007,7 +1015,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
 | `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3); the golden scenes in `tests/golden.rs` (M2.4) | none: every planned module exists | `core` |
-| `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | `ttf`, `outline`, `Limits` and the error, and fuzz target `ttf` (M2.8) | M2.5 | `core`, dev only |
+| `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | `ttf`, `outline`, `Limits` and the error, and fuzz target `ttf` (M2.8); `bundled`, `fallback`, `layout`, `atlas`, and the golden scenes in `tests/golden.rs` (M2.5) | none: every planned module exists | `core`, dev only |
 | `tidepool-markdown` | `crates/markdown` | 1, OS behavior, formats, engines | deny | nothing | M6.5 | none |
 | `tidepool-rpc` | `crates/rpc` | 2, services | deny | nothing | M6.1, M9.3, M13.1 | none |
 | `tidepool-toolchain` | `crates/toolchain` | 2, services | deny | nothing | M5.1, M5.2, M5.3, M5.5, M10.1, M11.2, M12.3 | none |

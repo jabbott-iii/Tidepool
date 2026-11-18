@@ -507,9 +507,10 @@ main loop" and `docs/subsystems/frontends.md` plan it. M2.6 draws the first
 frame (the backdrop and a line of each face); M3.4 adds the loop and the
 shell, on ADR-0012, which is Proposed until then. The binary today is an
 empty `main` (M0.1); `platform`'s window and events are built (M2.2), and
-so is `gfx` (the framebuffer and the backdrop, M2.3). The frontend draws
-with `gfx` and `font` (the bundled faces, M2.5), libraries it calls: drawn
-as the frontend's own steps in 8.1, and as one participant in 8.2.
+so are `gfx` (the framebuffer and the backdrop, M2.3) and `font` (the
+bundled faces, layout and the atlas, M2.5). The frontend draws with `gfx`
+and `font`, libraries it calls: drawn as the frontend's own steps in 8.1,
+and as one participant in 8.2.
 
 ### 8.1 Opening the frontend
 
@@ -522,7 +523,7 @@ sequenceDiagram
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over User,Disp: planned M2.5, M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2), and<br/>gfx's Framebuffer and Backdrop (M2.3).
+    Note over User,Disp: planned M2.6, M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3), and<br/>font's bundled faces and atlas (M2.5).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: Config::load(args)
@@ -534,7 +535,7 @@ sequenceDiagram
         Fe->>Plat: Window::open(config)
         Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix:N only<br/>(ADR-0039),<br/>XCreateWindow
         Plat->>Plat: the scale<br/>from Xft.dpi
-        Fe->>Fe: font (M2.5): load<br/>Saira and JetBrains Mono<br/>from assets/fonts/
+        Fe->>Fe: font (built): bundled::load<br/>parses Saira and JetBrains<br/>Mono, compiled in
         Fe->>Fe: gfx (built): Framebuffer::new<br/>at device resolution,<br/>Backdrop::ensure builds<br/>the backdrop layers
     end
 ```
@@ -546,11 +547,11 @@ sequenceDiagram
     participant Shell as App, the shell<br/>(M3.4)
     participant Cli as tidepool main<br/>(M3.4)
     participant Fe as gui frontend<br/>(M2.6)
-    participant Gfx as gfx (built)<br/>and font (M2.5)
+    participant Gfx as gfx and<br/>font (built)
     participant Plat as platform window<br/>and events (built)
     participant Disp as X server,<br/>through XWayland
 
-    Note over Shell,Disp: planned M2.5, M2.6, M3.4.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2) and gfx (M2.3)<br/>are built.
+    Note over Shell,Disp: planned M2.6, M3.4.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3)<br/>and font (M2.5) are built.
     Cli->>Cli: an mpsc channel for<br/>workers, child readers<br/>and timers
     Cli->>Shell: App::new(config, tx,<br/>frontend.waker())
     loop every turn of the main loop
@@ -637,11 +638,11 @@ sequenceDiagram
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M2.6, M3.1, M3.4, M4.1.<br/>platform's present and Waker (M2.2)<br/>and gfx (M2.3) are built.
+    Note over ML,Bg: planned M2.6, M3.1, M3.4, M4.1.<br/>platform's present and Waker (M2.2),<br/>gfx (M2.3) and font (M2.5) are built.
     ML->>View: build_frame(metrics)
     View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage
     ML->>Fe: present(frame)
-    Fe->>Fe: rasterize only the<br/>damaged rects with gfx<br/>(built) and font (M3.5, M2.5)
+    Fe->>Fe: rasterize only the<br/>damaged rects with gfx<br/>and font (built), M3.5
     Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
     Plat->>Disp: XPutImage
     Note over ML,Disp: Keystroke to pixels: p99 within 16 ms<br/>at 1920x1080 on the reference machine

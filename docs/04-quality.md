@@ -42,10 +42,12 @@ authoritative, and this summarizes it.
   scale, at most 4,096 px a side. `gfx`'s 14 scenes (M2.4) draw into a
   `gfx::Framebuffer`, over an opaque background, and cover every
   primitive, clipping, a layer, images, glyph masks and the backdrop at
-  scale 1 and 2. `font`'s join with M2.5: its matrix row allows only
-  `core`, so its scenes write their own coverage, unless M2.5 decides a
-  `font` → `gfx` dev-dependency. `ui`'s are drawn by `gui` (M3.5), whose
-  row allows `gfx`, `font` and `ui`.
+  scale 1 and 2. `font`'s 8 scenes (M2.5) lay text out and take its
+  glyphs from the atlas, and, since its matrix row allows only `core`,
+  blend the coverage over an opaque background themselves: both faces at
+  11 to 24 px, the uppercase letter-spaced labels with Saira's weights,
+  and fallback, truncation, wrapping and tabs, at scale 1 and 2. `ui`'s
+  are drawn by `gui` (M3.5), whose row allows `gfx`, `font` and `ui`.
 - **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
   what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
   top): the framebuffer's premultiplied bytes, unchanged. Unset, the
@@ -61,7 +63,7 @@ authoritative, and this summarizes it.
   the variable naming `target/golden/rendered/<crate>/`, and compares each
   scene with `tests/golden/<scene>.qoi`, decoded with `codec::qoi`. A
   scene passes when no channel of any pixel differs by more than its
-  crate's tolerance (its line then gives the largest difference, if any): 0 for `gfx` (exact); from M2.5, 1 for `font`'s
+  crate's tolerance (its line then gives the largest difference, if any): 0 for `gfx` (exact); 1 for `font`'s
   coverage. A scene with no reference, a reference of another size or
   that does not decode, a reference no scene drew, anything else in
   `tests/golden/`, a scene name two crates draw, a scene file that is not

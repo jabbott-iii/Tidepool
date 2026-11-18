@@ -16,8 +16,8 @@ Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
 against golden frames by a QOI codec and harness of our own, and a
-TrueType parser and glyph rasterizer for the bundled Saira and JetBrains
-Mono, are built;
+TrueType parser, glyph rasterizer, glyph atlas and text layout, with
+fallback, for the bundled Saira and JetBrains Mono, are built;
 the `tidepool` binary opens no window yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws

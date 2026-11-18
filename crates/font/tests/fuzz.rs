@@ -41,9 +41,23 @@
 //!   control box rounded outwards, the same twice, or fails for the
 //!   bitmap's size, its position or the work limit alone;
 //! - characters map only to glyphs that exist and are not `.notdef`;
-//!   kerning is 0 for glyph ids past the count; names and `OS/2` read.
+//!   kerning is 0 for glyph ids past the count; names and `OS/2` read;
+//! - text in the font (M2.5): added to a `Faces`, as the face asked for
+//!   and as the fallback of a bundled face, a text with tabs, line breaks,
+//!   unmapped and astral characters and one the input picks is laid out,
+//!   truncated and wrapped, at two sizes, with and without letter-spacing,
+//!   into finite positions on character boundaries; and each of the font's
+//!   glyphs it uses comes from a small atlas, inside its image and the
+//!   atlas's glyph limit, or fails for the glyph's data, a limit of
+//!   [`LIMITS`] or the atlas's.
+
+use std::sync::OnceLock;
 
 use tidepool_core::testing::fuzz::{Outcome, Target};
+use tidepool_font::atlas::{self, Atlas, GlyphKey, Subpixel};
+use tidepool_font::bundled::Face;
+use tidepool_font::fallback::Faces;
+use tidepool_font::layout::{self, Line, PxSize, Style};
 use tidepool_font::outline::{self, Outline};
 use tidepool_font::ttf::{ErrorKind, Font, GlyphId, NameId, Tag};
 use tidepool_font::{FontError, Limits};
@@ -279,7 +293,8 @@ fn check_font(input: &[u8], font: &Font) {
         .rev()
         .take(3)
         .fold(0u32, |c, &byte| c << 8 | u32::from(byte));
-    if let Some(c) = char::from_u32(picked % 0x11_0000) {
+    let picked = char::from_u32(picked % 0x11_0000);
+    if let Some(c) = picked {
         check_glyph_index(font, c);
     }
 
@@ -308,6 +323,113 @@ fn check_font(input: &[u8], font: &Font) {
     }
     assert_eq!(font.kerning(GlyphId(count), GlyphId(0)), 0);
     assert_eq!(font.kerning(GlyphId(0), GlyphId(u16::MAX)), 0);
+
+    let mut text = String::from(TEXT);
+    text.extend(picked);
+    check_text(font, &text);
+}
+
+/// The text [`check_text`] sets, before the character the input picks:
+/// letters, digits, spaces, a tab, line breaks, a control character,
+/// characters no face may map, and an astral one.
+const TEXT: &str = "Aa 0\tfi\u{e9} AV\u{2713}\u{4e2d}\r\nx\u{0}\u{ffff}\u{10000}\rWa ";
+
+/// The sizes and letter-spacings [`check_text`] sets text in.
+const STYLES: [(f32, f32); 2] = [(12.0, 0.0), (40.0, 0.28)];
+
+/// Saira Regular, parsed once: the face asked for when the fuzzed one is
+/// the fallback.
+fn saira() -> &'static Font {
+    static SAIRA: OnceLock<Font> = OnceLock::new();
+    SAIRA.get_or_init(|| Face::SairaRegular.parse().expect("the bundled face parses"))
+}
+
+/// Sets `text` in `font`, as the face asked for and as the fallback of
+/// Saira, and takes the font's glyphs from a small atlas (see the module
+/// docs).
+fn check_text(font: &Font, text: &str) {
+    let mut faces = Faces::new();
+    let fuzzed = faces.add(font.clone()).expect("room for two faces");
+    let primary = faces.add(saira().clone()).expect("room for two faces");
+    faces.set_fallback(&[fuzzed]).expect("a face it holds");
+    let mut atlas = Atlas::new(64, 64).expect("a size");
+    for face in [fuzzed, primary] {
+        for (px, spacing) in STYLES {
+            let style = Style {
+                letter_spacing: spacing,
+                ..Style::new(face, PxSize::new(px).expect("a size"))
+            };
+            let metrics = layout::metrics(&faces, &style).expect("a face it holds");
+            assert!(metrics.ascent.is_finite() && metrics.descent.is_finite());
+            let line = layout::line(&faces, text, &style).expect("a face it holds");
+            check_line(&line, text);
+            assert_eq!(line.range, 0..text.len());
+            let cut = layout::truncate(&faces, text, &style, 30.0).expect("a face it holds");
+            check_line(&cut, text);
+            assert!(!cut.truncated || cut.width <= 30.0 || cut.glyphs.len() == 1);
+            let lines = layout::wrap(&faces, text, &style, 25.0).expect("a face it holds");
+            let mut end = 0;
+            for line in &lines {
+                check_line(line, text);
+                assert!(line.range.start >= end, "lines out of order");
+                end = line.range.end;
+            }
+            assert_eq!(end, text.len());
+            for glyph in &line.glyphs {
+                let Some(id) = glyph.glyph else {
+                    continue;
+                };
+                if glyph.face != fuzzed {
+                    continue;
+                }
+                let (pixel, subpixel) = Subpixel::split(glyph.x);
+                let key = GlyphKey {
+                    face: glyph.face,
+                    glyph: id,
+                    size: style.size,
+                    subpixel,
+                };
+                let limit = atlas.glyph_limit();
+                match atlas.glyph(&faces, key) {
+                    Ok(image) => {
+                        assert!(image.width <= limit && image.height <= limit);
+                        assert!(pixel.checked_add(image.left).is_some());
+                        for row in 0..image.height {
+                            let row = image.row(row).map(<[u8]>::len);
+                            assert_eq!(row, Some(image.width as usize));
+                        }
+                    }
+                    Err(FontError::Glyph { glyph, .. }) => {
+                        assert!(glyph.0 < font.glyph_count())
+                    }
+                    Err(FontError::Outline {
+                        kind:
+                            outline::ErrorKind::TooMuchWork { .. }
+                            | outline::ErrorKind::BitmapTooLarge { .. }
+                            | outline::ErrorKind::BitmapOutOfRange,
+                    }) => {}
+                    Err(FontError::Atlas {
+                        kind: atlas::ErrorKind::GlyphTooLarge { limit: refused },
+                    }) => assert_eq!(refused, limit),
+                    Err(error) => panic!("an atlas glyph failed with {error}"),
+                }
+            }
+        }
+    }
+}
+
+/// Checks that `line`'s positions are finite and its glyphs on character
+/// boundaries of `text`.
+fn check_line(line: &Line, text: &str) {
+    assert!(line.width.is_finite() && line.pen.is_finite());
+    assert!(line.range.end <= text.len() && line.range.start <= line.range.end);
+    for glyph in &line.glyphs {
+        assert!(
+            glyph.x.is_finite() && glyph.advance.is_finite(),
+            "{glyph:?}"
+        );
+        assert!(text.is_char_boundary(glyph.cluster), "{glyph:?}");
+    }
 }
 
 fn check_glyph_index(font: &Font, c: char) {

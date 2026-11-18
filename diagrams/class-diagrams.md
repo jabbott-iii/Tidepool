@@ -10,7 +10,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.5 (2026-11-17, version 0.1), after M2.8, M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -2234,7 +2234,7 @@ classDiagram
     class Metadata["metadata::Metadata"]
     class Report["check::Report"]
     class XtaskError["error::Error"]
-    GoldenFns "1" o-- "1" Scenes : SCENES
+    GoldenFns "1" o-- "1..*" Scenes : SCENES
     GoldenFns ..> Metadata : finds the crates<br/>with scenes in
     GoldenFns ..> Args : parse reads
     GoldenFns ..> XtaskError : parse fails with Usage
@@ -2242,7 +2242,7 @@ classDiagram
     GoldenFns ..> Verdict : one per scene
     GoldenFns ..> QoiImage : decodes references,<br/>encodes images
     GoldenFns ..> Report : check returns
-    note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact"
+    note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact; and<br/>tidepool-font, with 1"
 ```
 
 ## 21. xtask: cargo metadata, the dependency matrix and the crates check
@@ -3148,7 +3148,9 @@ classDiagram
 - `ensure` fails with `GfxError::InvalidStyle`, naming the field, for a
   value that is not finite or is out of range, and keeps the cache it had.
 
-## 26. font: TrueType fonts, outlines and their rasterizer
+## 26. font: TrueType fonts, outlines, faces, layout and the atlas
+
+### 26.1 Fonts, outlines and their rasterizer
 
 `tidepool-font` (M2.8) reads TrueType files and rasterizes glyphs, with no
 dependency: its tests alone use `tidepool-core`. `ttf::Font::parse` takes
@@ -3157,8 +3159,8 @@ against `Limits`; a `Font` then gives glyph ids, metrics, names, the
 `OS/2` style, kerning and outlines. `outline::rasterize` turns an
 `Outline`, in font units with y up, into a `Bitmap` of 8-bit coverage in
 device pixels, placed from the pen on the baseline with y down: the layout
-of `gfx::glyph::Mask`, which `gui` will hand it to (M2.6). The atlas,
-layout, fallback and the loading of the bundled faces are planned (M2.5).
+of `gfx::glyph::Mask`, which `gui` will hand it to (M2.6). The faces,
+layout and the atlas built on them are in 26.2 (M2.5).
 
 ```mermaid
 classDiagram
@@ -3291,6 +3293,187 @@ classDiagram
   `Copy`. `Outline::new` checks its contour ends and that every point is
   finite.
 
+### 26.2 Faces, fallback, layout and the atlas
+
+`bundled::load` (M2.5) parses the seven faces compiled into the binary
+into a `fallback::Faces`, each at its `bundled::Face`'s id, with the
+fallback chain JetBrains Mono; a caller may add a system face and put it
+in the chain. `Faces::resolve` finds the face and glyph that draw a
+character. `layout` sets text in a `Style` into `Line`s of `Glyph`s, in
+device pixels. `atlas::Atlas` caches each glyph's coverage, rasterized by
+`atlas::rasterize` with `outline::rasterize`, under a `GlyphKey`, and
+returns an `AtlasGlyph` that borrows its image.
+
+```mermaid
+classDiagram
+    direction LR
+    class Faces["fallback::Faces"] {
+        -id: u64
+        -entries: Vec~Entry~
+        -chain: Vec~FaceId~
+        +new() Faces
+        +add(font) Result~FaceId~
+        +font(face) Option~Font~
+        +fallback() FaceId slice
+        +set_fallback(chain) Result
+        +resolve(primary, c) Result~Resolved~
+        +draws_own_notdef(face) bool
+    }
+    class FaceId["fallback::FaceId"] {
+        +0: u16
+    }
+    class Resolved["fallback::Resolved"] {
+        +face: FaceId
+        +glyph: GlyphId
+        +is_notdef() bool
+    }
+    class FallbackFns["fallback"] {
+        <<module>>
+        +MAX_FACES: usize = 64
+        +NOTDEF_ADVANCE: f32 = 0.6
+    }
+    class BundledFace["bundled::Face"] {
+        <<enumeration>>
+        SairaRegular
+        SairaMedium
+        SairaSemiBold
+        SairaBold
+        MonoRegular
+        MonoItalic
+        MonoSemiBold
+        +ALL: 7 faces
+        +id() FaceId
+        +bytes() static byte slice
+        +parse() Result~Font~
+    }
+    class BundledFns["bundled"] {
+        <<module>>
+        +load() Result~Faces~
+    }
+    class PxSize["layout::PxSize"] {
+        -0: u32
+        +new(px) Option~PxSize~
+        +px() f32
+        +units() u32
+    }
+    class Style["layout::Style"] {
+        +face: FaceId
+        +size: PxSize
+        +letter_spacing: f32
+        +tab_size: u32
+        +new(face, size) Style
+    }
+    class Glyph["layout::Glyph"] {
+        +face: FaceId
+        +glyph: Option~GlyphId~
+        +x: f32
+        +advance: f32
+        +cluster: usize
+    }
+    class Line["layout::Line"] {
+        +glyphs: Vec~Glyph~
+        +width: f32
+        +pen: f32
+        +range: Range~usize~
+        +truncated: bool
+    }
+    class VMetrics["layout::VMetrics"] {
+        +ascent, descent, line_gap: f32
+        +height() f32
+        +baseline(line_height) f32
+    }
+    class LayoutFns["layout"] {
+        <<module>>
+        +MAX_LETTER_SPACING: f32 = 64
+        +line(faces, text, style) Result~Line~
+        +truncate(faces, text, style, max_width) Result~Line~
+        +wrap(faces, text, style, max_width) Result~Vec~Line~~
+        +metrics(faces, style) Result~VMetrics~
+    }
+    class Subpixel["atlas::Subpixel"] {
+        -0: u8
+        +split(x) pixel and Subpixel
+        +shift() f32
+    }
+    class GlyphKey["atlas::GlyphKey"] {
+        +face: FaceId
+        +glyph: GlyphId
+        +size: PxSize
+        +subpixel: Subpixel
+    }
+    class Atlas["atlas::Atlas"] {
+        -pixels: Vec~u8~
+        -entries: HashMap~GlyphKey, Entry~
+        -shelves: Vec~Shelf~
+        -faces: Option~u64~
+        -failures: HashMap~GlyphKey, FontError~
+        +new(width, height) Result~Atlas~
+        +glyph(faces, key) Result~AtlasGlyph~
+        +pixels() byte slice
+        +glyph_limit() u32
+        +contains(key) bool
+        +evictions() u64
+        +failures() usize
+        +clear()
+    }
+    class AtlasGlyph["atlas::AtlasGlyph"] {
+        -atlas: byte slice
+        +x, y, width, height: u32
+        +left, top: i32
+        +pixels() byte slice
+        +row(row) Option~byte slice~
+    }
+    class AtlasFns["atlas"] {
+        <<module>>
+        +MAX_SIDE: u32 = 4096
+        +MAX_GLYPHS: usize = 16384
+        +MAX_FAILURES: usize = 1024
+        +MAX_PIXEL: i32 = 2^30
+        +rasterize(faces, key) Result~Bitmap~
+    }
+    class Font["ttf::Font"]
+    class GlyphId["ttf::GlyphId"]
+    class Bitmap["outline::Bitmap"]
+
+    Faces "1" *-- "0..*" Font : entries
+    Faces --> "0..*" FaceId : chain
+    Faces ..> Resolved : resolve
+    Resolved --> FaceId
+    Resolved --> GlyphId
+    BundledFns ..> Faces : load makes
+    BundledFns ..> BundledFace : parses each
+    BundledFace ..> FaceId : id
+    Style --> FaceId
+    Style *-- PxSize
+    LayoutFns ..> Faces : resolves through
+    LayoutFns ..> Style : reads
+    LayoutFns ..> Line : makes
+    LayoutFns ..> VMetrics : metrics
+    Line *-- "0..*" Glyph
+    Glyph --> FaceId
+    Glyph --> GlyphId
+    GlyphKey --> FaceId
+    GlyphKey --> GlyphId
+    GlyphKey *-- PxSize
+    GlyphKey *-- Subpixel
+    Atlas "1" *-- "0..*" GlyphKey : entries
+    Atlas ..> Faces : checks its identity
+    Atlas ..> AtlasGlyph : glyph returns
+    AtlasGlyph o-- Atlas : borrows the image
+    Atlas ..> AtlasFns : rasterize
+    AtlasFns ..> Bitmap : makes
+```
+
+- A `Faces` is not `Clone`: its identity, from a counter, tells an `Atlas`
+  that it was handed another set, whose ids may name other faces, and the
+  atlas then drops every glyph. `FaceId`, `Resolved`, `PxSize`, `Style`,
+  `Glyph`, `VMetrics`, `Subpixel`, `GlyphKey` and `AtlasGlyph` are `Copy`.
+- An `AtlasGlyph` borrows the atlas's image, so the borrow checker keeps it
+  from outliving the next call to `Atlas::glyph`, which may move glyphs
+  when it evicts. A glyph is at most `glyph_limit()` a side, and a key
+  that fails is remembered with its error until `clear`. `FontError` gains
+  `Faces` and `Atlas` (section 27).
+
 ## 27. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
@@ -3298,8 +3481,9 @@ Each crate has its own error enum that implements `Display` and
 `MissingSymbols`; `tidepool-platform` has a second, `PixelsError`, for a
 view of pixels that does not fit its bytes. `GfxError` covers frames,
 views and backdrop styles, and wraps no other error. `FontError` holds
-the kind of a font's, a glyph's or an outline's problem, `ttf::ErrorKind`
-or `outline::ErrorKind`, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
+the kind of a font's, a glyph's, an outline's, a set of faces' or an
+atlas's problem, `ttf::ErrorKind`, `outline::ErrorKind`,
+`fallback::ErrorKind` or `atlas::ErrorKind`, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
 failed save's message as text. Only `BenchError` wraps another crate's: its
 `Text` holds the `TextError` of a text operation a suite runs. `xtask`
@@ -3386,9 +3570,13 @@ classDiagram
         Ttf
         Glyph
         Outline
+        Faces
+        Atlas
     }
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
+    class FacesErrorKind["font::fallback::ErrorKind"]
+    class AtlasErrorKind["font::atlas::ErrorKind"]
     class BenchError["bench::BenchError"] {
         <<enumeration>>
         Usage
@@ -3426,6 +3614,8 @@ classDiagram
     StdError <|.. FontError
     FontError *-- TtfErrorKind : Ttf, Glyph
     FontError *-- OutlineErrorKind : Outline
+    FontError *-- FacesErrorKind : Faces
+    FontError *-- AtlasErrorKind : Atlas
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
     PathError *-- IoError : Io
@@ -3496,7 +3686,8 @@ The main files these diagrams were drawn from:
   `blend.rs`, `raster.rs`, `image.rs`, `glyph.rs`, `damage.rs`,
   `backdrop.rs`
 - `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
-  `ttf/tables.rs`, `outline.rs`
+  `ttf/tables.rs`, `outline.rs`, `bundled.rs`, `fallback.rs`, `layout.rs`,
+  `atlas.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`,

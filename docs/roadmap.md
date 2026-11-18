@@ -1575,13 +1575,69 @@ our own rasterizer.
     confirmed (4): offsets kept from the table's start, so that a file
     over 4 GiB kerns right, an error message, and two tests.
 
-- [ ] **M2.5 — font: atlas, layout, fallback; glyph goldens**
+- [x] **M2.5 — font: atlas, layout, fallback; glyph goldens**
   - Depends: M2.8, M2.4
   - Do: `atlas`, `layout`, `fallback` and `bundled` per
     `docs/subsystems/rendering.md`.
   - Accept: golden glyph runs in both faces at the listed sizes, at scale 1
     and 2, including uppercase letter-spaced labels.
   - Verify: `cargo test -p tidepool-font`; `cargo xtask golden`
+  - Note (2026-11-17): done. `bundled` compiles the seven faces in with
+    `include_bytes!` (ADR-0004's "the binary grows by the font files") and
+    `bundled::load` parses them into a `fallback::Faces`, 0.04 ms in a
+    release build. `Faces` holds at most 64 faces by `FaceId`; a character
+    is drawn by the face asked for, then the chain (JetBrains Mono, then a
+    system face the caller adds), then that face's `.notdef`, a box this
+    crate makes when glyph 0 is empty, unreadable, flat, more than an em
+    outside the em square, or cannot be rasterized. `layout::line`,
+    `truncate` and `wrap` set text in a `Style` (face, size in 1/64 px,
+    letter-spacing in ems, clamped to ±64, tab size) in device pixels:
+    advances, kerning within a face, letter-spacing between glyphs, tab
+    stops, an ellipsis, and breaks at LF, CR LF and CR (ADR-0019) and after
+    spaces, which hang. `atlas::Atlas` keeps glyphs keyed by face, glyph,
+    size and quarter pixel on shelves of one coverage image, laid out as
+    `gfx::glyph::Mask`; when full it keeps the most recently used half and
+    repacks; a glyph is at most half its shorter side, refused from its
+    control box, and a failed key is remembered (up to 1,024). Filling a
+    512 × 512 atlas with Saira's 95 printable ASCII glyphs at 14 px took
+    0.27 ms in a release build (a probe, not a suite). The 8 golden scenes
+    in `crates/font/tests/golden.rs` draw both faces at 11 to 24 px, the
+    uppercase letter-spaced labels of the typography table with Saira's
+    four weights, and fallback, truncation, wrapping and tabs, each at
+    scale 1 and 2, through the atlas, blending the coverage themselves, as
+    ADR-0044 left them to (no `font` → `gfx` edge); `SCENES` gains
+    `tidepool-font` with a tolerance of 1. The user looked at the eight
+    images and agreed to bless them; their references take 456 KB.
+  - Note (2026-11-17): checked on rustc 1.99.0, Linux x86_64. `cargo test
+    -p tidepool-font`: 174 tests pass (37 unit, 11 in `tests/atlas.rs`, 7
+    in `tests/bundled.rs`, 4 in `tests/fuzz.rs`, 8 scenes in
+    `tests/golden.rs`, 16 in `tests/layout.rs`, 16 in `tests/outline.rs`,
+    63 in `tests/ttf.rs`, 12 doc tests). `cargo xtask golden`: 22 scenes
+    ok, the 8 of `font` exactly. With the scenes' text color changed by 2,
+    `font_labels` failed with 2,400 of 108,000 pixels and wrote `actual`
+    and `diff` images; changed by 1, `font_saira` passed within the
+    tolerance; then the scenes were restored. `cargo xtask
+    fuzz-smoke --target ttf --secs 60`, its target now also setting text
+    in each font that parses, through layout and an atlas: 4,570,005
+    inputs, no finding, written memory +0.5 MiB of its 16 MiB cap, slowest
+    input 0.66 ms. Clippy is clean for `x86_64-apple-darwin`,
+    `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and
+    `aarch64-unknown-linux-gnu`, compiled, not run: that the scenes give
+    the same bytes on macOS and Windows is checked by CI's gate on the next
+    push (M0.4's ⏳). The 116 Mermaid blocks of `diagrams/` parse and
+    render with Mermaid 11.4.1, which rejected a planted broken one.
+  - Note (2026-11-17): reviewed by `security-reviewer`: no panic, no
+    `unsafe`, dependency or matrix change; 1 medium and 4 low findings,
+    all fixed. Medium: a hostile system face's glyph was rasterized in
+    full, up to 16 MiB and 2^21 steps, and refused or evicted again on
+    every call; now the atlas caps glyphs at half its side before
+    rasterizing and remembers failed keys. Low: a huge finite
+    letter-spacing gave infinite positions (now clamped, and
+    `Subpixel::split` keeps pixels within ±2^30); a face's own `.notdef`
+    could fail to draw (now a box); `clear` left old coverage (now zeroed);
+    and the fuzz target did not reach the new code (now it does). Not
+    done: a benchmark suite for the atlas fill, which
+    `docs/subsystems/rendering.md` lists and no task's `Do` names.
 
 - [ ] **M2.6 — gui: first frame**
   - Depends: M2.2, M2.4, M2.5

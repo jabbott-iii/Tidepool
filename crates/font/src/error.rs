@@ -19,12 +19,12 @@
 
 use std::fmt;
 
-use crate::outline;
 use crate::ttf::{self, GlyphId, Tag};
+use crate::{atlas, fallback, outline};
 
 /// Errors produced by `tidepool-font`.
 ///
-/// Non-exhaustive: the atlas and layout (M2.5) may add their own.
+/// Non-exhaustive: later tasks may add their own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FontError {
@@ -64,6 +64,19 @@ pub enum FontError {
         /// What is wrong.
         kind: outline::ErrorKind,
     },
+    /// A face is not in a [`Faces`](crate::fallback::Faces), or cannot be
+    /// added to one or to its fallback chain. Returned by `Faces`, and by
+    /// layout and the atlas for a face they are not given.
+    Faces {
+        /// What is wrong.
+        kind: fallback::ErrorKind,
+    },
+    /// An [`Atlas`](crate::atlas::Atlas) cannot be made, or cannot hold a
+    /// glyph.
+    Atlas {
+        /// What is wrong.
+        kind: atlas::ErrorKind,
+    },
 }
 
 impl fmt::Display for FontError {
@@ -92,6 +105,8 @@ impl fmt::Display for FontError {
                 glyph.0
             ),
             Self::Outline { kind } => write!(f, "outline error: {kind}"),
+            Self::Faces { kind } => write!(f, "faces error: {kind}"),
+            Self::Atlas { kind } => write!(f, "atlas error: {kind}"),
         }
     }
 }
@@ -141,6 +156,46 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "outline error: the bitmap would be wider or taller than the limit of 64 pixels"
+        );
+        let error = FontError::Faces {
+            kind: fallback::ErrorKind::UnknownFace {
+                face: fallback::FaceId(9),
+            },
+        };
+        assert_eq!(error.to_string(), "faces error: there is no face 9");
+        let error = FontError::Faces {
+            kind: fallback::ErrorKind::TooManyFaces { limit: 64 },
+        };
+        assert_eq!(
+            error.to_string(),
+            "faces error: a set of faces holds at most 64"
+        );
+        let error = FontError::Faces {
+            kind: fallback::ErrorKind::RepeatedFallback {
+                face: fallback::FaceId(4),
+            },
+        };
+        assert_eq!(
+            error.to_string(),
+            "faces error: face 4 is in the fallback chain twice"
+        );
+        let error = FontError::Atlas {
+            kind: atlas::ErrorKind::BadSize {
+                width: 0,
+                height: 8,
+            },
+        };
+        assert_eq!(
+            error.to_string(),
+            "atlas error: an atlas of 0 × 8 pixels has a side of 0 or above 4096"
+        );
+        let error = FontError::Atlas {
+            kind: atlas::ErrorKind::GlyphTooLarge { limit: 512 },
+        };
+        assert_eq!(
+            error.to_string(),
+            "atlas error: the glyph's image would be wider or taller than 512 pixels, half the \
+             atlas's shorter side"
         );
     }
 

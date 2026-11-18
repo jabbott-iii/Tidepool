@@ -48,8 +48,8 @@ down: 1.1 what the app, the frontends and the editor use, 1.2 what the
 agents, languages and toolchains offer one another, and 1.3 what all of
 them stand on. Only formats and text (`codec` and `text`), `xtask`,
 `sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
-(M2.2, M2.7) and `gfx`'s rasterizer (M2.3) have code behind their
-interfaces; the app is its crate root (M0.1). Each arrow names the crate in
+(M2.2, M2.7), `gfx`'s rasterizer (M2.3) and `font`'s atlas and layout
+(M2.5) have code behind their interfaces; the app is its crate root (M0.1). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -66,12 +66,12 @@ flowchart TB
 
     i_draw(("widget tree,<br/>DrawList,<br/>TextMetrics<br/>planned M3.1"))
     i_raster(("Framebuffer, raster,<br/>backdrop (M2.3)"))
-    i_glyphs(("glyph atlas, layout<br/>planned M2.5"))
+    i_glyphs(("glyph atlas,<br/>layout (M2.5)"))
     i_agentf(("completions,<br/>chat, edit proposals<br/>planned M9.4, M9.5"))
     i_langf(("highlights,<br/>LSP features,<br/>Markdown tree<br/>planned M6.2,<br/>M6.5, M6.7"))
     i_toolf(("terminal grid,<br/>git, mobile pipelines<br/>planned M5.8,<br/>M8.1, M10.4"))
 
-    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font (M2.8)<br/>tidepool-ui<br/>planned M2.5, M3.1"]
+    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font (M2.8, M2.5)<br/>tidepool-ui<br/>planned M3.1"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -91,16 +91,16 @@ flowchart TB
 
     i_draw -.- c_render
     i_raster --- c_render
-    i_glyphs -.- c_render
+    i_glyphs --- c_render
     i_agentf -.- c_agents
     i_langf -.- c_lang
     i_toolf -.- c_tools
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_render,i_raster built
+    class c_app,c_render,i_raster,i_glyphs built
     class c_front,c_editor,c_agents,c_lang,c_tools planned
-    class i_front,i_editor,i_draw,i_glyphs,i_agentf,i_langf,i_toolf planned
+    class i_front,i_editor,i_draw,i_agentf,i_langf,i_toolf planned
 ```
 
 - The app's matrix row is "all crates above", so it may use every crate in
@@ -391,7 +391,8 @@ flowchart TB
 window, events and present (M2.2), so both are drawn solid with their
 planned modules in their labels. `gfx` has its rasterizer and the
 backdrop (M2.3), and `font` its TrueType parser and glyph rasterizer
-(M2.8), so both are drawn solid too; `ui` is an empty library.
+(M2.8) and its atlas, layout and fallback (M2.5), so both are drawn solid
+too; `ui` is an empty library.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -550,9 +551,9 @@ flowchart LR
     c_gfx["tidepool-gfx<br/>the CPU rasterizer (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
 
     i_ttf(("ttf: Font,<br/>outline: rasterize<br/>(M2.8)"))
-    i_atlas(("glyph atlas<br/>planned M2.5"))
-    i_layout(("layout, fallback<br/>planned M2.5"))
-    c_font["tidepool-font<br/>TrueType and outlines (M2.8)<br/>planned M2.5: atlas,<br/>layout, fallback, bundled"]
+    i_atlas(("Atlas, GlyphKey,<br/>rasterize (M2.5)"))
+    i_layout(("layout, Faces,<br/>bundled (M2.5)"))
+    c_font["tidepool-font<br/>TrueType and outlines (M2.8)<br/>bundled faces, fallback,<br/>layout, atlas, golden<br/>scenes (M2.5)"]
 
     c_gui -.->|"planned M2.6"| i_fb
     c_gui -.->|"planned M2.6"| i_raster
@@ -566,23 +567,22 @@ flowchart LR
     i_backdrop --- c_gfx
     i_damage --- c_gfx
     i_ttf --- c_font
-    i_atlas -.- c_font
-    i_layout -.- c_font
+    i_atlas --- c_font
+    i_layout --- c_font
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_gfx,i_fb,i_raster,i_backdrop,i_damage,c_font,i_ttf built
+    class c_gfx,i_fb,i_raster,i_backdrop,i_damage,c_font,i_ttf,i_atlas,i_layout built
     class c_gui planned
-    class i_atlas,i_layout planned
 ```
 
 - `gfx`'s glyph blit draws coverage masks from `font`'s atlas, but `gfx`
   may depend only on `core`: `gui` hands the masks over, and no arrow
   joins `gfx` and `font`. `ttf` and `outline` are what `font`'s atlas
-  (M2.5) will rasterize glyphs with.
-- `gfx`'s golden scenes are tests, not part of its library: `cargo xtask
-  golden` runs them with `cargo test` and compares what they drew with
-  `tests/golden/` (6.1, ADR-0044).
+  (M2.5) rasterizes glyphs with, and its image is laid out as a `Mask`.
+- `gfx`'s and `font`'s golden scenes are tests, not part of their
+  libraries: `cargo xtask golden` runs them with `cargo test` and compares
+  what they drew with `tests/golden/` (6.1, ADR-0044).
 
 ## 4. Languages and toolchains
 
@@ -945,7 +945,7 @@ Everything in this section is built except `tidepool-testkit` and the
 uses `core` and `codec`, the two crates its matrix row allows, and starts
 one program, `cargo` (ADR-0017); `cargo xtask bench` has cargo build and
 run `tidepool-bench` (ADR-0035), and `cargo xtask golden` has it run the
-golden scenes in `tidepool-gfx`'s tests (ADR-0044).
+golden scenes in `tidepool-gfx`'s and `tidepool-font`'s tests (ADR-0044).
 
 ### 6.1 xtask: the checks of ci
 
@@ -1016,7 +1016,8 @@ flowchart TB
 - `headers` and `unsafe-audit` also read the source files, and `deps` the
   manifests, lockfiles and cargo configuration; those files are left out.
 - `golden` has cargo run the golden scenes of each crate in its `SCENES`
-  table that has a `golden` test, `tidepool-gfx` today, and they write
+  table that has a `golden` test, `tidepool-gfx` and `tidepool-font`
+  today, and they write
   what they drew into `target/golden` (6.2, ADR-0044).
 - `cargo xtask site` runs these same steps through `check::run_gate`,
   then the two examples, and fills `site/` into `target/site` (6.2,
@@ -1309,7 +1310,7 @@ Code:
   `cli.rs`, `rng.rs`.
 - Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`, `qoi.rs`;
   `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`;
-  `crates/gfx/tests/golden.rs`.
+  `crates/gfx/tests/golden.rs`; `crates/font/tests/golden.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
   `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,

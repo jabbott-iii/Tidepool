@@ -116,14 +116,21 @@ impl Scenes {
 }
 
 /// The crates that draw scenes, in the order they run, with their
-/// tolerances. `font` joins with M2.5, with a tolerance of 1 for its
-/// coverage; `ui` or `gui` with M3.5. A crate draws scenes when it is a
-/// member of the workspace with a test target named `golden`
-/// ([`select`]); each such crate needs its row here.
-pub(crate) const SCENES: &[Scenes] = &[Scenes {
-    package: "tidepool-gfx",
-    tolerance: 0,
-}];
+/// tolerances: `gfx` exactly (M2.4), and `font` within 1, for the
+/// coverage its scenes blend themselves (M2.5); `ui` or `gui` joins with
+/// M3.5. A crate draws scenes when it is a member of the workspace with a
+/// test target named `golden` ([`select`]); each such crate needs its row
+/// here.
+pub(crate) const SCENES: &[Scenes] = &[
+    Scenes {
+        package: "tidepool-gfx",
+        tolerance: 0,
+    },
+    Scenes {
+        package: "tidepool-font",
+        tolerance: 1,
+    },
+];
 
 /// The name of the test target that holds a crate's scenes.
 const TEST: &str = "golden";
