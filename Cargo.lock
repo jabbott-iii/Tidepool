@@ -37,6 +37,9 @@ version = "0.1.0"
 [[package]]
 name = "tidepool-font"
 version = "0.1.0"
+dependencies = [
+ "tidepool-core",
+]
 
 [[package]]
 name = "tidepool-gfx"

@@ -1496,7 +1496,7 @@ our own rasterizer.
     fixed: a temp file left by a failed write, and 5 in docs and diagrams.
     A separate check of the diagrams confirmed 3 of 5, all fixed.
 
-- [ ] **M2.8 — font: TrueType parser and outline rasterizer; bundled font files**
+- [x] **M2.8 — font: TrueType parser and outline rasterizer; bundled font files**
   - Depends: M0.2, M1.6
   - Do:
     - `ttf` and `outline` per `docs/subsystems/rendering.md`.
@@ -1508,6 +1508,72 @@ our own rasterizer.
     `ttf`); a glyph's coverage is identical across runs.
   - Verify: `cargo test -p tidepool-font`;
     `cargo xtask fuzz-smoke --target ttf --secs 60`
+  - Note (2026-11-17): the user agreed to the download of the font files
+    this session, fetched with `curl` from GitHub's raw files at a pinned
+    commit and tag: Saira 1.101 (Omnibus-Type/Saira, `Saira/fonts/ttf/`
+    at commit `c9d45ed`) Regular, Medium, SemiBold and Bold, and
+    JetBrains Mono 2.304 (JetBrains/JetBrainsMono, `fonts/ttf/` at tag
+    `v2.304`) Regular, Italic and SemiBold, each in `assets/fonts/` with
+    its project's `OFL.txt`, unchanged and `-text` in `.gitattributes`.
+    Both are SIL OFL 1.1 with no Reserved Font Name, as their `OFL.txt`
+    and their `name` tables say. Versions, sources and SHA-256s are in
+    `docs/02-dependency-policy.md` → Assets.
+  - Note (2026-11-17): done. `ttf::Font::parse` takes the bytes, owned or
+    `'static`, and checks against `font::Limits` everything its lookups
+    read: the directory, `head`, `hhea`, `maxp`, `hmtx`, `loca`, one
+    `cmap` subtable (format 12, else 4), and the optional `OS/2` (a
+    68-byte version 0 too), `name`, `GPOS` and `kern`; CFF and
+    collections are refused. A `Font` gives glyph ids, metrics, names, the
+    `OS/2` style, kerning (`GPOS`'s `kern` feature of `latn`, else `DFLT`,
+    else the first script: pair adjustment formats 1 and 2 and
+    extensions; else the `kern` table) and outlines with composites
+    resolved (offsets, scales, 2 × 2 matrices, point matching).
+    `outline::rasterize` flattens to 1/32 px and accumulates exact-area
+    coverage, as `gfx::raster`'s polygons do, into a `Bitmap` laid out as
+    `gfx::glyph::Mask`. The limits' defaults: 64 MiB files, 65,536 points
+    a glyph, composites 8 deep and 1,024 components, 512 kerning
+    subtables kept, bitmaps 4,096 px a side, and 2^21 steps of work a
+    glyph (under 100 ms, measured). `FontError` names the table or glyph
+    and the byte offset; `ttf::ErrorKind` has 34 kinds and
+    `outline::ErrorKind` 7, each reached by a hand-made font or outline in
+    the tests. The fuzz target `ttf` has 18 hand-made seeds, `edge-*`
+    ones at each of its small limits. Both faces parse, every glyph of the
+    seven files reads and rasterizes, every composite is its components
+    moved, and FNV-1a 64 hashes of each face's printable ASCII coverage at
+    14 px (and Saira at 24 px, shifted 0.25 px) are pinned in
+    `tests/bundled.rs`; FNV-1a, not SHA-256, which ADR-0016 keeps to
+    downloads. In review (round 3), the kerning of every glyph pair of the
+    four Saira faces matched an independent Python reader of `GPOS`, and
+    that of every printable ASCII pair of 384 system TrueType faces, read
+    through `latn`, matched HarfBuzz 8.3.0's, which a planted change of
+    the class-0 rule made differ.
+  - Note (2026-11-17): checked on rustc 1.99.0, Linux x86_64. `cargo test
+    -p tidepool-font`: 127 tests pass (32 unit, 63 in `tests/ttf.rs`, 16
+    in `tests/outline.rs`, 7 in `tests/bundled.rs`, 4 in `tests/fuzz.rs`,
+    5 doc tests). `cargo xtask fuzz-smoke --target ttf --secs 60`:
+    10,613,185 inputs, no finding, written memory +0.4 MiB of its 16 MiB
+    cap, slowest input 0.59 ms. `cargo xtask ci`: 12 of 12 steps pass,
+    with the 28 window tests skipped for want of `TIDEPOOL_IT_X11`
+    (M2.9). Clippy is clean for `x86_64-apple-darwin`,
+    `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and
+    `aarch64-unknown-linux-gnu`, compiled, not run: that the pinned
+    hashes hold on macOS and Windows is checked by CI's gate on the next
+    push (M0.4's ⏳). The 115 Mermaid blocks of `diagrams/` parse and
+    render with Mermaid 11.4.1, which rejected a planted broken one.
+  - Note (2026-11-17): reviewed in four rounds, each finding checked by
+    two skeptics, and all fixed. Round 1: 24 confirmed (20 after removing
+    duplicates), among them `GPOS` checks quadratic in the table, composite
+    points that could overflow `f32` under raised limits, `DFLT` read
+    before `latn`, a 68-byte `OS/2` refused, a hostile glyph taking
+    seconds to rasterize (hence `max_raster_work`), and test gaps. Round
+    2: 23 confirmed (18): a padded `GPOS` held 30 times its size and made
+    each kerning call slow (hence `max_kerning_subtables`), and a format 2
+    pair with its second glyph in class 0 now gives way to the next
+    subtable, as in HarfBuzz. Round 3: 14 confirmed (11): the `kern`
+    table is now bounded by the same limit, the limit is checked before a
+    subtable is, and the cost figures were re-measured. Round 4: 6
+    confirmed (4): offsets kept from the table's start, so that a file
+    over 4 GiB kerns right, an error message, and two tests.
 
 - [ ] **M2.5 — font: atlas, layout, fallback; glyph goldens**
   - Depends: M2.8, M2.4

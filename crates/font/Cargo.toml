@@ -5,5 +5,11 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+# The library has no dependencies. Its tests use `tidepool-core`'s fuzz
+# engine and FNV-1a hash, the only edge the dependency matrix allows for
+# `font`.
+[dev-dependencies]
+tidepool-core = { path = "../core" }
+
 [lints]
 workspace = true

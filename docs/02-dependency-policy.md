@@ -75,13 +75,28 @@ license) and a row in the Toolchains panel. Details:
 
 | Asset | License | Source | Use |
 | :- | :- | :- | :- |
-| Saira (static Regular, Medium, SemiBold, Bold `.ttf`) | SIL OFL 1.1 (verify the file's license on import) | Google Fonts / the Saira project | UI chrome, matching jabbott.dev (ADR-0004) |
-| JetBrains Mono (Regular, Italic, SemiBold `.ttf`) | SIL OFL 1.1 (verify on import) | JetBrains Mono releases | Code and terminal (ADR-0004) |
+| Saira 1.101: the static `Saira-Regular.ttf`, `Saira-Medium.ttf`, `Saira-SemiBold.ttf` and `Saira-Bold.ttf`, with the project's `OFL.txt` (`assets/fonts/saira/`, unchanged) | SIL OFL 1.1, Copyright 2020 The Saira Project Authors, with no Reserved Font Name. Checked on import (2026-11-17): `OFL.txt` is the OFL 1.1 text, and each file's `name` table gives the same copyright and license | github.com/Omnibus-Type/Saira, `Saira/fonts/ttf/` and `OFL.txt` at commit `c9d45ed` | UI chrome, matching jabbott.dev (ADR-0004); read by `font::ttf` (M2.8) |
+| JetBrains Mono 2.304: `JetBrainsMono-Regular.ttf`, `JetBrainsMono-Italic.ttf` and `JetBrainsMono-SemiBold.ttf`, with the project's `OFL.txt` (`assets/fonts/jetbrains-mono/`, unchanged) | SIL OFL 1.1, Copyright 2020 The JetBrains Mono Project Authors, with no Reserved Font Name. Checked on import (2026-11-17), as for Saira | github.com/JetBrains/JetBrainsMono, `fonts/ttf/` and `OFL.txt` at tag `v2.304` | Code and terminal (ADR-0004); read by `font::ttf` (M2.8) |
 | CommonMark spec examples | CC-BY-SA 4.0 (verify) | commonmark.org | Test-only fixtures, never in release binaries (M6.5) |
 | toml-test v2.2.0's TOML 1.1 cases: the `files-toml-1.1.0` list and the 895 files it names (`crates/codec/tests/toml-test/`, unchanged) | MIT, Copyright (c) 2018 TOML authors; the notice is beside them, in `crates/codec/tests/toml-test/NOTICE.md` (ADR-0026) | github.com/toml-lang/toml-test, commit `ce08da1` | Test-only fixtures for `codec::toml` (M1.7), never in release binaries |
 | RFC 8259 examples (`crates/codec/tests/json/rfc8259_image.json`, `rfc8259_locations.json`, ported from Nadir) | Revised BSD License, as IETF Code Components; the IETF Trust's legend is beside them, in `crates/codec/tests/json.rs` (ADR-0021) | IETF RFC 8259, section 13 | Test-only fixtures, never in release binaries |
 | GitHub's "CodeQL Advanced" starter workflow, as committed in `ed8edf4` (`xtask/tests/data/codeql-template.yml.txt`) | MIT, Copyright (c) 2020 GitHub; the notice is beside it, in `xtask/tests/data/NOTICE.md` | actions/starter-workflows, `code-scanning/codeql.yml`, as filled in by GitHub | Test-only fixture for `cargo xtask workflows` (M0.8), never in release binaries |
 | Unicode Character Database 17.0.0: `GraphemeBreakProperty.txt`, `emoji-data.txt`, `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (unchanged, in `crates/text/ucd/17.0.0/` with `license.txt`) | Unicode License v3 | unicode.org/Public/17.0.0 | Input to `cargo xtask ucd`, which generates `tidepool-text`'s segmentation tables; the tables ship, the files do not; the test file is test-only (ADR-0018) |
+
+The SHA-256 of each font file and license as downloaded, which
+`.gitattributes` keeps byte for byte (`assets/fonts/** -text`):
+
+| File in `assets/fonts/` | SHA-256 |
+| :- | :- |
+| `saira/Saira-Regular.ttf` | `7b7ca56a5bd93823bbbc9c815fd1569cfd1d78627d319b11b6ca95d12af191ea` |
+| `saira/Saira-Medium.ttf` | `ae6f6306d708cffea60df1cf98940ebef1036740d918dc6466d4735048c950d7` |
+| `saira/Saira-SemiBold.ttf` | `5c759178c6d339f4e9bc7064f1139b4250730e184c2eb2613c2a00a27634aa6c` |
+| `saira/Saira-Bold.ttf` | `8bfdfdf7dbe99cc98b921977d2f442f8d03d2da19e33fd3af312ee65c157c952` |
+| `saira/OFL.txt` | `f2665d4718b452b3818a877191355ac884a6b9b419d35408fe7ee487e9e8f30f` |
+| `jetbrains-mono/JetBrainsMono-Regular.ttf` | `a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f` |
+| `jetbrains-mono/JetBrainsMono-Italic.ttf` | `9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4` |
+| `jetbrains-mono/JetBrainsMono-SemiBold.ttf` | `1b3bfa1ed5665a4ce3f9feb68d2d4e40e70bf8b4b7d9a3edd418f321b4e166a0` |
+| `jetbrains-mono/OFL.txt` | `30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad` |
 
 ## The exception test
 

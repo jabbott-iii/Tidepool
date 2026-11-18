@@ -14,8 +14,10 @@ selections, undo tree, encodings and atomic save, a fuzzer for the
 parsers, a benchmark harness with the text engine's suites, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
-XDG folders, and a CPU rasterizer with jabbott.dev's backdrop, checked
-against golden frames by a QOI codec and harness of our own, are built;
+XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
+against golden frames by a QOI codec and harness of our own, and a
+TrueType parser and glyph rasterizer for the bundled Saira and JetBrains
+Mono, are built;
 the `tidepool` binary opens no window yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
@@ -81,6 +83,7 @@ command, and what to run for each kind of change.
 
 ## License
 
-Apache-2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Bundled fonts (from M2.8) are
-licensed under the SIL Open Font License 1.1, and the Unicode data under the
+Apache-2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The bundled fonts in
+[`assets/fonts/`](assets/fonts/) are licensed under the SIL Open Font License 1.1 (each
+directory's `OFL.txt`), and the Unicode data under the
 Unicode License v3 (`crates/text/ucd/17.0.0/license.txt`).

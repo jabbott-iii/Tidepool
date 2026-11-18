@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4 and M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -71,7 +71,7 @@ flowchart TB
     i_langf(("highlights,<br/>LSP features,<br/>Markdown tree<br/>planned M6.2,<br/>M6.5, M6.7"))
     i_toolf(("terminal grid,<br/>git, mobile pipelines<br/>planned M5.8,<br/>M8.1, M10.4"))
 
-    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font<br/>tidepool-ui<br/>planned M2.8, M3.1"]
+    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font (M2.8)<br/>tidepool-ui<br/>planned M2.5, M3.1"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -390,8 +390,8 @@ flowchart TB
 `sys` has its Linux declarations (M2.1, M2.2) and `platform` its Linux
 window, events and present (M2.2), so both are drawn solid with their
 planned modules in their labels. `gfx` has its rasterizer and the
-backdrop (M2.3), and is drawn solid too; `font` and `ui` are empty
-libraries.
+backdrop (M2.3), and `font` its TrueType parser and glyph rasterizer
+(M2.8), so both are drawn solid too; `ui` is an empty library.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -549,10 +549,10 @@ flowchart LR
     i_damage(("Damage merging,<br/>diff (M2.3)"))
     c_gfx["tidepool-gfx<br/>the CPU rasterizer (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
 
-    i_ttf(("ttf, outline<br/>planned M2.8"))
+    i_ttf(("ttf: Font,<br/>outline: rasterize<br/>(M2.8)"))
     i_atlas(("glyph atlas<br/>planned M2.5"))
     i_layout(("layout, fallback<br/>planned M2.5"))
-    c_font["tidepool-font<br/>an empty library<br/>planned M2.8, M2.5"]
+    c_font["tidepool-font<br/>TrueType and outlines (M2.8)<br/>planned M2.5: atlas,<br/>layout, fallback, bundled"]
 
     c_gui -.->|"planned M2.6"| i_fb
     c_gui -.->|"planned M2.6"| i_raster
@@ -565,20 +565,21 @@ flowchart LR
     i_raster --- c_gfx
     i_backdrop --- c_gfx
     i_damage --- c_gfx
-    i_ttf -.- c_font
+    i_ttf --- c_font
     i_atlas -.- c_font
     i_layout -.- c_font
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_gfx,i_fb,i_raster,i_backdrop,i_damage built
-    class c_gui,c_font planned
-    class i_ttf,i_atlas,i_layout planned
+    class c_gfx,i_fb,i_raster,i_backdrop,i_damage,c_font,i_ttf built
+    class c_gui planned
+    class i_atlas,i_layout planned
 ```
 
 - `gfx`'s glyph blit draws coverage masks from `font`'s atlas, but `gfx`
   may depend only on `core`: `gui` hands the masks over, and no arrow
-  joins `gfx` and `font`. `ttf` and `outline` serve `font`'s own atlas.
+  joins `gfx` and `font`. `ttf` and `outline` are what `font`'s atlas
+  (M2.5) will rasterize glyphs with.
 - `gfx`'s golden scenes are tests, not part of its library: `cargo xtask
   golden` runs them with `cargo test` and compares what they drew with
   `tests/golden/` (6.1, ADR-0044).
@@ -1146,12 +1147,14 @@ flowchart TB
 
     c_cfz["codec tests/fuzz.rs<br/>targets json, toml, qoi"]
     c_tfz["text tests/fuzz.rs<br/>target encoding"]
-    c_more["fuzz targets to come:<br/>ttf, regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M2.8, M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
+    c_ffz["font tests/fuzz.rs<br/>target ttf"]
+    c_more["fuzz targets to come:<br/>regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
 
     i_target(("testing::fuzz:<br/>Target, Outcome,<br/>assert_clean"))
     i_summary(("Summary::parse,<br/>keep_died"))
     i_cparse(("json::parse_bytes,<br/>toml::parse_bytes,<br/>qoi::decode, encode"))
     i_tdec(("Decoder::push,<br/>decode, encode"))
+    i_fparse(("Font::parse, outline,<br/>outline::rasterize"))
 
     subgraph sg_core["tidepool-core"]
         c_engine["testing::fuzz<br/>the fuzz engine,<br/>ADR-0027, M1.6"]
@@ -1160,6 +1163,7 @@ flowchart TB
     i_pcg(("rng: Pcg32"))
     c_codec["tidepool-codec library"]
     c_text["tidepool-text library"]
+    c_font["tidepool-font library"]
     f_corpus[("fuzz/corpus seeds,<br/>fuzz/crashes findings")]
 
     c_main -->|"fuzz-smoke"| i_fuzzrun
@@ -1167,14 +1171,17 @@ flowchart TB
     c_fuzz -->|"runs each target"| e_cargo
     e_cargo -->|"runs"| c_cfz
     e_cargo -->|"runs"| c_tfz
+    e_cargo -->|"runs"| c_ffz
     c_fuzz -->|"reads the<br/>fuzz-result line"| i_summary
     c_fuzz -->|"checks rows<br/>and seeds"| f_corpus
 
     c_cfz -->|"json, toml, qoi"| i_target
     c_tfz -->|"encoding"| i_target
-    c_more -.->|"planned M2.8,<br/>M4.8, M5.8,<br/>M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
+    c_ffz -->|"ttf"| i_target
+    c_more -.->|"planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
     c_cfz -->|"fuzzes"| i_cparse
     c_tfz -->|"fuzzes"| i_tdec
+    c_ffz -->|"fuzzes"| i_fparse
 
     i_target --- c_engine
     i_summary --- c_engine
@@ -1183,13 +1190,14 @@ flowchart TB
     c_engine -->|"reads seeds,<br/>saves findings"| f_corpus
     i_cparse --- c_codec
     i_tdec --- c_text
+    i_fparse --- c_font
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_fuzz,c_cfz,c_tfz,c_engine,c_rng,c_codec,c_text built
-    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec built
+    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_engine,c_rng,c_codec,c_text,c_font built
+    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse built
     class c_more planned
     class e_cargo external
     class f_corpus store
@@ -1203,7 +1211,9 @@ flowchart TB
 `core`'s property harness, its `Pcg32` and its fuzz engine (6.4) are the
 only code from `core` that the tests of `codec` and `text` use, and neither
 library uses `core`. `gfx`'s property tests use the harness and `Pcg32`
-too (M2.3); its library uses `core`'s `geom` and `color`. `xtask` also uses `core`'s `cli`, `hash` and
+too (M2.3); its library uses `core`'s `geom` and `color`. `font`'s
+tests use `core`'s FNV-1a hash to pin the bundled faces' coverage, besides
+the fuzz engine (M2.8); its library uses no crate. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
 measures `text`'s library with inputs drawn from `Pcg32`, and keeps its
 baseline with `codec`'s JSON and `text`'s atomic save.
@@ -1213,6 +1223,7 @@ flowchart TB
     c_ctests["codec tests<br/>json.rs, toml.rs, qoi.rs"]
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
     c_gtests["gfx tests<br/>properties.rs"]
+    c_ftests["font tests<br/>bundled.rs"]
     c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
@@ -1221,10 +1232,12 @@ flowchart TB
     i_tall(("Rope, ChangeSet,<br/>Selection, History"))
     i_bjson(("json::parse_bytes,<br/>to_string_pretty"))
     i_save(("file::save"))
+    i_sha(("hash: fnv1a64"))
 
     subgraph sg_core["tidepool-core"]
         c_testing["testing<br/>the property harness, M0.2"]
         c_rng["rng, M0.2"]
+        c_hash["hash, M0.2"]
     end
     c_codec["tidepool-codec library"]
     c_text["tidepool-text library"]
@@ -1240,6 +1253,7 @@ flowchart TB
     c_ttests -->|"against<br/>String models"| i_tall
     c_gtests --> i_check
     c_gtests --> i_pcg
+    c_ftests -->|"pins coverage"| i_sha
     c_bench -->|"the text suites"| i_tall
     c_bench -->|"inputs"| i_pcg
     c_bench -->|"baseline.json"| i_bjson
@@ -1248,6 +1262,7 @@ flowchart TB
     i_check --- c_testing
     c_testing -->|"seeded cases"| i_pcg
     i_pcg --- c_rng
+    i_sha --- c_hash
     i_cparse --- c_codec
     i_bjson --- c_codec
     i_tall --- c_text
@@ -1256,8 +1271,8 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_gtests,c_bench,c_testing,c_rng,c_codec,c_text built
-    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save built
+    class c_ctests,c_ttests,c_gtests,c_ftests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text built
+    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha built
     class c_testkit,i_fakes planned
 ```
 

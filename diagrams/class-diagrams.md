@@ -2,21 +2,22 @@
 
 These diagrams show the types the built crates have: `tidepool-core`,
 `tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
-`tidepool-sys`, `tidepool-platform` and `tidepool-gfx`. Each shows what a type owns,
+`tidepool-sys`, `tidepool-platform`, `tidepool-gfx` and `tidepool-font`.
+Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
 how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 27, and drawn in the other files of `diagrams/` under the names
+section 28, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -43,9 +44,10 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 
 ## 1. Overview: types across crates
 
-`tidepool-codec` and `tidepool-text` use nothing from `tidepool-core` in
-their libraries; their `tests/fuzz.rs` use `core::testing::fuzz` as a
-dev-dependency, and make one `core::testing::fuzz::Target` per fuzz target.
+`tidepool-codec`, `tidepool-text` and `tidepool-font` use nothing from
+`tidepool-core` in their libraries; their `tests/fuzz.rs` use
+`core::testing::fuzz` as a dev-dependency, and make one
+`core::testing::fuzz::Target` per fuzz target (section 26 for `font`).
 `xtask` uses `core` and `codec`, as the dependency matrix allows: it reads
 `cargo metadata` with `codec::json`, manifests with `codec::toml`, the
 golden references with `codec::qoi`, and the fuzz targets' result lines
@@ -2174,7 +2176,7 @@ classDiagram
     class Reading["core::testing::fuzz::Reading"]
     class Kept["core::testing::fuzz::Kept"]
     class XtaskError["error::Error"]
-    SmokeFns "1" o-- "4" SmokeTarget : TARGETS
+    SmokeFns "1" o-- "5" SmokeTarget : TARGETS
     Options "1" o-- "1..*" SmokeTarget : borrows
     Options ..> Args : parse reads
     Options ..> XtaskError : parse fails with Usage
@@ -2183,7 +2185,7 @@ classDiagram
     Verdict *-- Summary : Clean, Found, Failed
     Summary *-- Reading : memory, reserved
     SmokeFns ..> Kept : keep_died
-    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>and encoding in tidepool-text"
+    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>encoding in tidepool-text,<br/>and ttf in tidepool-font"
 ```
 
 `cargo xtask golden` asks `cargo metadata` which members have a test
@@ -2507,7 +2509,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 26.
+- `BenchError` is in section 27.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2664,7 +2666,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 26.
+- `MissingSymbols` is in section 27.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -3146,13 +3148,158 @@ classDiagram
 - `ensure` fails with `GfxError::InvalidStyle`, naming the field, for a
   value that is not finite or is out of range, and keeps the cache it had.
 
-## 26. Error enums across crates
+## 26. font: TrueType fonts, outlines and their rasterizer
+
+`tidepool-font` (M2.8) reads TrueType files and rasterizes glyphs, with no
+dependency: its tests alone use `tidepool-core`. `ttf::Font::parse` takes
+a file's bytes, owned or borrowed for the program's life, and checks them
+against `Limits`; a `Font` then gives glyph ids, metrics, names, the
+`OS/2` style, kerning and outlines. `outline::rasterize` turns an
+`Outline`, in font units with y up, into a `Bitmap` of 8-bit coverage in
+device pixels, placed from the pen on the baseline with y down: the layout
+of `gfx::glyph::Mask`, which `gui` will hand it to (M2.6). The atlas,
+layout, fallback and the loading of the bundled faces are planned (M2.5).
+
+```mermaid
+classDiagram
+    direction LR
+    class Font["ttf::Font"] {
+        -data: Cow~static byte slice~
+        -limits: Limits
+        -glyph_count: u16
+        +parse(data, limits) Result~Font~
+        +data() byte slice
+        +limits() Limits
+        +units_per_em() u16
+        +glyph_count() u16
+        +bounding_box() BoundingBox
+        +line_metrics() LineMetrics
+        +os2() Option~Os2~
+        +h_metrics(glyph) Option~HMetrics~
+        +glyph_index(c) Option~GlyphId~
+        +name(id) Option~String~
+        +kerning(left, right) i32
+        +outline(glyph) Result~Outline~
+    }
+    class Limits["Limits"] {
+        +max_file_bytes: usize
+        +max_glyph_points: usize
+        +max_component_depth: usize
+        +max_components: usize
+        +max_bitmap_dimension: u32
+        +max_raster_work: u64
+        +max_kerning_subtables: usize
+        +DEFAULT: Limits
+    }
+    class Tag["ttf::Tag"] {
+        +0: 4 bytes
+        +HEAD, HHEA, MAXP, HMTX, CMAP, LOCA, GLYF, KERN, GPOS, OS2, NAME
+    }
+    class GlyphId["ttf::GlyphId"] {
+        +0: u16
+        +NOTDEF: GlyphId
+    }
+    class NameId["ttf::NameId"] {
+        +0: u16
+        +FAMILY, SUBFAMILY, FULL_NAME, VERSION, TYPOGRAPHIC_FAMILY, and more
+    }
+    class HMetrics["ttf::HMetrics"] {
+        +advance: u16
+        +left_side_bearing: i16
+    }
+    class LineMetrics["ttf::LineMetrics"] {
+        +ascender: i16
+        +descender: i16
+        +line_gap: i16
+        +advance_width_max: u16
+    }
+    class BoundingBox["ttf::BoundingBox"] {
+        +x_min, y_min, x_max, y_max: i16
+    }
+    class Os2["ttf::Os2"] {
+        +version: u16
+        +weight_class: u16
+        +italic: bool
+        +bold: bool
+        +use_typo_metrics: bool
+        +line_metrics: Option~Os2LineMetrics~
+        +x_height: Option~i16~
+        +cap_height: Option~i16~
+    }
+    class Os2LineMetrics["ttf::Os2LineMetrics"] {
+        +typo_ascender, typo_descender, typo_line_gap: i16
+        +win_ascent, win_descent: u16
+    }
+    class Outline["outline::Outline"] {
+        -points: Vec~OutlinePoint~
+        -ends: Vec~usize~
+        +new(points, contour_ends) Result~Outline~
+        +is_empty() bool
+        +points() OutlinePoint slice
+        +point_count() usize
+        +contour_ends() usize slice
+        +contour_count() usize
+        +contours() iterator of OutlinePoint slices
+        +control_box() Option~Bounds~
+    }
+    class OutlinePoint["outline::OutlinePoint"] {
+        +x: f32
+        +y: f32
+        +on_curve: bool
+    }
+    class Bounds["outline::Bounds"] {
+        +x_min, y_min, x_max, y_max: f32
+    }
+    class Bitmap["outline::Bitmap"] {
+        +left: i32
+        +top: i32
+        +width: u32
+        +height: u32
+        +pixels: Vec~u8~
+        +get(column, row) Option~u8~
+    }
+    class Rasterize["outline"] {
+        <<module>>
+        +TOLERANCE: f64 = 1/32
+        +MAX_SEGMENTS: u32 = 512
+        +MAX_CELLS: usize = 2^20
+        +EDGE_WORK: u64 = 4
+        +rasterize(outline, scale, shift_x, limits) Result~Bitmap~
+    }
+
+    Font *-- Limits
+    Font ..> GlyphId
+    Font ..> NameId
+    Font ..> HMetrics : h_metrics
+    Font ..> LineMetrics : line_metrics
+    Font ..> BoundingBox : bounding_box
+    Font ..> Os2 : os2
+    Os2 *-- Os2LineMetrics
+    Font ..> Outline : outline makes
+    Outline *-- OutlinePoint
+    Outline ..> Bounds : control_box
+    Rasterize ..> Outline : reads
+    Rasterize ..> Limits : checks
+    Rasterize ..> Bitmap : makes
+```
+
+- A `Font` keeps its bytes and the ranges and headers of the tables it
+  checked; a glyph's data is read, and checked, only when its outline is
+  asked for. `FontError` names the `Tag` of a table or the `GlyphId` of a
+  glyph; it is in section 27.
+- `Limits` and every type above but `Font`, `Outline` and `Bitmap` are
+  `Copy`. `Outline::new` checks its contour ends and that every point is
+  finite.
+
+## 27. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
 `MissingSymbols`; `tidepool-platform` has a second, `PixelsError`, for a
 view of pixels that does not fit its bytes. `GfxError` covers frames,
-views and backdrop styles, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
+views and backdrop styles, and wraps no other error. `FontError` holds
+the kind of a font's, a glyph's or an outline's problem, `ttf::ErrorKind`
+or `outline::ErrorKind`, and wraps no other error. Those of code that does I/O keep the `std::io::Error`
 that caused the failure, except `BenchError::Write`, which keeps the
 failed save's message as text. Only `BenchError` wraps another crate's: its
 `Text` holds the `TextError` of a text operation a suite runs. `xtask`
@@ -3234,6 +3381,14 @@ classDiagram
         OutOfMemory
         InvalidStyle
     }
+    class FontError["font::FontError"] {
+        <<enumeration>>
+        Ttf
+        Glyph
+        Outline
+    }
+    class TtfErrorKind["font::ttf::ErrorKind"]
+    class OutlineErrorKind["font::outline::ErrorKind"]
     class BenchError["bench::BenchError"] {
         <<enumeration>>
         Usage
@@ -3267,6 +3422,10 @@ classDiagram
     StdError <|.. PixelsError
     Display <|.. GfxError
     StdError <|.. GfxError
+    Display <|.. FontError
+    StdError <|.. FontError
+    FontError *-- TtfErrorKind : Ttf, Glyph
+    FontError *-- OutlineErrorKind : Outline
     CodecError *-- JsonErrorKind : Json
     CodecError *-- TomlErrorKind : Toml
     PathError *-- IoError : Io
@@ -3278,9 +3437,9 @@ classDiagram
     PlatformError *-- IoError : Io
 ```
 
-## 27. Planned types
+## 28. Planned types
 
-The other 18 members are empty crates, so they have no class diagram yet.
+The other 17 members are empty crates, so they have no class diagram yet.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.
@@ -3336,8 +3495,11 @@ The main files these diagrams were drawn from:
 - `crates/gfx/src/lib.rs`, `error.rs`, `framebuffer.rs`, `clip.rs`,
   `blend.rs`, `raster.rs`, `image.rs`, `glyph.rs`, `damage.rs`,
   `backdrop.rs`
+- `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
+  `ttf/tables.rs`, `outline.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
+  `crates/font/Cargo.toml`,
   `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
@@ -3347,4 +3509,5 @@ The main files these diagrams were drawn from:
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
-  `crates/sys`, `crates/platform`, `crates/gfx` and `bench`
+  `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font` and
+  `bench`

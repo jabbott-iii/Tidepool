@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the golden frames, the test harness, the
 benchmark harness, and the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4 and M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -287,8 +287,9 @@ flowchart LR
 The binary's crates by layer (`docs/01-architecture.md` → "Layers"), in
 five diagrams. Every arrow is an edge of the dependency matrix. Only
 `platform` (on `core` and `sys`, M2.2) and `gfx` (on `core`, M2.3) declare
-dependencies yet; their edges, and the two dev-dependencies on
-`tidepool-core` that the tests of `codec` and `text` use, are solid. Every
+dependencies yet; their edges, and the three dev-dependencies on
+`tidepool-core` that the tests of `codec`, `text` and `font` use, are
+solid. Every
 other edge is dotted and labelled with the task the roadmap or spec ties to
 its use. The diagrams run left to right, from a crate to the crates it
 uses.
@@ -299,7 +300,8 @@ uses.
 (M2.1, M2.2, M2.7), and `platform` its Linux window over X11 (M2.2), its
 clipboard and the user's and tools' folders (M2.7). Those two
 allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3),
-and its golden scenes (M2.4). The other three crates are empty.
+and its golden scenes (M2.4). `font` has its TrueType parser and glyph
+rasterizer (M2.8). The other two crates are empty.
 
 ```mermaid
 flowchart LR
@@ -309,7 +311,7 @@ flowchart LR
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
         k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
-        k_font["tidepool-font<br/>planned M2.8: ttf, outline<br/>atlas, layout, fallback,<br/>bundled M2.5"]
+        k_font["tidepool-font<br/>ttf, outline, Limits,<br/>FontError (M2.8)<br/>planned M2.5: atlas,<br/>layout, fallback, bundled"]
         k_markdown["tidepool-markdown<br/>planned M6.5:<br/>CommonMark and<br/>GFM parser"]
     end
     subgraph L0["Layer 0: foundations"]
@@ -323,17 +325,19 @@ flowchart LR
     k_text -->|"dev-dependency: tests"| k_core
     k_regex -.->|"planned M4.8"| k_core
     k_gfx -->|"geom, color;<br/>tests: testing, rng"| k_core
-    k_font -.->|"planned M2.8"| k_core
+    k_font -->|"dev-dependency: tests"| k_core
     k_markdown -.->|"planned M6.5"| k_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_platform,k_codec,k_text,k_gfx,k_core,k_sys built
-    class k_regex,k_font,k_markdown planned
+    class k_platform,k_codec,k_text,k_gfx,k_font,k_core,k_sys built
+    class k_regex,k_markdown planned
 ```
 
-- The libraries of `codec` and `text` use nothing from `core`; their tests
-  use `core::testing` (property tests and the fuzz engine) and `core::rng`.
+- The libraries of `codec`, `text` and `font` use nothing from `core`;
+  the tests of `codec` and `text` use `core::testing` (property tests and
+  the fuzz engine) and `core::rng`, and `font`'s use the fuzz engine and
+  `core::hash`'s FNV-1a hash.
 
 ### 2.2 Layer 2: services
 
@@ -516,7 +520,7 @@ flowchart LR
     end
     subgraph L01["Layers 0 and 1"]
         k_gfx["tidepool-gfx"]
-        k_font["tidepool-font<br/>planned M2.8"]
+        k_font["tidepool-font"]
         k_platform["tidepool-platform"]
         k_codec["tidepool-codec"]
         k_core["tidepool-core"]
@@ -539,8 +543,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_app,k_platform,k_codec,k_gfx,k_core built
-    class k_editor,k_gui,k_tui,k_ui,k_font planned
+    class k_app,k_platform,k_codec,k_gfx,k_font,k_core built
+    class k_editor,k_gui,k_tui,k_ui planned
 ```
 
 - The matrix also lets `gui` use `codec`; no task or spec gives it a use
@@ -811,7 +815,7 @@ test` on the saved crashes and seeds alone, and on mutated inputs when
 
 ```mermaid
 flowchart TB
-    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text"]
+    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text, ttf in tidepool-font"]
     e_cargo["cargo test --profile fuzz -p PACKAGE --test fuzz -- --exact TARGET --nocapture<br/>with TIDEPOOL_FUZZ_SECS, TIDEPOOL_FUZZ_SEED, and TIDEPOOL_FUZZ_REPLAY=1 for --replay"]
     subgraph b_codec["tidepool-codec: tests/fuzz.rs"]
         t_json["test json<br/>json::parse_bytes and json::parse, both dialects, small Limits"]
@@ -821,6 +825,9 @@ flowchart TB
     subgraph b_text["tidepool-text: tests/fuzz.rs"]
         t_enc["test encoding<br/>decode, Decoder fed in pieces, encode"]
     end
+    subgraph b_font["tidepool-font: tests/fuzz.rs"]
+        t_ttf["test ttf<br/>ttf::Font::parse with small Limits, outlines, rasterize twice, kerning"]
+    end
     subgraph b_fuzz["tidepool-core: testing::fuzz"]
         f_api["fuzz.rs<br/>Target: new, seeds_in, dictionary, memory_cap, run<br/>Outcome, Summary, Finding, FuzzError, keep_died"]
         f_engine["engine<br/>the target on its own thread with a 2 MiB stack<br/>the caller is the watchdog, HANG_LIMIT 5 s"]
@@ -828,7 +835,7 @@ flowchart TB
         f_memory["memory<br/>VmHWM against memory_cap, VmPeak against reserved_cap"]
         f_paths["paths<br/>each directory looked at without following a link, made one level at a time"]
     end
-    s_corpus[("fuzz/corpus/json, toml, qoi, encoding<br/>the seeds")]
+    s_corpus[("fuzz/corpus/json, toml, qoi, encoding, ttf<br/>the seeds")]
     s_inplace[("crates/codec/tests/json and crates/codec/tests/toml-test<br/>more seeds, read in place")]
     s_crashes[("fuzz/crashes/TARGET<br/>KIND-HASH findings, .last-input, died-HASH")]
     e_proc["Linux: /proc/self/status"]
@@ -838,10 +845,12 @@ flowchart TB
     e_cargo -->|"runs"| t_toml
     e_cargo -->|"runs"| t_qoi
     e_cargo -->|"runs"| t_enc
+    e_cargo -->|"runs"| t_ttf
     t_json -->|"Target"| f_api
     t_toml -->|"Target"| f_api
     t_qoi -->|"Target"| f_api
     t_enc -->|"Target"| f_api
+    t_ttf -->|"Target"| f_api
     f_api -->|"run_with: the saved crashes first, then the seeds"| f_paths
     f_api --> f_engine
     f_engine --> f_mutate
@@ -857,15 +866,15 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_smoke,t_json,t_toml,t_qoi,t_enc,f_api,f_engine,f_mutate,f_memory,f_paths built
+    class c_smoke,t_json,t_toml,t_qoi,t_enc,t_ttf,f_api,f_engine,f_mutate,f_memory,f_paths built
     class s_corpus,s_inplace,s_crashes store
     class e_cargo,e_proc external
 ```
 
-- Each later parser adds a target with its task: `ttf` (M2.8), `regex`
-  (M4.8), `vt` (M5.8), framing in `rpc` (M6.1), the Markdown parser
-  (M6.5), git's parsers (M8.1), `inflate` and `png` (M10.7), and `zip`
-  and `xml` (M10.2).
+- Each later parser adds a target with its task: `regex` (M4.8), `vt`
+  (M5.8), framing in `rpc` (M6.1), the Markdown parser (M6.5), git's
+  parsers (M8.1), `inflate` and `png` (M10.7), and `zip` and `xml`
+  (M10.2).
 
 ### 4.2 Test support: property tests, benchmarks and fakes
 
@@ -998,7 +1007,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
 | `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3); the golden scenes in `tests/golden.rs` (M2.4) | none: every planned module exists | `core` |
-| `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | nothing | M2.8, M2.5 | none |
+| `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | `ttf`, `outline`, `Limits` and the error, and fuzz target `ttf` (M2.8) | M2.5 | `core`, dev only |
 | `tidepool-markdown` | `crates/markdown` | 1, OS behavior, formats, engines | deny | nothing | M6.5 | none |
 | `tidepool-rpc` | `crates/rpc` | 2, services | deny | nothing | M6.1, M9.3, M13.1 | none |
 | `tidepool-toolchain` | `crates/toolchain` | 2, services | deny | nothing | M5.1, M5.2, M5.3, M5.5, M10.1, M11.2, M12.3 | none |

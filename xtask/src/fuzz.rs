@@ -93,6 +93,10 @@ pub(crate) const TARGETS: &[Target] = &[
         name: "encoding",
         package: "tidepool-text",
     },
+    Target {
+        name: "ttf",
+        package: "tidepool-font",
+    },
 ];
 
 /// How long each target is fuzzed when `--secs` is not given.

@@ -130,9 +130,9 @@
     {
       "name": "Our own rasterizer and fonts",
       "area": "Rendering",
-      "summary": "A CPU rasterizer of our own draws rectangles, hairlines, borders, bracket corners, and anti-aliased polygons, lines, cut corners and pills, with images and glyph masks, blending, layers and clipping, in arithmetic meant to give the same bytes on every OS; it merges the damaged parts of a frame, and renders jabbott.dev's deep-space backdrop with a blurred copy for translucent panels. A TrueType parser and outline rasterizer will set Saira and JetBrains Mono, bundled with their licenses, from a glyph atlas, and the first window will show both over the backdrop.",
+      "summary": "A CPU rasterizer of our own draws rectangles, hairlines, borders, bracket corners, and anti-aliased polygons, lines, cut corners and pills, with images and glyph masks, blending, layers and clipping, in arithmetic meant to give the same bytes on every OS; it merges the damaged parts of a frame, and renders jabbott.dev's deep-space backdrop with a blurred copy for translucent panels. A TrueType parser of our own reads Saira and JetBrains Mono, bundled with their licenses: glyph ids, metrics, names, kerning and composite glyphs, checked against limits so that a hostile font is refused rather than read, and fuzzed. Its rasterizer turns each glyph's quadratic outline into exact-area coverage, unhinted and with subpixel positions, in the same bytes on every OS. A glyph atlas will set text from them, and the first window will show both faces over the backdrop.",
       "tasks": ["M2.3", "M2.8", "M2.5", "M2.6"],
-      "ticked": ["M2.3"]
+      "ticked": ["M2.3", "M2.8"]
     },
     {
       "name": "Golden frames",

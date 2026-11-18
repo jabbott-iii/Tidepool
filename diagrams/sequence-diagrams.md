@@ -8,7 +8,7 @@ saving, editing and undoing text in `tidepool-text`. Sections 8 to 13 are
 the flows the specs plan, from startup to signing an Android package; most
 of their code does not exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M2.4 (2026-11-17, version 0.1), after M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1), after M2.4 and M2.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -190,7 +190,8 @@ sequenceDiagram
 runs each target's test in its own `cargo test`, and reads the one result
 line the test prints (`xtask/src/fuzz.rs`). The parsers run in those test
 processes, never in `xtask`. The targets run in table order: `json`,
-`toml` and `qoi` (`tidepool-codec`), then `encoding` (`tidepool-text`).
+`toml` and `qoi` (`tidepool-codec`), then `encoding` (`tidepool-text`),
+then `ttf` (`tidepool-font`).
 
 ```mermaid
 sequenceDiagram
@@ -206,7 +207,7 @@ sequenceDiagram
     alt they disagree
         Smoke->>Dev: the violation lines,<br/>then fuzz-smoke: FAILED,<br/>nothing was run
     else they agree
-        Smoke->>Dev: fuzz-smoke: 4 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
+        Smoke->>Dev: fuzz-smoke: 5 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
         loop each target, in table order
             Smoke->>Dev: == json: the variables<br/>and the command line
             Smoke->>Cargo: cargo test --profile fuzz<br/>-p tidepool-codec --test fuzz<br/>-- --exact json --nocapture

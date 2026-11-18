@@ -38,8 +38,12 @@ tp` opens no window yet, though `tidepool-platform` can open one on Linux
   and QOI in `tidepool-codec`, with its fuzz target, and the golden
   harness: `cargo xtask golden`, a step of `ci`, comparing golden frames
   of every `gfx` primitive and the backdrop with QOI references (M2.4,
-  ADR-0044).
-- **Not built:** everything else. 18 of the 26 workspace members are empty
+  ADR-0044); and in `tidepool-font` the TrueType parser, with glyph ids,
+  metrics, names, kerning and composite glyphs checked against its
+  limits, and the glyph rasterizer's exact-area coverage, with its fuzz
+  target and the bundled Saira and JetBrains Mono files in `assets/fonts/`
+  (M2.8).
+- **Not built:** everything else. 17 of the 26 workspace members are empty
   crates with a doc comment; `tidepool` (`cargo tp`) builds a binary that
   does nothing. Each crate's `README.md` says what it has and which tasks
   add the rest.

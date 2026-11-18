@@ -124,10 +124,13 @@ The design is ADR-0027's; the engine's rustdoc
   `fuzz/corpus/` or `fuzz/crashes/` has no row, or when a row's
   `fuzz/corpus/<target>/` is missing or holds no regular file that is not
   hidden. `fuzz/NOTICE.md` says where a saved input may come from.
-- **Targets now** (M1.6, and `qoi` from M2.4). The parsers run with small
-  `Limits` (4 KiB of input, depth 32, strings of 1 KiB, numbers of 64
-  bytes, 256 entries, images of 64 px a side and 4 KiB of pixels),
-  and their corpora hold `edge-*` seeds that sit exactly at each limit, so
+- **Targets now** (M1.6, `qoi` from M2.4 and `ttf` from M2.8). The
+  parsers run with small `Limits` (4 KiB of input, depth 32, strings of
+  1 KiB, numbers of 64 bytes, 256 entries, images of 64 px a side and
+  4 KiB of pixels; for `ttf`, 4 KiB of file, 256 points a glyph, 4 levels
+  and 64 components of composites, 8 kerning subtables, bitmaps of 64 px
+  a side, and 4,096 steps of work to rasterize a glyph), and
+  their corpora hold `edge-*` seeds that sit exactly at each limit, so
   that one mutation crosses it; the decoder of `text::encoding` takes no
   `Limits`. Each has a 16 MiB written-memory cap.
 
@@ -137,11 +140,12 @@ The design is ADR-0027's; the engine's rustdoc
   | `toml` | `codec` | `toml::parse_bytes`; for input that parses, `toml::Document::parse_bytes` and four edits, each on a copy; and for input that is not UTF-8, `toml::parse` of its lossy decoding | the same error checks; every span is a non-empty range of characters of the input, and holds what its kind says (quotes, a bare key's name, a boolean's word, `[`, `[[` or `{`); the document holds the input and the parser's tree; the edits (the leaf that starts last becomes a string that needs escapes; `fz = 7`, and a new table with a key in it, go into a table of any kind that an FNV-1a hash of the input picks, so that a replay picks it again; a new table with a key in it goes into the root) each change exactly the bytes they should and read back holding the value, or are refused for a limit (or, for a `fz` that is a table, as not replaceable) and change nothing; a refusal as unverified is a finding | `crates/codec/tests/toml-test/`, valid and invalid (ADR-0026) |
   | `qoi` | `codec` | `qoi::decode` | an error's offset is in the input and names the byte it describes (the magic, a zero or too-large side, more pixels than `max_decoded_bytes`, the channels or color-space byte, a run past the last pixel, a wrong end marker, bytes after it); an image that decodes has the input's header, within the limits, as many pixels as it says, and ends with the end marker; `qoi::encode` refuses an RGB image at its first pixel whose alpha is not 255, and otherwise writes what decodes to the same image and encodes again to the same bytes | — |
   | `encoding` | `text` | `encoding::Decoder`, fed in pieces that the input decides, and `decode` | the pieces decode as the whole does; the text and the detected format are what `std` decodes; the runs of replaced bytes keep their promises; `original_bytes()` is the input; a text decoded without a replacement encodes back to it | — |
+  | `ttf` | `font` | `ttf::Font::parse`; for a font that parses, its first 64 glyphs and its last: their metrics and outlines, and `outline::rasterize` of each at 12 px and at 40 px shifted 0.75 px; `glyph_index`, `kerning`, the names and `OS/2` | a parse error's offset is in the input, where its kind says (inside the table its record gives, or at the directory record), and a limit's error names that limit; a glyph's error names a glyph that exists, at an offset in the input; an outline has at most the limit's points and its contours end at its point count; a bitmap is within the limit, `width × height` bytes whose four edges are the scaled control box rounded outwards, the same twice, or is refused for its size or its work alone; characters map only to glyphs that exist and are not `.notdef`; kerning is 0 past the glyph count | — |
 
-  Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, TrueType,
-  Markdown, regex compile, VT parser, JSON-RPC framing, LSP messages, TAP
-  messages, git porcelain v2, cargo JSON diagnostics, tool version
-  strings, each with its parser's task.
+  Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, Markdown, regex
+  compile, VT parser, JSON-RPC framing, LSP messages, TAP messages, git
+  porcelain v2, cargo JSON diagnostics, tool version strings, each with
+  its parser's task.
 - **Every `cargo test` replays.** A target's test runs, unchanged, every
   saved crash in `fuzz/crashes/<target>/` (in name order), then every seed
   (`fuzz/corpus/<target>/` in name order, then the data it names, in path

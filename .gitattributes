@@ -14,3 +14,6 @@ fuzz/** -text
 crates/codec/tests/json/** -text
 # Golden references are images, compared pixel for pixel (ADR-0044).
 tests/golden/** -text
+# The bundled fonts and their licenses are kept as downloaded, and pinned by
+# SHA-256 (`docs/02-dependency-policy.md` → Assets; M2.8).
+assets/fonts/** -text
