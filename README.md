@@ -18,7 +18,9 @@ changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
 against golden frames by a QOI codec and harness of our own, and a
 TrueType parser, glyph rasterizer, glyph atlas and text layout, with
-fallback, for the bundled Saira and JetBrains Mono, are built; and
+fallback, for the bundled Saira and JetBrains Mono, and the UI toolkit's
+widget tree, with its layout, focus, input routing, draw lists and
+accessibility tree, are built; and
 `cargo tp` opens a Linux window that shows the first frame,
 jabbott.dev's backdrop and a line in each bundled face, and does nothing
 else yet.

@@ -9,7 +9,7 @@ first frame. The rest of sections 8 to 13 are the flows the specs plan,
 from startup to signing an Android package; most of their code does not
 exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8 and M2.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8, M2.5 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -629,10 +629,11 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-whole flow is planned in M3.1, M3.4, M3.5, M4.1, M4.2, M4.3 and M4.6;
+whole flow is planned in M3.4, M3.5, M4.1, M4.2, M4.3 and M4.6;
 `Transaction` and `History` are built (M1.2), and so are core's
-`InputEvent` (M0.2), `platform`'s events (M2.2) and `gui`'s first frame
-(M2.6, 8.3), which uses no input yet.
+`InputEvent` (M0.2), `platform`'s events (M2.2), `gui`'s first frame
+(M2.6, 8.3), which uses no input yet, and `ui`'s routing of an event and
+its frames with their damage (M3.1, ADR-0046).
 
 ### 9.1 The key, to the focused editor
 
@@ -643,17 +644,18 @@ sequenceDiagram
     participant Plat as platform events<br/>(built)
     participant Fe as gui frontend<br/>(M3.4)
     participant ML as app main loop<br/>(M3.4)
-    participant Ui as ui input and<br/>focus (M3.1)
+    participant Ui as ui Tree: input<br/>and focus (built)
 
-    Note over User,Ui: planned M3.1, M3.4.<br/>core's InputEvent (M0.2) and platform's<br/>events (M2.2) are built.
+    Note over User,Ui: planned M3.4.<br/>core's InputEvent (M0.2), platform's<br/>events (M2.2) and ui's routing (M3.1) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
     Disp->>Plat: a key event on<br/>the X connection
     Plat-->>Fe: Event::Input: the Key from<br/>the key code, then the text<br/>from Xutf8LookupString
     Fe-->>ML: an InputEvent,<br/>core input (built)
-    ML->>Ui: route it to the focused<br/>node and its ancestors
-    Ui-->>ML: the focused editor
+    ML->>Ui: Tree::handle(event)
+    Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1), then up<br/>through its ancestors until one handles it
+    Ui-->>ML: a Response: the actions widgets<br/>emitted, and whether it was handled
 ```
 
 ### 9.2 The edit, and the work sent off
@@ -683,15 +685,15 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant ML as app main loop<br/>(M3.4)
-    participant View as editor view and ui<br/>draw list (M4.1, M3.1)
+    participant View as editor view (M4.1)<br/>and ui Tree::frame (built)
     participant Fe as gui frontend<br/>(M3.5)
     participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M3.1, M3.4, M3.5, M4.1.<br/>platform's present and Waker (M2.2),<br/>gfx (M2.3) and font (M2.5) are built.
-    ML->>View: build_frame(metrics)
-    View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage
+    Note over ML,Bg: planned M3.4, M3.5, M4.1.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3) and font (M2.5) are built.
+    ML->>View: build_frame(metrics):<br/>Tree::frame(size, metrics)
+    View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage, or None<br/>when nothing is damaged
     ML->>Fe: present(frame)
     Fe->>Fe: rasterize only the<br/>damaged rects with gfx<br/>and font (built), M3.5
     Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
@@ -994,6 +996,7 @@ sequenceDiagram
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
 - `crates/gui/src/frontend.rs`, `first_frame.rs`
+- `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`
 - `AGENTS.md` (rules 2, 6, 7 and 8)
 - `docs/00-overview.md` → "Performance budgets"
 - `docs/01-architecture.md` → "Dependency matrix", "The main loop", "Data
@@ -1005,5 +1008,5 @@ sequenceDiagram
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
   ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
-  ADR-0045
+  ADR-0045, ADR-0046
 - `docs/roadmap.md`: the tasks named in each section

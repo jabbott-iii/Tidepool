@@ -1747,12 +1747,57 @@ JetBrains Mono text over the jabbott.dev backdrop.
 
 **Goal:** the shell of the IDE, looking like jabbott.dev.
 
-- [ ] **M3.1 — ui: tree, layout, focus, input routing, accessibility tree**
+- [x] **M3.1 — ui: tree, layout, focus, input routing, accessibility tree**
   - Depends: M0.2
   - Do: `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` per
     `docs/subsystems/ui-and-theme.md`.
   - Accept: layout property tests; every focusable node has a role and name.
   - Verify: `cargo test -p tidepool-ui`
+  - Note (2026-11-17): the spec left open who runs a widget's code and
+    what color a draw-list command carries. ADR-0046 records the options
+    the user chose that day, each the recommended one: widgets live in
+    the tree's nodes, which tracks their interaction state and routes
+    events up through their ancestors; and draw lists carry resolved
+    `core::Color`s.
+  - Note (2026-11-18): done. `tidepool-ui` depends on `tidepool-core` and
+    has `tree` (`Tree`, generational `NodeId`s, `Node`, `Widget`,
+    `NodeState`, at most 256 levels and 2^20 nodes), `layout` (rows,
+    columns, stacks, grids and splits; fixed, natural and filling lengths
+    whose limits follow flexbox's freeze rule; sanitized values; exact
+    containment in `f32`; scrolling, with `scroll_into_view` applied at
+    the next layout), `focus` (the tab order and `:focus-visible`),
+    `input` (`Tree::handle` and `hit_test`; Tab and the wheel as
+    defaults; hover kept on the pointer as content moves), `metrics`
+    (`TextMetrics`, `FixedMetrics`), `draw` (`DrawList`, `Command`,
+    `Frame`: repaints only changed nodes, damage from their fragments,
+    `None` when idle) and `a11y` (`Snapshot`); the tree refuses a
+    focusable node without a role and a name. Choices the spec left open
+    are in the modules' rustdoc: a click on a node that takes no focus
+    leaves focus where it was; the root holds no widget; a painted text
+    and a node's value show in `Debug` as their length (ADR-0043). No
+    roadmap task builds the spec's `anim` module or the icon set that
+    numbers `IconId`s.
+  - Note (2026-11-18): reviewed by six reviewers, one a security reviewer,
+    each finding put to two skeptics: 22 of 28 findings survived, 13
+    distinct. All were fixed in three rounds, each checked by its own
+    verifiers: `scroll_into_view` measured from stale bounds (three Tabs
+    between frames scrolled the focus out of view), the fill freeze loop,
+    a content-sized grid's width, a hidden root, the wheel starting from
+    an unclamped offset, hover left on a row scrolled away, `Command`'s
+    `Debug` printing text, NaN commands reaching the list but not the
+    damage, the paint queue growing between frames, the measuring memo's
+    size, a test that could not fail, and two docs. The docs and diagrams
+    this task changed were checked against the code by four readers, each
+    finding put to two skeptics: 21 of 28 survived, all fixed.
+  - Note (2026-11-18): checked on rustc 1.99.0, Linux. `cargo test -p
+    tidepool-ui`: 95 passed (35 unit, 3 a11y, 11 frame, 19 input, 22
+    layout, 5 doc tests). `cargo xtask ci`: 12 of 12 steps pass, with the
+    29 window tests skipped for want of `TIDEPOOL_IT_X11`;
+    `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 12 of 12, none
+    skipped. `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-ui
+    --no-deps` is clean. The 120 Mermaid blocks of `diagrams/` parse and
+    render with Mermaid 11.17.2, which rejected a planted broken one.
+    `ui` has no OS code, so nothing was built for macOS or Windows.
 
 - [ ] **M3.2 — ui: theme tokens and `xtask theme`**
   - Depends: M3.1, M1.7

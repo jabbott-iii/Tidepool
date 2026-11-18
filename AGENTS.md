@@ -50,8 +50,14 @@ each task once it is done and verified.
   the first frame, in `tidepool-gui` and the `tidepool` binary: `cargo tp`
   opens a window on Linux and draws the backdrop and a line in each
   bundled face within the startup budget, and `--print-startup-time`
-  prints the time it took (M2.6, ADR-0045).
-- **Not built:** everything else. 15 of the 26 workspace members are empty
+  prints the time it took (M2.6, ADR-0045); and in `tidepool-ui` the
+  retained widget tree, with at most one widget in each node and the
+  interaction state the tree tracks for it, layout in logical units, focus with `:focus-visible` and
+  the tab order, input routed to the focused node or the one under the
+  pointer and up through its ancestors, `TextMetrics`, draw lists in
+  resolved colors with each frame's damage, and the accessibility tree, in
+  which every focusable node has a role and a name (M3.1, ADR-0046).
+- **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.
 - **Next:** the first unticked task whose dependencies are all ticked,

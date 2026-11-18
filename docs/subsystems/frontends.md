@@ -23,7 +23,7 @@ automatically when no display is available, with a message).
 - Opens a `platform::Window`, keeps a `gfx::Framebuffer` at device
   resolution, and rasterizes the damaged parts of each draw list with `gfx`
   and `font`.
-- Before `ui`'s draw lists (M3.5), it draws the first frame (M2.6,
+- Until it paints `ui`'s draw lists (M3.5), it draws the first frame (M2.6,
   ADR-0045): `Gui::turn` waits for the window's events and presents what
   an expose asks for, from a frame that `first_frame::FirstFrame` draws
   anew, on the calling thread, whenever the window's size or scale has
@@ -32,7 +32,7 @@ automatically when no display is available, with a message).
   typography table (`docs/subsystems/ui-and-theme.md`). The two colors
   are stand-ins for the theme's tokens until M3.2. The rustdoc of `gui`'s
   modules is authoritative.
-- Implements `TextMetrics` with `font::layout`.
+- Implements `TextMetrics` with `font::layout` (M3.5).
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
 - Clipboard: the window's, from `platform::clipboard`. A paste is asked

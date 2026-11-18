@@ -14,9 +14,10 @@ Every other member but `tidepool-sys` may use it: today `xtask` parses its comma
 checks the Unicode data's SHA-256 and runs the fuzz targets with it,
 `tidepool-bench` parses its command line and draws its inputs with it,
 `platform` uses its geometry, input types and logging, `gfx` its geometry
-and colors, the tests of `codec`, `text` and `gfx` use its property
-harness (and those of `codec` and `text` its fuzzer), and those of `font`
-its fuzzer and FNV-1a hash.
+and colors, `ui` its geometry, colors and input types, the tests of
+`codec`, `text`, `gfx` and `ui` use its property harness (and those of
+`codec` and `text` its fuzzer), and those of `font` its fuzzer and FNV-1a
+hash.
 
 Layer 0, foundations. It may use no workspace crate, as its row of the
 dependency matrix in

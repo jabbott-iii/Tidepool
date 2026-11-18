@@ -7,7 +7,7 @@ systems around them. The component views show the crates inside the
 for development: the fuzzer, the golden frames, the test harness, the
 benchmark harness, and the fake tool crate still to come.
 
-Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8 and M2.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8, M2.5 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -289,8 +289,9 @@ flowchart LR
 The binary's crates by layer (`docs/01-architecture.md` → "Layers"), in
 five diagrams. Every arrow is an edge of the dependency matrix. Only
 `platform` (on `core` and `sys`, M2.2), `gfx` (on `core`, M2.3), `gui`
-(on `core`, `platform`, `gfx` and `font`, M2.6) and the binary (on
-`core`, `platform` and `gui`, M2.6) declare dependencies yet; their
+(on `core`, `platform`, `gfx` and `font`, M2.6), the binary (on
+`core`, `platform` and `gui`, M2.6) and `ui` (on `core`, M3.1) declare
+dependencies yet; their
 edges, and the three dev-dependencies on `tidepool-core` that the tests
 of `codec`, `text` and `font` use, are solid. Every
 other edge is dotted and labelled with the task the roadmap or spec ties to
@@ -345,8 +346,10 @@ flowchart LR
 
 ### 2.2 Layer 2: services
 
-All six service crates are empty. Each arrow is labelled with the task
-whose module first needs that crate.
+`ui` has its tree, layout, focus, input routing, text metrics, draw
+lists and accessibility tree (M3.1); the other five service crates are
+empty. Each arrow is labelled with the task whose module first needs that
+crate.
 
 ```mermaid
 flowchart LR
@@ -356,7 +359,7 @@ flowchart LR
         k_syntax["tidepool-syntax<br/>planned M6.2: Rust,<br/>Markdown and TOML<br/>lexers, language packs<br/>declarative pack<br/>lexers M13.2"]
         k_term["tidepool-term<br/>planned M5.8:<br/>VT parser and grid"]
         k_workspace["tidepool-workspace<br/>planned M4.7: folder,<br/>trust, settings<br/>buffers, session M4.3<br/>search M4.4, watch M4.5"]
-        k_ui["tidepool-ui<br/>planned M3.1: tree,<br/>layout, focus, input,<br/>metrics, draw, a11y<br/>theme M3.2"]
+        k_ui["tidepool-ui<br/>tree, layout, focus,<br/>input, metrics, draw,<br/>a11y, UiError (M3.1)<br/>planned: theme M3.2,<br/>controls M3.6,<br/>collections M3.3"]
     end
     subgraph L01["Layers 0 and 1"]
         k_platform["tidepool-platform"]
@@ -382,12 +385,12 @@ flowchart LR
     k_workspace -.->|"planned M4.7"| k_codec
     k_workspace -.->|"planned M4.3"| k_text
     k_workspace -.->|"planned M4.4"| k_regex
-    k_ui -.->|"planned M3.1"| k_core
+    k_ui -->|"geom, color, input;<br/>tests: testing, rng"| k_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_platform,k_codec,k_text,k_core built
-    class k_rpc,k_toolchain,k_syntax,k_term,k_workspace,k_ui,k_regex planned
+    class k_platform,k_codec,k_text,k_core,k_ui built
+    class k_rpc,k_toolchain,k_syntax,k_term,k_workspace,k_regex planned
 ```
 
 - `toolchain` first needs `platform` in M5.1, whose `detect` searches the
@@ -474,7 +477,7 @@ flowchart LR
         k_syntax["tidepool-syntax<br/>planned M6.2"]
         k_term["tidepool-term<br/>planned M5.8"]
         k_workspace["tidepool-workspace<br/>planned M4.7"]
-        k_ui["tidepool-ui<br/>planned M3.1"]
+        k_ui["tidepool-ui<br/>(M3.1)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_codec["tidepool-codec"]
@@ -500,8 +503,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_codec,k_text,k_core built
-    class k_editor,k_lang,k_vcs,k_agent,k_mobile,k_syntax,k_term,k_workspace,k_ui,k_regex,k_markdown planned
+    class k_codec,k_text,k_core,k_ui built
+    class k_editor,k_lang,k_vcs,k_agent,k_mobile,k_syntax,k_term,k_workspace,k_regex,k_markdown planned
 ```
 
 ### 2.5 Layers 4 and 5: the frontends and the binary
@@ -522,7 +525,7 @@ flowchart LR
         k_tui["tidepool-tui<br/>planned M7.1: renderer<br/>and input decoder"]
     end
     subgraph L2["Layer 2"]
-        k_ui["tidepool-ui<br/>planned M3.1"]
+        k_ui["tidepool-ui<br/>(M3.1)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_gfx["tidepool-gfx"]
@@ -550,8 +553,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_app,k_gui,k_platform,k_codec,k_gfx,k_font,k_core built
-    class k_editor,k_tui,k_ui planned
+    class k_app,k_gui,k_platform,k_codec,k_gfx,k_font,k_core,k_ui built
+    class k_editor,k_tui planned
 ```
 
 - The matrix also lets `gui` use `codec`; no task or spec gives it a use
@@ -887,7 +890,8 @@ flowchart TB
 
 The property-test harness in `core::testing` (`check`, `check_sized` and
 `assert_approx`, seeded by `TIDEPOOL_SEED`, and `rng::Pcg32`) is built and
-used by the tests of `codec` and `text`. The benchmark harness,
+used by the tests of `codec` and `text`, through a dev-dependency, and by
+those of `ui` (M3.1), whose library depends on `core`. The benchmark harness,
 `tidepool-bench` (M1.9), warms each suite up, takes samples within a time
 budget, and reports the median and p95 against `bench/baseline.json`; its
 suites measure the text engine: rope edits, positions, 10,000-caret
@@ -902,6 +906,7 @@ in `crates/testkit/transcripts/` (M6.1).
 flowchart LR
     t_codec["tidepool-codec tests<br/>tests/json.rs, toml.rs<br/>and qoi.rs"]
     t_text["tidepool-text tests<br/>tests/edits.rs, model.rs,<br/>positions.rs, unit tests"]
+    t_ui["tidepool-ui tests<br/>tests/layout.rs, a11y.rs,<br/>unit tests"]
     c_xtask["xtask"]
     c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>the binary"]
     s_baseline[("bench/baseline.json")]
@@ -914,6 +919,7 @@ flowchart LR
 
     t_codec -->|"dev-dependency:<br/>property tests"| k_core
     t_text -->|"dev-dependency:<br/>property tests"| k_core
+    t_ui -->|"property tests"| k_core
     c_xtask -->|"cargo xtask bench:<br/>through cargo run<br/>--release"| c_bench
     c_bench -->|"read and written<br/>with codec::json"| s_baseline
     c_bench -->|"measures; file::save<br/>writes the baseline"| k_text
@@ -927,7 +933,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class t_codec,t_text,c_xtask,c_bench,k_core,k_codec,k_text,k_font built
+    class t_codec,t_text,t_ui,c_xtask,c_bench,k_core,k_codec,k_text,k_font built
     class s_baseline store
     class c_testkit,k_rpc planned
 ```
@@ -1031,7 +1037,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-syntax` | `crates/syntax` | 2, services | deny | nothing | M6.2, M13.2, M13.3 | none |
 | `tidepool-term` | `crates/term` | 2, services | deny | nothing | M5.8, M5.4 | none |
 | `tidepool-workspace` | `crates/workspace` | 2, services | deny | nothing | M4.7, M4.3, M4.4, M4.5 | none |
-| `tidepool-ui` | `crates/ui` | 2, services | deny | nothing | M3.1, M3.2, M3.6, M3.3 | none |
+| `tidepool-ui` | `crates/ui` | 2, services | deny | `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` and the error (M3.1) | M3.2, M3.6, M3.3 | `core` |
 | `tidepool-lang` | `crates/lang` | 3, language and tool features | deny | nothing | M6.7, M6.8, M6.3, M6.4, M6.6, M13.1 | none |
 | `tidepool-vcs` | `crates/vcs` | 3, language and tool features | deny | nothing | M8.1, M8.3 | none |
 | `tidepool-agent` | `crates/agent` | 3, language and tool features | deny | nothing | M9.3, M9.4 | none |
@@ -1059,7 +1065,8 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 - `crates/text/src/lib.rs`, `crates/text/tests/fuzz.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`; `crates/platform/src/lib.rs`,
-  `crates/app/src/main.rs`, every file in `bench/src/`, `crates/testkit/src/lib.rs`
+  `crates/ui/src/lib.rs`, `crates/app/src/main.rs`, every file in
+  `bench/src/`, `crates/testkit/src/lib.rs`
 - `xtask/Cargo.toml` and every file in `xtask/src/`
 - `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`
 - `docs/00-overview.md`; `docs/01-architecture.md` for the layers, the
@@ -1070,4 +1077,4 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
   `editor.md`, `frontends.md`, `ui-and-theme.md`, `rendering.md`,
   `sys-and-platform.md` and `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0003, ADR-0008, ADR-0009, ADR-0010,
-  ADR-0017, ADR-0018, ADR-0027, ADR-0028, ADR-0029 and ADR-0044
+  ADR-0017, ADR-0018, ADR-0027, ADR-0028, ADR-0029, ADR-0044 and ADR-0046

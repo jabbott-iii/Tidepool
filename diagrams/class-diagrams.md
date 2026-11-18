@@ -2,8 +2,8 @@
 
 These diagrams show the types the built crates have: `tidepool-core`,
 `tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
-`tidepool-sys`, `tidepool-platform`, `tidepool-gfx`, `tidepool-font` and
-`tidepool-gui`.
+`tidepool-sys`, `tidepool-platform`, `tidepool-gfx`, `tidepool-font`,
+`tidepool-gui` and `tidepool-ui`.
 Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
@@ -11,14 +11,14 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M2.6 (2026-11-17, version 0.1), after M2.5, M2.8, M2.4, M2.7 and ADR-0043. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 29, and drawn in the other files of `diagrams/` under the names
+section 30, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -54,13 +54,15 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 golden references with `codec::qoi`, and the fuzz targets' result lines
 with `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
-`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 28), and
+`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 29), and
 `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
 framebuffer and backdrop, `font`'s faces, layout and atlas, and `core`'s
-geometry and colors (section 27).
+geometry and colors (section 27). `tidepool-ui` uses `core`'s geometry,
+colors and input events, and `TextLength` to keep a value out of `Debug`
+(section 28).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2514,7 +2516,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 28.
+- `BenchError` is in section 29.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2671,7 +2673,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 28.
+- `MissingSymbols` is in section 29.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -3294,7 +3296,7 @@ classDiagram
 - A `Font` keeps its bytes and the ranges and headers of the tables it
   checked; a glyph's data is read, and checked, only when its outline is
   asked for. `FontError` names the `Tag` of a table or the `GlyphId` of a
-  glyph; it is in section 28.
+  glyph; it is in section 29.
 - `Limits` and every type above but `Font`, `Outline` and `Bitmap` are
   `Copy`. `Outline::new` checks its contour ends and that every point is
   finite.
@@ -3478,7 +3480,7 @@ classDiagram
   from outliving the next call to `Atlas::glyph`, which may move glyphs
   when it evicts. A glyph is at most `glyph_limit()` a side, and a key
   that fails is remembered with its error until `clear`. `FontError` gains
-  `Faces` and `Atlas` (section 28).
+  `Faces` and `Atlas` (section 29).
 
 ## 27. gui: the first frame
 
@@ -3552,9 +3554,314 @@ classDiagram
 
 - `Gui` and `Window` are neither `Send` nor `Sync`: the window stays on
   the thread that opened it. `Turn` is `Copy`. `GuiError` wraps the
-  error of the crate that failed (section 28).
+  error of the crate that failed (section 29).
 
-## 28. Error enums across crates
+## 28. ui: the tree, layout, events, frames and the accessibility tree
+
+`tidepool-ui` (M3.1, ADR-0046) keeps a retained `Tree`: an arena of
+`Slot`s, each with a generation and at most one node's `NodeData`, so a
+`NodeId` (an index and a generation) of a removed node names nothing. An
+owner hands `insert` a `Node`, its `Style`, `Semantics`, flags and at most
+one boxed `Widget`; the tree keeps the style as given and a sanitized copy
+that layout uses, and records what the last layout gave each node in a
+`Placement`, its last paint as a fragment of `Command`s, and a few
+measured sizes in its `Memo`. The tree itself holds the focus, the hover
+path from the pointer's last position, the node a press captured, the
+node the next layout scrolls into view, and the nodes and damage waiting
+for the next frame.
+
+### 28.1 The tree, its nodes and their widgets
+
+```mermaid
+classDiagram
+    direction LR
+    class Tree["ui::tree::Tree"] {
+        -slots: Vec~Slot~
+        -free: Vec~u32~
+        -root: NodeId
+        -focus: Option~NodeId~
+        -hover: Vec~NodeId~
+        -pointer: Option~Point~
+        -capture: Option~NodeId~
+        -reveal: Option~NodeId~
+        -paint_queue: Vec~NodeId~
+        -damage: Vec~Rect~
+        +new() Tree
+        +insert(parent, node) Result~NodeId~
+        +remove(id) Result
+        +set_style(id, style) Result
+        +widget_mut~T~(id) Option
+        +state(id) Option~NodeState~
+        +layout(size, metrics)
+        +scroll_into_view(id) Result
+        +focus_next() Option~NodeId~
+    }
+    class Slot["ui::tree::Slot"] {
+        -generation: u32
+        -node: Option~NodeData~
+    }
+    class NodeData["ui::tree::NodeData"] {
+        -style: Style
+        -sane: Style
+        -parent: Option~NodeId~
+        -children: Vec~NodeId~
+        -depth: usize
+        -scroll: Point
+        -fragment: Vec~Command~
+        -painted: Option~Rect~
+    }
+    class NodeId["ui::tree::NodeId"] {
+        -index: u32
+        -generation: u32
+    }
+    class Node["ui::tree::Node"] {
+        +style: Style
+        +semantics: Semantics
+        +focusable: bool
+        +enabled: bool
+        +widget: Option of Box dyn Widget
+    }
+    class Widget["ui::tree::Widget"] {
+        <<trait>>
+        +measure(available, metrics) Size
+        +paint(cx, list)
+        +event(cx, event) Handled
+    }
+    class NodeState["ui::tree::NodeState"] {
+        +hovered: bool
+        +pressed: bool
+        +focused: bool
+        +focus_within: bool
+        +focus_visible: bool
+        +disabled: bool
+    }
+    class Style["ui::layout::Style"] {
+        +layout: Layout
+        +width: Length
+        +height: Length
+        +padding: Insets
+        +gap: f32
+        +scroll_x: bool
+        +scroll_y: bool
+        +opacity: f32
+        +hidden: bool
+    }
+    class Layout["ui::layout::Layout"] {
+        <<enumeration>>
+        Column
+        Row
+        Stack
+        Grid
+        Split
+    }
+    class Length["ui::layout::Length"] {
+        <<enumeration>>
+        Fixed
+        Fill
+        Content
+    }
+    class Placement["ui::layout::arrange::Placement"] {
+        -rect: Rect
+        -viewport: Rect
+        -content_size: Size
+        -clip: Rect
+    }
+    class Memo["ui::layout::arrange::Memo"] {
+        -entries: 4 hints and sizes
+    }
+    class Semantics["ui::a11y::Semantics"] {
+        +role: Role
+        +name: String
+        +value: Option~String~
+        +is_named() bool
+    }
+    class Role["ui::a11y::Role"] {
+        <<enumeration>>
+        None
+        Window
+        Button
+        TextInput
+        List
+        Dialog
+    }
+    class TextMetrics["ui::metrics::TextMetrics"] {
+        <<trait>>
+        +line(style) LineMetrics
+        +width(text, style) f32
+    }
+    class FixedMetrics["ui::metrics::FixedMetrics"] {
+        +advance: f32
+        +ascent: f32
+        +descent: f32
+    }
+
+    Tree "1" *-- "1..*" Slot
+    Slot "1" *-- "0..1" NodeData
+    NodeData *-- Style : style, sane
+    NodeData *-- Semantics
+    NodeData "1" *-- "0..1" Widget
+    NodeData *-- Placement
+    NodeData *-- Memo
+    NodeData --> NodeId : parent, children
+    Tree --> NodeId : root, focus, capture, reveal
+    Tree ..> Node : insert takes
+    Tree ..> NodeState : state returns
+    Node *-- Style
+    Node *-- Semantics
+    Node "1" *-- "0..1" Widget
+    Style *-- Layout
+    Style *-- Length : width, height
+    Semantics *-- Role
+    Widget ..> TextMetrics : measure
+    TextMetrics <|.. FixedMetrics
+```
+
+- `Tree` and its widgets are neither `Send` nor `Sync`: only the main
+  thread touches the tree (`docs/01-architecture.md` → "Threading
+  model"). `Widget: Any`, so `widget` and `widget_mut` downcast to the
+  owner's own type.
+- The `Role` box lists some of its variants.
+
+### 28.2 Events, frames and the accessibility tree
+
+`Tree::handle` gives each widget on the event's path an `EventContext`,
+which records what the handler asks for in `Requests`; the tree applies
+them once the handler returns and gathers the `Response`. `Tree::frame`
+repaints the nodes in its queue, each widget painting into a `DrawList`
+through a `PaintContext`, and returns a `Frame`: the whole tree's
+commands and the damage. `Tree::accessibility` returns a `Snapshot`.
+
+```mermaid
+classDiagram
+    direction LR
+    class Tree["ui::tree::Tree"] {
+        +handle(event) Response
+        +hit_test(point) Option~NodeId~
+        +frame(size, metrics) Option~Frame~
+        +accessibility() Snapshot
+    }
+    class Widget["ui::tree::Widget"] {
+        <<trait>>
+    }
+    class InputEvent["core::input::InputEvent"]
+    class EventContext["ui::input::EventContext"] {
+        -node: NodeId
+        -bounds: Rect
+        -state: NodeState
+        +emit(kind)
+        +request_focus()
+        +request_paint()
+        +request_layout()
+    }
+    class Requests["ui::input::Requests"] {
+        -actions: Vec~ActionKind~
+        -focus: bool
+        -paint: bool
+        -layout: bool
+    }
+    class Handled["ui::input::Handled"] {
+        <<enumeration>>
+        Yes
+        No
+    }
+    class Response["ui::input::Response"] {
+        +actions: Vec~Action~
+        +handled: bool
+    }
+    class Action["ui::input::Action"] {
+        +node: NodeId
+        +kind: ActionKind
+    }
+    class ActionKind["ui::input::ActionKind"] {
+        <<enumeration>>
+        Activate
+        Change
+        Submit
+        Dismiss
+    }
+    class PaintContext["ui::draw::PaintContext"] {
+        +node() NodeId
+        +bounds() Rect
+        +state() NodeState
+        +metrics() TextMetrics
+    }
+    class DrawList["ui::draw::DrawList"] {
+        -commands: Vec~Command~
+        +rect(rect, color)
+        +text(origin, text, style, color)
+        +push_clip(rect)
+    }
+    class Command["ui::draw::Command"] {
+        <<enumeration>>
+        Rect
+        CutCornerRect
+        Pill
+        Border
+        Brackets
+        Line
+        Text
+        Icon
+        Image
+        PushClip
+        PopClip
+        PushLayer
+        PopLayer
+        +bounds(metrics) Option~Rect~
+    }
+    class Frame["ui::draw::Frame"] {
+        +list: DrawList
+        +damage: Vec~Rect~
+    }
+    class Color["core::color::Color"]
+    class TextStyle["ui::metrics::TextStyle"]
+    class Snapshot["ui::a11y::Snapshot"] {
+        -nodes: Vec~AccessNode~
+        +nodes() AccessNode slice
+        +get(id) Option~AccessNode~
+    }
+    class AccessNode["ui::a11y::AccessNode"] {
+        +id: NodeId
+        +depth: usize
+        +role: Role
+        +name: String
+        +value: Option~String~
+        +focusable: bool
+        +focused: bool
+    }
+    class Display["std::fmt::Display"] {
+        <<trait>>
+    }
+    class TextLength["core::input::TextLength"]
+
+    Tree ..> InputEvent : handle takes
+    Tree ..> EventContext : makes one per handler
+    EventContext o-- Requests
+    Widget ..> EventContext : event
+    Widget ..> Handled : event returns
+    Widget ..> PaintContext : paint
+    Widget ..> DrawList : paint fills
+    Tree ..> Response : handle returns
+    Response "1" *-- "0..*" Action
+    Action *-- ActionKind
+    DrawList "1" *-- "0..*" Command
+    Command *-- Color
+    Command *-- TextStyle : Text
+    Command ..> TextLength : Debug shows Text so
+    Frame *-- DrawList
+    Tree ..> Frame : frame returns
+    Tree ..> Snapshot : accessibility returns
+    Snapshot "1" *-- "0..*" AccessNode
+    AccessNode ..> TextLength : Debug shows value so
+    Display <|.. Snapshot
+```
+
+- `Command` and `AccessNode` write `Debug` by hand, so a painted text or a
+  value shows as its length only (ADR-0043); `Snapshot`'s `Display`
+  writes names and values as they are, and a secret is never a value.
+- `UiError`, which only the calls that change the tree's nodes, focus or
+  scrolling return (layout, input and frames never fail), is in section 29.
+
+## 29. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
@@ -3569,7 +3876,8 @@ failed save's message as text. `BenchError` and `GuiError` wrap other
 crates': `BenchError`'s `Text` holds the `TextError` of a text operation a
 suite runs, and its `Font` the `FontError` of a font operation; each of
 `GuiError`'s variants holds the error of the crate it names, `platform`'s
-two, `gfx`'s or `font`'s. `xtask`
+two, `gfx`'s or `font`'s. `UiError` names the node, role, index or limit a
+call ran into, and wraps no other error. `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -3663,6 +3971,14 @@ classDiagram
         Font
         Pixels
     }
+    class UiError["ui::UiError"] {
+        <<enumeration>>
+        UnknownNode
+        RootNode
+        Unnamed
+        NotFocusable
+        TooDeep
+    }
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
     class FacesErrorKind["font::fallback::ErrorKind"]
@@ -3723,11 +4039,13 @@ classDiagram
     GuiError *-- PixelsError : Pixels
     GuiError *-- GfxError : Gfx
     GuiError *-- FontError : Font
+    Display <|.. UiError
+    StdError <|.. UiError
 ```
 
-## 29. Planned types
+## 30. Planned types
 
-The other 15 members are empty crates, so they have no class diagram yet;
+The other 14 members are empty crates, so they have no class diagram yet;
 the `tidepool` binary's few types are private to its `main.rs`.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
@@ -3736,8 +4054,10 @@ is described in words here.
 - `tidepool-platform`, besides its window, events and present (section
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
-- `tidepool-ui`: the widget tree's `NodeId`, the `TextMetrics` trait and
-  the `DrawList`, planned (M3.1); the theme's token set, planned (M3.2).
+- `tidepool-ui`, besides its tree, layout, events, frames and
+  accessibility tree (section 28): the theme's token set, planned (M3.2);
+  the controls (M3.6) and collections and overlays (M3.3), each a
+  `Widget`.
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
@@ -3789,17 +4109,20 @@ The main files these diagrams were drawn from:
   `atlas.rs`
 - `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`,
   `tokens.rs`
+- `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
+  `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
+  `draw.rs`, `a11y.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
-  `bench/Cargo.toml`
+  `crates/ui/Cargo.toml`, `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044, ADR-0045)
+  ADR-0044, ADR-0045, ADR-0046)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
   `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font`,
-  `crates/gui` and `bench`
+  `crates/gui`, `crates/ui` and `bench`

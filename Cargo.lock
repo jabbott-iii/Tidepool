@@ -126,6 +126,9 @@ version = "0.1.0"
 [[package]]
 name = "tidepool-ui"
 version = "0.1.0"
+dependencies = [
+ "tidepool-core",
+]
 
 [[package]]
 name = "tidepool-vcs"

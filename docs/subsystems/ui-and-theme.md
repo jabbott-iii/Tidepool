@@ -8,28 +8,42 @@ translucent hairline panels, teal signal accents and squared uppercase type.
 
 `ui` depends only on `core`. It knows nothing about pixels, fonts or
 terminals: it lays out in logical units and emits draw lists that `gui` and
-`tui` render.
+`tui` render. Widgets live in the tree's nodes, which routes events to them
+and up through their ancestors, and draw lists carry resolved colors
+(ADR-0046).
 
 ## Contents
 
+M3.1 built `tree`, `layout`, `focus`, `input`, `metrics`, `draw` and
+`a11y`. `theme` and `widgets` are planned, with their tasks in the crate's
+`README.md`; no roadmap task builds `anim` yet. The rustdoc of each built module is authoritative; its row
+summarizes it.
+
 | Module | Provides |
 | :- | :- |
-| `tree` | Retained widget tree with stable `NodeId`s, parent/child links, dirty flags |
-| `layout` | Row/column/stack/grid/split layout in logical units; constraints; scrolling |
-| `focus` | Focus ring, `focus-visible` tracking (keyboard vs pointer), tab order |
-| `input` | Routing of `core::input` events to the focused node and its ancestors |
-| `metrics` | `TextMetrics` trait (implemented by `gui` with `font`, by `tui` with cells) |
-| `draw` | `DrawList`: rect, cut-corner rect, border, bracket corners, line, text run, glyph icon, image, clip push/pop, layer opacity; damage rectangles |
+| `tree` | `Tree`, a retained tree of nodes named by `NodeId`s (an index and a generation, so a removed node's id names nothing), at most `MAX_DEPTH` (256) levels and `MAX_NODES` (2^20) nodes. Each `Node` has a `Style`, `Semantics`, focusable and enabled flags and at most one `Widget`, which measures, paints and handles events (ADR-0046); the tree tracks each node's `NodeState`: hovered, pressed, focused, focus within, focus visible, disabled |
+| `layout` | Row, column, stack, grid and split layout in logical units, with fixed, natural (`Content`) and filling lengths, minimums and maximums, padding, gaps, alignment, clipping, opacity, hiding and scrolling; every value is sanitized first, and a child never overflows a parent that does not scroll, exactly in `f32`. `scroll_into_view` takes effect at the next layout |
+| `focus` | The tab order (focusable, enabled, visible nodes in pre-order), `focus_next` and `focus_previous`, wrapping, and `focus-visible`: shown after a key, not after a click |
+| `input` | `Tree::handle`: key and text events go to the focused node, pointer events to the node under the pointer (or the one a press captured), then up through their ancestors until a widget handles one; the defaults, Tab moving focus and the wheel scrolling, come after; widgets emit actions for the owner, and what none handled comes back to it. `hit_test` respects clips and paint order |
+| `metrics` | `TextStyle` and the `TextMetrics` trait (implemented by `gui` with `font`, M3.5, and by `tui` with cells, M7.1), and `FixedMetrics` for tests and headless use |
+| `draw` | `DrawList` of `Command`s in logical units and resolved `core::Color`s (ADR-0046): rect, cut-corner rect, pill, border, bracket corners, line, text run, icon (an `IconId`), image, clip push/pop, layer opacity. `Tree::frame` repaints only the nodes whose data, state or layout changed, and returns the whole tree's list with the damage, the rects whose paint changed, or `None` when nothing did |
 | `theme` | Token set loaded from `themes/*.toml`; component styles derived from tokens |
 | `widgets` | Button, chip, tab strip, tree view, list, table, text input, search field, scrollbar, splitter, tooltip, toast, modal, command palette, status dot, card, section title, eyebrow, kicker |
-| `a11y` | Accessibility tree: role, name, value, state per node (exposed to OS bridges in M14) |
+| `a11y` | Accessibility tree: role, name, value, state per node (exposed to OS bridges in M14.2); `Tree::accessibility`'s snapshot leaves out nodes of no role and hidden ones |
 | `anim` | Optional, timer-driven transitions (hover fades, status pulse); off when reduced motion is set |
 
 ## Invariants
 
 - Layout is deterministic for the same tree, metrics and size.
-- Every interactive widget has a role and an accessible name.
-- Widgets never read colors directly; they ask `theme` for a token.
+- Every interactive widget has a role and an accessible name. The tree
+  refuses a focusable node without them (M3.1); a control that takes no
+  focus gives itself `Semantics` (M3.6).
+- A secret (a password, a key) is never a node's `Semantics` value, and
+  `Debug` shows a text a widget paints, or a node's value, as its length
+  only (ADR-0043).
+- Widgets never read colors directly; they ask `theme` for a token
+  (M3.2; until then a widget paints the colors its owner gives it,
+  ADR-0046).
 - **Uppercase is for chrome only.** Labels, eyebrows, buttons, table
   headers and section titles are uppercase with letter-spacing, as on the
   site. User content (file names, paths, code, symbols, search text,
@@ -181,9 +195,13 @@ From the site's syntax palette (`.highlight .*`):
 ## Tests
 
 - Golden frames for every widget in each state (rest, hover, focus,
-  active, disabled) at scale 1 and 2.
+  active, disabled) at scale 1 and 2 (M3.6, M3.3).
 - Layout property tests: children never overflow a non-scrolling parent;
-  layout is idempotent.
-- `xtask theme`: the contrast table above, recomputed from the theme file.
-- Accessibility tree snapshot for the main shell: every focusable node has
-  a role and name.
+  layout is idempotent and deterministic (`tests/layout.rs`, M3.1).
+- A property test that every focusable node has a role and a name through
+  random sequences of changes (`tests/a11y.rs`, M3.1); routing, focus and
+  frames and their damage in `tests/input.rs` and `tests/frame.rs`.
+- `xtask theme` (M3.2): the contrast table above, recomputed from the
+  theme file.
+- Accessibility tree snapshot for the main shell, once there is one
+  (M3.4): every focusable node has a role and name.

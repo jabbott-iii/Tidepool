@@ -2850,3 +2850,72 @@ decides; the roadmap task that first depends on one asks for the decision.
   reference machine, at its default size or full screen; the reference
   machine's panel changes; M3.4's loop handles resizes; or M3.2's theme
   lands.
+
+## ADR-0046 — M3.1's ui tree: widgets live in the tree's nodes, which tracks their interaction state and routes events up through their ancestors; draw lists carry resolved colors
+
+- **Status:** Accepted
+- **Date:** 2026-11-17
+- **Context:**
+  - M3.1 builds `tidepool-ui`'s `tree`, `layout`, `focus`, `input`,
+    `metrics`, `draw` and `a11y` (`docs/subsystems/ui-and-theme.md`).
+    The spec calls the tree a "retained widget tree" and has `input`
+    route events "to the focused node and its ancestors". It does not
+    say who runs a widget's code, or what color a draw-list command
+    carries.
+  - Later tasks build on both answers. M3.6's controls need golden
+    frames of each widget at rest, hover, focus, active and disabled.
+    M3.2's theme gives tokens values. `gui` paints the draw list with
+    `gfx` (M3.5), and `tui` maps it onto cells, with a 256-color
+    fallback for each token (M7.1). The editor view (M4.1) and its
+    panels keep their state in `editor` on the main thread
+    (`docs/01-architecture.md` → "Threading model").
+  - On 2026-11-17 the user chose the recommended option of each of two
+    questions: widgets in the tree's nodes, and resolved colors.
+- **Decision:**
+  - **Widgets in nodes.** Each node of `ui::tree::Tree` may own one
+    `Box<dyn Widget>`, which measures the node's content, paints it into
+    a draw list, and handles the events routed to it. The tree tracks
+    each node's interaction state, hovered, pressed, focused, focus
+    within and focus-visible, and disabled, so a widget paints from its
+    own data and that state.
+  - **Routing.** Key and text events go to the focused node, and pointer
+    events to the node under the pointer (or the one a press captured),
+    then bubble up through the node's ancestors until a widget handles
+    one. A handler may queue actions for the owner (an activation, a
+    change), ask for focus, and ask for a repaint or a relayout. What no
+    widget handles comes back to the owner (`editor`, `app`), after the
+    tree's own defaults: Tab moves focus, and the wheel scrolls.
+  - **Resolved colors.** Draw-list commands carry
+    `tidepool_core::Color`, straight-alpha RGBA. Widgets ask the theme
+    for a token's value when they paint (M3.2). `gui` blends it as it
+    is; `tui` composites a translucent color over the cell below it,
+    which gives the spec's solid values over `bg`, and finds its
+    256-color index from the theme's table (M7.1).
+- **Consequences:**
+  - M3.6's controls are plain structs that implement `Widget`; their
+    states come from the tree, not from each control.
+  - A widget whose data lives in `editor`, such as the editor view, is
+    handed what it paints (a rope snapshot, highlights) by its owner,
+    through the tree, and reports what it cannot handle as actions or
+    unhandled events. The tree is reached only from the main thread.
+  - A token whose value changes (a theme reload) needs every node
+    repainted; the tree has a call for that.
+  - The draw list does not depend on M3.2's token set, and colors that
+    are not tokens (the syntax palette, images) need nothing extra.
+    `tui`'s 256-color index for a translucent token comes from its
+    composited value, so it relies on the theme's table naming that
+    value.
+- **Alternatives considered:**
+  - Data-only nodes, with the owner dispatching each route and setting
+    each node's draw list: no trait objects and all state in one place,
+    but every widget's behavior split between a builder and the owner's
+    dispatcher, and the widget layer left for M3.6 to invent.
+  - Token references in the draw list, which frontends resolve through
+    the theme: `tui` would get the spec's 256-color index exactly, but
+    the draw list would depend on M3.2's tokens, every frontend would
+    hold the theme, and colors that are not tokens would need a second
+    kind of paint.
+- **Revisit when:** a widget cannot be written without reaching state
+  outside the tree on its own; a frame's paint shows up as more than a
+  millisecond in the keystroke-latency suite; or `tui`'s 256-color
+  fallback shows a token in the wrong index.
