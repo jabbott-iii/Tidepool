@@ -7,11 +7,13 @@ nothing about pixels, fonts or terminals.
 
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool), where
 `editor` builds its views with it, and `tidepool-gui` and `tidepool-tui`
-render its draw lists; it needs only `tidepool-core`, whose geometry,
-colors and input types it uses.
+render its draw lists; it needs `tidepool-core`, whose geometry, colors and
+input types it uses, and `tidepool-codec`, whose TOML parser reads theme
+files (ADR-0047).
 
-Layer 2, services. It may use `core`, as its row of the dependency matrix in
-[`docs/01-architecture.md`](../../docs/01-architecture.md) says.
+Layer 2, services. It may use `core` and `codec`, as its row of the
+dependency matrix in [`docs/01-architecture.md`](../../docs/01-architecture.md)
+says.
 
 ## Status
 
@@ -68,17 +70,36 @@ Built, with the roadmap task that built it:
   nodes of no role transparent and hidden ones left out. Every focusable
   node has a role and a name: the tree refuses a change that would break
   that. A field holding a secret leaves its value `None` — M3.1.
+- `theme`: `Theme`, read from a theme file by `Theme::parse` within
+  `codec`'s `Limits`, and `Theme::tidepool_dark`, the bundled
+  `themes/tidepool-dark.toml` compiled in: a value for each of the 26
+  color `Token`s, with the solid color over `bg` and the 256-color index
+  where the file gives them, the cut-corner size and the two fonts. A
+  key that is missing or unknown, a wrong type, a color that does not
+  parse, a `solid` for an opaque value, a translucent `bg`, an index out
+  of 0–255, a `cut` outside 0–64 and a name that is blank or not one
+  line of plain text are refused as `UiError::Theme`, naming the key (a
+  name that is not a bare key quoted) and its line, and a file that is
+  not TOML as `UiError::ThemeSyntax`. Its
+  `[contrast]` table is `cargo xtask theme`'s, which prints the spec's
+  contrast table from it and fails when a pair the theme uses for text is
+  below WCAG AA (ADR-0047) — M3.2.
 
 The tests check, among the rest, that children never overflow a parent
 that does not scroll and that layout is idempotent and deterministic, over
 random trees with random styles (`tests/layout.rs`), and that every
 focusable node has a role and a name over random sequences of changes
-(`tests/a11y.rs`).
+(`tests/a11y.rs`); and that random edits of the bundled theme never make
+its reader panic (`tests/theme.rs`). The fuzz target `theme`, in
+`tests/fuzz.rs`, reads with small `Limits`, from seeds made by hand in
+`fuzz/corpus/theme/`, some exactly at each limit, and from `themes/` in
+place; it checks that a theme it reads keeps the format's rules and that
+a refusal names a key on a line of the input (ADR-0027, ADR-0047).
 
 Not yet, with the roadmap task that adds it:
 
-- `theme` and `cargo xtask theme` — M3.2.
-- the controls — M3.6.
+- the controls, with the component styles derived from the theme's
+  tokens — M3.6.
 - collections and overlays — M3.3.
 - painting a draw list into pixels is `tidepool-gui`'s, with golden
   frames of `ui`'s scenes — M3.5.
@@ -94,8 +115,9 @@ A workspace crate whose row of the matrix allows it depends on it by path:
 tidepool-ui = { path = "../ui" }
 ```
 
-Build a side panel, an editor area and a button, lay them out, move focus
-with Tab, take a frame and read the accessibility tree:
+Build a side panel, an editor area and a button in the bundled theme's
+colors, lay them out, move focus with Tab, take a frame and read the
+accessibility tree:
 
 ```rust
 use tidepool_core::color::Color;
@@ -105,6 +127,7 @@ use tidepool_ui::a11y::{Role, Semantics};
 use tidepool_ui::draw::{Command, DrawList, PaintContext};
 use tidepool_ui::layout::{Length, Style};
 use tidepool_ui::metrics::FixedMetrics;
+use tidepool_ui::theme::{Theme, Token};
 use tidepool_ui::{Node, Tree, UiError, Widget};
 
 /// Fills its node with one color.
@@ -120,8 +143,10 @@ fn main() -> Result<(), UiError> {
     // `gui` measures with its fonts and `tui` in cells; this is for tests.
     let metrics = FixedMetrics::DEFAULT;
     let window = Size::new(800.0, 600.0);
-    // Stand-ins for `editor-bg` and `amber`, which M3.2's theme gives.
-    let (editor_bg, amber) = (Color::rgb(0x0a, 0x0f, 0x11), Color::rgb(0xf2, 0xc2, 0x00));
+    // The bundled theme's `editor-bg` and `amber`.
+    let theme = Theme::tidepool_dark();
+    let (editor_bg, amber) = (theme.color(Token::EditorBg), theme.color(Token::Amber));
+    assert_eq!(amber, Color::rgb(0xf2, 0xc2, 0x00));
 
     let mut tree = Tree::new();
     let root = tree.root();
@@ -173,7 +198,9 @@ fn main() -> Result<(), UiError> {
   [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0004 (the
   jabbott.dev design language); ADR-0046 (widgets in the tree's nodes,
-  routing up through ancestors, and resolved colors in draw lists).
+  routing up through ancestors, and resolved colors in draw lists);
+  ADR-0047 (theme files read with `codec::toml`, their format, and the
+  pairs `cargo xtask theme` checks).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules
@@ -190,7 +217,8 @@ fn main() -> Result<(), UiError> {
 
 ```bash
 cargo test -p tidepool-ui
-cargo xtask theme    # from M3.2
+cargo xtask theme
+cargo xtask fuzz-smoke --target theme
 cargo xtask golden    # ui's scenes from M3.5
 ```
 

@@ -65,6 +65,9 @@ const MATRIX: &str = "# 01 — Architecture (fixture)\n\
     \n\
     ## Workspace layout\n";
 
+/// The real repository's theme, which `cargo xtask theme` passes.
+const THEME: &str = include_str!("../../themes/tidepool-dark.toml");
+
 /// A small roadmap for the fixture: the task IDs its READMEs may name
 /// ([`readme_of`]), in the format of `docs/roadmap.md`.
 const ROADMAP: &str = "# Roadmap (fixture)\n\
@@ -410,8 +413,8 @@ impl Fixture {
     /// workspace, the two unsafe crate roots, two crate roots that forbid
     /// `unsafe` in doc tests (ADR-0036), the real allowlist, `LICENSE`
     /// and `NOTICE` at the root, a roadmap ([`ROADMAP`]) and its features
-    /// ([`FEATURES`]), a lockfile, and the two workflows ([`CI_WORKFLOW`],
-    /// [`CODEQL_WORKFLOW`]).
+    /// ([`FEATURES`]), a lockfile, the two workflows ([`CI_WORKFLOW`],
+    /// [`CODEQL_WORKFLOW`]), and the real repository's theme ([`THEME`]).
     fn passing(name: &str) -> Self {
         let fixture = Self::empty(name);
         fixture.write(
@@ -445,6 +448,7 @@ impl Fixture {
         fixture.write("xtask/deps-allowlist.txt", ALLOWLIST);
         fixture.workflow("ci.yml", CI_WORKFLOW);
         fixture.workflow("codeql.yml", CODEQL_WORKFLOW);
+        fixture.write("themes/tidepool-dark.toml", THEME);
         fixture.lock();
         fixture
     }
@@ -4039,6 +4043,7 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             "headers",
             "workflows",
             "ucd",
+            "theme",
             "summary"
         ],
         "{}",
@@ -4064,17 +4069,15 @@ fn ci_keeps_going_after_a_formatting_failure_and_exits_1() {
             ("headers", "ok"),
             ("workflows", "ok"),
             ("ucd", "ok"),
+            ("theme", "ok"),
             ("tools", "not"),
-            ("theme", "not"),
             ("ci:", "FAILED:"),
         ],
         "{}",
         run.stdout
     );
     assert!(
-        summary.ends_with(
-            "ci: FAILED: 1 of 12 steps failed: fmt; not yet implemented: tools, theme\n"
-        ),
+        summary.ends_with("ci: FAILED: 1 of 13 steps failed: fmt; not yet implemented: tools\n"),
         "{summary}"
     );
     assert!(
@@ -4138,6 +4141,11 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     fixture.write("crates/text/src/pos/grapheme/tables.rs", "// stale\n");
     // golden: a file among the references that is not one.
     fixture.write("tests/golden/notes.txt", "notes\n");
+    // theme: muted text too dark for the panels it is used on.
+    fixture.write(
+        "themes/tidepool-dark.toml",
+        &THEME.replace("\"#7d898e\"", "\"#5f6a6e\""),
+    );
 
     let run = fixture.run("ci");
     run.expect_code(1);
@@ -4156,8 +4164,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
             ("headers", "FAILED"),
             ("workflows", "FAILED"),
             ("ucd", "FAILED"),
+            ("theme", "FAILED"),
             ("tools", "not"),
-            ("theme", "not"),
             ("ci:", "FAILED:"),
         ],
         "{}",
@@ -4165,8 +4173,8 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 11 of 12 steps failed: fmt, clippy, test, golden, layers, crates, \
-         features, unsafe-audit, headers, workflows, ucd; not yet implemented: tools, theme"
+        "ci: FAILED: 12 of 13 steps failed: fmt, clippy, test, golden, layers, crates, \
+         features, unsafe-audit, headers, workflows, ucd, theme; not yet implemented: tools"
     );
     let output = format!("{}{}", run.stdout, run.stderr);
     for reason in [
@@ -4187,6 +4195,17 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
     ] {
         assert!(output.contains(reason), "`{reason}` missing:\n{output}");
     }
+    let use_line = THEME[..THEME
+        .find("text = \"text-3\"")
+        .expect("the theme uses text-3")]
+        .matches('\n')
+        .count()
+        + 1;
+    let reason = format!(
+        "violation: themes/tidepool-dark.toml:{use_line}: `text-3` on `bg` is 3.51:1, below the \
+         4.5:1 that normal text needs"
+    );
+    assert!(output.contains(&reason), "`{reason}` missing:\n{output}");
 }
 
 #[test]
@@ -4229,8 +4248,8 @@ fn ci_compiles_nothing_after_deps_fails() {
             ("headers", "ok"),
             ("workflows", "ok"),
             ("ucd", "ok"),
+            ("theme", "ok"),
             ("tools", "not"),
-            ("theme", "not"),
             ("ci:", "FAILED:"),
         ],
         "{}",
@@ -4238,8 +4257,8 @@ fn ci_compiles_nothing_after_deps_fails() {
     );
     assert_eq!(
         run.verdict(),
-        "ci: FAILED: 2 of 12 steps failed: deps, layers; not run: clippy, test, golden; not \
-         yet implemented: tools, theme"
+        "ci: FAILED: 2 of 13 steps failed: deps, layers; not run: clippy, test, golden; not \
+         yet implemented: tools"
     );
     assert!(
         run.stdout.contains(
@@ -4347,8 +4366,8 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
             ("headers", "ok"),
             ("workflows", "ok"),
             ("ucd", "ok"),
+            ("theme", "ok"),
             ("tools", "not"),
-            ("theme", "not"),
             ("ci:", "ok"),
         ],
         "{}",
@@ -4370,7 +4389,7 @@ fn ci_lists_and_counts_skipped_tests_and_still_passes() {
     }
     assert_eq!(
         run.verdict(),
-        "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme"
+        "ci: ok (3 tests SKIPPED): 13 of 13 steps passed; not yet implemented: tools"
     );
     // The test output still reaches the user as it came.
     assert!(
@@ -4569,7 +4588,7 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
     assert!(run.stdout.contains("\n== deps: "), "{}", run.stdout);
     assert!(
         run.stdout.contains(
-            "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme\n"
+            "ci: ok (3 tests SKIPPED): 13 of 13 steps passed; not yet implemented: tools\n"
         ),
         "{}",
         run.stdout
@@ -4598,14 +4617,14 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
         // Four tests passed, three of which printed `SKIPPED:`: one pass.
         "<dd>1 passed</dd>",
         "<div><dt>Skipped</dt><dd>3</dd></div>",
-        "<dd>12 of 12 passed</dd>",
+        "<dd>13 of 13 passed</dd>",
         "<dd>5 in the workspace</dd>",
         "<dd>1 of 2 tasks</dd>",
         "--example formats\nformats &lt;ok&gt; &amp; 🌊</pre>",
         "--example editing\nediting │ café</pre>",
         "</span>\n== summary\ndeps ",
-        "ci: ok (3 tests SKIPPED): 12 of 12 steps passed; not yet implemented: tools, \
-         theme</pre>",
+        "ci: ok (3 tests SKIPPED): 13 of 13 steps passed; not yet implemented: \
+         tools</pre>",
     ] {
         assert!(html.contains(expected), "missing {expected:?}");
     }
@@ -4773,7 +4792,7 @@ fn site_builds_the_page_from_the_gate_the_examples_and_the_commit_s_facts() {
     run.expect_code(1);
     assert!(
         run.stdout
-            .contains("ci: ok (3 tests SKIPPED): 12 of 12 steps passed"),
+            .contains("ci: ok (3 tests SKIPPED): 13 of 13 steps passed"),
         "{}",
         run.stdout
     );
@@ -4843,15 +4862,15 @@ fn usage_errors_exit_2_and_later_commands_exit_1() {
     );
     assert_eq!(run.stdout, "");
 
-    for (command, task) in [("tools", "roadmap M5.1"), ("theme", "roadmap M3.2")] {
-        let run = xtask(&[command], None);
-        run.expect_code(1);
-        assert_eq!(
-            run.stderr,
-            format!("xtask: `{command}` is not yet implemented ({task})\n")
-        );
-        assert_eq!(run.stdout, "");
-    }
+    // `tools` is the one command left that a later task implements in
+    // `ci` (M5.1); `package` is the other, outside it.
+    let run = xtask(&["tools"], None);
+    run.expect_code(1);
+    assert_eq!(
+        run.stderr,
+        "xtask: `tools` is not yet implemented (roadmap M5.1)\n"
+    );
+    assert_eq!(run.stdout, "");
 
     let run = xtask(&["--help"], None);
     run.expect_code(0);

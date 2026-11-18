@@ -6,17 +6,17 @@ stylesheet (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`),
 whose own header calls it a dark "capsuleer UI": deep-space backdrop,
 translucent hairline panels, teal signal accents and squared uppercase type.
 
-`ui` depends only on `core`. It knows nothing about pixels, fonts or
-terminals: it lays out in logical units and emits draw lists that `gui` and
-`tui` render. Widgets live in the tree's nodes, which routes events to them
+`ui` depends on `core`, and on `codec`, whose TOML parser reads theme
+files (ADR-0047). It knows nothing about pixels, fonts or terminals: it lays
+out in logical units and emits draw lists that `gui` and `tui` render. Widgets live in the tree's nodes, which routes events to them
 and up through their ancestors, and draw lists carry resolved colors
 (ADR-0046).
 
 ## Contents
 
 M3.1 built `tree`, `layout`, `focus`, `input`, `metrics`, `draw` and
-`a11y`. `theme` and `widgets` are planned, with their tasks in the crate's
-`README.md`; no roadmap task builds `anim` yet. The rustdoc of each built module is authoritative; its row
+`a11y`, and M3.2 `theme`. `widgets` are planned, with their tasks in the
+crate's `README.md`; no roadmap task builds `anim` yet. The rustdoc of each built module is authoritative; its row
 summarizes it.
 
 | Module | Provides |
@@ -27,7 +27,7 @@ summarizes it.
 | `input` | `Tree::handle`: key and text events go to the focused node, pointer events to the node under the pointer (or the one a press captured), then up through their ancestors until a widget handles one; the defaults, Tab moving focus and the wheel scrolling, come after; widgets emit actions for the owner, and what none handled comes back to it. `hit_test` respects clips and paint order |
 | `metrics` | `TextStyle` and the `TextMetrics` trait (implemented by `gui` with `font`, M3.5, and by `tui` with cells, M7.1), and `FixedMetrics` for tests and headless use |
 | `draw` | `DrawList` of `Command`s in logical units and resolved `core::Color`s (ADR-0046): rect, cut-corner rect, pill, border, bracket corners, line, text run, icon (an `IconId`), image, clip push/pop, layer opacity. `Tree::frame` repaints only the nodes whose data, state or layout changed, and returns the whole tree's list with the damage, the rects whose paint changed, or `None` when nothing did |
-| `theme` | Token set loaded from `themes/*.toml`; component styles derived from tokens |
+| `theme` | `Theme`, the token set read from a theme file (`themes/*.toml`, the format of ADR-0047) by `Theme::parse` within `codec::Limits`, and the bundled `tidepool-dark` (`Theme::tidepool_dark`): a value for each `Token`, with its solid color and 256-color index where the file gives them, `cut` and the two fonts; a key that is missing or unknown, a wrong type, a color that does not parse or a translucent `bg` is refused, naming the key and, unless it is missing, its line. The component styles derived from tokens, and how a widget reaches the theme when it paints, come with the controls (M3.6, M3.3) |
 | `widgets` | Button, chip, tab strip, tree view, list, table, text input, search field, scrollbar, splitter, tooltip, toast, modal, command palette, status dot, card, section title, eyebrow, kicker |
 | `a11y` | Accessibility tree: role, name, value, state per node (exposed to OS bridges in M14.2); `Tree::accessibility`'s snapshot leaves out nodes of no role and hidden ones |
 | `anim` | Optional, timer-driven transitions (hover fades, status pulse); off when reduced motion is set |
@@ -41,9 +41,9 @@ summarizes it.
 - A secret (a password, a key) is never a node's `Semantics` value, and
   `Debug` shows a text a widget paints, or a node's value, as its length
   only (ADR-0043).
-- Widgets never read colors directly; they ask `theme` for a token
-  (M3.2; until then a widget paints the colors its owner gives it,
-  ADR-0046).
+- Widgets never read colors directly; they take a token's value from a
+  `Theme` (M3.2). Until the controls (M3.6), a widget paints the colors
+  its owner gives it, and the owner takes them from the theme (ADR-0046).
 - **Uppercase is for chrome only.** Labels, eyebrows, buttons, table
   headers and section titles are uppercase with letter-spacing, as on the
   site. User content (file names, paths, code, symbols, search text,
@@ -55,7 +55,11 @@ summarizes it.
 
 Values are taken from jabbott.dev's `:root`. "Solid" values are the
 translucent tokens composited over `bg`, for surfaces drawn without a
-backdrop and for the TUI.
+backdrop and for the TUI. `on-amber`, `on-teal` and `comment` are the
+colors the contrast rules below name (ADR-0047). The file writes each
+color as `value`, `solid` and `ansi` (the 256-color index), `cut` under
+`[sizes]` and the fonts under `[fonts]`; `ui::theme`'s rustdoc is the
+format's reference.
 
 | Token | Value | Solid | 256-color | Use |
 | :- | :- | :- | :- | :- |
@@ -82,15 +86,24 @@ backdrop and for the TUI.
 | `error` | `#ff8a80` | — | 210 | Errors, git deleted |
 | `editor-bg` | `#0a0f11` | — | 233 | Editor and code blocks (site's code-block background) |
 | `bar` | `rgba(30,37,40,0.72)` | `#191e20` | 234 | Status bar, command bar |
+| `on-amber` | `#111111` | — | — | Text on `amber`: the primary button's label |
+| `on-teal` | `#071012` | — | — | Text on `teal`: an active chip's label |
+| `comment` | `#6f7d82` | — | — | Comments in code, only on `editor-bg` |
 | `cut` | 10 px | — | — | Cut-corner size for primary buttons |
 | `font-ui` | Saira | — | — | UI chrome |
 | `font-mono` | JetBrains Mono | — | — | Code, terminal, numbers, paths |
 
 ## Contrast (WCAG 2.x, measured)
 
-Computed from the values above. `cargo xtask theme` recomputes these and
-fails if a pair the theme uses for text drops below its minimum (4.5:1 for
-normal text, 3:1 for large text and UI glyphs).
+Computed from the values above, with WCAG 2.x's relative luminance. `cargo
+xtask theme` prints this table from the theme file, and a test compares it
+with this one byte for byte. The file's `[contrast]` names the table's
+rows and columns, and its `[[contrast.use]]` entries the pairs the theme
+uses for text, each with its size: the check fails if one drops below its
+minimum (4.5:1 for normal text, 3:1 for large text and UI glyphs),
+unrounded (ADR-0047). A translucent surface is its solid value over `bg`,
+and otherwise composited over the color the entry names, as for the
+editor's selection, `teal-glow` over `editor-bg`.
 
 | Text token | on `bg` | on `editor-bg` | on `panel` (solid) | on `slate` |
 | :- | :- | :- | :- | :- |
@@ -100,7 +113,7 @@ normal text, 3:1 for large text and UI glyphs).
 | `teal` | 10.12 | 9.97 | 9.78 | 6.52 |
 | `amber` | 11.65 | 11.47 | 11.26 | 7.50 |
 | `error` | 8.58 | 8.44 | 8.29 | 5.53 |
-| comment `#6f7d82` | 4.60 | 4.53 | **4.44 (large only)** | **2.96 (fails)** |
+| `comment` | 4.60 | 4.53 | **4.44 (large only)** | **2.96 (fails)** |
 
 Rules that follow:
 
@@ -201,7 +214,13 @@ From the site's syntax palette (`.highlight .*`):
 - A property test that every focusable node has a role and a name through
   random sequences of changes (`tests/a11y.rs`, M3.1); routing, focus and
   frames and their damage in `tests/input.rs` and `tests/frame.rs`.
-- `xtask theme` (M3.2): the contrast table above, recomputed from the
-  theme file.
+- `cargo xtask theme` (M3.2): the contrast table above, recomputed from
+  the theme file, and the pairs it uses for text at their minimums; its
+  tests break each rule, and change a token so that a pair fails AA.
+- `ui`'s theme reader (`src/theme.rs`, `tests/theme.rs`, M3.2): the
+  bundled file is the token table above, each rule is refused with its key
+  and, but for a missing key, its line, and random edits of the file never make it panic; its fuzz
+  target, `theme` (`tests/fuzz.rs`), runs it under `cargo xtask
+  fuzz-smoke` (`docs/04-quality.md` → "Fuzz smoke").
 - Accessibility tree snapshot for the main shell, once there is one
   (M3.4): every focusable node has a role and name.

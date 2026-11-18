@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 tidepool-core = { path = "../core" }
+tidepool-codec = { path = "../codec" }
 
 [lints]
 workspace = true

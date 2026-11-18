@@ -126,12 +126,15 @@ The design is ADR-0027's; the engine's rustdoc
   `fuzz/corpus/` or `fuzz/crashes/` has no row, or when a row's
   `fuzz/corpus/<target>/` is missing or holds no regular file that is not
   hidden. `fuzz/NOTICE.md` says where a saved input may come from.
-- **Targets now** (M1.6, `qoi` from M2.4 and `ttf` from M2.8). The
+- **Targets now** (M1.6, `qoi` from M2.4, `ttf` from M2.8 and `theme`
+  from M3.2). The
   parsers run with small `Limits` (4 KiB of input, depth 32, strings of
   1 KiB, numbers of 64 bytes, 256 entries, images of 64 px a side and
   4 KiB of pixels; for `ttf`, 4 KiB of file, 256 points a glyph, 4 levels
   and 64 components of composites, 8 kerning subtables, bitmaps of 64 px
-  a side, and 4,096 steps of work to rasterize a glyph), and
+  a side, and 4,096 steps of work to rasterize a glyph; for `theme`, 8 KiB
+  of input, depth 8, strings of 128 bytes, numbers of 32 and 64
+  entries), and
   their corpora hold `edge-*` seeds that sit exactly at each limit, so
   that one mutation crosses it; the decoder of `text::encoding` takes no
   `Limits`. Each has a 16 MiB written-memory cap.
@@ -143,6 +146,7 @@ The design is ADR-0027's; the engine's rustdoc
   | `qoi` | `codec` | `qoi::decode` | an error's offset is in the input and names the byte it describes (the magic, a zero or too-large side, more pixels than `max_decoded_bytes`, the channels or color-space byte, a run past the last pixel, a wrong end marker, bytes after it); an image that decodes has the input's header, within the limits, as many pixels as it says, and ends with the end marker; `qoi::encode` refuses an RGB image at its first pixel whose alpha is not 255, and otherwise writes what decodes to the same image and encodes again to the same bytes | — |
   | `encoding` | `text` | `encoding::Decoder`, fed in pieces that the input decides, and `decode` | the pieces decode as the whole does; the text and the detected format are what `std` decodes; the runs of replaced bytes keep their promises; `original_bytes()` is the input; a text decoded without a replacement encodes back to it | — |
   | `ttf` | `font` | `ttf::Font::parse`; for a font that parses, its first 64 glyphs and its last: their metrics and outlines, and `outline::rasterize` of each at 12 px and at 40 px shifted 0.75 px; `glyph_index`, `kerning`, the names and `OS/2` | a parse error's offset is in the input, where its kind says (inside the table its record gives, or at the directory record), and a limit's error names that limit; a glyph's error names a glyph that exists, at an offset in the input; an outline has at most the limit's points and its contours end at its point count; a bitmap is within the limit, `width × height` bytes whose four edges are the scaled control box rounded outwards, the same twice, or is refused for its size or its work alone; characters map only to glyphs that exist and are not `.notdef`; kerning is 0 past the glyph count | — |
+  | `theme` | `ui` | `theme::Theme::parse` of the input, or of its lossy decoding when it is not UTF-8 | a theme that reads keeps the format's rules (`bg` opaque; a `solid` opaque and only for a translucent value; every token's solid color opaque; `cut` from 0 to 64; the name and fonts one line of plain text, not blank, of at most 64 bytes) and reads again the same; a refusal names a key, on a line of the input, in a message with nothing unescaped that `xtask` escapes; nothing but those and `codec`'s errors is returned | `themes/` (ADR-0047) |
 
   Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, Markdown, regex
   compile, VT parser, JSON-RPC framing, LSP messages, TAP messages, git
@@ -390,14 +394,14 @@ The design is ADR-0027's; the engine's rustdoc
 
 | Command | Fails when |
 | :- | :- |
-| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows` or `ucd` fails (`tools` and `theme` join once implemented) |
+| `cargo xtask ci` | `deps`, `cargo fmt --check`, clippy `-D warnings`, `cargo test`, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd` or `theme` fails (`tools` joins once implemented) |
 | `cargo xtask deps` | A workspace resolves or declares a registry or git package that `xtask/deps-allowlist.txt` doesn't approve (or declares it without `=version`), a `Cargo.lock` has an unapproved `source`, a path package lies outside the repository or isn't a member of the workspace that uses it, a workspace other than the root one and `agents/` exists, a cargo config file holds more than aliases, the repository holds a compiled artifact, a symbolic link or a file `deps` can't read, or cargo can't resolve a workspace offline |
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro outside `sys`/`platform` that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
 | `cargo xtask headers` | A source file (Rust, shell script, workflow, HTML, CSS, JavaScript) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line or an HTML file's doctype), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021, ADR-0030) |
 | `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
-| `cargo xtask theme` | Not yet implemented (M3.2). Planned: a theme token pair used for text falls below its contrast minimum (`docs/subsystems/ui-and-theme.md`) |
+| `cargo xtask theme` | A pair of colors that a theme in `themes/` lists in its `[[contrast.use]]` falls below its minimum, unrounded: 4.5:1 for `normal` text, 3:1 for `large` text and UI glyphs, by WCAG 2.x's formula; a translucent surface is composited over a translucent color; a `solid` value is translucent, given for an opaque value, or more than one level a channel from its value over `bg` as `core` composites it; `colors.bg` is missing or translucent; `[colors]` or `[contrast]` is missing or not a table, a color is not a table, or has no `value` or one that is not a string or does not parse (which is its one violation: what names it adds none), `[contrast]` has a key but `text`, `on` and `use`, its `text`, `on` or `use` is missing, empty or names no color of the file, an entry of `use` is not a table, lacks `text`, `on` or `size`, names in `text` or `over` no color of the file, has a `size` but `normal` and `large` or a key it does not have; a theme does not parse within its limits (1 MiB, 8 levels); `themes/` is missing, a symbolic link or not a directory, holds no `.toml` file, or holds a link, or something named like a theme that is not a regular file or whose name is not UTF-8. It prints each theme's contrast table in the Markdown of `docs/subsystems/ui-and-theme.md` → Contrast, which a test compares with it byte for byte, and how many pairs it checked (ADR-0047). A step of `ci` |
 | `cargo xtask golden [--bless <scene>...]` | A scene's command fails; a scene differs from its reference by more than its crate's tolerance, or has no reference, or a reference of another size or that does not decode; a reference no scene drew, or anything else in `tests/golden/`; a scene file that is not a PAM it reads, or a scene name two crates draw; a member with a `golden` test and no row in `SCENES`, or a row whose member has no such test; drawing crates drew nothing and there are no references; `cargo metadata` fails; or `target/golden/`, `tests/golden/` or a directory on the way to either is a symbolic link, or cannot be read or written. With `--bless`, also a name that no scene drew; then nothing is written ("Golden frames", ADR-0044). A step of `ci`, without `--bless`. TUI snapshots join with M7 |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | `fuzz/`, `fuzz/corpus/` or `fuzz/crashes/` is a link or not a directory, a directory in `fuzz/corpus/` or `fuzz/crashes/` has no row in its table, or a row has no seeds (then nothing runs); or a target panics, hangs, takes the written or the reserved memory past its cap, fails its own check, reports another seed or too few seconds, or its test fails, does not build, does not run or dies, or cargo fails before it runs ("Fuzz smoke", above). Not a step of `ci` |
 | `cargo xtask bench [filter] [--save --machine NAME]` | Reports only, and is not a step of `ci`: it fails only when cargo cannot build or start `tidepool-bench`, or that binary exits 1 for a bad argument, a filter that matches no suite, a failed suite, or a baseline that cannot be read, parsed or written (or, with `--save`, was recorded on another machine). A median more than 10% slower than the baseline's is marked, not failed ("Benchmarks", ADR-0035) |
@@ -421,7 +425,9 @@ a failed `cargo metadata` is relayed as for the other checks ("Secrets in
 messages", below). `features` reads `docs/features.jsonc` and
 `docs/roadmap.md`, and its violations quote only feature names, task IDs,
 task titles, the name of a member it does not know and the character a
-JSON parse error names, each escaped on one line. `site` reads `site/`, `rust-toolchain.toml`, `.git` only
+JSON parse error names, each escaped on one line. `theme` reads each
+`themes/*.toml`, and quotes only color names, keys, the theme's `name` and
+the character a TOML parse error names, each escaped on one line. `site` reads `site/`, `rust-toolchain.toml`, `.git` only
 as far as HEAD's hash when the `TIDEPOOL_SITE_*` variables are not set,
 and its examples' output ("Demo page"). It reads other files only
 as far as a check needs: the first 1 KiB, to compare with compiled-code
@@ -532,13 +538,13 @@ network through its tool.
   The Claude Code hook (`.claude/hooks/deps-guard.sh`) relies on it. In
   `ci` the `deps` step line reads the same, but the summary does not
   repeat it.
-- Named but not yet implemented: `tools` (M5.1), `theme` (M3.2) and
-  `package` (M11.6, M12.4, M14.4).
+- Named but not yet implemented: `tools` (M5.1) and `package` (M11.6,
+  M12.4, M14.4).
   Each named one exits 1 and
   says it is not yet implemented, whatever other options it gets; only
   `--help`/`-h` (usage text, exit 0) and `--root` without a value (exit 2)
-  are handled first. `ci` lists `tools` and `theme` as "not yet
-  implemented". None is ever reported as a pass.
+  are handled first. `ci` lists `tools` as "not yet implemented". None is
+  ever reported as a pass.
 - `xtask` runs `cargo` itself, not through `tidepool-toolchain` (the
   exception named in `AGENTS.md` rule 2, ADR-0017): the cargo that
   started it (`CARGO`, if not empty), or else `cargo` on the `PATH`. Its
@@ -1455,7 +1461,8 @@ network through its tool.
 - Runs, in this order: `deps`, `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
   `golden` (without `--bless`, ADR-0044), `layers`, `crates`, `features`,
-  `unsafe-audit`, `headers`, `workflows`, `ucd` (as `ucd --check`). Each step
+  `unsafe-audit`, `headers`, `workflows`, `ucd` (as `ucd --check`),
+  `theme`. Each step
   starts with a `== <step>: ...` heading; the cargo steps print cargo's own
   output. `cargo xtask site` runs the same steps, in-process, for the demo
   page ("Demo page", below).
@@ -1465,7 +1472,7 @@ network through its tool.
   rejected
   (build scripts, proc macros, tests). `fmt` only reads source, so it still
   runs. `layers`, `crates`, `features`, `unsafe-audit`, `headers`,
-  `workflows` and `ucd` are not gates, and run after clippy, test and
+  `workflows`, `ucd` and `theme` are not gates, and run after clippy, test and
   `golden`. So code that `deps` accepts but they reject,
   such as a vendored crate that cargo made a member, is still compiled, and
   its build scripts and tests run, before they report it.
@@ -1485,12 +1492,12 @@ network through its tool.
   so such a write should start with a newline. Prefer standard error.
 - It ends with a summary: each step's result and time (the test row with
   its `(N SKIPPED)`), "not run (deps failed)" where that applies, and
-  `tools` and `theme` as "not yet implemented". The last line is `ci: ok:
-  N of N steps passed` or `ci: FAILED: M of N steps failed: <steps>`, then
-  `; not run: <steps>` if any, and `; not yet implemented: tools, theme`
-  while those are pending. After skips, `(1 test SKIPPED)`, `(2 tests
-  SKIPPED)` and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests
-  SKIPPED): 12 of 12 steps passed; not yet implemented: tools, theme`.
+  `tools` as "not yet implemented". The last line is `ci: ok: N of N
+  steps passed` or `ci: FAILED: M of N steps failed: <steps>`, then
+  `; not run: <steps>` if any, and `; not yet implemented: tools` while
+  that is pending. After skips, `(1 test SKIPPED)`, `(2 tests SKIPPED)`
+  and so on follow `ok` or `FAILED`, as in `ci: ok (2 tests SKIPPED): 13
+  of 13 steps passed; not yet implemented: tools`.
   Scripts should rely on the exit status, which is 0 only if every step
   passed.
 

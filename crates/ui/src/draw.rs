@@ -20,8 +20,10 @@
 //! New in Tidepool; not ported.
 //!
 //! Commands are in logical units and window coordinates, and carry
-//! resolved colors, straight-alpha [`Color`]s (ADR-0046): widgets ask the
-//! theme for a token's value when they paint (M3.2). `gui` paints a list
+//! resolved colors, straight-alpha [`Color`]s (ADR-0046): a widget paints
+//! a token's value from the theme, [`Theme`](crate::theme::Theme) (M3.2);
+//! how it reaches the theme when it paints comes with the controls (M3.6,
+//! ADR-0047). `gui` paints a list
 //! with `gfx` and `font` (M3.5); `tui` maps it onto cells (M7.1).
 //!
 //! # Fragments and damage

@@ -24,8 +24,10 @@ Built, with the roadmap task that built it:
   expose asks for, drawing anew on the calling thread when the window's
   size or scale changed; `first_frame::FirstFrame`, which draws
   jabbott.dev's backdrop and a line in each of the seven bundled faces,
-  its name in `text-3` and a sample in `text`; stand-ins for those two
-  tokens until M3.2's theme; and `GuiError` — M2.6 (ADR-0045).
+  its name in `text-3` and a sample in `text`; and `GuiError` — M2.6
+  (ADR-0045).
+- the first frame's two colors from `tidepool-ui`'s bundled
+  `tidepool-dark` theme, in place of M2.6's stand-ins — M3.2 (ADR-0047).
 
 Not yet, with the roadmap task that adds it:
 
@@ -83,7 +85,8 @@ assert!(frame.pixel(DevicePoint::new(300, 100)).is_some_and(|pixel| pixel.a == 2
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
   first); ADR-0011 (CPU rendering); ADR-0045 (the first frame: the
   backdrop on the main thread, `gfx` and `font` optimized in dev builds,
-  the token stand-ins, a line in each face).
+  the token stand-ins, a line in each face); ADR-0047 (the theme's
+  colors in their place).
 - API reference: `cargo doc -p tidepool-gui --open`
 
 ## Rules
@@ -91,8 +94,9 @@ assert!(frame.pixel(DevicePoint::new(300, 100)).is_some_and(|pixel| pixel.a == 2
 - `unsafe` is denied by the workspace lint, and in doc tests by the crate
   root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
   `cargo xtask unsafe-audit` checks both.
-- No literal colors but the two token stand-ins in `src/tokens.rs`, which
-  a test checks against the spec's token table, until M3.2 (ADR-0045).
+- No literal colors outside tests: the text colors come from
+  `tidepool-ui`'s theme (ADR-0047), and the backdrop's from `gfx`'s
+  `BackdropStyle::jabbott_dev`, whose `bg` a test holds to the theme's.
 - Path-scoped rules in `.claude/rules/`:
   [`ui-style.md`](../../.claude/rules/ui-style.md),
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its

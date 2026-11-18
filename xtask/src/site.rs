@@ -1624,7 +1624,7 @@ mod tests {
             "<div><dt>Skipped</dt><dd>1</dd></div>",
             "<dd>2 of 2 passed</dd>",
             "\n== summary\ndeps",
-            "ci: ok (1 test SKIPPED): 2 of 2 steps passed; not yet implemented: tools, theme</pre>",
+            "ci: ok (1 test SKIPPED): 2 of 2 steps passed; not yet implemented: tools</pre>",
             "--example formats\nformats &lt;says&gt; &amp; prints\\u{1b}[0m</pre>",
             "--example editing\nediting &lt;says&gt; &amp; prints\\u{1b}[0m</pre>",
             "<dd>1 in the workspace</dd>",

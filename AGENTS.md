@@ -56,7 +56,13 @@ each task once it is done and verified.
   the tab order, input routed to the focused node or the one under the
   pointer and up through its ancestors, `TextMetrics`, draw lists in
   resolved colors with each frame's damage, and the accessibility tree, in
-  which every focusable node has a role and a name (M3.1, ADR-0046).
+  which every focusable node has a role and a name (M3.1, ADR-0046); and
+  the theme: `themes/tidepool-dark.toml`, jabbott.dev's tokens, read by
+  `tidepool-ui`'s `theme` with `codec::toml` and bundled, with a fuzz
+  target, which gives the first frame its two text colors, and `cargo xtask
+  theme`, a step of `ci`, which
+  prints its contrast table and fails when a pair it uses for text falls
+  below WCAG AA (M3.2, ADR-0047).
 - **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.
@@ -210,7 +216,7 @@ or file is there.
 | `crates/tui` | `tidepool-tui` | Terminal frontend | deny |
 | `crates/app` | `tidepool` | The binary: main loop, wiring, startup, crash handling | deny |
 | `crates/testkit` | `tidepool-testkit` | Fake LSP server, fake tools, transcripts (dev-only) | deny |
-| `xtask` | `xtask` | CI checks, golden frames, Unicode tables, fuzz smoke, the demo page's build, running the benchmarks; later theme contrast, packaging | deny |
+| `xtask` | `xtask` | CI checks, golden frames, Unicode tables, fuzz smoke, the demo page's build, running the benchmarks, theme contrast; later packaging | deny |
 | `bench` | `tidepool-bench` | Own benchmark harness and suites | deny |
 | `agents/` | (separate workspace, from M9.2) | Reference language agents: mock, local, Claude | deny |
 
@@ -220,8 +226,8 @@ These exist now:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`. It ends with a summary; `tools` and `theme` show as "not yet implemented" |
-| `cargo xtask deps` / `layers` / `crates` / `features` / `unsafe-audit` / `headers` / `workflows` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028); `features` checks that every ticked roadmap task belongs to a feature in `docs/features.jsonc`, and that each feature's `ticked` is what the roadmap ticks (ADR-0030) |
+| `cargo xtask ci` | The gate, in order: `deps`, `cargo fmt --check`, clippy (`-D warnings`), `cargo test`, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`, `theme`. It ends with a summary; `tools` shows as "not yet implemented" |
+| `cargo xtask deps` / `layers` / `crates` / `features` / `unsafe-audit` / `headers` / `workflows` / `theme` | One check each (`docs/04-quality.md` → "`xtask` checks"); `crates` checks the members' manifests, READMEs and copies of `LICENSE` and `NOTICE` (ADR-0023, ADR-0028); `features` checks that every ticked roadmap task belongs to a feature in `docs/features.jsonc`, and that each feature's `ticked` is what the roadmap ticks (ADR-0030); `theme` prints each theme's contrast table and checks that every pair `themes/*.toml` uses for text meets WCAG AA (ADR-0047) |
 | `cargo xtask golden [--bless <scene>...]` | Draws the golden scenes (`cargo test` of each drawing crate's `tests/golden.rs`) and compares each with `tests/golden/<scene>.qoi`, writing `actual` and `diff` images of a failing one to `target/golden/`; `--bless` writes the references of the scenes named, after their images were looked at. A step of `ci`, without `--bless` (ADR-0044, `docs/04-quality.md` → "Golden frames") |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the pinned Unicode data, or with `--check` verifies them (ADR-0018) |
 | `cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]` | Runs each fuzz target (or `T`) with mutated inputs for `N` seconds, 60 by default; fails on a panic, a hang, over-allocation or a process that died, and prints the replay command for a death (ADR-0027, `docs/04-quality.md` → "Fuzz smoke") |
@@ -235,7 +241,6 @@ Planned. Until its task lands, each exits 1 with "not yet implemented":
 
 | Command | Task |
 | :- | :- |
-| `cargo xtask theme` | M3.2 |
 | `cargo xtask tools` | M5.1 |
 | `cargo xtask package <os>` | M11.6, M12.4, M14.4 |
 
@@ -262,9 +267,9 @@ secrets or opens a socket (`docs/04-quality.md`).
 - **Text positions** are byte offsets; lines end at LF, CR LF or a lone CR;
   a bad position is an error, never a panic (ADR-0019). Every buffer edit
   goes through its `History` (ADR-0020).
-- **UI:** widgets use theme tokens, never literal colors (until M3.2's
-  theme, `tidepool-gui` holds two stand-ins for `text` and `text-3`,
-  ADR-0045); chrome labels are uppercase, user content never is.
+- **UI:** widgets use theme tokens (`tidepool_ui::theme`, ADR-0047),
+  never literal colors; chrome labels are uppercase, user content never
+  is.
 - **Docs:** every `pub` item has a doc comment.
 - **License header:** every source file (Rust, shell scripts, workflows,
   and the demo page's HTML, CSS and JavaScript) starts with the Apache-2.0 notice from `LICENSE`'s appendix, in its

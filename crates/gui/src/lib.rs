@@ -30,7 +30,6 @@
 mod error;
 pub mod first_frame;
 mod frontend;
-mod tokens;
 
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]

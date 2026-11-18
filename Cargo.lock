@@ -62,6 +62,7 @@ dependencies = [
  "tidepool-font",
  "tidepool-gfx",
  "tidepool-platform",
+ "tidepool-ui",
 ]
 
 [[package]]
@@ -127,6 +128,7 @@ version = "0.1.0"
 name = "tidepool-ui"
 version = "0.1.0"
 dependencies = [
+ "tidepool-codec",
  "tidepool-core",
 ]
 

@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8, M2.5 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -50,8 +50,8 @@ them stand on. Only formats and text (`codec` and `text`), `xtask`,
 `sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
 (M2.2, M2.7), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
 (M2.5), `gui`'s first frame (M2.6) and `ui`'s tree, layout, input
-routing, draw lists and accessibility tree (M3.1) have code behind their
-interfaces; the app opens that frame's window (M2.6). Each arrow names the crate in
+routing, draw lists and accessibility tree (M3.1) and its theme (M3.2)
+have code behind their interfaces; the app opens that frame's window (M2.6). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -68,13 +68,14 @@ flowchart TB
     c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
+    i_theme(("Theme, Token<br/>(M3.2)"))
     i_raster(("Framebuffer, raster,<br/>backdrop (M2.3)"))
     i_glyphs(("glyph atlas,<br/>layout (M2.5)"))
     i_agentf(("completions,<br/>chat, edit proposals<br/>planned M9.4, M9.5"))
     i_langf(("highlights,<br/>LSP features,<br/>Markdown tree<br/>planned M6.2,<br/>M6.5, M6.7"))
     i_toolf(("terminal grid,<br/>git, mobile pipelines<br/>planned M5.8,<br/>M8.1, M10.4"))
 
-    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font (M2.8, M2.5)<br/>tidepool-ui (M3.1)<br/>theme, controls, collections<br/>planned M3.2, M3.6, M3.3"]
+    c_render["Rendering<br/>tidepool-gfx (M2.3)<br/>tidepool-font (M2.8, M2.5)<br/>tidepool-ui (M3.1),<br/>its theme (M3.2)<br/>controls, collections<br/>planned M3.6, M3.3"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -87,6 +88,7 @@ flowchart TB
     i_editor -.- c_editor
 
     c_front -.->|"gui, tui:<br/>planned M3.5, M7.1"| i_draw
+    c_front -->|"gui (M3.2)"| i_theme
     c_front -->|"gui (M2.6)"| i_raster
     c_front -->|"gui (M2.6)"| i_glyphs
     c_editor -.->|"editor:<br/>planned M4.1"| i_draw
@@ -95,6 +97,7 @@ flowchart TB
     c_editor -.->|"editor:<br/>planned M5.4, M8.2, M10.6"| i_toolf
 
     i_draw --- c_render
+    i_theme --- c_render
     i_raster --- c_render
     i_glyphs --- c_render
     i_agentf -.- c_agents
@@ -103,7 +106,7 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_front,c_render,i_gui,i_raster,i_glyphs,i_draw built
+    class c_app,c_front,c_render,i_gui,i_raster,i_glyphs,i_draw,i_theme built
     class c_editor,c_agents,c_lang,c_tools planned
     class i_front,i_editor,i_agentf,i_langf,i_toolf planned
 ```
@@ -160,6 +163,7 @@ flowchart LR
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     c_xtask["xtask<br/>dev-only: the checks,<br/>goldens, fuzz-smoke,<br/>the demo page"]
+    c_render["Rendering<br/>tidepool-ui's theme<br/>(M3.2)"]
 
     i_os_win(("Window, wait_events,<br/>Waker, present<br/>(M2.2)"))
     i_os_term(("terminal:<br/>raw mode guard<br/>planned M7.1"))
@@ -187,7 +191,8 @@ flowchart LR
     c_lang -.->|"syntax:<br/>planned M13.2"| i_regex
     c_tools -.->|"toolchain:<br/>planned M5.1"| i_codec
     c_tools -.->|"toolchain, term:<br/>planned M5.2, M5.4"| i_os_proc
-    c_xtask -->|"xtask: cargo<br/>metadata, manifests,<br/>golden frames"| i_codec
+    c_xtask -->|"xtask: cargo<br/>metadata, manifests,<br/>golden frames, themes"| i_codec
+    c_render -->|"ui: theme files<br/>(M3.2)"| i_codec
     c_xtask -->|"the one program<br/>it starts"| e_cargo
 
     i_os_win --- c_os
@@ -202,7 +207,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_front,c_fmt,c_os,i_text,i_codec,i_os_win built
+    class c_xtask,c_front,c_render,c_fmt,c_os,i_text,i_codec,i_os_win built
     class c_editor,c_agents,c_lang,c_tools planned
     class i_os_term,i_regex,i_os_watch,i_os_proc planned
     class e_os,e_cargo external
@@ -219,21 +224,26 @@ dependency: `tidepool-core` is a dev-dependency of each, for their tests
 `json` (M1.4) and `toml` (M1.7) parse within `Limits` and fail with
 `CodecError`, and `json` also writes. `toml::Document` (M1.5) edits a TOML
 document and writes it back, changing only the edited bytes. `qoi` (M2.4)
-decodes QOI images within `Limits` and encodes them. `xtask` and
-`tidepool-bench` are its only users today. In `xtask`, `metadata.rs`
-reads `cargo metadata` with `json::parse_bytes`, `features.rs` reads
+decodes QOI images within `Limits` and encodes them. `xtask`,
+`tidepool-bench` and `tidepool-ui` are its users today. In `xtask`,
+`metadata.rs` reads `cargo metadata` with `json::parse_bytes`,
+`features.rs` reads
 `docs/features.jsonc` with `json::parse`, `crates.rs` reads the members'
 manifests and `site.rs` reads `rust-toolchain.toml` with `toml::parse`,
 `site/page.rs` writes the demo page's data with `json::to_string_pretty`,
-and `golden.rs` decodes the golden references with `qoi::decode` and
-writes references and images with `qoi::encode` (ADR-0044).
+`golden.rs` decodes the golden references with `qoi::decode` and
+writes references and images with `qoi::encode` (ADR-0044), and
+`theme.rs` reads `themes/*.toml` with `toml::parse` (ADR-0047).
 `tidepool-bench` reads and writes `bench/baseline.json` with
-`json::parse_bytes` and `json::to_string_pretty` (6.5).
+`json::parse_bytes` and `json::to_string_pretty` (6.5). `ui`'s `theme`
+reads a theme file with `toml::parse` within the `Limits` it is given,
+and wraps a `CodecError` in `UiError::ThemeSyntax` (M3.2, ADR-0047).
 
 ```mermaid
 flowchart LR
-    c_xtask["xtask<br/>metadata.rs, features.rs,<br/>crates.rs, site.rs,<br/>golden.rs"]
+    c_xtask["xtask<br/>metadata.rs, features.rs,<br/>crates.rs, site.rs,<br/>golden.rs, theme.rs"]
     c_bench["tidepool-bench<br/>baseline.rs"]
+    c_ui["tidepool-ui<br/>theme.rs (M3.2)"]
     c_rpc["tidepool-rpc<br/>planned M6.1"]
     c_lang["tidepool-lang<br/>planned M6.4"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1"]
@@ -257,11 +267,13 @@ flowchart LR
 
     c_xtask -->|"cargo metadata,<br/>features.jsonc"| i_jparse
     c_xtask -->|"the demo page's data"| i_jwrite
-    c_xtask -->|"members' manifests,<br/>rust-toolchain.toml"| i_tparse
+    c_xtask -->|"members' manifests,<br/>rust-toolchain.toml,<br/>themes/*.toml"| i_tparse
     c_xtask -->|"all three"| i_limits
     c_xtask -->|"golden frames"| i_qoi
     c_bench -->|"bench/baseline.json"| i_jparse
     c_bench -->|"bench/baseline.json"| i_jwrite
+    c_ui -->|"theme files (M3.2)"| i_tparse
+    c_ui -->|"Theme::parse takes,<br/>UiError wraps (M3.2)"| i_limits
     c_rpc -.->|"messages,<br/>planned M6.1"| i_jparse
     c_rpc -.->|"messages,<br/>planned M6.1"| i_jwrite
     c_lang -.->|"cargo diagnostics,<br/>planned M6.4"| i_jparse
@@ -286,17 +298,18 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_bench,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
+    class c_xtask,c_bench,c_ui,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
     class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_editor,c_workspace,c_mobile planned
     class i_png,i_zip,i_plist planned
 ```
 
 - The YAML subset, CSV and INI in the spec's table are in the backlog, with
   no task, so they are not drawn.
-- `ui`'s `theme` (M3.2) is to load `themes/tidepool-dark.toml`
-  (`docs/subsystems/ui-and-theme.md`), but the matrix lets `ui`
-  depend only on `core`, so `ui` cannot call `toml::parse`. No arrow is
-  drawn from `ui`: the specs do not say which crate reads the theme file.
+- `ui`'s row of the matrix is `core` and `codec` (ADR-0047), so `ui`
+  reads theme files itself: `Theme::tidepool_dark` parses the copy of
+  `themes/tidepool-dark.toml` compiled in with `include_str!`. `xtask`
+  reads the same files for `cargo xtask theme` with its own reader, since
+  its row has no `ui`.
 
 ### 2.2 tidepool-text and tidepool-regex
 
@@ -399,8 +412,8 @@ backdrop (M2.3), and `font` its TrueType parser and glyph rasterizer
 (M2.8) and its atlas, layout and fallback (M2.5), so both are drawn solid
 too, as is `gui`, which draws the first frame with them (M2.6). `ui` has
 its tree, layout, focus, input routing, text metrics, draw lists and
-accessibility tree (M3.1), drawn solid, with its theme (M3.2), controls
-(M3.6) and collections and overlays (M3.3) planned.
+accessibility tree (M3.1) and its theme (M3.2), drawn solid, with its
+controls (M3.6) and collections and overlays (M3.3) planned.
 
 ### 3.1 tidepool-sys and tidepool-platform: windows and the terminal
 
@@ -506,7 +519,11 @@ rasterize them with `gfx` and `font` (M3.5, 3.4), and `tui` to map them
 onto cells (M7.1). `TextMetrics` is a trait that `ui` defines, with
 `FixedMetrics` for tests (M3.1), and that each frontend is to implement.
 Widgets live in the tree's nodes, and the tree routes each event to them
-and up through their ancestors (ADR-0046).
+and up through their ancestors (ADR-0046). `theme` reads a theme file's
+tokens into a `Theme`, and bundles `themes/tidepool-dark.toml`, from
+which `gui`'s first frame takes `text` and `text-3` (M3.2, ADR-0047);
+the component styles derived from the tokens come with the controls
+(M3.6, M3.3).
 
 ```mermaid
 flowchart TB
@@ -515,35 +532,41 @@ flowchart TB
     c_tui["tidepool-tui<br/>planned M7.1"]
     c_bridge["OS accessibility bridges<br/>AT-SPI, NSAccessibility,<br/>UI Automation<br/>planned M14.2"]
 
-    i_widgets(("controls,<br/>collections<br/>planned M3.6, M3.3"))
+    i_widgets(("controls, their<br/>component styles,<br/>collections<br/>planned M3.6, M3.3"))
     i_tree(("Tree, Node, Widget,<br/>Style, handle,<br/>focus_next (M3.1)"))
-    i_theme(("theme tokens<br/>planned M3.2"))
+    i_theme(("Theme: parse,<br/>tidepool_dark, color,<br/>solid, ansi; Token,<br/>TokenColor (M3.2)"))
     i_drawlist(("DrawList, Frame:<br/>Tree::frame and<br/>damage (M3.1)"))
     i_metrics(("TextMetrics,<br/>FixedMetrics (M3.1)"))
     i_a11y(("Snapshot: roles,<br/>names, states (M3.1)"))
-    c_ui["tidepool-ui<br/>tree, layout, focus, input,<br/>metrics, draw, a11y (M3.1)<br/>planned: theme M3.2,<br/>controls M3.6,<br/>collections M3.3"]
+    c_ui["tidepool-ui<br/>tree, layout, focus, input,<br/>metrics, draw, a11y (M3.1)<br/>theme (M3.2)<br/>planned: controls M3.6,<br/>collections M3.3"]
+    s_theme[("themes/tidepool-dark.toml<br/>the bundled theme (M3.2)")]
 
     c_editor -.->|"editor view,<br/>planned M4.1"| i_tree
     c_editor -.->|"editor view,<br/>planned M4.1"| i_drawlist
     c_editor -.->|"explorer and tabs,<br/>planned M4.3"| i_widgets
     c_gui -.->|"paints,<br/>planned M3.5"| i_drawlist
     c_gui -.->|"implements,<br/>planned M3.5"| i_metrics
+    c_gui -->|"text, text-3 of<br/>tidepool_dark (M3.2)"| i_theme
     c_tui -.->|"maps onto cells,<br/>planned M7.1"| i_drawlist
     c_tui -.->|"implements,<br/>planned M7.1"| i_metrics
+    c_tui -.->|"solid and ansi<br/>values, planned M7.1"| i_theme
     c_bridge -.->|"planned M14.2"| i_a11y
 
     i_widgets -.- c_ui
     i_tree --- c_ui
-    i_theme -.- c_ui
+    i_theme --- c_ui
     i_drawlist --- c_ui
     i_metrics --- c_ui
     i_a11y --- c_ui
+    c_ui -->|"compiles it in;<br/>reads it with<br/>codec toml"| s_theme
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_gui,c_ui,i_tree,i_drawlist,i_metrics,i_a11y built
+    classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class c_gui,c_ui,i_tree,i_drawlist,i_metrics,i_a11y,i_theme built
+    class s_theme store
     class c_editor,c_tui,c_bridge planned
-    class i_widgets,i_theme planned
+    class i_widgets planned
 ```
 
 - The accessibility bridges (M14.2) read `ui`'s tree, and no spec names
@@ -968,7 +991,10 @@ golden scenes in `tidepool-gfx`'s and `tidepool-font`'s tests (ADR-0044).
 `golden` is a step of `ci` and a command of its own, which `main.rs` runs
 for its `--bless`. `crates` checks the root's and each member's manifest,
 each README's first line, sections and task IDs, and that each member's
-`LICENSE` and `NOTICE` are copies of the root's, byte for byte.
+`LICENSE` and `NOTICE` are copies of the root's, byte for byte. `theme`,
+the last step, checks that each theme in `themes/` meets WCAG AA for the
+pairs of colors it lists for text, and prints its contrast table
+(ADR-0047).
 
 ```mermaid
 flowchart TB
@@ -976,7 +1002,7 @@ flowchart TB
 
     subgraph sg_xtask["xtask"]
         c_main["main.rs, check.rs<br/>the command line,<br/>ci and its steps"]
-        c_later["theme, tools,<br/>package<br/>not yet implemented<br/>planned M3.2, M5.1,<br/>M11.6, M12.4,<br/>M14.4"]
+        c_later["tools, package<br/>not yet implemented<br/>planned M5.1,<br/>M11.6, M12.4,<br/>M14.4"]
         i_step(("Step::Own:<br/>run, returning<br/>a Report"))
         c_deps["deps.rs"]
         c_layers["layers.rs"]
@@ -987,6 +1013,7 @@ flowchart TB
         c_workflows["workflows.rs"]
         c_ucd["ucd.rs"]
         c_golden["golden.rs<br/>the golden frames"]
+        c_theme["theme.rs<br/>contrast, the last<br/>step of ci (M3.2)"]
     end
     %% An invisible link: it only keeps the planned commands beside the step circle.
     c_main ~~~ c_later
@@ -997,6 +1024,7 @@ flowchart TB
     f_workflows[(".github/workflows")]
     f_features[("docs/features.jsonc")]
     f_golden[("tests/golden/*.qoi<br/>the references<br/>target/golden<br/>what the scenes drew,<br/>actual and diff images")]
+    f_themes[("themes/*.toml")]
 
     p_dev -->|"cargo xtask"| c_main
     c_main -->|"each check of ci"| i_step
@@ -1009,6 +1037,7 @@ flowchart TB
     i_step --- c_workflows
     i_step --- c_ucd
     i_step --- c_golden
+    i_step --- c_theme
     c_main -->|"golden, for<br/>its --bless"| c_golden
 
     c_layers -->|"reads"| f_matrix
@@ -1017,15 +1046,16 @@ flowchart TB
     c_workflows -->|"reads"| f_workflows
     c_features -->|"reads, with<br/>the roadmap's<br/>task lines"| f_features
     c_golden -->|"compares, writes<br/>a failing scene's<br/>images; --bless<br/>writes references"| f_golden
+    c_theme -->|"reads; prints each<br/>contrast table"| f_themes
 
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class p_dev person
-    class c_main,i_step,c_deps,c_layers,c_crates,c_features,c_unsafe,c_headers,c_workflows,c_ucd,c_golden built
+    class c_main,i_step,c_deps,c_layers,c_crates,c_features,c_unsafe,c_headers,c_workflows,c_ucd,c_golden,c_theme built
     class c_later planned
-    class f_matrix,f_readmes,f_ucd,f_workflows,f_features,f_golden store
+    class f_matrix,f_readmes,f_ucd,f_workflows,f_features,f_golden,f_themes store
 ```
 
 - `headers` and `unsafe-audit` also read the source files, and `deps` the
@@ -1109,6 +1139,7 @@ flowchart LR
     c_features["features.rs"]
     c_site["site.rs, site/page.rs"]
     c_golden["golden.rs"]
+    c_theme["theme.rs"]
 
     i_cli(("core: cli::Args,<br/>CoreError"))
     i_hash(("core:<br/>hash::sha256,<br/>to_hex, fnv1a64"))
@@ -1117,6 +1148,7 @@ flowchart LR
     i_toml(("codec:<br/>toml::parse"))
     i_qoi(("codec:<br/>qoi::decode,<br/>encode"))
     i_civil(("core:<br/>civil::DateTime"))
+    i_color(("core:<br/>color::Color"))
 
     c_core["tidepool-core<br/>built M0.2, M1.6, M1.8"]
     c_codec["tidepool-codec<br/>built M1.4, M1.5, M1.7,<br/>M2.4"]
@@ -1135,6 +1167,8 @@ flowchart LR
     c_site -->|"--out"| i_cli
     c_golden -->|"--bless"| i_cli
     c_golden -->|"the references,<br/>actual and<br/>diff images"| i_qoi
+    c_theme -->|"themes/*.toml"| i_toml
+    c_theme -->|"parse, composite<br/>with over"| i_color
 
     i_cli --- c_core
     i_hash --- c_core
@@ -1143,10 +1177,11 @@ flowchart LR
     i_toml --- c_codec
     i_qoi --- c_codec
     i_civil --- c_core
+    i_color --- c_core
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_features,c_site,c_golden,c_core,c_codec built
-    class i_cli,i_hash,i_fuzzapi,i_json,i_toml,i_qoi,i_civil built
+    class c_main,c_ucd,c_fuzz,c_meta,c_crates,c_features,c_site,c_golden,c_theme,c_core,c_codec built
+    class i_cli,i_hash,i_fuzzapi,i_json,i_toml,i_qoi,i_civil,i_color built
 ```
 
 ### 6.4 fuzz-smoke and the fuzz targets
@@ -1164,6 +1199,7 @@ flowchart TB
     c_cfz["codec tests/fuzz.rs<br/>targets json, toml, qoi"]
     c_tfz["text tests/fuzz.rs<br/>target encoding"]
     c_ffz["font tests/fuzz.rs<br/>target ttf"]
+    c_ufz["ui tests/fuzz.rs<br/>target theme, M3.2"]
     c_more["fuzz targets to come:<br/>regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
 
     i_target(("testing::fuzz:<br/>Target, Outcome,<br/>assert_clean"))
@@ -1171,6 +1207,7 @@ flowchart TB
     i_cparse(("json::parse_bytes,<br/>toml::parse_bytes,<br/>qoi::decode, encode"))
     i_tdec(("Decoder::push,<br/>decode, encode"))
     i_fparse(("Font::parse, outline,<br/>outline::rasterize"))
+    i_uparse(("Theme::parse"))
 
     subgraph sg_core["tidepool-core"]
         c_engine["testing::fuzz<br/>the fuzz engine,<br/>ADR-0027, M1.6"]
@@ -1180,6 +1217,7 @@ flowchart TB
     c_codec["tidepool-codec library"]
     c_text["tidepool-text library"]
     c_font["tidepool-font library"]
+    c_ui["tidepool-ui library"]
     f_corpus[("fuzz/corpus seeds,<br/>fuzz/crashes findings")]
 
     c_main -->|"fuzz-smoke"| i_fuzzrun
@@ -1188,16 +1226,19 @@ flowchart TB
     e_cargo -->|"runs"| c_cfz
     e_cargo -->|"runs"| c_tfz
     e_cargo -->|"runs"| c_ffz
+    e_cargo -->|"runs"| c_ufz
     c_fuzz -->|"reads the<br/>fuzz-result line"| i_summary
     c_fuzz -->|"checks rows<br/>and seeds"| f_corpus
 
     c_cfz -->|"json, toml, qoi"| i_target
     c_tfz -->|"encoding"| i_target
     c_ffz -->|"ttf"| i_target
+    c_ufz -->|"theme"| i_target
     c_more -.->|"planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
     c_cfz -->|"fuzzes"| i_cparse
     c_tfz -->|"fuzzes"| i_tdec
     c_ffz -->|"fuzzes"| i_fparse
+    c_ufz -->|"fuzzes"| i_uparse
 
     i_target --- c_engine
     i_summary --- c_engine
@@ -1207,13 +1248,14 @@ flowchart TB
     i_cparse --- c_codec
     i_tdec --- c_text
     i_fparse --- c_font
+    i_uparse --- c_ui
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_engine,c_rng,c_codec,c_text,c_font built
-    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse built
+    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_ufz,c_engine,c_rng,c_codec,c_text,c_font,c_ui built
+    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse,i_uparse built
     class c_more planned
     class e_cargo external
     class f_corpus store
@@ -1221,6 +1263,7 @@ flowchart TB
 
 - A `fuzz-smoke` target is a test in its crate's `tests/fuzz.rs`, seeds in
   `fuzz/corpus/<target>/` and a row in `fuzz.rs`'s table (ADR-0027).
+  `theme` also reads `themes/` in place (ADR-0047).
 
 ### 6.5 The property harness, bench and testkit
 
@@ -1231,9 +1274,11 @@ too (M2.3); its library uses `core`'s `geom` and `color`. `font`'s
 tests use `core`'s FNV-1a hash to pin the bundled faces' coverage, besides
 the fuzz engine (M2.8); its library uses no crate. `ui`'s property tests
 of layout and of the accessibility invariant use the harness and `Pcg32`
-(M3.1); its library uses `core`'s `geom`, `color` and `input`. `gui`'s
-library uses `core`'s `geom` and `color`, and the `tidepool` binary its
-`cli` (M2.6), outside this view. `xtask` also uses `core`'s `cli`, `hash` and
+(M3.1), and so does its test of mutated theme files (M3.2); its library
+uses `core`'s `geom`, `color` and `input`, and `codec`'s TOML parser
+(2.1). `gui`'s library uses `core`'s `geom` and `color` and `ui`'s theme
+(M3.2), and the `tidepool` binary `core`'s `cli` (M2.6), outside this
+view. `xtask` also uses `core`'s `cli`, `hash` and
 `testing::fuzz` in its own code (6.3). `tidepool-bench` (M1.9, ADR-0035)
 measures `text`'s library with inputs drawn from `Pcg32`, and `font`'s
 atlas filling with the bundled Saira (M2.5), and keeps its baseline with
@@ -1245,7 +1290,7 @@ flowchart TB
     c_ttests["text tests<br/>model, positions, edits,<br/>unit tests"]
     c_gtests["gfx tests<br/>properties.rs"]
     c_ftests["font tests<br/>bundled.rs"]
-    c_utests["ui tests<br/>layout.rs, a11y.rs"]
+    c_utests["ui tests<br/>layout.rs, a11y.rs,<br/>theme.rs"]
     c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
@@ -1319,7 +1364,7 @@ Docs:
 - `docs/04-quality.md`: own harnesses, fakes, fuzz smoke, `xtask` checks.
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
   ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035, ADR-0044,
-  ADR-0046.
+  ADR-0046, ADR-0047.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1337,14 +1382,15 @@ Code:
 - `crates/core/src/`: `lib.rs`, `testing.rs`, `testing/fuzz.rs`, `hash.rs`,
   `cli.rs`, `rng.rs`.
 - `crates/ui/src/`: `lib.rs`, `tree.rs`, `layout.rs`, `focus.rs`,
-  `input.rs`, `metrics.rs`, `draw.rs`, `a11y.rs`.
+  `input.rs`, `metrics.rs`, `draw.rs`, `a11y.rs`, `theme.rs`, `error.rs`;
+  `themes/tidepool-dark.toml`; `crates/gui/src/first_frame.rs`.
 - Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`, `qoi.rs`;
   `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`;
   `crates/gfx/tests/golden.rs`; `crates/font/tests/golden.rs`;
-  `crates/ui/tests/layout.rs`, `a11y.rs`.
+  `crates/ui/tests/layout.rs`, `a11y.rs`, `theme.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
   `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,
-  `golden.rs`.
+  `golden.rs`, `theme.rs`.
 - `bench/src/`: `lib.rs`, `main.rs`, `harness.rs`, `baseline.rs`,
   `cli.rs`, `suites.rs`, `suites/text.rs`, `suites/font.rs`.

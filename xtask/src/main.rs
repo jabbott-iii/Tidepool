@@ -15,8 +15,9 @@
 //! Project automation for the Tidepool repository: the checks behind
 //! `cargo xtask ci`, `cargo xtask golden`, which compares the golden
 //! frames, `cargo xtask fuzz-smoke`, `cargo xtask site`, which builds the
-//! demo page, and `cargo xtask bench`, which runs the benchmarks. Later
-//! roadmap tasks add theme contrast, tool descriptors and packaging.
+//! demo page, `cargo xtask bench`, which runs the benchmarks, and `cargo
+//! xtask theme`, which checks the themes' contrast. Later roadmap tasks add
+//! tool descriptors and packaging.
 //!
 //! Specification: `docs/04-quality.md` → "`xtask` checks". Run it as
 //! `cargo xtask <command>`; `cargo xtask --help` lists the commands.
@@ -80,6 +81,7 @@ mod lexer;
 mod matrix;
 mod metadata;
 mod site;
+mod theme;
 mod ucd;
 mod unsafe_audit;
 mod walk;
@@ -374,7 +376,7 @@ mod tests {
         }
         assert!(text.contains(
             "  ci            Run deps, fmt, clippy, test, golden, layers, crates, features, \
-             unsafe-audit, headers, workflows, ucd in that order"
+             unsafe-audit, headers, workflows, ucd, theme in that order"
         ));
         // `golden` is implemented (roadmap M2.4), and a step of `ci`.
         assert!(
@@ -582,7 +584,6 @@ mod tests {
     fn later_commands_are_not_implemented_and_never_pass() {
         for (args, command, task) in [
             (&["tools"][..], "tools", "roadmap M5.1"),
-            (&["theme"], "theme", "roadmap M3.2"),
             (
                 &["package", "linux"],
                 "package",
@@ -616,7 +617,7 @@ mod tests {
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--target", "yaml"]),
-            "unknown fuzz target `yaml`; the targets are: json, toml, qoi, encoding, ttf"
+            "unknown fuzz target `yaml`; the targets are: json, toml, qoi, encoding, ttf, theme"
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--secs", "soon"]),

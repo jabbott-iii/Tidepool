@@ -16,14 +16,18 @@
 //!
 //! New in Tidepool; not ported.
 //!
-//! Only changing the tree can fail: a stale or unknown id, the root where
-//! it cannot go, a focusable node without a role and a name, an index past
-//! the children, a node too deep or one too many. Layout, input and frames
-//! never fail and never panic.
+//! Changing the tree can fail: a stale or unknown id, the root where it
+//! cannot go, a focusable node without a role and a name, an index past
+//! the children, a node too deep or one too many. So can reading a theme
+//! file that is not TOML or not a theme (M3.2, ADR-0047). Layout, input
+//! and frames never fail and never panic.
 
 use std::fmt;
 
+use tidepool_codec::CodecError;
+
 use crate::a11y::Role;
+use crate::theme::ThemeError;
 use crate::tree::NodeId;
 
 /// Errors produced by `tidepool-ui`.
@@ -73,11 +77,20 @@ pub enum UiError {
         /// The most nodes there may be, the root included.
         max: usize,
     },
+    /// A theme file is not TOML, or breaks the
+    /// [`Limits`](tidepool_codec::Limits) it was read with
+    /// ([`Theme::parse`](crate::theme::Theme::parse)).
+    ThemeSyntax(CodecError),
+    /// A theme file is TOML but not a theme of the format
+    /// [`theme`](crate::theme) reads.
+    Theme(ThemeError),
 }
 
 impl fmt::Display for UiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::ThemeSyntax(ref error) => write!(f, "theme: {error}"),
+            Self::Theme(ref error) => error.fmt(f),
             Self::UnknownNode { id } => write!(f, "node {id} is not in the tree"),
             Self::RootNode => f.write_str("the root node cannot be removed"),
             Self::Unnamed { role } => {
@@ -110,7 +123,14 @@ impl fmt::Display for UiError {
     }
 }
 
-impl std::error::Error for UiError {}
+impl std::error::Error for UiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ThemeSyntax(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

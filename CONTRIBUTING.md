@@ -145,7 +145,7 @@ Windows, and the same commands CI runs:
 
 | Command | What it does |
 | :- | :- |
-| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check` |
+| `cargo xtask ci` | The whole pull request gate: `deps`, fmt check, clippy with `-D warnings`, tests, `golden`, `layers`, `crates`, `features`, `unsafe-audit`, `headers`, `workflows`, `ucd --check`, `theme` |
 | `cargo xtask deps` | Fails if a workspace resolves or declares a package from outside the repository that the policy does not approve |
 | `cargo xtask layers` | Fails if a crate depends on one the dependency matrix forbids |
 | `cargo xtask crates` | Fails if a crate's `Cargo.toml` does not inherit the workspace's edition, version, license and lints, lacks `publish = false` or gives a target an `edition` of its own, or its `README.md` does not start with `# <package name>`, lacks one of `## Status`, `## Usage`, `## Documentation`, `## Rules`, `## Checks` and `## License`, has one twice or out of that order, or names a task the roadmap does not have; or its `LICENSE` or `NOTICE` is missing or not byte for byte the root's |
@@ -153,6 +153,7 @@ Windows, and the same commands CI runs:
 | `cargo xtask unsafe-audit` | Fails if `unsafe` appears outside the two allowed crates, or without its `SAFETY:` comment, or if another library's crate root lacks `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036), its doc-test code holds `unsafe`, or a crate is a proc macro (ADR-0037), or a macro could let a caller's `unsafe` reach braces or an item it writes, or defines a macro (ADR-0038) |
 | `cargo xtask headers` | Fails if a source file does not start with the license header (below) |
 | `cargo xtask workflows` | Fails if a CI workflow uses an action its row does not allow, pins one by anything but its commit SHA, grants a `write` its row does not allow or default permissions beyond `contents: read`, or is written in a form the check cannot read (`docs/04-quality.md` → "`workflows`") |
+| `cargo xtask theme` | Prints each theme's contrast table, and fails if a pair of colors that `themes/*.toml` uses for text falls below WCAG AA: 4.5:1, or 3:1 for large text (ADR-0047) |
 | `cargo xtask golden [--bless <scene>...]` | Draws the golden scenes and compares each with its reference in `tests/golden/`, pixel for pixel, within its crate's tolerance; a failing scene gets `actual` and `diff` images in `target/golden/`. `--bless` writes the references of the scenes named. A step of `ci`, without `--bless` (ADR-0044) |
 | `cargo xtask ucd [--check]` | Regenerates the grapheme tables from the Unicode data, or checks them |
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
@@ -160,8 +161,8 @@ Windows, and the same commands CI runs:
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`: runs the gate and the two library examples, and fills `site/`. Not part of `ci`; the Pages workflow runs it after CI passes on `main` and publishes https://jabbott.dev/Tidepool/ |
 | `cargo tp` | Runs Tidepool, which opens a window on Linux and shows its first frame until you close it (M2.6); `cargo tp -- --print-startup-time` also prints the time to that frame |
 
-On the way, each with its roadmap task: `theme` (M3.2), `tools` (M5.1)
-and `package` (M11.6, M12.4, M14.4).
+On the way, each with its roadmap task: `tools` (M5.1) and `package`
+(M11.6, M12.4, M14.4).
 `AGENTS.md` → "Commands" keeps the list.
 
 ## Checks
@@ -233,10 +234,9 @@ in the pull request.
   citation of the official header, and wrapped safely in
   `tidepool-platform`. See
   [`.claude/rules/unsafe-and-ffi.md`](.claude/rules/unsafe-and-ffi.md).
-- **UI:** colors, sizes and fonts come from theme tokens (until M3.2's
-  theme, `tidepool-gui` holds two literal colors standing in for `text`
-  and `text-3`, ADR-0045); chrome labels are uppercase and user content
-  never is
+- **UI:** colors, sizes and fonts come from theme tokens
+  (`tidepool_ui::theme`, ADR-0047); chrome labels are uppercase and user
+  content never is
   ([`docs/subsystems/ui-and-theme.md`](docs/subsystems/ui-and-theme.md)).
 
 ## Tests

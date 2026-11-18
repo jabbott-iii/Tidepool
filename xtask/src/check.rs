@@ -40,7 +40,8 @@ use std::time::{Duration, Instant};
 use crate::cargo::{Skips, TestCounts};
 use crate::error::Error;
 use crate::{
-    cargo, crates, deps, features, golden, headers, layers, ucd, unsafe_audit, walk, workflows,
+    cargo, crates, deps, features, golden, headers, layers, theme, ucd, unsafe_audit, walk,
+    workflows,
 };
 
 /// What a check found.
@@ -176,6 +177,15 @@ pub(crate) const WORKFLOWS: Check = Check {
     role: Role::Independent,
 };
 
+/// `cargo xtask theme` (ADR-0047).
+pub(crate) const THEME: Check = Check {
+    name: "theme",
+    about: "Each theme in themes/ meets WCAG AA for the pairs it uses for text (4.5:1, or 3:1 \
+            for large text), and prints its contrast table",
+    step: Step::Own(theme::run),
+    role: Role::Independent,
+};
+
 /// `cargo xtask golden` without `--bless`, the step of `ci` (ADR-0044).
 /// Not in [`COMMANDS`]: `main` runs it, since it takes `--bless`.
 pub(crate) const GOLDEN: Check = Check {
@@ -229,6 +239,7 @@ pub(crate) const COMMANDS: &[Check] = &[
     HEADERS,
     WORKFLOWS,
     UCD,
+    THEME,
 ];
 
 /// Every step of `ci`, in the order it runs them: `deps` first, so that a
@@ -262,6 +273,7 @@ pub(crate) const CI: &[Check] = &[
     HEADERS,
     WORKFLOWS,
     UCD,
+    THEME,
 ];
 
 /// A command that `AGENTS.md` names but a later roadmap task implements.
@@ -280,11 +292,6 @@ pub(crate) const LATER: &[Later] = &[
     Later {
         name: "tools",
         task: "roadmap M5.1",
-        in_ci: true,
-    },
-    Later {
-        name: "theme",
-        task: "roadmap M3.2",
         in_ci: true,
     },
     Later {
@@ -1214,8 +1221,8 @@ mod tests {
             check("layers", violating),
         ];
         let later = [Later {
-            name: "theme",
-            task: "roadmap M3.2",
+            name: "tools",
+            task: "roadmap M5.1",
             in_ci: true,
         }];
         let (passed, printed) = output_of_ci(&checks, &later);
@@ -1244,7 +1251,7 @@ mod tests {
         assert!(
             summary.ends_with(
                 "ci: FAILED (1 test SKIPPED): 1 of 3 steps failed: layers; not yet implemented: \
-                 theme\n"
+                 tools\n"
             ),
             "{summary}"
         );
@@ -1280,19 +1287,19 @@ mod tests {
             ),
             outcome("test", Status::Failed, Duration::from_secs(125)),
         ];
-        let theme = Later {
-            name: "theme",
-            task: "roadmap M3.2",
+        let tools = Later {
+            name: "tools",
+            task: "roadmap M5.1",
             in_ci: true,
         };
         assert_eq!(
-            summary(&outcomes, &[&theme]),
+            summary(&outcomes, &[&tools]),
             "== summary\n\
              deps          ok          0.3 s\n\
              unsafe-audit  ok         12.1 s\n\
              test          FAILED    125.0 s\n\
-             theme         not yet implemented (roadmap M3.2)\n\
-             ci: FAILED: 1 of 3 steps failed: test; not yet implemented: theme\n"
+             tools         not yet implemented (roadmap M5.1)\n\
+             ci: FAILED: 1 of 3 steps failed: test; not yet implemented: tools\n"
         );
         assert_eq!(
             summary(&[], &[]),
@@ -1318,6 +1325,7 @@ mod tests {
                 ("headers", Role::Independent),
                 ("workflows", Role::Independent),
                 ("ucd", Role::Independent),
+                ("theme", Role::Independent),
             ]
         );
         // Only the test step's output is read for `SKIPPED:` lines.
@@ -1332,7 +1340,7 @@ mod tests {
             .filter(|later| later.in_ci)
             .map(|later| later.name)
             .collect();
-        assert_eq!(pending, ["tools", "theme"]);
+        assert_eq!(pending, ["tools"]);
     }
 
     #[test]
@@ -1353,6 +1361,7 @@ mod tests {
             ("headers", None),
             ("workflows", None),
             ("ucd", None),
+            ("theme", None),
         ];
         assert_eq!(CI.len(), expected.len());
         for (check, (name, command)) in CI.iter().zip(expected) {
@@ -1395,6 +1404,7 @@ mod tests {
         let workflows_run: fn(&Path) -> Result<Report, Error> = workflows::run;
         let ucd_check: fn(&Path) -> Result<Report, Error> = ucd::check;
         let ucd_write: fn(&Path) -> Result<Report, Error> = ucd::write;
+        let theme_run: fn(&Path) -> Result<Report, Error> = theme::run;
         assert!(std::ptr::fn_addr_eq(own("deps"), deps_run));
         assert!(std::ptr::fn_addr_eq(own("layers"), layers_run));
         assert!(std::ptr::fn_addr_eq(own("crates"), crates_run));
@@ -1402,6 +1412,7 @@ mod tests {
         assert!(std::ptr::fn_addr_eq(own("unsafe-audit"), audit_run));
         assert!(std::ptr::fn_addr_eq(own("headers"), headers_run));
         assert!(std::ptr::fn_addr_eq(own("workflows"), workflows_run));
+        assert!(std::ptr::fn_addr_eq(own("theme"), theme_run));
         // `ucd` as a command and as the step of `ci` only checks; the
         // writing form has the same name and heading.
         assert!(std::ptr::fn_addr_eq(own("ucd"), ucd_check));

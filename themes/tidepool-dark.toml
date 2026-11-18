@@ -1,0 +1,122 @@
+# tidepool-dark: Tidepool's default theme, in jabbott.dev's design language
+# (ADR-0004). The tokens and their values are docs/subsystems/ui-and-theme.md
+# → Tokens, taken from jabbott.dev's `:root`; the format is ADR-0047's.
+#
+# `tidepool-ui` reads every table but `[contrast]`, which
+# `cargo xtask theme` reads: it prints the contrast table of the spec and
+# fails when a pair listed in `[[contrast.use]]` is below its minimum.
+# A change here re-blesses the golden frames it changes, after review
+# (docs/04-quality.md → "Golden frames").
+
+version = 1
+name = "tidepool-dark"
+
+# Each color: `value`, in `core::color`'s syntax (`#rrggbb`, `#rrggbbaa` or
+# `rgba(r,g,b,a)`); `solid`, for a translucent value only, the value
+# composited over `bg`, for surfaces drawn without the backdrop and for the
+# terminal UI; and `ansi`, the 256-color index the terminal UI falls back
+# to.
+[colors]
+bg = { value = "#0b0c0d", ansi = 232 }
+bg-raise = { value = "#121517", ansi = 233 }
+panel = { value = "rgba(16,19,21,0.78)", solid = "#0f1113", ansi = 233 }
+panel-solid = { value = "#14181a", ansi = 234 }
+slate = { value = "#29353a", ansi = 236 }
+slate-2 = { value = "#1b2326", ansi = 235 }
+line = { value = "rgba(255,255,255,0.08)", solid = "#1f1f20", ansi = 234 }
+line-2 = { value = "rgba(255,255,255,0.16)", solid = "#323334", ansi = 236 }
+text = { value = "#eef2f3", ansi = 255 }
+text-2 = { value = "#b3bdc1", ansi = 250 }
+text-3 = { value = "#7d898e", ansi = 102 }
+teal = { value = "#5ccbcb", ansi = 80 }
+teal-hi = { value = "#8fe5e5", ansi = 116 }
+teal-wash = { value = "rgba(92,203,203,0.10)", solid = "#131f20", ansi = 234 }
+teal-glow = { value = "rgba(92,203,203,0.35)" }
+amber = { value = "#f2c200", ansi = 220 }
+amber-hi = { value = "#ffd84a", ansi = 221 }
+green = { value = "#3ddc97", ansi = 42 }
+rust = { value = "#f09a4a", ansi = 215 }
+violet = { value = "#a58cff", ansi = 141 }
+error = { value = "#ff8a80", ansi = 210 }
+editor-bg = { value = "#0a0f11", ansi = 233 }
+bar = { value = "rgba(30,37,40,0.72)", solid = "#191e20", ansi = 234 }
+on-amber = { value = "#111111" }
+on-teal = { value = "#071012" }
+comment = { value = "#6f7d82" }
+
+# Lengths in logical units.
+[sizes]
+cut = 10
+
+# Font families: the names of the bundled faces for chrome and for code.
+# No frontend reads them yet; `gui` draws with the bundled faces directly.
+[fonts]
+font-ui = "Saira"
+font-mono = "JetBrains Mono"
+
+# The table `cargo xtask theme` prints: each `text` color on each surface
+# (`on`), a translucent surface as its `solid` value over `bg`.
+[contrast]
+text = ["text", "text-2", "text-3", "teal", "amber", "error", "comment"]
+on = ["bg", "editor-bg", "panel", "slate"]
+
+# The pairs the theme uses for text. `size` is `normal` (at least 4.5:1)
+# or `large` (at least 3:1, also for UI glyphs). A translucent surface is
+# composited over `over`, or over `bg` when it is not given.
+
+[[contrast.use]]
+text = "text"
+on = ["bg", "editor-bg", "panel", "slate"]
+size = "normal"
+
+# The editor's selection: `teal-glow` over `editor-bg` (#275152); its text
+# stays `text`.
+[[contrast.use]]
+text = "text"
+on = ["teal-glow"]
+over = "editor-bg"
+size = "normal"
+
+[[contrast.use]]
+text = "text-2"
+on = ["bg", "editor-bg", "panel", "slate"]
+size = "normal"
+
+# Not on `slate`: placeholder and muted text there use `text-2`.
+[[contrast.use]]
+text = "text-3"
+on = ["bg", "editor-bg", "panel"]
+size = "normal"
+
+[[contrast.use]]
+text = "teal"
+on = ["bg", "editor-bg", "panel", "slate"]
+size = "normal"
+
+[[contrast.use]]
+text = "amber"
+on = ["bg", "editor-bg", "panel", "slate"]
+size = "normal"
+
+[[contrast.use]]
+text = "error"
+on = ["bg", "editor-bg", "panel", "slate"]
+size = "normal"
+
+# Code shown on other surfaces sits in an `editor-bg` well.
+[[contrast.use]]
+text = "comment"
+on = ["editor-bg"]
+size = "normal"
+
+# A primary (amber) button's label.
+[[contrast.use]]
+text = "on-amber"
+on = ["amber"]
+size = "normal"
+
+# An active chip's label on its `teal` fill.
+[[contrast.use]]
+text = "on-teal"
+on = ["teal"]
+size = "normal"

@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -50,19 +50,22 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 `core::testing::fuzz` as a dev-dependency, and make one
 `core::testing::fuzz::Target` per fuzz target (section 26 for `font`).
 `xtask` uses `core` and `codec`, as the dependency matrix allows: it reads
-`cargo metadata` with `codec::json`, manifests with `codec::toml`, the
-golden references with `codec::qoi`, and the fuzz targets' result lines
-with `core::testing::fuzz::Summary`.
+`cargo metadata` with `codec::json`, manifests and themes with
+`codec::toml`, the golden references with `codec::qoi`, the themes' colors
+with `core::color::Color`, and the fuzz targets' result lines with
+`core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
 `text`, and `font`'s `Atlas` and `FontError` (sections 22 and 29), and
 `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
-framebuffer and backdrop, `font`'s faces, layout and atlas, and `core`'s
-geometry and colors (section 27). `tidepool-ui` uses `core`'s geometry,
-colors and input events, and `TextLength` to keep a value out of `Debug`
-(section 28).
+framebuffer and backdrop, `font`'s faces, layout and atlas, `ui`'s
+`Theme`, and `core`'s geometry and colors (section 27). `tidepool-ui` uses
+`core`'s geometry, colors and input events, and `TextLength` to keep a
+value out of `Debug`, and reads theme files with `codec::toml` within a
+`codec::Limits`, wrapping a `codec::CodecError` in its `UiError` (section
+28).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -99,7 +102,7 @@ classDiagram
     Check ..> Report : a step returns
     Check ..> XtaskError : a step fails with
     Check ..> Sha256 : ucd checks<br/>the data with
-    Check ..> TomlTable : crates reads<br/>manifests into
+    Check ..> TomlTable : crates and theme read<br/>manifests and themes into
     Check ..> QoiImage : golden decodes<br/>references into
     Metadata ..> JsonValue : read from
     SmokeTarget ..> FuzzSummary : parses the<br/>result line into
@@ -2018,14 +2021,15 @@ Each `cargo xtask` check is a `Check`: a name, a step and a role. A step
 runs cargo with fixed arguments (`Cargo` and `Tests`), or one of `xtask`'s
 own checks (`Own`: `deps::run`, `layers::run`, `crates::run`,
 `features::run`, `unsafe_audit::run`, `headers::run`, `workflows::run`,
-`golden::check`, `ucd::check` or `ucd::write`), which returns a `Report`.
+`golden::check`, `ucd::check`, `ucd::write` or `theme::run`), which
+returns a `Report`.
 A `Compiles` step does not run once a `Gate` step has failed; `deps` is
 the gate, and `clippy`, `test` and `golden` compile. `GOLDEN` is a step of
 `CI` but not in `COMMANDS`: `main` runs `golden` itself, for its
 `--bless`, and `print` prints what it found as `ci` prints a step. `ci`
 runs the checks in order and ends with a summary table that also lists
 the `Later` commands it will run once they exist (those with `in_ci`:
-`tools` and `theme`).
+`tools`).
 Every `Later` command exits 1 with "not yet implemented" until its task
 lands. `run_gate` runs them and returns a `Gate`, each step's outcome and
 the tests counted; `run_ci` is its `passed`, and `site` keeps the rest
@@ -2136,7 +2140,7 @@ classDiagram
     note for Skips "Tests that printed SKIPPED:<br/>did not run, and are never<br/>counted as passes"
 ```
 
-## 20. xtask: fuzz-smoke's and golden's tables
+## 20. xtask: fuzz-smoke's and golden's tables, and the theme check
 
 `cargo xtask fuzz-smoke` runs each fuzz target in `TARGETS` as a
 `cargo test` of its crate's `tests/fuzz.rs` in the `fuzz` profile, and
@@ -2182,7 +2186,7 @@ classDiagram
     class Reading["core::testing::fuzz::Reading"]
     class Kept["core::testing::fuzz::Kept"]
     class XtaskError["error::Error"]
-    SmokeFns "1" o-- "5" SmokeTarget : TARGETS
+    SmokeFns "1" o-- "6" SmokeTarget : TARGETS
     Options "1" o-- "1..*" SmokeTarget : borrows
     Options ..> Args : parse reads
     Options ..> XtaskError : parse fails with Usage
@@ -2191,7 +2195,7 @@ classDiagram
     Verdict *-- Summary : Clean, Found, Failed
     Summary *-- Reading : memory, reserved
     SmokeFns ..> Kept : keep_died
-    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>encoding in tidepool-text,<br/>and ttf in tidepool-font"
+    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>encoding in tidepool-text,<br/>ttf in tidepool-font<br/>and theme in tidepool-ui"
 ```
 
 `cargo xtask golden` asks `cargo metadata` which members have a test
@@ -2249,6 +2253,57 @@ classDiagram
     GoldenFns ..> QoiImage : decodes references,<br/>encodes images
     GoldenFns ..> Report : check returns
     note for Scenes "SCENES holds tidepool-gfx,<br/>with a tolerance of 0:<br/>every pixel exact; and<br/>tidepool-font, with 1"
+```
+
+`cargo xtask theme` (M3.2, ADR-0047) lists the regular `.toml` files
+directly in `themes/` into a `Found`, never following a link, and parses
+each with `codec::toml`. It reads each color's `value` and `solid` into an
+`Entry`, and each surface of each `[[contrast.use]]` into a `Use`, whose
+`min` is `NORMAL` or `LARGE`; `contrast` is WCAG 2.x's ratio of two
+colors. `run` puts each theme's table in the `Report`'s notes and each
+pair below its minimum in its violations. It does not use `tidepool-ui`,
+which the matrix does not let `xtask` use.
+
+```mermaid
+classDiagram
+    direction TB
+    class ThemeFns["theme"] {
+        <<module>>
+        +DIR: str
+        +NORMAL: f64
+        +LARGE: f64
+        +run(root) Result~Report~
+        +contrast(a, b) f64
+    }
+    class Found {
+        -themes: Vec~String~
+        -links: Vec~PathBuf~
+        -others: Vec~PathBuf~
+    }
+    class Entry {
+        -value: Color
+        -solid: Option~Color~
+        -over(below_name, below) Color
+    }
+    class Use {
+        -text: String
+        -on: String
+        -over: String
+        -min: f64
+        -size: str
+        -line: usize
+    }
+    class Color["core::color::Color"]
+    class TomlTable["codec::toml::Table"]
+    class Report["check::Report"]
+    ThemeFns ..> Found : lists themes/ into
+    ThemeFns ..> TomlTable : parses each file into
+    ThemeFns ..> Entry : one per color
+    ThemeFns ..> Use : one per surface<br/>of each contrast.use
+    Entry *-- Color : value, solid
+    ThemeFns ..> Color : contrast of two
+    ThemeFns ..> Report : run returns
+    note for Use "min is NORMAL, 4.5:1, or LARGE, 3:1<br/>over is bg when the file names none"
 ```
 
 ## 21. xtask: cargo metadata, the dependency matrix and the crates check
@@ -3491,9 +3546,10 @@ window's exposes asked for. Each `turn` waits for the window's events and
 returns a `Turn`. `FirstFrame::draw` makes a new `gfx::Framebuffer` of the
 window's size: the `Backdrop`'s base, then a line in each bundled face,
 set with `font::layout` and blended from the `Atlas` with
-`gfx::glyph::draw`. The frame reaches `present` as a `platform::surface::Pixels`
-view of its bytes (ADR-0040). The token stand-ins are two constants, not
-types.
+`gfx::glyph::draw`, the labels in `text-3` and the samples in `text`,
+which `FirstFrame::new` takes from `ui`'s bundled `Theme::tidepool_dark`
+(M3.2, ADR-0047). The frame reaches `present` as a
+`platform::surface::Pixels` view of its bytes (ADR-0040).
 
 ```mermaid
 classDiagram
@@ -3517,6 +3573,8 @@ classDiagram
         -atlas: Atlas
         -backdrop: Backdrop
         -style: BackdropStyle
+        -text: Color
+        -muted: Color
         +new() Result~FirstFrame~
         +draw(size, scale) Result~Framebuffer~
     }
@@ -3536,6 +3594,8 @@ classDiagram
     class BackdropStyle["gfx::backdrop::BackdropStyle"]
     class Faces["font::fallback::Faces"]
     class Atlas["font::atlas::Atlas"]
+    class Theme["ui::theme::Theme"]
+    class Color["core::color::Color"]
 
     Gui "1" *-- "1" Window
     Gui "1" *-- "1" FirstFrame
@@ -3549,6 +3609,8 @@ classDiagram
     FirstFrame *-- Atlas
     FirstFrame *-- Backdrop
     FirstFrame *-- BackdropStyle
+    FirstFrame *-- Color : text, muted
+    FirstFrame ..> Theme : new reads tidepool_dark,<br/>keeps text and text-3
     FirstFrame ..> Framebuffer : draw makes
 ```
 
@@ -3556,7 +3618,7 @@ classDiagram
   the thread that opened it. `Turn` is `Copy`. `GuiError` wraps the
   error of the crate that failed (section 29).
 
-## 28. ui: the tree, layout, events, frames and the accessibility tree
+## 28. ui: the tree, layout, events, frames, the accessibility tree and the theme
 
 `tidepool-ui` (M3.1, ADR-0046) keeps a retained `Tree`: an arena of
 `Slot`s, each with a generation and at most one node's `NodeData`, so a
@@ -3859,7 +3921,129 @@ classDiagram
   value shows as its length only (ADR-0043); `Snapshot`'s `Display`
   writes names and values as they are, and a secret is never a value.
 - `UiError`, which only the calls that change the tree's nodes, focus or
-  scrolling return (layout, input and frames never fail), is in section 29.
+  scrolling, and reading a theme (28.3), return (layout, input and frames
+  never fail), is in section 29.
+
+### 28.3 The theme
+
+`Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
+within the `Limits` it is given, and reads its tables into a `Theme`: a
+name, a `TokenColor` for each of the 26 `Token`s, in the order of
+`Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
+two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
+of `themes/tidepool-dark.toml` compiled in, within `LIMITS`. A file that
+is not TOML, or breaks the limits, fails with `UiError::ThemeSyntax`,
+holding the `CodecError`; one that is TOML but not a theme, with
+`UiError::Theme`, holding a `ThemeError`: the key, its line and a
+`ThemeErrorKind`. `solid` is a token's value when that is opaque, and
+otherwise the theme's solid color, or the value composited over `bg`.
+
+```mermaid
+classDiagram
+    direction LR
+    class ThemeFns["ui::theme"] {
+        <<module>>
+        +VERSION: i64
+        +MAX_CUT: f32
+        +MAX_TEXT_BYTES: usize
+        +LIMITS: Limits
+        +TIDEPOOL_DARK_TOML: str
+    }
+    class Theme["ui::theme::Theme"] {
+        -name: String
+        -colors: 26 TokenColor
+        -cut: f32
+        -font_ui: String
+        -font_mono: String
+        +parse(text, limits) Result~Theme~
+        +tidepool_dark() Theme
+        +name() str
+        +token(token) TokenColor
+        +color(token) Color
+        +solid(token) Color
+        +ansi(token) Option~u8~
+        +cut() f32
+        +font(family) str
+    }
+    class Token["ui::theme::Token"] {
+        <<enumeration>>
+        Bg
+        Panel
+        Text
+        Text3
+        Teal
+        TealGlow
+        EditorBg
+        Comment
+        +COUNT: usize
+        +ALL: 26 Token
+        +name() str
+        +from_name(name) Option~Token~
+    }
+    class TokenColor["ui::theme::TokenColor"] {
+        +value: Color
+        +solid: Option~Color~
+        +ansi: Option~u8~
+    }
+    class ThemeError["ui::theme::ThemeError"] {
+        +key: String
+        +line: Option~usize~
+        +kind: ThemeErrorKind
+    }
+    class ThemeErrorKind["ui::theme::ThemeErrorKind"] {
+        <<enumeration>>
+        Missing
+        Unknown
+        WrongType
+        Version
+        Color
+        SolidForOpaque
+        TranslucentSolid
+        TranslucentBg
+        Ansi
+        Cut
+        Text
+    }
+    class UiError["ui::UiError"] {
+        <<enumeration>>
+        ThemeSyntax
+        Theme
+    }
+    class Family["ui::metrics::Family"]
+    class Color["core::color::Color"]
+    class Limits["codec::Limits"]
+    class CodecError["codec::CodecError"]
+    class TomlTable["codec::toml::Table"]
+    class Display["std::fmt::Display"] {
+        <<trait>>
+    }
+
+    Theme "1" *-- "26" TokenColor : colors, one per Token
+    TokenColor *-- Color : value, solid
+    Theme ..> Token : token, color,<br/>solid, ansi take
+    Theme ..> Family : font takes
+    Theme ..> Limits : parse takes
+    Theme ..> TomlTable : parse reads
+    Theme ..> UiError : parse fails with
+    ThemeFns ..> Theme : tidepool_dark parses<br/>TIDEPOOL_DARK_TOML
+    UiError *-- CodecError : ThemeSyntax
+    UiError *-- ThemeError : Theme
+    ThemeError *-- ThemeErrorKind
+    Display <|.. Token
+    Display <|.. ThemeError
+```
+
+- The `Token` box lists 8 of its 26 variants, the rows of the spec's
+  token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
+  `comment`.
+  `Token::name` gives a token's name in the spec and the file, such as
+  `bg-raise`.
+- `UiError`'s box lists only its two theme variants; section 29 has the
+  rest. `ThemeError` implements `Display` but not `std::error::Error`:
+  `UiError` is the error a caller gets, and its `source` is the
+  `CodecError` of `ThemeSyntax`.
+- `ui` reads only that the file's `[contrast]` is a table; `cargo xtask
+  theme` reads the rest (section 20).
 
 ## 29. Error enums across crates
 
@@ -3877,7 +4061,9 @@ crates': `BenchError`'s `Text` holds the `TextError` of a text operation a
 suite runs, and its `Font` the `FontError` of a font operation; each of
 `GuiError`'s variants holds the error of the crate it names, `platform`'s
 two, `gfx`'s or `font`'s. `UiError` names the node, role, index or limit a
-call ran into, and wraps no other error. `xtask`
+call ran into, and wraps a theme file's errors: `codec`'s `CodecError` in
+`ThemeSyntax`, and `ui::theme::ThemeError`, which implements only
+`Display`, in `Theme` (28.3). `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -3978,7 +4164,10 @@ classDiagram
         Unnamed
         NotFocusable
         TooDeep
+        ThemeSyntax
+        Theme
     }
+    class ThemeError["ui::theme::ThemeError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
     class FacesErrorKind["font::fallback::ErrorKind"]
@@ -4041,6 +4230,9 @@ classDiagram
     GuiError *-- FontError : Font
     Display <|.. UiError
     StdError <|.. UiError
+    UiError *-- CodecError : ThemeSyntax
+    UiError *-- ThemeError : Theme
+    Display <|.. ThemeError
 ```
 
 ## 30. Planned types
@@ -4054,10 +4246,11 @@ is described in words here.
 - `tidepool-platform`, besides its window, events and present (section
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
-- `tidepool-ui`, besides its tree, layout, events, frames and
-  accessibility tree (section 28): the theme's token set, planned (M3.2);
-  the controls (M3.6) and collections and overlays (M3.3), each a
-  `Widget`.
+- `tidepool-ui`, besides its tree, layout, events, frames, accessibility
+  tree and theme (section 28): the controls (M3.6) and collections and
+  overlays (M3.3), each a `Widget`, with the component styles derived
+  from the theme's tokens and the way a widget reaches the theme when it
+  paints (ADR-0047).
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
@@ -4091,7 +4284,7 @@ The main files these diagrams were drawn from:
   `history.rs`, `encoding.rs`, `file.rs`, `error.rs`
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `error.rs`, `fuzz.rs`,
   `golden.rs`, `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`,
-  `crates.rs`, `ucd.rs`, `Cargo.toml`
+  `crates.rs`, `ucd.rs`, `theme.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
   `suites.rs`, `suites/text.rs`, `suites/font.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
@@ -4107,11 +4300,10 @@ The main files these diagrams were drawn from:
 - `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
   `ttf/tables.rs`, `outline.rs`, `bundled.rs`, `fallback.rs`, `layout.rs`,
   `atlas.rs`
-- `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`,
-  `tokens.rs`
+- `crates/gui/src/lib.rs`, `error.rs`, `frontend.rs`, `first_frame.rs`
 - `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
   `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
-  `draw.rs`, `a11y.rs`
+  `draw.rs`, `a11y.rs`, `theme.rs`; `themes/tidepool-dark.toml`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -4119,7 +4311,7 @@ The main files these diagrams were drawn from:
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044, ADR-0045, ADR-0046)
+  ADR-0044, ADR-0045, ADR-0046, ADR-0047)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

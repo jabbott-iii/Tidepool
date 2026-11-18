@@ -43,8 +43,12 @@
 //! nothing. [`a11y`] snapshots the accessibility tree, in which every
 //! focusable node has a role and a name.
 //!
-//! `ui` depends only on `tidepool-core`, whose geometry, colors and input
-//! types it uses. It has no `unsafe`, no OS calls and no fonts.
+//! [`theme`] reads a theme file's tokens into a [`Theme`], and bundles
+//! `tidepool-dark`, jabbott.dev's tokens (ADR-0047).
+//!
+//! `ui` depends on `tidepool-core`, whose geometry, colors and input types
+//! it uses, and on `tidepool-codec`, whose TOML parser reads theme files.
+//! It has no `unsafe`, no OS calls and no fonts.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -58,6 +62,7 @@ pub mod focus;
 pub mod input;
 pub mod layout;
 pub mod metrics;
+pub mod theme;
 pub mod tree;
 
 // The README's examples are compiled as doc tests too.
@@ -71,4 +76,5 @@ pub use error::UiError;
 pub use input::{Handled, Response};
 pub use layout::Style;
 pub use metrics::TextMetrics;
+pub use theme::{Theme, Token};
 pub use tree::{Node, NodeId, NodeState, Tree, Widget};

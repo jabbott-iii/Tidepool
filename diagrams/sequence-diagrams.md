@@ -9,7 +9,7 @@ first frame. The rest of sections 8 to 13 are the flows the specs plan,
 from startup to signing an Android package; most of their code does not
 exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M3.1 (2026-11-17, version 0.1), after M2.4, M2.7, M2.8, M2.5 and M2.6. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6 and M3.1. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -38,7 +38,7 @@ for one picture is drawn in numbered parts, read in order.
 
 ## 1. `cargo xtask ci`
 
-`run_ci` runs its twelve steps in order and keeps going after a failure,
+`run_ci` runs its thirteen steps in order and keeps going after a failure,
 so one run reports every problem. `deps` is the gate: when it fails,
 `clippy`, `test` and `golden`, which compile the workspace and run its
 code, are not run, and the summary lists them as "not run"
@@ -56,6 +56,10 @@ that each member's copies of `LICENSE` and `NOTICE` are, byte for byte,
 the root's (`xtask/src/crates.rs`). `features` checks that every ticked
 task belongs to a feature in `docs/features.jsonc`, and that each
 feature's `ticked` is what the roadmap ticks (`xtask/src/features.rs`).
+`theme`, the last step, reads each `themes/*.toml` with `codec::toml` and
+its colors with `core::color`, prints its contrast table, and fails when a
+pair the theme lists for text is below WCAG AA (`xtask/src/theme.rs`,
+ADR-0047).
 `cargo xtask site` runs the same steps through the same runner,
 `run_gate` (ADR-0030).
 
@@ -108,17 +112,18 @@ sequenceDiagram
     Ci->>Own: headers::run: the<br/>Apache-2.0 header of<br/>every source file
     Ci->>Own: workflows::run: the<br/>files in .github/workflows
     Ci->>Own: ucd::check: the UCD<br/>files against their<br/>SHA-256 pins, the<br/>tables against what<br/>they generate
+    Ci->>Own: theme::run: each<br/>themes/*.toml, read with<br/>codec toml and core<br/>color, its pairs for<br/>text against WCAG AA
     Own->>Repo: walk and read,<br/>never following a link
-    Own-->>Ci: a Report for each,<br/>printed as for deps
+    Own-->>Ci: a Report for each,<br/>printed as for deps,<br/>theme's contrast<br/>tables in its notes
     Ci->>Dev: == summary: a row for each step<br/>with its time, not run (deps<br/>failed), or not yet implemented
-    Note over Dev,Ci: The last line counts the failed steps and<br/>the skipped tests. A skipped test never<br/>fails ci, and is never a pass. tools (M5.1)<br/>and theme (M3.2) show as not yet implemented.
+    Note over Dev,Ci: The last line counts the failed steps and<br/>the skipped tests. A skipped test never<br/>fails ci, and is never a pass. tools (M5.1)<br/>shows as not yet implemented.
     Cli-->>Dev: exit status 0 if<br/>every step passed,<br/>1 if one failed<br/>or did not run
 ```
 
-A run that passes ends with `ci: ok: 12 of 12 steps passed; not yet
-implemented: tools, theme`; one whose gate failed, with `ci: FAILED: 1 of
-12 steps failed: deps; not run: clippy, test, golden; not yet implemented:
-tools, theme`.
+A run that passes ends with `ci: ok: 13 of 13 steps passed; not yet
+implemented: tools`; one whose gate failed, with `ci: FAILED: 1 of 13
+steps failed: deps; not run: clippy, test, golden; not yet implemented:
+tools`.
 
 ### 1.1 The `golden` step, and `cargo xtask golden --bless`
 
@@ -192,7 +197,7 @@ runs each target's test in its own `cargo test`, and reads the one result
 line the test prints (`xtask/src/fuzz.rs`). The parsers run in those test
 processes, never in `xtask`. The targets run in table order: `json`,
 `toml` and `qoi` (`tidepool-codec`), then `encoding` (`tidepool-text`),
-then `ttf` (`tidepool-font`).
+then `ttf` (`tidepool-font`), then `theme` (`tidepool-ui`, M3.2).
 
 ```mermaid
 sequenceDiagram
@@ -208,7 +213,7 @@ sequenceDiagram
     alt they disagree
         Smoke->>Dev: the violation lines,<br/>then fuzz-smoke: FAILED,<br/>nothing was run
     else they agree
-        Smoke->>Dev: fuzz-smoke: 5 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
+        Smoke->>Dev: fuzz-smoke: 6 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
         loop each target, in table order
             Smoke->>Dev: == json: the variables<br/>and the command line
             Smoke->>Cargo: cargo test --profile fuzz<br/>-p tidepool-codec --test fuzz<br/>-- --exact json --nocapture
@@ -509,7 +514,8 @@ From `cargo tp` to the first frame. 8.1 and 8.2 draw it as
 on ADR-0012, which is Proposed until then, and the GUI frontend the app
 drives (M3.4, M3.5). 8.3 draws what the binary does today: it opens the
 GUI's window and shows the first frame, the backdrop and a line in each
-bundled face (M2.6, ADR-0045). `platform`'s window and events are built
+bundled face (M2.6, ADR-0045), its text in `text` and `text-3` from
+`ui`'s bundled theme (M3.2, ADR-0047). `platform`'s window and events are built
 (M2.2), and so are `gfx` (the framebuffer and the backdrop, M2.3) and
 `font` (the bundled faces, layout and the atlas, M2.5). The frontend
 draws with `gfx` and `font`, libraries it calls: drawn as the frontend's
@@ -577,10 +583,11 @@ sequenceDiagram
 
 ### 8.3 The first frame today (M2.6)
 
-Read from the code: `crates/app/src/main.rs` and `tidepool-gui`'s
-`frontend.rs` and `first_frame.rs` (ADR-0045). There is no settings file,
-shell or worker yet: `main` turns the GUI until its window is asked to
-close.
+Read from the code: `crates/app/src/main.rs`, `tidepool-gui`'s
+`frontend.rs` and `first_frame.rs` (ADR-0045), and `tidepool-ui`'s
+`theme.rs` (ADR-0047). There is no settings file, shell or worker yet, and
+no theme file is read from disk: the theme is compiled into `ui`. `main`
+turns the GUI until its window is asked to close.
 
 ```mermaid
 sequenceDiagram
@@ -588,6 +595,7 @@ sequenceDiagram
     participant Main as tidepool main
     participant Gui as gui Gui
     participant First as gui FirstFrame
+    participant Theme as ui theme
     participant Draw as gfx and font
     participant Plat as platform window<br/>and events
     participant Disp as X server,<br/>through XWayland
@@ -598,6 +606,9 @@ sequenceDiagram
     Gui->>Plat: Window::open: Tidepool,<br/>1280 x 800 logical px
     Plat->>Disp: one Display over unix:N,<br/>XCreateWindow, mapped
     Gui->>First: FirstFrame::new
+    First->>Theme: Theme::tidepool_dark()
+    Theme->>Theme: parse TIDEPOOL_DARK_TOML,<br/>compiled in, with codec<br/>toml within LIMITS
+    Theme-->>First: the Theme: its text<br/>and text-3 kept
     First->>Draw: bundled::load,<br/>Atlas::new(1024, 1024)
     loop until the window is asked to close
         Main->>Gui: turn(None)
@@ -987,7 +998,7 @@ sequenceDiagram
 
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `deps.rs`, `layers.rs`,
   `crates.rs`, `metadata.rs`, `ucd.rs`, `workflows.rs`, `fuzz.rs`,
-  `golden.rs`
+  `golden.rs`, `theme.rs`
 - `crates/core/src/testing/fuzz.rs`, `fuzz/engine.rs`, `fuzz/paths.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
   `crates/gfx/tests/golden.rs`
@@ -996,7 +1007,8 @@ sequenceDiagram
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
 - `crates/gui/src/frontend.rs`, `first_frame.rs`
-- `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`
+- `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`, `theme.rs`;
+  `themes/tidepool-dark.toml`
 - `AGENTS.md` (rules 2, 6, 7 and 8)
 - `docs/00-overview.md` → "Performance budgets"
 - `docs/01-architecture.md` → "Dependency matrix", "The main loop", "Data
@@ -1008,5 +1020,5 @@ sequenceDiagram
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
   ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
-  ADR-0045, ADR-0046
+  ADR-0045, ADR-0046, ADR-0047
 - `docs/roadmap.md`: the tasks named in each section

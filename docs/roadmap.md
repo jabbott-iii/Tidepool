@@ -1799,7 +1799,7 @@ JetBrains Mono text over the jabbott.dev backdrop.
     render with Mermaid 11.17.2, which rejected a planted broken one.
     `ui` has no OS code, so nothing was built for macOS or Windows.
 
-- [ ] **M3.2 — ui: theme tokens and `xtask theme`**
+- [x] **M3.2 — ui: theme tokens and `xtask theme`**
   - Depends: M3.1, M1.7
   - Do: `themes/tidepool-dark.toml` with the token table; `theme` module;
     `cargo xtask theme` contrast check.
@@ -1809,6 +1809,81 @@ JetBrains Mono text over the jabbott.dev backdrop.
   - Note (2026-11-17): `tidepool-gui` holds stand-ins for the `text` and
     `text-3` tokens from M2.6 (ADR-0045), its only literal colors; this
     task replaces them with the theme's.
+  - Note (2026-11-18): the task has no `Decide first` line, but the spec
+    left open two questions that change the dependency matrix and a file
+    format. ADR-0047 records the options the user chose that day, each the
+    recommended one: `ui` reads theme files with `codec::toml`
+    (`tidepool-ui`'s row is now `core`, `codec`), and a theme file lists,
+    in `[contrast]`, the pairs it uses for text, which `cargo xtask theme`
+    checks.
+  - Note (2026-11-18): done. `themes/tidepool-dark.toml` (version 1) holds
+    the spec's 23 color tokens, with their solid values and 256-color
+    indices, `cut` and the two fonts, and three colors the contrast rules
+    name, `on-amber`, `on-teal` and `comment`, which join the spec's token
+    table; its `[contrast]` names the table's 7 rows and 4 columns, and 10
+    `[[contrast.use]]` entries list 27 pairs, the editor's selection
+    (`text` on `teal-glow` over `editor-bg`) among them. `ui::theme` reads
+    it (`Theme`, `Token`, `TokenColor`, `ThemeError`, `ThemeErrorKind`;
+    `UiError::Theme` and `ThemeSyntax`), refusing each rule's breach with
+    the key and its line, and bundles it (`Theme::tidepool_dark`); it has
+    a property test and a fuzz target, `theme`, with seeds in
+    `fuzz/corpus/theme/` and `themes/` read in place (`-text` in
+    `.gitattributes`). `cargo xtask theme`, the last of `ci`'s 13 steps,
+    prints the spec's contrast table, every value the same to two
+    decimals, which a test compares byte for byte, and fails a pair below
+    its minimum; `gui`'s stand-ins are gone, and its first frame takes
+    `text` and `text-3` from the theme. The component styles derived from
+    tokens, and how a widget reaches the theme when it paints, are left to
+    the controls (M3.6, M3.3), as ADR-0047 says.
+  - Note (2026-11-18): found on the way: `core`'s source-over, which keeps
+    alpha in 8 bits and rounds premultiplied channels, composites `panel`
+    over `bg` as `#0e1213`, not the spec's `#0f1113`, on which `text` is
+    16.71:1, not 16.79; `line`, `teal-wash` and `bar` are each a level off
+    in a channel or two too. The check takes a written `solid` for a
+    surface over `bg`, as the table's `(solid)` column says, and holds
+    each within one level a channel of `core`'s composite (ADR-0047).
+  - Note (2026-11-18): reviewed by four reviewers and a security reviewer,
+    each finding of the four put to two skeptics: 10 of 23 findings were
+    upheld by both and 4 by one, all fixed: a blank name or font
+    accepted, a dotted key shown as a key of the format, follow-on
+    violations after a color that does not read, and tests that could not
+    fail (the selection's `over`, the solid's one-level limit, the
+    unrounded comparison, parts of the name rule, the token set, rules of
+    `[contrast]`), and three doc comments. The security review found two
+    Low points and two nits, all fixed: `xtask theme` counted lines from
+    the start of the file for each violation (a 1 MiB file with 120,450
+    violations now takes 0.40 s, where a similar one took 54.9 s), and the
+    reader had no fuzz target, which it now has.
+  - Note (2026-11-18): checked on rustc 1.99.0, Linux. `cargo xtask
+    theme`: ok, 27 of 27 pairs at their minimum or above, and the table
+    the spec's byte for byte. Before the reviews' fixes, `cargo xtask ci`
+    passed 13 of 13 steps, with the 29 window tests skipped for want of
+    `TIDEPOOL_IT_X11`, and `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`
+    13 of 13, none skipped. After them: `cargo test -p tidepool-ui` (42
+    unit, 3 a11y, 11 frame, 2 fuzz, 19 input, 22 layout, 2 theme, 6 doc
+    tests), `xtask`'s theme tests (12) and `tidepool-gui`'s unit tests
+    (13) pass; clippy with `-D warnings` is clean; `cargo xtask
+    fuzz-smoke --target theme` ran clean for 60 s twice, 562,108 inputs
+    and, with the same seed, 1,831,565, the slowest 11.26 ms (the first
+    run's 701.82 ms was a stall at a load average near 30, which the same
+    inputs did not repeat). The 122 Mermaid blocks of `diagrams/` parse
+    and render with Mermaid 11.17.2, which rejected a planted broken one.
+    `tidepool-gui` takes 0.23 ms in a dev build to parse the bundled
+    theme; the first frame under Xvfb took 108.6 to 168.4 ms over nine
+    runs and 314.4 ms in one, at a load average near 5 while the reviewers
+    built (the closing runs, below, measured it again).
+  - Note (2026-11-18): the closing runs, on the final code. A first
+    closing gate's `test` step stopped at a test of `xtask` whose expected
+    list of fuzz targets lacked `theme`, then fixed; the disk had filled
+    under other work on the machine. With space again: `cargo test
+    --workspace`: 1,917 passed in 86 test binaries, the 29 window tests
+    skipped; `cargo xtask ci`: 13 of 13 steps pass, with those 29
+    skipped; `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 13 of 13,
+    none skipped. `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-ui -p
+    tidepool-gui -p tidepool-gfx --no-deps` is clean. The first frame
+    under Xvfb took 104.6 to 145.2 ms over 10 runs at a load average of
+    4 to 5, within the 300 ms budget. `ui` has no OS code, so nothing was
+    built for macOS or Windows.
 
 - [ ] **M3.5 — gui: draw-list painter and ui goldens**
   - Depends: M3.1, M2.6

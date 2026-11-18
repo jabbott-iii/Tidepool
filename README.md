@@ -20,7 +20,8 @@ against golden frames by a QOI codec and harness of our own, and a
 TrueType parser, glyph rasterizer, glyph atlas and text layout, with
 fallback, for the bundled Saira and JetBrains Mono, and the UI toolkit's
 widget tree, with its layout, focus, input routing, draw lists and
-accessibility tree, are built; and
+accessibility tree, and its theme of jabbott.dev's tokens, checked for
+WCAG AA contrast, are built; and
 `cargo tp` opens a Linux window that shows the first frame,
 jabbott.dev's backdrop and a line in each bundled face, and does nothing
 else yet.
@@ -36,7 +37,7 @@ run `cargo` here. Tidepool has no third-party crates, so nothing else is
 downloaded.
 
 ```bash
-cargo xtask ci        # the full gate: deps, fmt, clippy, tests, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd
+cargo xtask ci        # the full gate: deps, fmt, clippy, tests, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd, theme
 cargo test -p tidepool-text
 ```
 

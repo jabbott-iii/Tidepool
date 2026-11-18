@@ -10,8 +10,9 @@ for Linux, macOS and Windows, written in Rust with no third-party crates.
 Its library uses no other crate (its tests use `core`'s harness), and today
 `xtask` reads `cargo metadata` with its `json` and the members' manifests
 with its `toml`, and reads and writes the golden frames' references with
-its `qoi`, and `tidepool-bench` reads and writes its baseline with its
-`json`; `rpc`, `toolchain`, `syntax`, `workspace` and every crate
+its `qoi`, `tidepool-bench` reads and writes its baseline with its
+`json`, and `tidepool-ui` reads theme files with its `toml` (ADR-0047);
+`rpc`, `toolchain`, `syntax`, `workspace`, `ui` and every crate
 above them but `vcs` and `tui` may use it, as their rows of the matrix
 allow.
 

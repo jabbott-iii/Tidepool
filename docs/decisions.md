@@ -2919,3 +2919,128 @@ decides; the roadmap task that first depends on one asks for the decision.
   outside the tree on its own; a frame's paint shows up as more than a
   millisecond in the keystroke-latency suite; or `tui`'s 256-color
   fallback shows a token in the wrong index.
+
+## ADR-0047 — M3.2's theme: `ui` reads theme files with `codec::toml`, a new edge of the matrix; a theme file lists the pairs it uses for text, which `cargo xtask theme` checks
+
+- **Status:** Accepted
+- **Date:** 2026-11-18
+- **Context:**
+  - M3.2 writes `themes/tidepool-dark.toml` with the token table of
+    `docs/subsystems/ui-and-theme.md`, builds `ui`'s `theme` module, and
+    adds `cargo xtask theme`, which reproduces the spec's contrast table
+    and fails when a token change breaks WCAG AA. Themes are TOML, with a
+    version key (ADR-0013).
+  - `tidepool-ui`'s row of the dependency matrix allowed only `core`, so
+    `ui` could not read a TOML file. `tidepool-tui`'s row has no `codec`
+    either; `tidepool-gui`'s has `codec` and `ui`. `xtask`'s row is
+    `core` and `codec`, so the check cannot use `ui`.
+  - The spec's contrast table grades every text color on four surfaces,
+    pairs that are never used included (the comment color on `slate`,
+    2.96:1). Its rules say which pairs are used: no `text-3` on `slate`,
+    the comment color only on `editor-bg`, `#111111` on `amber` and
+    `#071012` on `teal`, and `text` on the editor's selection. The check
+    has to know which pairs are used, and at which size.
+  - `core::color` keeps alpha in 8 bits and composites premultiplied
+    channels, each rounded. Composited that way over `bg`, `panel` is
+    `#0e1213`, `line` `#1e1f20`, `teal-wash` `#132021` and `bar`
+    `#191e21`; the spec's solid values, `#0f1113`, `#1f1f20`, `#131f20`
+    and `#191e20`, were composited with the alphas exactly. Only
+    `line-2`'s is the same both ways. `text` on `#0e1213` is 16.71:1, not
+    the spec's 16.79.
+  - On 2026-11-18 the user chose the recommended option of each of two
+    questions: add `codec` to `ui`'s row, and list the pairs in the theme
+    file.
+- **Decision:**
+  - **The matrix.** `tidepool-ui`'s row is `core`, `codec`. `ui::theme`
+    parses a theme file with `codec::toml`, taking `codec::Limits`, and
+    bundles `themes/tidepool-dark.toml` with `include_str!`. `gui` now,
+    and `tui` from M7.1, take their theme from `ui`. `ui` still has no
+    `unsafe`, OS calls, pixels or fonts.
+  - **The file**, version 1: `version = 1` and `name`; `[colors]`, each
+    token an inline table with `value` (`core::color`'s syntax), `solid`
+    (only for a translucent value: the value composited over `bg`) and
+    `ansi` (a 256-color index), the last two optional; `[sizes]` with
+    `cut`; and `[fonts]` with `font-ui` and `font-mono`. The token names
+    are the spec's. Three colors that the spec's rules name join its
+    table as tokens: `on-amber` (`#111111`), `on-teal` (`#071012`) and
+    `comment` (`#6f7d82`).
+  - **The pairs.** `[contrast]` lists the text colors (`text`) and the
+    surfaces (`on`) of the table the check prints, and in
+    `[[contrast.use]]` each pair the theme uses for text: a `text`
+    color, the surfaces it is used `on`, a `size`, `normal` (4.5:1) or
+    `large` (3:1, also for UI glyphs), and an optional `over`, what a
+    translucent surface is composited over (`bg` when not given), so
+    that `text` on `teal-glow` over `editor-bg` is the editor's
+    selection, `#275152`. `ui` reads only that `[contrast]` is a table.
+  - **The check.** `cargo xtask theme` reads every `themes/*.toml` with
+    `codec::toml` and its colors with `core::color`, and does not use
+    `ui`, whose reader a test of `ui` runs on the bundled file. It
+    computes WCAG 2.x contrast: each channel linearized
+    (`c ≤ 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055)^2.4`, the same as
+    WCAG's 0.03928 for every 8-bit value), relative luminance
+    `0.2126 R + 0.7152 G + 0.0722 B`, and `(L1 + 0.05) / (L2 + 0.05)`.
+    A translucent surface over `bg` is its `solid` value when the file
+    gives one, as the table's `(solid)` column says; otherwise a
+    translucent color is composited as `gui` blends it, with
+    `core::color`'s source-over: a surface over its `over`, a text color
+    over its surface. It fails when a used pair is below its minimum,
+    unrounded; when a name in `[contrast]` is no color; when a surface is
+    composited over a translucent color; and when a `solid` value is
+    translucent, given for an opaque value, or more than one level a
+    channel from its value over `bg` as `core` composites it (the four
+    cases above). A color whose entry does not read has its one
+    violation, and what names it none more. It prints the
+    table as Markdown, two decimals, a pair from 3 to 4.5 marked
+    `(large only)` and one below 3 `(fails)`, and a test compares that
+    table byte for byte with the spec's. It is the last step of `ci`.
+  - **The reader.** `Theme::parse` refuses a missing or unknown key or
+    token, a wrong type, a color that does not parse, a `solid` for an
+    opaque value, an `ansi` out of 0–255, a `cut` that is not finite and
+    from 0 to 64, a blank or multi-line name or font, and a version but
+    1, naming the key and, unless it is missing, its line, a name that is
+    not a bare key quoted
+    in the path. It never panics. A property test of mutated files and a
+    fuzz target of its own, `theme` (ADR-0027), check that, with seeds in
+    `fuzz/corpus/theme/` and Tidepool's themes read in place, so
+    `themes/` is `-text` in `.gitattributes` as every seed directory is.
+  - **`gui`'s stand-ins** for `text` and `text-3` (ADR-0045) go: `gui`
+    depends on `ui`, as its row allows, and takes the two colors from
+    `Theme::tidepool_dark()`.
+  - **What waits for the controls.** The component styles derived from
+    tokens, and how a widget reaches the theme when it paints, come with
+    the controls that use them (M3.6, M3.3).
+- **Consequences:**
+  - Building or testing `ui` builds `codec`, which `gui` and `app` build
+    anyway.
+  - Two readers parse the same file: `ui`'s, of every token, and
+    `xtask`'s, of the colors and the pairs. A test on each side reads the
+    real file.
+  - A user theme, once Tidepool loads one, carries its own pairs, and
+    `cargo xtask theme` checks only the files in `themes/`; `ui` does not
+    check contrast when it loads a theme.
+  - The spec's token table gains three rows, and its contrast table is
+    what the check prints. The solid values stay the spec's, which the
+    terminal UI uses; `gui` blends the translucent values themselves, one
+    level away in a channel or two.
+  - `on-amber`, `on-teal` and `comment` have no 256-color index, as
+    `teal-glow` has none; `tui` finds them with M7.1.
+  - `.claude/rules/ui-style.md` and `AGENTS.md` lose the exception for
+    `gui`'s stand-ins.
+- **Alternatives considered:**
+  - `ui` takes entries a caller has parsed, the matrix unchanged: `gui`
+    would read the TOML, and `tui`, with no `codec`, would need `app` to
+    hand it a theme.
+  - The values compiled into `ui` as constants, with a test in `gui`
+    that the file matches: every value in two places, and a user theme
+    would still need a reader.
+  - The pairs hard-coded in `xtask`: a simpler file, but a theme could
+    not say which pairs it uses, and the rules would live in the spec
+    and in `xtask`.
+  - The contrast in `core::color`, for `ui` and `xtask` both: no runtime
+    caller needs it yet.
+  - `xtask` running a test of `ui` that computes the contrast: a new
+    cargo child (ADR-0017) for what `xtask` can read itself.
+- **Revisit when:** Tidepool loads a user's theme (then `ui` may check
+  contrast when it loads one, and the formula may move to `core`); a
+  widget uses a pair the file does not list; a second theme ships in
+  `themes/`; or jabbott.dev's tokens change (ADR-0004).

@@ -1,8 +1,9 @@
 # xtask
 
 Project automation, run as `cargo xtask <command>`: the checks behind the
-pull request gate, the golden frames, the fuzz smoke, the demo page's build
-and the benchmark runner, and later theme contrast and packaging. It never
+pull request gate, the themes' contrast among them, the golden frames, the
+fuzz smoke, the demo page's build and the benchmark runner, and later
+packaging. It never
 ships, never uploads, publishes or signs, reads no secrets, and opens no
 sockets.
 
@@ -87,10 +88,16 @@ Built, with the roadmap task that built it:
   tolerance, writes `actual` and `diff` images of a failing scene to
   `target/golden/`, and with `--bless` writes the references of the
   scenes named, and only those; ported from Nadir — M2.4.
+- `theme`, the last step of `ci`: for each `themes/*.toml`, it prints the
+  contrast table of its `[contrast]` rows and columns, as the spec has it,
+  and fails when a pair its `[[contrast.use]]` lists falls below WCAG AA
+  (4.5:1, or 3:1 for large text), when a `solid` value is not its value
+  over `bg`, within a level a channel, or when the file breaks the rules
+  of those tables; it reads the files with `codec::toml`, not with
+  `tidepool-ui`, which the matrix keeps from it (ADR-0047) — M3.2.
 
 Not yet, with the roadmap task that adds it:
 
-- `theme` — M3.2.
 - `tools` — M5.1.
 - `package` — M11.6, M12.4, M14.4.
 
@@ -99,7 +106,7 @@ Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).
 ## Usage
 
 ```bash
-cargo xtask ci              # the gate: deps, fmt, clippy, test, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd
+cargo xtask ci              # the gate: deps, fmt, clippy, test, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd, theme
 cargo xtask deps            # no package outside the repository unless approved
 cargo xtask layers          # each crate uses only what the dependency matrix allows
 cargo xtask crates          # the members' manifests and READMEs
@@ -107,6 +114,7 @@ cargo xtask features        # every ticked roadmap task belongs to a feature in 
 cargo xtask unsafe-audit    # `unsafe` only in tidepool-sys and tidepool-platform, each use documented
 cargo xtask headers         # every source file starts with the license header
 cargo xtask workflows       # the CI workflows' actions, pins and token permissions
+cargo xtask theme           # each theme's contrast table, and WCAG AA for the pairs it uses for text
 cargo xtask golden [--bless <scene>...]    # draw the golden scenes and compare them with tests/golden/
 cargo xtask ucd [--check]   # write the grapheme tables, or with --check compare them
 cargo xtask fuzz-smoke [--secs N] [--target T] [--seed S] [--replay]    # fuzz each target, 60 s by default
@@ -117,9 +125,9 @@ cargo xtask --help          # the commands and their options
 
 A command exits 0 when its checks pass, 1 when one fails or cannot run, and
 2 when the command line is not understood; `bench` exits 0 when
-`tidepool-bench` succeeded and 1 otherwise. `theme` (M3.2), `tools`
-(M5.1) and `package <os>` (M11.6, M12.4, M14.4) are planned; until its
-task lands, each exits 1 with "not yet implemented".
+`tidepool-bench` succeeded and 1 otherwise. `tools` (M5.1) and `package
+<os>` (M11.6, M12.4, M14.4) are planned; until its task lands, each exits
+1 with "not yet implemented".
 
 ## Documentation
 
@@ -142,7 +150,7 @@ task lands, each exits 1 with "not yet implemented".
   defines a macro, and the doc reader is a second layer); ADR-0044 (the
   golden scenes are tests that write PAM, and `golden` runs them with
   `cargo test`, compares them with the QOI references, and is a step of
-  `ci`).
+  `ci`); ADR-0047 (the theme file's `[contrast]`, which `theme` checks).
 - API reference: `cargo doc -p xtask --open`
 
 ## Rules

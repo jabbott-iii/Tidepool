@@ -8,7 +8,7 @@ fuzz engine's run, a text `History`, a saved file, workspace trust, vim
 mode, a managed tool and a language session. The text engine, the fuzz
 engine and fuzz smoke are built; the rest is planned.
 
-Drawn from the code and docs as of roadmap task M2.8 (2026-11-17, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.2 (2026-11-18, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -325,9 +325,9 @@ flowchart TB
     test(["A target's test<br/>in tests/fuzz.rs<br/>Target::run: Config<br/>from the environment,<br/>reads the inputs"])
     engine(["fuzz engine<br/>unchanged inputs, then<br/>mutated ones, a watchdog<br/>for hangs, the<br/>memory checks"])
     mutator(["mutate<br/>1 to 16 changes,<br/>from a Pcg32 stream<br/>for each input"])
-    parser(["The code under test<br/>json, toml, qoi,<br/>encoding or ttf, on a thread<br/>with a 2 MiB stack"])
+    parser(["The code under test<br/>json, toml, qoi,<br/>encoding, ttf or theme,<br/>on a thread<br/>with a 2 MiB stack"])
     corpus[("fuzz/corpus/TARGET/<br/>the seeds,<br/>in name order")]
-    inPlace[("Seeds read in place<br/>crates/codec/tests/json/,<br/>crates/codec/tests/<br/>toml-test/")]
+    inPlace[("Seeds read in place<br/>crates/codec/tests/json/,<br/>crates/codec/tests/<br/>toml-test/, themes/")]
     crashes[("fuzz/crashes/TARGET/<br/>KIND-HASH files,<br/>died-HASH, the<br/>hidden .last-input")]
     report(["Outcome and Summary<br/>the fuzz-result: line,<br/>and assert_clean fails<br/>the test with the report"])
 
@@ -363,8 +363,8 @@ flowchart TB
 ```
 
 - The targets are `json`, `toml` and `qoi` in `tidepool-codec`,
-  `encoding` in `tidepool-text`, and `ttf` in `tidepool-font` (`TARGETS`
-  in `xtask/src/fuzz.rs`).
+  `encoding` in `tidepool-text`, `ttf` in `tidepool-font`, and `theme` in
+  `tidepool-ui` (M3.2) (`TARGETS` in `xtask/src/fuzz.rs`).
 - A file in `fuzz/crashes/TARGET/` is named after its `Kind` and the
   input's FNV-1a hash: `panic-`, `hang-`, `memory-` or `reserve-`, then 16
   hex digits. An unchanged input that fails is named where it is, not
@@ -797,12 +797,13 @@ The docs and code these diagrams were drawn from:
 - `docs/roadmap.md`: M0.2, M4.2, M4.3, M4.5, M4.6, M4.7, M4.9, M5.1 to
   M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to M9.5, M10.4
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,
-  ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029
+  ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047
 - `crates/text/src/file.rs`, `encoding.rs`, `history.rs`,
   `transaction.rs`, `rope.rs`, `selection.rs`, `error.rs`, `lib.rs`
 - `crates/core/src/testing/fuzz.rs`, `testing/fuzz/engine.rs`,
   `testing/fuzz/mutate.rs`, `testing/fuzz/paths.rs`,
   `testing/fuzz/memory.rs`, `rng.rs`, `hash/sha256.rs`
-- `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`
+- `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
+  `crates/font/tests/fuzz.rs`, `crates/ui/tests/fuzz.rs`
 - `xtask/src/fuzz.rs`
 - `.github/workflows/ci.yml`: the fuzz-smoke step

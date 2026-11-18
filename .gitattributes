@@ -12,6 +12,9 @@ fuzz/** -text
 # inputs only from the same bytes on every OS (ADR-0027). Every directory a
 # fuzz target reads seeds from is -text, as toml-test's is above.
 crates/codec/tests/json/** -text
+# The theme target reads Tidepool's themes as seeds in place, and `ui`
+# compiles the bundled one in, byte for byte on every OS (ADR-0047).
+themes/** -text
 # Golden references are images, compared pixel for pixel (ADR-0044).
 tests/golden/** -text
 # The bundled fonts and their licenses are kept as downloaded, and pinned by

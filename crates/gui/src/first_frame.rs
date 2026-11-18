@@ -22,7 +22,10 @@
 //! copies it into a new [`Framebuffer`], and sets the lines with `font`:
 //! each names its face in `text-3`, then shows a sample in `text`, both in
 //! that face, at a size and tracking from the typography table of
-//! `docs/subsystems/ui-and-theme.md`. Saira's chrome is uppercase; Saira
+//! `docs/subsystems/ui-and-theme.md`, in the two text colors of the bundled
+//! `tidepool-dark` theme ([`Theme::tidepool_dark`], M3.2, ADR-0047); the
+//! backdrop is `gfx`'s [`BackdropStyle::jabbott_dev`], whose `bg` a test
+//! holds to the theme's. Saira's chrome is uppercase; Saira
 //! 400's body text and JetBrains Mono's code are as written. The labels
 //! start 48 logical px from the left, the samples in one column after the
 //! widest label, and the baselines are 32 logical px apart from 72 px
@@ -44,8 +47,9 @@ use tidepool_gfx::framebuffer::Framebuffer;
 use tidepool_gfx::glyph::{self, Mask};
 use tidepool_gfx::image;
 
+use tidepool_ui::theme::{Theme, Token};
+
 use crate::GuiError;
-use crate::tokens::{TEXT, TEXT_3};
 
 /// One line of the frame: a face, how it is set, and what it says.
 struct Sample {
@@ -136,22 +140,30 @@ pub struct FirstFrame {
     atlas: Atlas,
     backdrop: Backdrop,
     style: BackdropStyle,
+    /// The theme's `text`, for the samples.
+    text: Color,
+    /// The theme's `text-3`, for the labels.
+    muted: Color,
 }
 
 impl FirstFrame {
-    /// Loads the bundled faces, under 1 ms (M2.5), and makes an empty atlas
-    /// and backdrop cache; nothing is drawn yet.
+    /// Loads the bundled faces, under 1 ms (M2.5), and the bundled theme's
+    /// two text colors, and makes an empty atlas and backdrop cache;
+    /// nothing is drawn yet.
     ///
     /// # Errors
     ///
     /// [`GuiError::Font`] if a bundled face does not parse or the atlas
     /// cannot be made, which would be a bug.
     pub fn new() -> Result<Self, GuiError> {
+        let theme = Theme::tidepool_dark();
         Ok(Self {
             faces: bundled::load()?,
             atlas: Atlas::new(ATLAS_SIDE, ATLAS_SIDE)?,
             backdrop: Backdrop::new(),
             style: BackdropStyle::jabbott_dev(),
+            text: theme.color(Token::Text),
+            muted: theme.color(Token::Text3),
         })
     }
 
@@ -208,8 +220,9 @@ impl FirstFrame {
         for (index, style, label, text) in &lines {
             // At most 7 lines: the index is exact as an `f32`.
             let baseline = device((TOP + PITCH * *index as f32) * factor);
-            self.draw_line(frame, clip, (label, style), (left, baseline), TEXT_3)?;
-            self.draw_line(frame, clip, (text, style), (column, baseline), TEXT)?;
+            let (text_color, muted) = (self.text, self.muted);
+            self.draw_line(frame, clip, (label, style), (left, baseline), muted)?;
+            self.draw_line(frame, clip, (text, style), (column, baseline), text_color)?;
         }
         Ok(())
     }
@@ -348,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lines_use_the_text_tokens_colors() {
+    fn the_lines_use_the_themes_text_colors() {
         let size = DeviceSize::new(800, 300);
         let drawn = frame(size, 1.0);
         let mut colors = std::collections::HashSet::new();
@@ -359,9 +372,22 @@ mod tests {
                 }
             }
         }
-        // Fully covered pixels of a glyph are the tokens' colors exactly.
-        assert!(colors.contains(&TEXT.premultiply()));
-        assert!(colors.contains(&TEXT_3.premultiply()));
+        // Fully covered pixels of a glyph are the tokens' colors exactly:
+        // the spec's `#eef2f3` and `#7d898e`.
+        let theme = Theme::tidepool_dark();
+        assert_eq!(theme.color(Token::Text), Color::rgb(0xee, 0xf2, 0xf3));
+        assert_eq!(theme.color(Token::Text3), Color::rgb(0x7d, 0x89, 0x8e));
+        assert!(colors.contains(&theme.color(Token::Text).premultiply()));
+        assert!(colors.contains(&theme.color(Token::Text3).premultiply()));
+    }
+
+    #[test]
+    fn the_backdrops_bg_is_the_themes() {
+        // The theme carries no backdrop style yet (ADR-0047), so the frame
+        // draws `gfx`'s jabbott.dev style: its `bg` must stay the token
+        // that `cargo xtask theme` measures text against.
+        let theme = Theme::tidepool_dark();
+        assert_eq!(BackdropStyle::jabbott_dev().bg, theme.color(Token::Bg));
     }
 
     #[test]
@@ -403,7 +429,7 @@ mod tests {
             frame.clear(Color::rgb(0, 0, 0).premultiply());
             let clip = frame.bounds();
             first
-                .draw_line(&mut frame, clip, (&line, &style), (x, 30), TEXT)
+                .draw_line(&mut frame, clip, (&line, &style), (x, 30), Color::WHITE)
                 .expect("the line draws");
             frame
         };

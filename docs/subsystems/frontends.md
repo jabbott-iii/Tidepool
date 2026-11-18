@@ -29,9 +29,11 @@ automatically when no display is available, with a message).
   anew, on the calling thread, whenever the window's size or scale has
   changed: jabbott.dev's backdrop (`gfx::backdrop`) and a line in each
   bundled face, its name in `text-3` and a sample in `text`, from the
-  typography table (`docs/subsystems/ui-and-theme.md`). The two colors
-  are stand-ins for the theme's tokens until M3.2. The rustdoc of `gui`'s
-  modules is authoritative.
+  typography table (`docs/subsystems/ui-and-theme.md`), the two text
+  colors from `ui`'s bundled `tidepool-dark` theme (M3.2, ADR-0047); the
+  backdrop's are `gfx`'s `BackdropStyle::jabbott_dev()`, whose `bg` a
+  test holds to the theme's. The rustdoc
+  of `gui`'s modules is authoritative.
 - Implements `TextMetrics` with `font::layout` (M3.5).
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
