@@ -1621,7 +1621,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0033 — `core::path::canonicalize` drops Windows' `\\?\` where Win32 reads the plain form back; `resolve` and `under` are part of M1.8; the display also escapes bidirectional controls and line separators
 
-- **Status:** Accepted; its consequence that paths below a name needing the verbatim form stay verbatim is wrong, as M1.8's review found: a name below one is plain wherever the whole plain path reads back unchanged, so forms can alternate down a tree, and an ancestor must be canonicalized itself, never taken with `Path::parent()`. The decision is unchanged
+- **Status:** Accepted; its consequence that paths below a name needing the verbatim form stay verbatim is wrong, as M1.8's review found: a name below one is plain wherever the whole plain path reads back unchanged, so forms can alternate down a tree, and an ancestor must be canonicalized itself, never taken with `Path::parent()`. The decision is unchanged; extended by ADR-0051, which has `canonicalize` refuse a final separator or `/.` after a file, which macOS's `realpath(3)` accepts, so that `resolve(p) == canonicalize(p)` holds there
 - **Date:** 2026-11-08
 - **Context:**
   - M1.8's design (`docs/subsystems/core.md` → "Public API names",
@@ -2184,7 +2184,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0039 — M2.2's Linux window: the read-back test lives in `platform`'s library; the X connection is rule 8's one exception, over a local Unix socket only; keys come from key codes; window tests run with `TIDEPOOL_IT_X11=1`
 
-- **Status:** Accepted; extended by ADR-0041 (on Linux, CI's gate runs under `xvfb-run` with `TIDEPOOL_IT_X11=1`, so it runs the window tests; `pages.yml` is unchanged)
+- **Status:** Accepted; extended by ADR-0041 (on Linux, CI's gate runs under `xvfb-run` with `TIDEPOOL_IT_X11=1`, so it runs the window tests; `pages.yml` is unchanged); ADR-0050 replaces its display name: Xlib gets `unix/:N` and `unix/:N.S` in place of `unix:N` and `unix:N.S`, which libxcb 1.16 and later read as a socket path; the `DISPLAY` values accepted are unchanged
 - **Date:** 2026-11-16
 - **Context:**
   - M2.2's `Decide first` line asked three questions, and M2.1's review
@@ -3390,3 +3390,132 @@ decides; the roadmap task that first depends on one asks for the decision.
   tokens may default from the others); the editor view (M4.1) needs
   metrics in its handlers; a control needs a glow to read as the site's;
   or jabbott.dev gains pressed, disabled or input styles (ADR-0004).
+
+## ADR-0050 — `platform` gives `XOpenDisplay` `unix/:N`, not `unix:N`, since libxcb 1.16 and later read `unix:N` as a socket path; the `DISPLAY` values accepted are unchanged
+
+- **Status:** Accepted
+- **Date:** 2026-11-20
+- **Context:**
+  - ADR-0039 has `platform` rewrite `DISPLAY=:N` to `unix:N`, so that
+    libxcb never falls back to TCP, as measured with libxcb 1.15.
+  - Every Linux CI run since M2.9 put the gate under `xvfb-run -a`
+    (2026-11-17 to 2026-11-18, ten runs) failed its window tests with
+    `cannot connect to the X server at unix:99`: the first six every one
+    of `platform`'s that ran (7, then 28), and the last four `gui`'s one,
+    where `cargo test` stopped before `platform`'s ran. GitHub's `ubuntu-latest`
+    is now `ubuntu-26.04` (image 20261111.196.1), which installs Ubuntu
+    resolute's libxcb1 1.17.0-2ubuntu1; this machine (Pop!_OS 24.04) has
+    1.15-1ubuntu2, and the same tests pass here under `xvfb-run -a`.
+  - libxcb 1.16 (upstream commit 09525553, "DISPLAY starting with / or
+    unix: is always a socket path") sends any name that starts with
+    `unix:` or `/` to `_xcb_parse_display_path_to_socket`, with no
+    fallback (`src/xcb_util.c` of the 1.17.0 tarball resolute builds,
+    SHA-256 `2c69287424c9e2128cb47ffe92171e10417041ec2963bceafb65cb3fcf8f0b85`;
+    Ubuntu's diff changes no file under `src/`). For `unix:99` it calls
+    `stat("99")` in the working directory: with no such file and no
+    `.[1-9]` screen suffix the parse fails, and libX11's `_XConnectXCB`
+    returns before any socket is opened, so `XOpenDisplay` returns null.
+    A socket file named `99` there would be taken as display 0. Upstream
+    issue 73 ("libxcb-1.16 broke numbered unix DISPLAY sockets") has been
+    open since 2023-10-29. In 1.15 that parse exists only under
+    `HAVE_LAUNCHD` (macOS).
+  - The same source reads `unix/:N` as the protocol `unix`, no host and
+    display N. `_xcb_open` goes to TCP only when the protocol is not
+    `unix`, and falls back to TCP only when there is no protocol, in
+    1.15 and 1.17.0 alike, so `unix/:N` tries the abstract and then the
+    filesystem socket of display N and nothing else. The cookie is looked
+    up for display N (`get_authptr`: `FamilyLocal`, the host name, N),
+    as `xvfb-run`'s `xauth add :N` writes it.
+- **Decision:**
+  - `display::display_name` gives Xlib `unix/:N` and `unix/:N.S` for
+    `:N`, `:N.S`, `unix:N` and `unix:N.S`.
+  - The values accepted are ADR-0039's: everything else is refused as
+    before, `unix/…` included. `unix/:N` is the spelling Tidepool gives
+    Xlib, not one `DISPLAY` may use.
+  - The rest of ADR-0039 holds: the X connection is rule 8's one
+    exception, over a local Unix socket only, never TCP.
+- **Consequences:**
+  - The GUI opens a window with libxcb 1.16 and later (Ubuntu 26.04, and
+    any system with 1.16 or 1.17), which it could not before; with 1.15
+    nothing changes, checked here: `tidepool-platform`'s 124 tests and
+    `gui`'s window test pass under `xvfb-run -a`.
+  - The window no longer depends on the working directory's files.
+  - An error names `unix/:N`, the name Xlib was given.
+  - That `unix/:N` connects with libxcb 1.17.0 was read in its source,
+    not run here; the next Linux CI run shows it (M2.9's ⏳ line).
+  - `ci.yml` is unchanged: `ubuntu-latest`, `xvfb-run -a`, nothing
+    installed (ADR-0041).
+- **Alternatives considered:**
+  - `unix:/tmp/.X11-unix/XN`, a socket path: libxcb 1.15 on Linux cannot
+    parse it, and 1.16 and later take it as display 0, whose cookie
+    `xvfb-run`'s `:N` entry is not.
+  - Passing `:N` as it is: libxcb falls back to TCP on `127.0.0.1` and
+    `::1`, port 6000 + N, when the Unix sockets fail, against rule 8.
+  - Pinning the Linux CI job to `ubuntu-24.04` (libxcb 1.15): CI passes,
+    but the GUI stays broken on every system with libxcb 1.16 or later.
+  - Choosing the spelling by the libxcb version found at run time: more
+    code, for a name that works the same in 1.15 and 1.17.0.
+- **Revisit when:** libxcb changes how it reads `unix/` or a display name
+  with a protocol and no host (upstream issue 73 is resolved, or a
+  release after 1.17.0 changes `_xcb_parse_display` or `_xcb_open`); or a
+  Linux CI run fails to connect with `unix/:N`.
+
+## ADR-0051 — `core::path::canonicalize` refuses a final separator or `/.` after a file on every OS, which macOS's `realpath(3)` accepts; the deep-link timing test follows as many links as the OS does
+
+- **Status:** Accepted
+- **Date:** 2026-11-20
+- **Context:**
+  - ADR-0033 decides both that `canonicalize` is `fs::canonicalize` ("On
+    Unix the result is `realpath(3)`'s, unchanged") and that `resolve(p)`
+    equals `canonicalize(p)` when `p` exists. M1.8's `resolve` reads a
+    final separator, or on Unix a final `/.`, as asking for a directory,
+    and its test `a_final_separator_asks_for_a_directory` asserts that
+    `canonicalize` fails for `file.txt/` on every OS and for `file.txt/.`
+    on Unix.
+  - macOS CI has failed that test, and
+    `absolute_links_into_a_deep_tree_cost_about_what_canonicalize_costs`,
+    on every run since M1.8's commit (run 42633807453, 2026-11-09, to run
+    44414874368, 2026-11-18, image `macos-26-arm64`).
+  - Apple's `realpath` (Libc's `stdlib/FreeBSD/realpath.c`) splits the
+    path itself and never checks the type of a name that `/` or `/.`
+    follows, so `fs::canonicalize("…/file.txt/")` gives the file on macOS
+    26.7.2. glibc refuses it with `ENOTDIR`; Windows refuses it too, and
+    its CI job passes the test.
+  - The timing test chains 40 absolute links. Apple's `realpath` counts
+    links itself and follows 33 (`symlinks++ > MAXSYMLINKS`, with xnu's
+    `MAXSYMLINKS` of 32; the kernel follows 32), so on macOS even
+    `resolve`'s whole-path try met `ELOOP`. Linux follows 40 and Windows
+    63. Rule 5 allows no `cfg(target_os)` in `core`.
+- **Decision:**
+  - `canonicalize` refuses with `NotADirectory` a path that asks for a
+    directory, by the rule `resolve` reads (Windows' rules taken from the
+    OS's absolute answer), when the OS's answer is not a directory. Every
+    other answer is `fs::canonicalize`'s, as ADR-0033 says. On Linux and
+    Windows nothing changes, since the OS refuses such a path first.
+  - The timing test asks the OS (`fs::canonicalize`) whether it follows
+    the made chain and, while it does not, has the first link skip one
+    more, at most eight times, so both timed calls follow the chain the
+    OS follows: 40 links on Linux, 33 on macOS.
+- **Consequences:**
+  - On macOS, `resolve(p) == canonicalize(p)` holds for a path that ends
+    in a separator or `/.`, and `NotADirectory` comes as it does on Linux.
+  - Not run on macOS when decided: the next macOS CI run shows both tests.
+    On Linux the probe was checked with a 48-link chain, which it
+    shortened to 40.
+  - Still as `realpath(3)` answers on macOS, where Linux refuses with
+    `ENOTDIR`: `file.txt/..`, and a last-name link whose target is
+    `file.txt/`. No test asserts either.
+- **Alternatives considered:**
+  - Keeping `canonicalize` as `realpath(3)` gives it and letting the test
+    accept the file on macOS: ADR-0033's invariant breaks there, and the
+    test is weakened (rule 12).
+  - `fs::metadata(path)` after every successful canonicalization, so the
+    kernel applies its rules to the path as given: it would also refuse
+    `file.txt/..` and a link to `file.txt/`, but it is a second lookup on
+    every call, and on macOS it would refuse a chain of 33 links that
+    `realpath(3)` follows.
+  - A timing test of 32 links on every OS: simpler, but a weaker guard on
+    Linux and Windows.
+- **Revisit when:** a macOS CI run fails either test; a caller needs
+  `file.txt/..` or a link to `file.txt/` refused on macOS; or Apple's
+  `realpath(3)` starts checking a name's type before `/`.

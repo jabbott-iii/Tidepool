@@ -1503,9 +1503,10 @@ dynlib! {
         ///
         /// It connects a socket to the server: a Unix socket for `:N`, or
         /// TCP when the name has a host, and also for `:N` when no Unix
-        /// socket answers (libxcb's fallback; `unix:N` never uses TCP). It
-        /// sends the Xauthority cookie for that display if the authority
-        /// file has one.
+        /// socket answers (libxcb's fallback; `unix/:N` never uses TCP).
+        /// From libxcb 1.16 on, a name that starts with `unix:` or `/` is
+        /// the path of a socket file. It sends the Xauthority cookie for
+        /// that display if the authority file has one.
         /// `X11/Xlib.h`: `extern Display *XOpenDisplay(_Xconst char*
         /// display_name)`
         ///

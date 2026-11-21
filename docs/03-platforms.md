@@ -37,9 +37,11 @@ task that needs another OS leaves its box unchecked with a
   fails with an error that names it (the TUI, M7.1, is to need no X).
 - One `Display` connection for each window, over a local Unix socket
   only, the one exception to `AGENTS.md` rule 8 (ADR-0039).
-  `platform` reads `DISPLAY` and passes `:N` and `:N.S` to
-  `XOpenDisplay` as `unix:N` and `unix:N.S`, so that libxcb never falls
-  back to TCP, and `unix:N` and `unix:N.S` as they are; it refuses any
+  `platform` reads `DISPLAY` and passes `:N`, `:N.S`, `unix:N` and
+  `unix:N.S` to `XOpenDisplay` as `unix/:N` and `unix/:N.S`, the `unix`
+  protocol with no host, so that libxcb never falls back to TCP; libxcb
+  1.16 and later read a name that starts with `unix:` as the path of a
+  socket file (ADR-0050). It refuses any
   other value, such as a host name (`ssh -X`'s `localhost:10.0`), a
   transport (`tcp/…`), a socket path, a number that is not decimal or an
   unset `DISPLAY`, with an error that says why and names the value,

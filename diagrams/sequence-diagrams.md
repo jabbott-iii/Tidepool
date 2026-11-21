@@ -544,7 +544,7 @@ sequenceDiagram
     else the GUI, by default
         Cli->>Fe: Frontend::open(config, mode)
         Fe->>Plat: Window::open(config)
-        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix:N only<br/>(ADR-0039),<br/>XCreateWindow
+        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix/:N only<br/>(ADR-0039, ADR-0050),<br/>XCreateWindow
         Plat->>Plat: the scale<br/>from Xft.dpi
         Fe->>Fe: font (built): bundled::load<br/>parses Saira and JetBrains<br/>Mono, compiled in
         Fe->>Fe: font (built): Atlas::new,<br/>and an empty gfx Backdrop<br/>cache, the backdrop and<br/>Framebuffer built on the<br/>first expose (8.3)
@@ -606,7 +606,7 @@ sequenceDiagram
     Main->>Main: Instant::now, then<br/>Args::from_env, the flag,<br/>finish: any other<br/>argument exits 2
     Main->>Gui: Gui::open(WindowConfig::default())
     Gui->>Plat: Window::open: Tidepool,<br/>1280 x 800 logical px
-    Plat->>Disp: one Display over unix:N,<br/>XCreateWindow, mapped
+    Plat->>Disp: one Display over unix/:N,<br/>XCreateWindow, mapped
     Gui->>First: FirstFrame::new
     First->>Theme: Theme::tidepool_dark()
     Theme->>Theme: parse TIDEPOOL_DARK_TOML,<br/>compiled in, with codec<br/>toml within LIMITS

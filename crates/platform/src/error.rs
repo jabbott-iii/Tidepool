@@ -72,7 +72,7 @@ pub enum Error {
     /// than that: none may be running on that display, or it refused the
     /// connection.
     ConnectionFailed {
-        /// The name the window gave Xlib, such as `unix:0`.
+        /// The name the window gave Xlib, such as `unix/:0`.
         display: String,
     },
     /// Linux: the connection to the X server hung up.
@@ -273,9 +273,9 @@ mod tests {
             ),
             (
                 Error::ConnectionFailed {
-                    display: "unix:7".to_string(),
+                    display: "unix/:7".to_string(),
                 },
-                "cannot connect to the X server at unix:7",
+                "cannot connect to the X server at unix/:7",
             ),
             (
                 Error::Refused {

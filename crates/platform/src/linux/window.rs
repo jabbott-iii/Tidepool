@@ -159,7 +159,7 @@ impl Window {
             reason,
         };
         let name = display::display_name(value.as_deref()).map_err(refused)?;
-        // An accepted name is digits, a dot and `unix:`, so it has no NUL.
+        // An accepted name is digits, a dot and `unix/:`, so it has no NUL.
         let c_name = CString::new(name.as_str()).map_err(|_| refused("holds a NUL"))?;
         let pipe = SelfPipe::new()?;
         let connection = Connection::open(claim, xlib, &c_name)

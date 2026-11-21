@@ -2853,8 +2853,8 @@ The backend's types are private to the crate. One `Connection` per
 window owns the `Display`, its graphics context and the input method; it
 holds the thread's `Claim`, so every Xlib call in the process comes from
 one thread while any window is open, and it is closed last. `display`
-turns `DISPLAY` into the `unix:N` name `XOpenDisplay` gets, and refuses
-any other (ADR-0039). `library::xlib` loads `libX11.so.6` once, and the
+turns `DISPLAY` into the `unix/:N` name `XOpenDisplay` gets, and refuses
+any other (ADR-0039, ADR-0050). `library::xlib` loads `libX11.so.6` once, and the
 table is never unloaded.
 
 ```mermaid

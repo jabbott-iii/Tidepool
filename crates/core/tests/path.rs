@@ -907,6 +907,20 @@ fn absolute_links_into_a_deep_tree_cost_about_what_canonicalize_costs() {
         }
     }
     let given = dir.join("l0");
+    // Linux follows the 40 links, and Windows 63. Where the OS follows
+    // fewer (macOS's `realpath` follows 33, its kernel 32), it refuses the
+    // chain whole, made or not, so `l0` skips links until the OS itself
+    // follows the made chain, and both calls are timed over that one.
+    // Eight skips allow a limit down to 32.
+    make_file(&deep.join("missing"), "m");
+    for skip in 1..=8 {
+        if fs::canonicalize(&given).is_ok() {
+            break;
+        }
+        fs::remove_file(&given).unwrap();
+        link(&deep.join(format!("l{}", 1 + skip)), &given).unwrap();
+    }
+    fs::remove_file(deep.join("missing")).unwrap();
     let started = Instant::now();
     let planned = path::resolve(&given).unwrap();
     let resolving = started.elapsed();

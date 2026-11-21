@@ -121,6 +121,11 @@ is the reference.
   - **`canonicalize(path)`** is for a path that exists.
     - The result is absolute, with every link and every `.` and `..`
       resolved as the OS resolves them (`fs::canonicalize`).
+    - A final separator, or on Unix a final `/.`, asks for a directory, as
+      it does of `resolve`: after a file it is an error on every OS
+      (ADR-0051). Linux refuses it with `NotADirectory` and Windows with an
+      error of its own; macOS's `realpath(3)` gives the file, so
+      `canonicalize` refuses it there with `NotADirectory`.
     - On Windows the `\\?\` prefix is dropped exactly when Win32 reads the
       plain form back unchanged (`std::path::absolute(plain) == plain`).
       That is std's own test before it passes a directory to a child.
@@ -240,7 +245,8 @@ is the reference.
   relative paths. A plan from `resolve` is made, then compared with
   `canonicalize`. Three tests bound the time: of 2,000 names and `..`
   (missing or not), of 40 links through missing names, and of 40 absolute
-  links into a tree 300 deep against `canonicalize` of the made path.
+  links into a tree 300 deep (fewer where the OS follows fewer: macOS's
+  `realpath(3)` follows 33) against `canonicalize` of the made path.
 - Windows' names (a trailing space inside a path, `c:x`, a verbatim `.`,
   a `\\.\` spelling, a final `\ `) are tested where `std` parses
   Windows' prefixes, asked at run time.

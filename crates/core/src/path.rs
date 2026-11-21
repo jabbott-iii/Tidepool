@@ -217,6 +217,13 @@ pub fn to_utf8<P: AsRef<Path> + ?Sized>(path: &P) -> Result<&str, PathError> {
 /// gives for each OS. A relative path starts at the process's current
 /// directory.
 ///
+/// A path that ends in a separator, or on Unix in `/.`, asks for a
+/// directory, as it does of [`resolve`], and one that names a file is an
+/// error on every OS (ADR-0051). Linux refuses it with
+/// [`io::ErrorKind::NotADirectory`] and Windows with an error of its own;
+/// macOS's `realpath(3)` gives the file, so `canonicalize` refuses it there
+/// with [`io::ErrorKind::NotADirectory`].
+///
 /// It blocks on the file system, so call it on a worker.
 ///
 /// # Errors
@@ -229,17 +236,27 @@ pub fn to_utf8<P: AsRef<Path> + ?Sized>(path: &P) -> Result<&str, PathError> {
 ///   [`io::ErrorKind::PermissionDenied`] for a directory that cannot be
 ///   searched. On Windows the file itself must open, so a device, a file
 ///   link to a directory and some virtual file systems are errors too.
+/// - [`PathError::Io`] with [`io::ErrorKind::NotADirectory`] for a path that
+///   asks for a directory and names a file, where the OS gives the file
+///   (macOS).
 pub fn canonicalize(path: impl AsRef<Path>) -> Result<PathBuf, PathError> {
     let given = path.as_ref();
     if given.as_os_str().is_empty() {
         return Err(PathError::Empty);
     }
-    fs::canonicalize(given)
-        .map(simplify)
-        .map_err(|source| PathError::Io {
-            path: given.to_path_buf(),
-            source,
-        })
+    let fail = |source| PathError::Io {
+        path: given.to_path_buf(),
+        source,
+    };
+    let canonical = fs::canonicalize(given).map_err(fail)?;
+    // The OS's answer is absolute, so it says which rules apply: a relative
+    // `file.txt/.` on Windows has no prefix, but Win32 drops its `/.`.
+    if asks_for_directory(given.as_os_str(), windows_rules(&canonical))
+        && !fs::metadata(&canonical).map_err(fail)?.is_dir()
+    {
+        return Err(fail(io::Error::from(io::ErrorKind::NotADirectory)));
+    }
+    Ok(simplify(canonical))
 }
 
 /// [`canonicalize`] for a path whose end need not exist yet: the spelling

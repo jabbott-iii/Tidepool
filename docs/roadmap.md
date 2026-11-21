@@ -1089,6 +1089,13 @@ is published from `main`.
       on Windows `text::file::save` joins a relative link target onto the
       link's lexical parent, where the OS uses the link's own directory
       (reasoned from std's sources, not run).
+  - Note (2026-11-20): macOS CI failed two of these tests on every run
+    from this task's commit on: `a_final_separator_asks_for_a_directory`,
+    since macOS's `realpath(3)` gives a file for `file.txt/`, and
+    `absolute_links_into_a_deep_tree_cost_about_what_canonicalize_costs`,
+    since it follows 33 links, not 40. ADR-0051 has
+    `canonicalize` refuse the first, and the second test now follows as
+    many links as the OS does. A macOS CI run has yet to show both pass.
 
 - [x] **M1.9 — bench: harness, `cargo xtask bench` and the text suites**
   - Depends: M0.3, M1.2, M0.5
@@ -1256,6 +1263,10 @@ our own rasterizer.
     point at files of its choosing, so a FIFO there blocks
     `Window::open`; every cursor is made there, so `set_cursor` reads no
     file.
+  - Note (2026-11-20): ADR-0050 changes the name `platform`
+    gives `XOpenDisplay` from `unix:N` to `unix/:N`, since libxcb 1.16
+    and later read `unix:N` as the path of a socket file. The `DISPLAY`
+    values accepted are unchanged.
 
 - [ ] **M2.9 — ci: the window tests run under Xvfb on Linux**
   - Depends: M2.2, M0.4, M0.11
@@ -1288,6 +1299,14 @@ our own rasterizer.
     `crates/gui/tests/window.rs`, which every system builds: the Linux
     job runs it with `platform`'s, and the macOS and Windows jobs print
     `SKIPPED:` for it, since nothing sets `TIDEPOOL_IT_X11` there.
+  - Note (2026-11-20): every Linux run since then failed `gui`'s window
+    test with `cannot connect to the X server at unix:99`, and `cargo
+    test` stopped there before `platform`'s ran; the six runs before
+    failed all of `platform`'s the same way. `ubuntu-latest`
+    is now `ubuntu-26.04`, whose libxcb 1.17.0 reads `unix:N` as a socket
+    file named `N` in the working directory, so `XOpenDisplay` failed
+    before it opened a socket; this machine's libxcb 1.15 does not.
+    ADR-0050 gives Xlib `unix/:N`. The workflow is unchanged.
   - ⏳ needs the user: push, and see the Linux job of `ci.yml` run the
     29 window tests, 28 of `platform`'s and `gui`'s one (its gate's
     summary reads `ci: ok` with no `SKIPPED` count), while the macOS and

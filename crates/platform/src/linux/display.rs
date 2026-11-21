@@ -13,27 +13,40 @@
 // limitations under the License.
 
 //! Which X servers the window connects to: a local one, over a Unix socket
-//! only (ADR-0039).
+//! only (ADR-0039, ADR-0050).
 //!
 //! New in Tidepool. Nadir passes `XOpenDisplay` null, which reads `DISPLAY`
 //! itself and may connect over TCP.
 //!
 //! The connection to the X server is the one socket `AGENTS.md` rule 8
 //! lets the core binary open, and only when it is local. Xlib (libxcb
-//! underneath) reads a display name as `[protocol/][host]:N[.S]`, and for
-//! `:N`, with no host, tries the Unix sockets (the abstract
-//! `@/tmp/.X11-unix/XN`, then `/tmp/.X11-unix/XN`) and then falls back to
-//! TCP on localhost, port 6000 + N; for `unix:N` it tries the Unix sockets
-//! and nothing else; and for any other host it goes straight to TCP. So
-//! [`display_name`] reads `DISPLAY` and gives Xlib only a name that cannot
-//! reach TCP:
+//! underneath) reads a display name as `[protocol/][host]:N[.S]`:
 //!
-//! - `:N` and `:N.S` become `unix:N` and `unix:N.S`;
-//! - `unix:N` and `unix:N.S` stay as they are;
+//! - for `:N`, with no protocol and no host, it tries the Unix sockets (the
+//!   abstract `@/tmp/.X11-unix/XN`, then `/tmp/.X11-unix/XN`) and then
+//!   falls back to TCP on localhost, port 6000 + N;
+//! - for `unix/:N`, the protocol `unix` and no host, it tries the Unix
+//!   sockets and nothing else;
+//! - for any other host it goes straight to TCP.
+//!
+//! `unix:N` means different things in different libxcb versions. libxcb
+//! 1.15 reads it as the host `unix`, which tries the Unix sockets alone.
+//! From 1.16 on, a name that starts with `unix:` or `/` is a path to a
+//! socket file (libxcb issue 73), so `unix:N` names a file `N` in the
+//! working directory. Where there is none, the name does not parse and
+//! `XOpenDisplay` fails; a socket of that name would be display 0.
+//!
+//! So [`display_name`] reads `DISPLAY` and gives Xlib a name that reaches
+//! only display N's Unix sockets, in every libxcb:
+//!
+//! - `:N`, `:N.S`, `unix:N` and `unix:N.S` become `unix/:N` and
+//!   `unix/:N.S`;
 //! - everything else is refused, with the reason: unset, empty, a host
 //!   name (`localhost:10.0`, which `ssh -X` sets), a transport
 //!   (`tcp/…`, `inet6/…`, `unix/…`), a socket path (`/…`), or a display or
 //!   screen number that is not decimal digits, or is over `i32::MAX`.
+//!   `unix/:N` is the spelling Tidepool gives Xlib, not one `DISPLAY` may
+//!   use: the values accepted are ADR-0039's.
 //!
 //! `XOpenDisplay` is never given null, which would make it read `DISPLAY`
 //! itself. Xlib still reads the Xauthority file and sends the display's
@@ -85,7 +98,7 @@ pub(super) fn display_name(value: Option<&OsStr>) -> Result<String, &'static str
     }
     // Only ASCII digits, a dot and `unix` are left, so the bytes are text.
     let number = String::from_utf8_lossy(number);
-    Ok(format!("unix:{number}"))
+    Ok(format!("unix/:{number}"))
 }
 
 /// Why a display or screen number is refused.
@@ -128,21 +141,22 @@ mod tests {
 
     #[test]
     fn a_local_display_becomes_its_unix_socket() {
-        assert_eq!(name(":0").as_deref(), Ok("unix:0"));
-        assert_eq!(name(":1").as_deref(), Ok("unix:1"));
-        assert_eq!(name(":99.0").as_deref(), Ok("unix:99.0"));
-        assert_eq!(name(":10.3").as_deref(), Ok("unix:10.3"));
-        assert_eq!(name(":007").as_deref(), Ok("unix:007"));
+        assert_eq!(name(":0").as_deref(), Ok("unix/:0"));
+        assert_eq!(name(":1").as_deref(), Ok("unix/:1"));
+        assert_eq!(name(":99.0").as_deref(), Ok("unix/:99.0"));
+        assert_eq!(name(":10.3").as_deref(), Ok("unix/:10.3"));
+        assert_eq!(name(":007").as_deref(), Ok("unix/:007"));
         assert_eq!(
             name(":2147483647.2147483647").as_deref(),
-            Ok("unix:2147483647.2147483647")
+            Ok("unix/:2147483647.2147483647")
         );
     }
 
+    /// libxcb 1.16 and later read `unix:N` as a socket file named `N`.
     #[test]
-    fn a_unix_display_is_kept_as_it_is() {
-        assert_eq!(name("unix:0").as_deref(), Ok("unix:0"));
-        assert_eq!(name("unix:12.1").as_deref(), Ok("unix:12.1"));
+    fn a_unix_display_is_given_as_the_unix_protocol() {
+        assert_eq!(name("unix:0").as_deref(), Ok("unix/:0"));
+        assert_eq!(name("unix:12.1").as_deref(), Ok("unix/:12.1"));
     }
 
     #[test]
@@ -261,7 +275,9 @@ mod tests {
             |bytes| match display_name(Some(OsStr::from_bytes(bytes))) {
                 Err(_) => Ok(()),
                 Ok(name) => {
-                    let rest = name.strip_prefix("unix:").ok_or("no unix: prefix")?;
+                    // Never `unix:` or `/`, which libxcb 1.16 and later
+                    // read as a socket path.
+                    let rest = name.strip_prefix("unix/:").ok_or("no unix/: prefix")?;
                     let parts: Vec<&str> = rest.split('.').collect();
                     let decimal = |part: &str| {
                         !part.is_empty()
