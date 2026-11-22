@@ -2415,3 +2415,172 @@ fn the_column_keeps_still_under_the_pointer_even_over_an_inert_toast() {
     tree.layout(WINDOW, &METRICS);
     assert_eq!(bounds(&tree, after).bottom(), WINDOW.height - TOAST_MARGIN);
 }
+
+// ---------- The flags of England, Scotland and Wales ----------
+
+/// The three RGI emoji tag sequences: a black flag, the tags of a
+/// subdivision code, and the cancel tag.
+const FLAGS: [&str; 3] = [
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
+];
+
+/// `text` spelled in tag characters.
+fn tags(text: &str) -> String {
+    text.chars()
+        .map(|c| char::from_u32(0xE0000 + u32::from(c)).expect("a tag"))
+        .collect()
+}
+
+/// Strings with tag characters that are no RGI flag, each with what a
+/// dialog keeps of it.
+fn not_flags() -> Vec<(String, String)> {
+    let cancel = '\u{E007F}';
+    vec![
+        // Well formed, but not recommended: California.
+        (
+            format!("\u{1F3F4}{}{cancel}", tags("usca")),
+            "\u{1F3F4}".to_string(),
+        ),
+        // A lone tag.
+        (tags("g"), String::new()),
+        // England's tags, with no cancel tag.
+        (
+            format!("\u{1F3F4}{}", tags("gbeng")),
+            "\u{1F3F4}".to_string(),
+        ),
+        // England's tags after another base.
+        (
+            format!("\u{1F600}{}{cancel}", tags("gbeng")),
+            "\u{1F600}".to_string(),
+        ),
+        // Hidden ASCII riding in tags.
+        (
+            format!("report{}{cancel}", tags("evil.exe")),
+            "report".to_string(),
+        ),
+    ]
+}
+
+#[test]
+fn the_three_flags_survive_every_cleaner() {
+    for flag in FLAGS {
+        let text = format!("{flag} build");
+        assert_eq!(Modal::new(&text).title(), text);
+        assert_eq!(Modal::new("t").text(&text).lines(), [text.as_str()]);
+        assert_eq!(Toast::new(&text).lines(), [text.as_str()]);
+        assert_eq!(
+            Toast::new("t")
+                .action(&text)
+                .show(&mut Tree::new())
+                .map(|_| ()),
+            Ok(())
+        );
+        assert_eq!(Palette::new(&text).name(), text);
+        let Bar { mut tree, save, .. } = bar();
+        tree.set_tooltip(save, &text).expect("a tooltip");
+        assert_eq!(tree.tooltip(save), Some(text.as_str()));
+        // A row: its drawn text and its name.
+        let (mut tree, palette, field) = palette(0);
+        Palette::set_items(&mut tree, palette, vec![Row::new(text.as_str())]).expect("items");
+        tree.frame(WINDOW, &METRICS);
+        assert_eq!(rows(&tree), [(text.clone(), true)]);
+        let commands = painted(&mut tree);
+        assert!(commands.iter().any(|command| matches!(
+            command,
+            Command::Text { text: drawn, .. } if *drawn == text
+        )));
+        // Typed or pasted whole into a field.
+        tree.handle(&InputEvent::Text(flag.to_string()));
+        assert_eq!(Palette::query(&tree, palette), Some(flag));
+        let _ = field;
+    }
+}
+
+#[test]
+fn tags_that_are_no_flag_are_still_left_out() {
+    for (text, kept) in not_flags() {
+        assert_eq!(Modal::new(&text).title(), kept, "{text:?}");
+        assert_eq!(Palette::new(format!("p{text}")).name(), format!("p{kept}"));
+        let lines = Toast::new(format!("t{text}")).lines().to_vec();
+        assert_eq!(lines, [format!("t{kept}")]);
+        let Bar { mut tree, save, .. } = bar();
+        tree.set_tooltip(save, format!("x{text}"))
+            .expect("a tooltip");
+        assert_eq!(tree.tooltip(save), Some(format!("x{kept}").as_str()));
+        // A field drops them too.
+        let (mut tree, palette, _) = palette(0);
+        tree.handle(&InputEvent::Text(format!("q{text}")));
+        assert_eq!(
+            Palette::query(&tree, palette),
+            Some(format!("q{kept}").as_str())
+        );
+        // A row shows each tag as U+FFFD, its name too.
+        Palette::set_items(&mut tree, palette, vec![Row::new(text.as_str())]).expect("items");
+        tree.frame(WINDOW, &METRICS);
+        let tagged = text
+            .chars()
+            .filter(|&c| ('\u{E0000}'..='\u{E0FFF}').contains(&c))
+            .count();
+        let shown: String = text
+            .chars()
+            .map(|c| {
+                if ('\u{E0000}'..='\u{E0FFF}').contains(&c) {
+                    '\u{FFFD}'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        assert_eq!(rows(&tree)[0].0, shown, "{text:?}");
+        assert_eq!(shown.matches('\u{FFFD}').count(), tagged);
+        let commands = painted(&mut tree);
+        for command in commands {
+            if let Command::Text { text: drawn, .. } = command {
+                assert!(
+                    !drawn
+                        .chars()
+                        .any(|c| ('\u{E0000}'..='\u{E0FFF}').contains(&c)),
+                    "{drawn:?}"
+                );
+            }
+        }
+    }
+    // Tags arriving one by one in a field are each dropped.
+    let (mut tree, palette, _) = palette(0);
+    for piece in FLAGS[0].chars() {
+        tree.handle(&InputEvent::Text(piece.to_string()));
+    }
+    assert_eq!(Palette::query(&tree, palette), Some("\u{1F3F4}"));
+}
+
+#[test]
+fn a_matched_range_after_a_flag_marks_the_right_characters() {
+    let (mut tree, palette, _) = palette(0);
+    let england = FLAGS[0];
+    let wales = FLAGS[2];
+    let first = format!("{england} main.rs");
+    // ESC, shown as three bytes, before the flag shifts what follows.
+    let second = format!("\u{1b}{wales}x.rs");
+    let at = first.find("main").expect("main");
+    let x = second.find('x').expect("x");
+    let items = vec![
+        Row::new(first.as_str()).matched(Some(at..at + 4)),
+        Row::new(second.as_str()).matched(Some(x..x + 1)),
+        // The flag itself, matched.
+        Row::new(format!("{england}.md")).matched(Some(0..england.len())),
+    ];
+    Palette::set_items(&mut tree, palette, items).expect("items");
+    let commands = painted(&mut tree);
+    let marked: Vec<&str> = commands
+        .iter()
+        .filter_map(|command| match command {
+            Command::Text {
+                text, color: ink, ..
+            } if *ink == color(Token::TealHi) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(marked, ["main", "x", england]);
+}

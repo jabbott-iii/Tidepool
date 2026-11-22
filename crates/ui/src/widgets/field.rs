@@ -30,7 +30,7 @@ use crate::metrics::TextMetrics;
 use crate::theme::{Theme, Token};
 use crate::tree::Widget;
 
-use super::modal::is_hidden;
+use super::modal::{flag_at, is_hidden};
 use super::{
     CARET_WIDTH, Control, FIELD_HEIGHT, FIELD_PADDING, FIELD_RING, FIELD_TEXT, FIELD_WIDTH, Look,
     SEARCH_PADDING_LEFT, SEARCH_PADDING_RIGHT, baseline, dimmed, grow, inset,
@@ -80,7 +80,9 @@ struct Stops {
 ///   line breaks and tabs made spaces, and control, bidirectional
 ///   formatting, and other invisible characters dropped, as a
 ///   [`Modal`](super::Modal) leaves them out of its text, so that a query
-///   or a name never holds what it does not show;
+///   or a name never holds what it does not show; the flags of England,
+///   Scotland and Wales stay when they come whole, but tags typed one by
+///   one are dropped;
 /// - Left and Right move a cluster, Home and End to the ends, each
 ///   extending the selection with Shift; Ctrl+A selects everything;
 /// - Backspace and Delete delete the selection, or the cluster before or
@@ -664,15 +666,26 @@ fn stops(shown: &str, map: &[(usize, usize)], metrics: &dyn TextMetrics) -> Vec<
 /// and the line and paragraph separators) and tabs become spaces, the
 /// other characters a [`Modal`](super::Modal) leaves out (control,
 /// bidirectional formatting, and other invisible characters) are dropped,
-/// and it is cut at a char boundary to at most `max` bytes.
+/// but a flag's tag sequence that `text` holds whole ([`flag_at`]), and it
+/// is cut at a char boundary to at most `max` bytes, before a flag that
+/// would not fit whole.
 fn one_line(text: &str, max: usize) -> String {
     let mut out = String::with_capacity(text.len().min(max));
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        if let Some(flag) = flag_at(rest) {
+            if out.len() + flag.len() > max {
+                break;
+            }
+            out.push_str(flag);
+            rest = rest.get(flag.len()..).unwrap_or("");
+            continue;
+        }
+        rest = rest.get(c.len_utf8()..).unwrap_or("");
         let c = match c {
             '\r' => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
+                if rest.starts_with('\n') {
+                    rest = rest.get(1..).unwrap_or("");
                 }
                 ' '
             }

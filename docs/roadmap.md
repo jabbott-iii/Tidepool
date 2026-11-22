@@ -2198,7 +2198,10 @@ JetBrains Mono text over the jabbott.dev backdrop.
     - `AccessNode` gains `modal`, `description`, and `active`; a
       collection's rows show and name control, bidirectional formatting,
       and Unicode's default-ignorable characters as U+FFFD, which the
-      dialog, tooltip, toast, and text input drop; a button's label is cut
+      dialog, tooltip, toast, and text input drop, all but keeping the
+      flags of England, Scotland, and Wales whole (UTS #51's three RGI
+      emoji tag sequences, an exception the owner asked for on
+      2026-11-22); a button's label is cut
       to its bounds; the theme checks one more
       pair, `text` on `panel-solid`, 56 at AA.
       `crates/gui/tests/overlays/mod.rs` paints 8 scenes, `ui_modal`,
@@ -2245,7 +2248,7 @@ JetBrains Mono text over the jabbott.dev backdrop.
       from images byte-identical to those the owner looked at.
     - `cargo test -p tidepool-ui`: 75 unit tests, 3 a11y, 31
       collections, 28 components, 12 frame, 2 fuzz, 19 input, 22 layout,
-      39 overlays, 55 popups, 4 settling, 2 theme, 29 widgets, 32 doc
+      39 overlays, 58 popups, 4 settling, 2 theme, 29 widgets, 32 doc
       tests, and 1 doc test that must not compile pass.
     - `cargo xtask theme`: 56 of 56 pairs at AA.
     - `cargo xtask ci`: 13 of 13 steps pass, with the 29 window tests

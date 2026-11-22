@@ -39,7 +39,7 @@ use crate::layout::{Length, Style};
 use crate::theme::Token;
 use crate::tree::{Node, NodeId, Tree, Widget};
 use crate::widgets::button::Activator;
-use crate::widgets::modal::is_hidden;
+use crate::widgets::modal::{flag_at, is_hidden};
 use crate::widgets::{
     CELL_PADDING, CHEVRON_WIDTH, Control, FOCUS_WIDTH, Look, MATCH_TEXT, MAX_CELL_BYTES,
     MAX_VIEW_ROWS, ROW_HEIGHT, ROW_PADDING, ROW_TEXT, TABLE_HEADER, TREE_INDENT, baseline, cut_to,
@@ -73,7 +73,8 @@ pub(super) fn capped(text: &str) -> &str {
 /// text around it reads (a control character, a bidirectional formatting
 /// character, or an invisible format character, as a
 /// [`Modal`](crate::widgets::Modal) leaves out) made U+FFFD, the
-/// replacement character, then capped again. A cell is its owner's data,
+/// replacement character, but those of the flags of England, Scotland and
+/// Wales, kept whole ([`flag_at`]), then capped again. A cell is its owner's data,
 /// such as a file name: the replacement shows where such a character was,
 /// so `invoice\u{202E}fdp.exe` cannot pass for `invoiceexe.pdf`, and two
 /// names that differ by one never show or read as the same. JetBrains
@@ -93,9 +94,23 @@ fn shown_matched(text: &str, ranges: &[Range<usize>]) -> (String, Vec<Range<usiz
     let mut out = String::with_capacity(kept.len());
     // Each character's start in `kept`, and in `out`.
     let mut starts: Vec<(usize, usize)> = Vec::new();
-    for (at, c) in kept.char_indices() {
+    let mut at = 0;
+    while let Some(rest) = kept.get(at..)
+        && let Some(c) = rest.chars().next()
+    {
+        // A flag's tag sequence stays whole, each of its characters as
+        // it is.
+        if let Some(flag) = flag_at(rest) {
+            for (inside, c) in flag.char_indices() {
+                starts.push((at + inside, out.len()));
+                out.push(c);
+            }
+            at += flag.len();
+            continue;
+        }
         starts.push((at, out.len()));
         out.push(if is_hidden(c) { '\u{FFFD}' } else { c });
+        at += c.len_utf8();
     }
     let end = out.len();
     let map = |offset: usize, up: bool| -> usize {

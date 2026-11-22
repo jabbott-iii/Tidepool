@@ -218,9 +218,11 @@ Built, with the roadmap task that built it:
   It holds a title in the section title's look and at most four lines of
   text (`MAX_MODAL_LINES`), each and its title at most 4 KiB, read only
   as far as kept and cleaned of control characters and Unicode's
-  default-ignorable code points (the bidirectional formatting characters
-  among them), but the zero width joiner and non-joiner and variation
-  selector 16, a set a unit test checks against the pinned Unicode data; its owner's content in
+  default-ignorable code points (the bidirectional formatting and tag
+  characters among them), but the zero width joiner and non-joiner and
+  variation selector 16, a set a unit test checks against the pinned
+  Unicode data, and keeping whole only the three RGI emoji tag sequences,
+  the flags of England, Scotland and Wales; its owner's content in
   a body (`Modal::body`); and its owner's buttons in a row
   (`Modal::actions`). In a short window its text gives up room first,
   and it disables its body and row while they are squeezed, apart from
@@ -299,7 +301,8 @@ Built, with the roadmap task that built it:
     its label and widened to whole clusters, so no range panics, and
     measured once each, none past the row's edge.
   - A collection's rows show and name their control, bidirectional
-    formatting and invisible format characters as U+FFFD, so that
+    formatting and invisible format characters as U+FFFD (the three
+    flags' tag sequences kept whole), so that
     `invoice\u{202E}fdp.exe` cannot pass for a PDF and no two names look
     alike; their matched ranges move with the cleaning, and one at or
     past the label's end marks nothing.

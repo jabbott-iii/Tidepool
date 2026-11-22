@@ -86,7 +86,9 @@ const SLACK: f32 = 0.01;
 /// characters, such as the zero width space (U+200B), the soft hyphen
 /// (U+00AD) and the tag characters (U+E0000 to U+E007F), which would
 /// make two texts that look alike differ. The zero width joiner and
-/// non-joiner (U+200D, U+200C) stay: emoji and some scripts need them.
+/// non-joiner (U+200D, U+200C) stay: emoji and some scripts need them; so
+/// do the flags of England, Scotland and Wales, whose tag characters are
+/// kept only as those three whole sequences.
 ///
 /// # Focus and keys
 ///
@@ -385,15 +387,51 @@ pub(super) fn kept_lines(text: &str, most: usize) -> Vec<String> {
 
 /// `text` as a dialog shows it: tabs and line breaks, the line and
 /// paragraph separators among them, made spaces; the other characters
-/// [`is_hidden`] names left out.
+/// [`is_hidden`] names left out, but those of a flag [`flag_at`] finds,
+/// which stays whole.
 pub(super) fn clean(text: &str) -> String {
-    text.chars()
-        .filter_map(|c| match c {
-            '\t' | '\n' | '\r' | '\u{2028}' | '\u{2029}' => Some(' '),
-            c if is_hidden(c) => None,
-            c => Some(c),
-        })
-        .collect()
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        if let Some(flag) = flag_at(rest) {
+            out.push_str(flag);
+            rest = rest.get(flag.len()..).unwrap_or("");
+            continue;
+        }
+        match c {
+            '\t' | '\n' | '\r' | '\u{2028}' | '\u{2029}' => out.push(' '),
+            c if is_hidden(c) => {}
+            c => out.push(c),
+        }
+        rest = rest.get(c.len_utf8()..).unwrap_or("");
+    }
+    out
+}
+
+/// The emoji tag sequences Unicode recommends for general interchange, the
+/// only ones whose tag characters (U+E0020 to U+E007F) the cleaners keep:
+/// the flags of England, Scotland and Wales, each a black flag (U+1F3F4),
+/// the tag characters spelling `gbeng`, `gbsct` or `gbwls`, and the cancel
+/// tag (U+E007F). Unicode 17.0's `emoji-sequences.txt` lists exactly these
+/// three as `RGI_Emoji_Tag_Sequence` (UTS #51). That file is not pinned in
+/// `crates/text/ucd/`, so the list is written here by hand.
+const FLAG_SEQUENCES: [&str; 3] = [
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
+    "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
+];
+
+/// The flag of [`FLAG_SEQUENCES`] `text` starts with, whole, if any. Every
+/// other tag character, in a sequence that is well formed but not one of
+/// these, alone, after another base, or without its cancel tag, is
+/// [`is_hidden`]'s, so no text rides hidden in tags. The set of hidden
+/// characters stays the one its unit test checks; this is an exception on
+/// top of it, for whole sequences only.
+pub(super) fn flag_at(text: &str) -> Option<&'static str> {
+    FLAG_SEQUENCES
+        .iter()
+        .copied()
+        .find(|flag| text.starts_with(flag))
 }
 
 /// Returns `true` for a character that shows nothing, or changes how the
@@ -419,7 +457,8 @@ pub(super) const fn is_hidden(c: char) -> bool {
 /// the soft hyphen (U+00AD), the Hangul fillers, the other variation
 /// selectors, and the tag characters (U+E0000 to U+E0FFF), with which
 /// text could hide data or pass for other text. A unit test reads the
-/// pinned data and checks this set against it.
+/// pinned data and checks this set against it. The cleaners keep the tag
+/// characters of three flags, as whole sequences only ([`flag_at`]).
 const fn is_invisible(c: char) -> bool {
     matches!(
         c,

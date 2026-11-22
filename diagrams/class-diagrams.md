@@ -5113,7 +5113,9 @@ classDiagram
   cleaned by one private cleaner: control characters, the line and
   paragraph separators, the interlinear annotation characters, and
   Unicode 17.0.0's `Default_Ignorable_Code_Point` less U+200C, U+200D,
-  and U+FE0F, which a unit test checks against the pinned data. A
+  and U+FE0F, which a unit test checks against the pinned data. It keeps
+  tag characters only in the three RGI emoji tag sequences, the flags of
+  England, Scotland, and Wales (`FLAG_SEQUENCES`, UTS #51). A
   collection shows and names the same characters as U+FFFD, and a
   `TextInput` drops them from what is typed or pasted.
 - The palette's root holds its `PaletteField`, a search field whose role
