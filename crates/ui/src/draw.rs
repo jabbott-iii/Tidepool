@@ -38,7 +38,10 @@
 //! of their bounds, clip, content size or scroll offset in layout, a
 //! change of their [`NodeState`], and [`Tree::set_enabled`];
 //! [`Tree::set_style`] damages its subtree's painted bounds whether they
-//! changed or not. Removing a node damages what it painted; however many
+//! changed or not. An overlay's nodes are nodes like any others, so
+//! opening, moving and closing one damages what it paints and painted
+//! ([`overlay`](crate::overlay#damage)). Removing a node damages what it
+//! painted; however many
 //! nodes come and go between two frames, what waits for the next stays
 //! bounded (see [`Tree::remove`]). The first
 //! frame, a new window size and [`Tree::invalidate_all`] damage the whole
@@ -555,7 +558,9 @@ impl DrawList {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     /// Every shown node's fragment, in pre-order, each subtree inside its
-    /// node's layer and clip.
+    /// node's layer and clip: the main root's layer first, then each
+    /// overlay's in order ([`overlay`](crate::overlay)), so that overlays
+    /// paint over it, the last opened on top.
     pub list: DrawList,
     /// The damaged rects, inside the window, with no duplicates; at most
     /// [`MAX_DAMAGE_RECTS`].
@@ -563,11 +568,12 @@ pub struct Frame {
 }
 
 /// What a widget's [`paint`](crate::tree::Widget::paint) gets: its node,
-/// bounds and state, the metrics to measure text with, and the theme to
-/// take colors from.
+/// bounds, clip and state, the metrics to measure text with, and the theme
+/// to take colors from.
 pub struct PaintContext<'a> {
     node: NodeId,
     bounds: Rect,
+    clip: Rect,
     state: NodeState,
     metrics: &'a dyn TextMetrics,
     theme: &'a Theme,
@@ -582,6 +588,15 @@ impl<'a> PaintContext<'a> {
     /// The node's bounds in this frame's layout.
     pub const fn bounds(&self) -> Rect {
         self.bounds
+    }
+
+    /// What the node's paint is cut to, in this frame's layout: the window
+    /// and the bounds of its clipping ancestors, not its own. An overlay's
+    /// root is cut to the window alone, so that a
+    /// [`Modal`](crate::widgets::Modal) can dim the whole window under its
+    /// dialog.
+    pub const fn clip(&self) -> Rect {
+        self.clip
     }
 
     /// The node's interaction state.
@@ -640,6 +655,9 @@ impl Tree {
         }
         let mut list = DrawList::new();
         self.emit(self.root(), &mut list.commands);
+        for layer in &self.overlays {
+            self.emit(layer.root, &mut list.commands);
+        }
         Some(Frame { list, damage })
     }
 
@@ -658,6 +676,7 @@ impl Tree {
             let cx = PaintContext {
                 node: id,
                 bounds: node.placement.rect,
+                clip: node.placement.clip,
                 state,
                 metrics,
                 theme: &self.theme,

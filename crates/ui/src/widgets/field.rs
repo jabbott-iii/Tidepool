@@ -30,6 +30,7 @@ use crate::metrics::TextMetrics;
 use crate::theme::{Theme, Token};
 use crate::tree::Widget;
 
+use super::modal::is_hidden;
 use super::{
     CARET_WIDTH, Control, FIELD_HEIGHT, FIELD_PADDING, FIELD_RING, FIELD_TEXT, FIELD_WIDTH, Look,
     SEARCH_PADDING_LEFT, SEARCH_PADDING_RIGHT, baseline, dimmed, grow, inset,
@@ -76,12 +77,16 @@ struct Stops {
 /// While it has focus:
 ///
 /// - typed and pasted text (`Text` events) replaces the selection, with
-///   control characters dropped and line breaks and tabs made spaces;
+///   line breaks and tabs made spaces, and control, bidirectional
+///   formatting, and other invisible characters dropped, as a
+///   [`Modal`](super::Modal) leaves them out of its text, so that a query
+///   or a name never holds what it does not show;
 /// - Left and Right move a cluster, Home and End to the ends, each
 ///   extending the selection with Shift; Ctrl+A selects everything;
 /// - Backspace and Delete delete the selection, or the cluster before or
 ///   after the caret;
-/// - Enter emits [`ActionKind::Submit`], and Escape [`ActionKind::Dismiss`];
+/// - Enter emits [`ActionKind::Submit`], and Escape [`ActionKind::Dismiss`]
+///   (its repeats, while it is held, are taken and emit nothing);
 /// - a click places the caret at the nearest boundary, a Shift+click
 ///   extends the selection to it, and a drag selects. A handler has no
 ///   metrics, so the boundaries are where the last paint put them; a
@@ -561,6 +566,16 @@ impl Widget for TextInput {
 
     fn event(&mut self, cx: &mut EventContext<'_>, event: &InputEvent) -> Handled {
         match *event {
+            // A held Escape's repeats dismiss nothing more: one press, one
+            // `Dismiss`, so that focus given back here by a dialog the
+            // press closed does not close this one's too.
+            InputEvent::KeyDown {
+                key: Key::Escape,
+                modifiers,
+                repeat: true,
+            } if !modifiers.intersects(Modifiers::CTRL | Modifiers::ALT | Modifiers::SUPER) => {
+                Handled::Yes
+            }
             InputEvent::KeyDown { key, modifiers, .. } => {
                 self.key(cx, key, modifiers).unwrap_or(Handled::No)
             }
@@ -645,9 +660,11 @@ fn stops(shown: &str, map: &[(usize, usize)], metrics: &dyn TextMetrics) -> Vec<
     xs
 }
 
-/// `text` made one line, as a field holds it: line breaks (CR LF, LF, CR)
-/// and tabs become spaces, other control characters are dropped, and it
-/// is cut at a char boundary to at most `max` bytes.
+/// `text` made one line, as a field holds it: line breaks (CR LF, LF, CR,
+/// and the line and paragraph separators) and tabs become spaces, the
+/// other characters a [`Modal`](super::Modal) leaves out (control,
+/// bidirectional formatting, and other invisible characters) are dropped,
+/// and it is cut at a char boundary to at most `max` bytes.
 fn one_line(text: &str, max: usize) -> String {
     let mut out = String::with_capacity(text.len().min(max));
     let mut chars = text.chars().peekable();
@@ -659,8 +676,8 @@ fn one_line(text: &str, max: usize) -> String {
                 }
                 ' '
             }
-            '\n' | '\t' => ' ',
-            c if c.is_control() => continue,
+            '\n' | '\t' | '\u{2028}' | '\u{2029}' => ' ',
+            c if is_hidden(c) => continue,
             c => c,
         };
         if out.len() + c.len_utf8() > max {

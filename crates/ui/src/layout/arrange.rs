@@ -19,8 +19,9 @@
 
 use tidepool_core::geom::{Point, Rect, Size};
 
-use super::{Align, Axis, Insets, Layout, Length, MAX_EXTENT, Style, sane_size};
+use super::{Align, Axis, Insets, Layout, Length, MAX_EXTENT, Style, length, sane_size};
 use crate::metrics::TextMetrics;
+use crate::overlay::{Anchor, Side};
 use crate::tree::{NodeId, Tree};
 
 /// How many times [`fit`] steps a length down by one unit in the last
@@ -153,11 +154,15 @@ impl Item {
 }
 
 impl Tree {
-    /// Lays out the tree in a window of `size`, which is sane.
+    /// Lays out the tree in a window of `size`, which is sane: the main
+    /// root's layer, then each overlay's in order.
     pub(crate) fn run_layout(&mut self, size: Size, metrics: &dyn TextMetrics) {
         for node in self.nodes_mut() {
             node.memo.clear();
         }
+        // What is under the pointer, found again as the passes go, is
+        // found in this window.
+        self.layout_size = Some(size);
         let window = Rect::new(0.0, 0.0, size.width, size.height);
         let root = self.root();
         if self.get(root).is_some_and(|node| node.sane.hidden) {
@@ -165,6 +170,121 @@ impl Tree {
         } else {
             self.arrange(root, window, window, metrics);
         }
+        self.arrange_overlays(window, metrics);
+    }
+
+    /// Lays out each overlay, in order, but each after the layer its
+    /// anchor is in, placed by its anchor as the
+    /// [`overlay`](crate::overlay) module's documentation describes, its
+    /// paint cut to the window alone.
+    fn arrange_overlays(&mut self, window: Rect, metrics: &dyn TextMetrics) {
+        let mut done = vec![false; self.overlays.len()];
+        for at in 0..self.overlays.len() {
+            self.arrange_overlay(at, &mut done, window, metrics);
+        }
+    }
+
+    /// Lays out the overlay at `at`, after the overlay its anchor is in if
+    /// that is not laid out yet, unless `done` says it is.
+    fn arrange_overlay(
+        &mut self,
+        at: usize,
+        done: &mut [bool],
+        window: Rect,
+        metrics: &dyn TextMetrics,
+    ) {
+        // The chain of anchors it waits on, the first last: at most every
+        // overlay, as anchors make no ring (`set_overlay_anchor` refuses
+        // one), and `done` cuts it short if one did.
+        let mut chain = vec![at];
+        while let Some(&last) = chain.last() {
+            let Some(host) = self.anchor_layer(last) else {
+                break;
+            };
+            let Some(before) = self.overlays.iter().position(|layer| layer.root == host) else {
+                break;
+            };
+            if done.get(before).copied().unwrap_or(true) || chain.contains(&before) {
+                break;
+            }
+            chain.push(before);
+        }
+        for at in chain.into_iter().rev() {
+            if let Some(flag) = done.get_mut(at) {
+                if *flag {
+                    continue;
+                }
+                *flag = true;
+            }
+            self.place_overlay(at, window, metrics);
+        }
+    }
+
+    /// The size an overlay whose root is `root`, anchored to a window
+    /// `window` with `margin` and lifted by nothing, gets from the next
+    /// layout pass, and the height of the area it is placed in: the window
+    /// less the margin. From the sizes this layout pass measured.
+    pub(crate) fn window_overlay_fit(
+        &mut self,
+        root: NodeId,
+        window: Rect,
+        margin: f32,
+        metrics: &dyn TextMetrics,
+    ) -> (Size, f32) {
+        let area = margined(window, length(margin));
+        let item = self.item(root, area.size(), metrics);
+        let rect = in_cell(area, item, Align::End, Align::End);
+        (rect.size(), area.height)
+    }
+
+    /// Lays out the overlay at `at` from where its anchor is now.
+    fn place_overlay(&mut self, at: usize, window: Rect, metrics: &dyn TextMetrics) {
+        let Some(layer) = self.overlays.get(at) else {
+            return;
+        };
+        let (root, anchor, last, lift) =
+            (layer.root, layer.anchor, layer.anchor_bounds, layer.lift);
+        // The anchor's layer was laid out first in this pass; a node
+        // since removed keeps where it last was. Hidden or not, the
+        // overlay follows it, so it is beside it when shown again.
+        let target = match anchor {
+            Anchor::Node { node, .. } => self.bounds(node).unwrap_or(last),
+            Anchor::Window { .. } => last,
+        };
+        if let Some(layer) = self.overlays.get_mut(at) {
+            layer.anchor_bounds = target;
+        }
+        let Some(node) = self.get(root) else {
+            return;
+        };
+        if node.sane.hidden {
+            self.arrange_hidden(root, window.origin(), window);
+            return;
+        }
+        let rect = match anchor {
+            Anchor::Window { x, y, margin } => {
+                let area = margined(window, length(margin));
+                let item = self.item(root, area.size(), metrics);
+                let placed = fit(in_cell(area, item, x, y), area);
+                // Lifted, but never above the area's top.
+                let top = between(placed.y - lift, area.y, placed.y);
+                fit(Rect { y: top, ..placed }, area)
+            }
+            Anchor::Node {
+                side, align, gap, ..
+            } => {
+                let item = self.item(root, window.size(), metrics);
+                let size = Size::new(
+                    item.x.size(window.width).min(window.width),
+                    item.y.size(window.height).min(window.height),
+                );
+                fit(
+                    beside(window, size, target, side, align, length(gap)),
+                    window,
+                )
+            }
+        };
+        self.arrange(root, rect, window, metrics);
     }
 
     /// Gives a hidden root the window, which the root always fills, and
@@ -195,7 +315,12 @@ impl Tree {
 
     /// The node's natural size given `available` (a hint; either side may
     /// be infinite), remembered for the rest of the pass.
-    fn natural(&mut self, id: NodeId, available: Size, metrics: &dyn TextMetrics) -> Size {
+    pub(crate) fn natural(
+        &mut self,
+        id: NodeId,
+        available: Size,
+        metrics: &dyn TextMetrics,
+    ) -> Size {
         let Some(node) = self.get(id) else {
             return Size::ZERO;
         };
@@ -763,6 +888,85 @@ fn in_cell(cell: Rect, item: Item, align_x: Align, align_y: Align) -> Rect {
     )
 }
 
+/// `window` less `margin`, which is sane, on every side, the margin cut to
+/// half the window on an axis it is wider than half of.
+fn margined(window: Rect, margin: f32) -> Rect {
+    let x = margin.min(window.width / 2.0);
+    let y = margin.min(window.height / 2.0);
+    fit(
+        Rect::new(
+            window.x + x,
+            window.y + y,
+            window.width - 2.0 * x,
+            window.height - 2.0 * y,
+        ),
+        window,
+    )
+}
+
+/// Where an overlay of `size`, no larger than `window`, goes on `side` of
+/// `anchor`, `gap` away, lined up with it by `align`: flipped to the
+/// other side if it fits only there, on the side with more room if it fits
+/// on neither, then moved inside `window` on both axes. Before
+/// [`fit`]; `gap` is sane.
+fn beside(window: Rect, size: Size, anchor: Rect, side: Side, align: Align, gap: f32) -> Rect {
+    let vertical = matches!(side, Side::Above | Side::Below);
+    // Across the side (the main axis) and along it (the cross axis), as
+    // (start, length) of the window, the anchor and the overlay.
+    let (main_window, main_anchor, main_len) = if vertical {
+        (
+            (window.y, window.height),
+            (anchor.y, anchor.height),
+            size.height,
+        )
+    } else {
+        (
+            (window.x, window.width),
+            (anchor.x, anchor.width),
+            size.width,
+        )
+    };
+    let (cross_window, cross_anchor, cross_len) = if vertical {
+        (
+            (window.x, window.width),
+            (anchor.x, anchor.width),
+            size.width,
+        )
+    } else {
+        (
+            (window.y, window.height),
+            (anchor.y, anchor.height),
+            size.height,
+        )
+    };
+    let window_end = main_window.0 + main_window.1;
+    let after = main_anchor.0 + main_anchor.1 + gap;
+    let before = main_anchor.0 - gap - main_len;
+    let room_after = window_end - after;
+    let room_before = main_anchor.0 - gap - main_window.0;
+    let fits_after = room_after >= main_len;
+    let fits_before = room_before >= main_len;
+    let wants_after = matches!(side, Side::Below | Side::Right);
+    let goes_after = if wants_after {
+        fits_after || (!fits_before && room_after >= room_before)
+    } else {
+        !fits_before && (fits_after || room_after > room_before)
+    };
+    let main = if goes_after { after } else { before };
+    let main = between(main, main_window.0, window_end - main_len);
+    let cross = cross_anchor.0 + (cross_anchor.1 - cross_len) * align.factor();
+    let cross = between(
+        cross,
+        cross_window.0,
+        cross_window.0 + cross_window.1 - cross_len,
+    );
+    if vertical {
+        Rect::new(cross, main, size.width, size.height)
+    } else {
+        Rect::new(main, cross, size.width, size.height)
+    }
+}
+
 /// `rect` less `padding`, which is cut to fit so that the box never
 /// inverts, fitted inside `rect`.
 fn content_box(rect: Rect, padding: Insets) -> Rect {
@@ -989,6 +1193,82 @@ mod tests {
         memo.clear();
         assert_eq!(memo.len(), 0);
         assert_eq!(memo.get(hint(5)), None);
+    }
+
+    #[test]
+    fn an_overlay_goes_beside_its_anchor_flipped_and_clamped() {
+        let window = Rect::new(0.0, 0.0, 400.0, 300.0);
+        let size = Size::new(100.0, 40.0);
+        let anchor = Rect::new(50.0, 100.0, 60.0, 20.0);
+        let at = |anchor, side, align| beside(window, size, anchor, side, align, 4.0);
+        // Below, its left edge on the anchor's, 4 away; centered; its right
+        // edge on the anchor's.
+        assert_eq!(
+            at(anchor, Side::Below, Align::Start),
+            Rect::new(50.0, 124.0, 100.0, 40.0)
+        );
+        assert_eq!(
+            at(anchor, Side::Below, Align::Center),
+            Rect::new(30.0, 124.0, 100.0, 40.0)
+        );
+        assert_eq!(
+            at(anchor, Side::Above, Align::End),
+            Rect::new(10.0, 56.0, 100.0, 40.0)
+        );
+        // Right and left, lined up down the side.
+        assert_eq!(
+            at(anchor, Side::Right, Align::Start),
+            Rect::new(114.0, 100.0, 100.0, 40.0)
+        );
+        // Left of it there are 46 units, too few: it flips right.
+        assert_eq!(
+            at(anchor, Side::Left, Align::Center),
+            Rect::new(114.0, 90.0, 100.0, 40.0)
+        );
+        // At the window's bottom it flips above; at its top, below.
+        let low = Rect::new(50.0, 270.0, 60.0, 20.0);
+        assert_eq!(
+            at(low, Side::Below, Align::Start),
+            Rect::new(50.0, 226.0, 100.0, 40.0)
+        );
+        let high = Rect::new(50.0, 10.0, 60.0, 20.0);
+        assert_eq!(
+            at(high, Side::Above, Align::Start),
+            Rect::new(50.0, 34.0, 100.0, 40.0)
+        );
+        // Lined up past the window's edge, it is moved inside.
+        let edge = Rect::new(380.0, 100.0, 20.0, 20.0);
+        assert_eq!(
+            at(edge, Side::Below, Align::Start),
+            Rect::new(300.0, 124.0, 100.0, 40.0)
+        );
+        // Fitting on neither side, it goes on the side with more room,
+        // whichever it asked for, and is moved inside the window, over the
+        // anchor: below it there are 156 units and above it 116, then 116
+        // and 156.
+        let tall = Size::new(100.0, 200.0);
+        for (y, placed) in [(120.0, 100.0), (160.0, 0.0)] {
+            let middle = Rect::new(50.0, y, 60.0, 20.0);
+            for side in [Side::Below, Side::Above] {
+                assert_eq!(
+                    beside(window, tall, middle, side, Align::Start, 4.0),
+                    Rect::new(50.0, placed, 100.0, 200.0),
+                    "{side:?} of {middle:?}"
+                );
+            }
+        }
+        // An anchor far outside the window, as a scrolled node may be.
+        let far = Rect::new(-5e5, 9e5, 10.0, 10.0);
+        let placed = beside(window, size, far, Side::Below, Align::Start, 4.0);
+        assert_eq!(placed, Rect::new(0.0, 260.0, 100.0, 40.0));
+    }
+
+    #[test]
+    fn a_margin_is_cut_to_half_the_window() {
+        let window = Rect::new(0.0, 0.0, 100.0, 40.0);
+        assert_eq!(margined(window, 10.0), Rect::new(10.0, 10.0, 80.0, 20.0));
+        assert_eq!(margined(window, 30.0), Rect::new(30.0, 20.0, 40.0, 0.0));
+        assert_eq!(margined(window, 0.0), window);
     }
 
     #[test]

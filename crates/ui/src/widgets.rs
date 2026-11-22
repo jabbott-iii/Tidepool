@@ -20,7 +20,9 @@
 //! the collections, a [`Collection`]: the list, the tree view and the
 //! table, which keep nodes only for the rows on screen over a model of
 //! [`Rows`] their owner provides; and the [`TabStrip`], the [`Splitter`],
-//! the [`Card`] and the [`CodeBlock`] (ADR-0052).
+//! the [`Card`] and the [`CodeBlock`] (ADR-0052); and the overlays
+//! ([`overlay`](crate::overlay), ADR-0052): the [`Modal`] dialog, the
+//! [`Tooltip`], the [`Toast`] and the command [`Palette`].
 //!
 //! New in Tidepool; not ported. The looks follow jabbott.dev's stylesheet
 //! (`assets/css/style.css`) at the IDE's denser scale, and ADR-0049 and
@@ -106,9 +108,13 @@ mod code;
 mod collection;
 mod field;
 mod labels;
+mod modal;
+mod palette;
 mod scrollbar;
 mod splitter;
 mod tabs;
+mod toast;
+mod tooltip;
 
 pub use breadcrumbs::{Breadcrumbs, Crumb};
 pub use button::{Button, ButtonKind, ButtonSize};
@@ -118,9 +124,16 @@ pub use code::{CodeBlock, CodeSpan};
 pub use collection::{Collection, CollectionKind, Column, Row, Rows};
 pub use field::{FieldKind, MAX_INPUT_BYTES, TextInput};
 pub use labels::{Eyebrow, Kicker, SectionTitle, Status, StatusDot};
+pub use modal::Modal;
+pub use palette::Palette;
 pub use scrollbar::ScrollBar;
 pub use splitter::Splitter;
 pub use tabs::{Tab, TabKind, TabStrip};
+pub use toast::{Toast, ToastKind};
+pub use tooltip::{Tooltip, TooltipCause, TooltipTarget};
+
+pub(crate) use toast::is_toast;
+pub(crate) use tooltip::is_tooltip;
 
 /// The opacity of a disabled control's layer.
 pub const DISABLED_OPACITY: f32 = 0.4;
@@ -326,6 +339,96 @@ pub const MAX_LANGUAGE_BYTES: usize = 64;
 /// The most columns a table has; more are left out.
 pub const MAX_COLUMNS: usize = 64;
 
+/// How far each arm of a panel's bracket corner reaches along its edge
+/// (`.panel--brackets`' 16 px): the focused panel's, the command
+/// palette's and a modal dialog's.
+pub const BRACKET_ARM: f32 = 16.0;
+
+/// How thick a bracket corner's arms are (`.panel--brackets`' 1 px
+/// border), drawn over the panel's border.
+pub const BRACKET_THICKNESS: f32 = 1.0;
+
+/// The width of a modal dialog (the site's popup panel, `.deploy__panel`,
+/// 390 px, at the IDE's scale); a window too narrow for it and
+/// [`MODAL_MARGIN`] either side makes it narrower.
+pub const MODAL_WIDTH: f32 = 320.0;
+
+/// The space inside a modal dialog's edges (`.deploy__panel`'s 18 px, at
+/// the IDE's scale).
+pub const MODAL_PADDING: f32 = 14.0;
+
+/// The space between a modal dialog's title and its text, below its text,
+/// and between what it holds.
+pub const MODAL_GAP: f32 = 10.0;
+
+/// The least space between a modal dialog and the window's edges
+/// (`.deploy__panel`'s `100vw - 32px`, 16 px a side, at the IDE's scale).
+pub const MODAL_MARGIN: f32 = 12.0;
+
+/// The space between a modal dialog's buttons.
+pub const MODAL_BUTTON_GAP: f32 = 8.0;
+
+/// The most lines of text a modal dialog keeps; more are left out.
+pub const MAX_MODAL_LINES: usize = 4;
+
+/// The space between a tooltip and the node it is anchored to.
+pub const TOOLTIP_GAP: f32 = 4.0;
+
+/// The space left and right of a tooltip's text.
+pub const TOOLTIP_PADDING_X: f32 = 8.0;
+
+/// The space above and below a tooltip's text.
+pub const TOOLTIP_PADDING_Y: f32 = 4.0;
+
+/// The widest a tooltip gets; its lines are cut to it.
+pub const TOOLTIP_MAX_WIDTH: f32 = 320.0;
+
+/// The most lines of text a tooltip keeps; more are left out.
+pub const MAX_TOOLTIP_LINES: usize = 4;
+
+/// The width of a toast: the modal dialog's, [`MODAL_WIDTH`].
+pub const TOAST_WIDTH: f32 = MODAL_WIDTH;
+
+/// The space inside a toast's edges.
+pub const TOAST_PADDING: f32 = 10.0;
+
+/// The width of the stripe down a toast's left edge in its kind's color.
+pub const TOAST_STRIPE: f32 = 3.0;
+
+/// The space between toasts in their column, and between a toast's text
+/// and its action.
+pub const TOAST_GAP: f32 = 8.0;
+
+/// The least space between the toasts and the window's edges, as a modal
+/// dialog's [`MODAL_MARGIN`].
+pub const TOAST_MARGIN: f32 = MODAL_MARGIN;
+
+/// The side of a toast's close control.
+pub const TOAST_CLOSE: f32 = 16.0;
+
+/// The most toasts shown at once; showing one more closes the oldest the
+/// user does not hold ([`Toast`]).
+pub const MAX_TOASTS: usize = 4;
+
+/// The most lines of text a toast keeps; more are left out.
+pub const MAX_TOAST_LINES: usize = 3;
+
+/// The width of the command palette: one and a half times the modal
+/// dialog's [`MODAL_WIDTH`] (see [`Palette`]).
+pub const PALETTE_WIDTH: f32 = 1.5 * MODAL_WIDTH;
+
+/// The space inside the command palette's edges, and between its field
+/// and its list.
+pub const PALETTE_PADDING: f32 = 10.0;
+
+/// The most rows the command palette's list shows at once; more scroll.
+/// Page Up and Page Down move its selection this many rows.
+pub const PALETTE_ROWS: usize = 10;
+
+/// The most ranges of a row's text a collection paints as matched, the
+/// first; more are left out.
+pub const MAX_MATCHES: usize = 64;
+
 /// The label of a button: Saira 12 px, 600, tracked 0.10em, uppercase.
 pub const BUTTON_LABEL: TextStyle = TextStyle::new(Family::Ui, 12.0)
     .weight(Weight::SemiBold)
@@ -360,6 +463,10 @@ pub const PATH: TextStyle = TextStyle::new(Family::Mono, 12.0);
 /// The UI body, a row's text in a list, tree view or table: Saira 13 px,
 /// line height 1.5, 400, as written.
 pub const ROW_TEXT: TextStyle = TextStyle::new(Family::Ui, 13.0);
+
+/// The characters of a row's text a search matched, as the command
+/// palette shows them: [`ROW_TEXT`] in Saira Bold, 700, `teal-hi`.
+pub const MATCH_TEXT: TextStyle = ROW_TEXT.weight(Weight::Bold);
 
 /// A table's column header: Saira 11 px, 600, tracked 0.10em, uppercase,
 /// `teal`.
@@ -402,6 +509,17 @@ pub const CODE_TEXT: TextStyle = TextStyle::new(Family::Mono, 13.0);
 /// A code block's language (`.code-bar`): JetBrains Mono 10 px, tracked
 /// 0.12em, uppercase, `text-3`.
 pub const CODE_BAR_TEXT: TextStyle = TextStyle::new(Family::Mono, 10.0).letter_spacing(0.12);
+
+/// A modal dialog's text: the UI body, Saira 13 px, line height 1.5, 400,
+/// `text-2`, as written.
+pub const MODAL_TEXT: TextStyle = ROW_TEXT;
+
+/// A tooltip's text: Saira 12 px, line height 1.5, 400, `text`, as
+/// written: the size of the status bar's text, a step below the UI body.
+pub const TOOLTIP_TEXT: TextStyle = TextStyle::new(Family::Ui, 12.0);
+
+/// A toast's text: the UI body, `text`, as written.
+pub const TOAST_TEXT: TextStyle = ROW_TEXT;
 
 /// COPY's label (`.code-copy`): Saira 11 px, 600, tracked 0.10em, line
 /// height 1, uppercase.
@@ -490,10 +608,18 @@ pub fn focus_outline(list: &mut DrawList, bounds: Rect, theme: &Theme) {
 
 /// Whether `widget` keeps other nodes in step with it, so that the tree
 /// keeps its node among those each layout binds: a [`Collection`], a
-/// [`TabStrip`] or a [`Splitter`] (ADR-0052).
+/// [`TabStrip`] or a [`Splitter`] (ADR-0052), a [`Modal`]'s dialog,
+/// which disables its controls when the window squeezes them, a
+/// [`Palette`], which keeps its list's selection in step with its keys,
+/// or a [`Toast`], which stands in the column of toasts.
 pub(crate) fn is_bound(widget: &dyn Widget) -> bool {
     let any = widget as &dyn std::any::Any;
-    any.is::<Collection>() || any.is::<TabStrip>() || any.is::<Splitter>()
+    any.is::<Collection>()
+        || any.is::<TabStrip>()
+        || any.is::<Splitter>()
+        || any.is::<modal::Dialog>()
+        || any.is::<palette::PaletteView>()
+        || any.is::<toast::ToastView>()
 }
 
 impl Tree {
@@ -502,12 +628,19 @@ impl Tree {
     /// that layout must pass again. `after_pass` says that a layout pass
     /// has just placed the nodes, and `reveal` that collections scroll a
     /// selection asked for into view now; until then they keep their rows.
-    pub(crate) fn bind_widgets(&mut self, after_pass: bool, reveal: bool) -> bool {
+    /// A dialog binds only after a pass, measuring with `metrics`.
+    pub(crate) fn bind_widgets(
+        &mut self,
+        after_pass: bool,
+        reveal: bool,
+        metrics: &dyn TextMetrics,
+    ) -> bool {
         if self.bound.is_empty() {
             return false;
         }
         let mut ids = std::mem::take(&mut self.bound);
         let mut again = false;
+        let mut toasts = false;
         for &id in &ids {
             if self.widget::<Collection>(id).is_some() {
                 again |= self.bind_collection(id, after_pass, reveal);
@@ -515,7 +648,17 @@ impl Tree {
                 again |= self.bind_tabs(id, after_pass);
             } else if self.widget::<Splitter>(id).is_some() {
                 again |= self.bind_splitter(id);
+            } else if after_pass && self.widget::<modal::Dialog>(id).is_some() {
+                again |= self.bind_dialog(id, metrics);
+            } else if self.widget::<palette::PaletteView>(id).is_some() {
+                again |= self.bind_palette(id);
+            } else if self.widget::<toast::ToastView>(id).is_some() {
+                toasts = true;
             }
+        }
+        // The toasts stand in one column, so they bind together.
+        if toasts {
+            again |= self.bind_toasts(after_pass, metrics);
         }
         ids.retain(|&id| self.contains(id));
         self.bound_gone = 0;

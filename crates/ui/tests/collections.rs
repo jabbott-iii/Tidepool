@@ -2462,3 +2462,40 @@ fn random_keys_scrolls_and_model_changes_keep_the_invariants() {
         },
     );
 }
+
+#[test]
+fn a_collection_that_loses_a_row_to_a_smaller_view_lays_its_rows_out_whole() {
+    // 135 units of rows (six whole and 15 of a seventh), then 120: the
+    // seventh row goes, and the six left are 20 high, as a fresh layout
+    // makes them, not squeezed into the space the seven had.
+    let mut tree = Tree::new();
+    let root = tree.root();
+    let spacer = tree
+        .insert(root, Node::new(Style::default().fixed(400.0, 161.0)))
+        .expect("a spacer");
+    let list = tree
+        .insert(root, Collection::list("Files", labels(300)).node())
+        .expect("a list");
+    tree.frame(WINDOW, &METRICS).expect("a frame");
+    assert_eq!(view(&tree, list).height, 135.0);
+    assert_eq!(rows(&tree).len(), 7);
+    tree.set_style(spacer, Style::default().fixed(400.0, 176.0))
+        .expect("taller");
+    tree.frame(WINDOW, &METRICS).expect("a frame");
+    assert_eq!(view(&tree, list).height, 120.0);
+    let shown = rows(&tree);
+    assert_eq!(shown.len(), 6);
+    for row in &shown {
+        assert_eq!(row.bounds.height, ROW_HEIGHT, "{row:?}");
+    }
+    // Laid out afresh, nothing moves.
+    let before: Vec<Rect> = shown.iter().map(|row| row.bounds).collect();
+    tree.invalidate_all();
+    tree.layout(WINDOW, &METRICS);
+    let after: Vec<Rect> = rows(&tree).iter().map(|row| row.bounds).collect();
+    assert_eq!(after, before);
+    assert_eq!(
+        tree.frame(WINDOW, &METRICS).map(|frame| frame.damage),
+        Some(vec![Rect::new(0.0, 0.0, WINDOW.width, WINDOW.height)])
+    );
+}

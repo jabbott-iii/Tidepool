@@ -37,10 +37,10 @@ use super::{
 };
 
 /// How far a close control's cross reaches from its centre.
-const CROSS: f32 = 3.5;
+pub(super) const CROSS: f32 = 3.5;
 
 /// The width of a close control's strokes.
-const CROSS_STROKE: f32 = 1.5;
+pub(super) const CROSS_STROKE: f32 = 1.5;
 
 /// What a tab strip's labels are, which sets how they are painted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

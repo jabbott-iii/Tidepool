@@ -2140,8 +2140,16 @@ JetBrains Mono text over the jabbott.dev backdrop.
       tidepool-gui --no-deps` is clean.
     - Nothing was built for macOS or Windows: `ui` and `gui` have no OS
       code, and CI's gate checks the scenes there on the next push.
+  - Note (2026-11-22): M3.3's review found that a collection whose view
+    lost a row as it got shorter kept the rows left at the heights the
+    last layout pass gave them while the lost row still shared the space,
+    shorter than `ROW_HEIGHT`. `bind_collection` now counts a removed row
+    as a change, so the layout passes again and each row is
+    `ROW_HEIGHT` high
+    (`a_collection_that_loses_a_row_to_a_smaller_view_lays_its_rows_out_whole`
+    in `crates/ui/tests/collections.rs`).
 
-- [ ] **M3.3 — ui: overlays**
+- [x] **M3.3 — ui: overlays**
   - Depends: M3.7
   - Do: the rest of the Components table: tooltip, toast, modal and the
     command palette, over a layer of overlays in the tree (ADR-0052).
@@ -2155,6 +2163,97 @@ JetBrains Mono text over the jabbott.dev backdrop.
     tooltip, toast, modal and palette. The palette shows what its owner
     ranks, and a tooltip's delay and a toast's timeout are the owner's
     timers.
+  - Note (2026-11-22): built; the spec's `overlay`, `input`, `a11y` and
+    `widgets` rows and its Tests have the details
+    (`docs/subsystems/ui-and-theme.md`). `ui` has:
+    - `overlay`: overlay roots over the main root's layer, at most
+      `MAX_OVERLAYS` (64), each `Modal`, `Modeless`, or `PassThrough`
+      (`OverlayKind`), placed by an `Anchor` in the window or on a `Side`
+      of a node, with `Tree::open_overlay`, `close_overlay`, `overlays`,
+      `overlay_kind`, `overlay_anchor`, `set_overlay_anchor`, `overlay_of`,
+      `modal` and `inert`. An overlay that is not modal and is anchored to
+      a node is hosted by that node's layer, so it is live or inert with
+      it (ADR-0052).
+    - The active modal (the topmost modal overlay that is shown) makes the
+      layers below it inert (no hover, presses, events, focus, tab stops,
+      or accessibility nodes), and keeps Tab within itself and the layers
+      above it (ADR-0053). As it opens, it gives focus to its default: its
+      root, which is not a tab stop (a dialog's), or the palette's field
+      (ADR-0054). It keeps focus from resting on no node while that
+      default can take it, and gives focus back when it closes
+      (ADR-0052). What it keeps from the window comes back
+      `Response::blocked`, as does a press after the active modal
+      changes, closing and hiding included, until the pointer moves more
+      than 4 device pixels (`PRESS_SLOP`; ADR-0055, ADR-0056).
+    - In `widgets`: `Modal`, the dialog, put in a tree only by
+      `Modal::open`; `Tooltip`, which the owner opens when its delay
+      timer, following `Tree::tooltip_target`, fires, closed by Escape
+      first, its text its node's accessible description; `Toast`, info,
+      warning, or error, at most four at the bottom-right, of which only
+      those shown after a modal are live above it, kept clear of it, with
+      `Toast::held` and `Toast::waiting` for the owner's timeout
+      (ADR-0055); and `Palette`, a modal search field over a windowed
+      list of the items its owner ranks, which draws the characters
+      `Row::matched` names in Saira Bold and `teal-hi` (`MATCH_TEXT`).
+    - `AccessNode` gains `modal`, `description`, and `active`; a
+      collection's rows show and name control, bidirectional formatting,
+      and Unicode's default-ignorable characters as U+FFFD, which the
+      dialog, tooltip, toast, and text input drop; a button's label is cut
+      to its bounds; the theme checks one more
+      pair, `text` on `panel-solid`, 56 at AA.
+      `crates/gui/tests/overlays/mod.rs` paints 8 scenes, `ui_modal`,
+      `ui_tooltip`, `ui_toast`, `ui_palette`, and their `_scale_2`; and
+      `tidepool-bench`, which now uses `tidepool-ui` and `tidepool-gui`,
+      gains `ui/palette/repaint/4kib_64_matches`.
+  - Note (2026-11-22): the owner chose the recommended option of each
+    question that ADR-0053 to ADR-0056 record: on 2026-11-21,
+    that focus lands on a modal dialog itself, that Tab reaches the
+    overlays opened above it, that the window behind it is dimmed, and
+    that its fill is opaque (ADR-0053); on 2026-11-22, that the palette's
+    focus goes to its search field and the window behind it is dimmed
+    (ADR-0054), and that a press waits for the pointer to move after a
+    modal becomes active, and only the toasts shown after it are live
+    above it, kept clear of it (ADR-0055), and that the press guard
+    allows 4 device pixels of movement and applies when a modal closes
+    too (ADR-0056). On 2026-11-22 the owner also
+    chose how the palette shows what a query matched: the matched
+    characters in Saira Bold and `teal-hi`.
+  - Note (2026-11-22): reviewed in three rounds, each by a correctness
+    reviewer and `security-reviewer`, every finding shown by a probe
+    before it was fixed:
+    - The overlay layer and the dialog: 10 findings. The main ones:
+      modals closed out of order lost the node to give focus back to, and
+      an overlay anchored to the inert window was live above the dialog.
+      The review also found M3.7's row-layout bug noted there.
+    - The tooltip, toast, and palette, with the first round's fixes: 13
+      findings, plus 4 suspicions fixed as well. The main ones: a palette
+      click ran an item the user never pressed when the items changed
+      mid-click, a dialog opening under a resting pointer took a click
+      aimed elsewhere (ADR-0055), and rows showed bidirectional
+      formatting characters as written.
+    - The second round's fixes: 14 findings, the main ones a toast's
+      long action label painting across a dialog, and a dialog part
+      made while the window was too short that still took focus.
+    All are fixed. Each fix was reverted once to see its test fail, the
+    reviews' probes were run again on the fixed code, and their random
+    harnesses ran on new seeds: 1,000 seeds of the correctness harness
+    (with ADR-0056's slop) and 10,000 of the security harness, 120
+    steps each, with no invariant broken. Six more defects their
+    harnesses found while fixing are fixed and tested too.
+  - Note (2026-11-22): checked on rustc 1.99.0, Linux:
+    - `cargo xtask golden`: 83 scenes ok. The 8 new ones were blessed
+      from images byte-identical to those the owner looked at.
+    - `cargo test -p tidepool-ui`: 75 unit tests, 3 a11y, 31
+      collections, 28 components, 12 frame, 2 fuzz, 19 input, 22 layout,
+      39 overlays, 55 popups, 4 settling, 2 theme, 29 widgets, 32 doc
+      tests, and 1 doc test that must not compile pass.
+    - `cargo xtask theme`: 56 of 56 pairs at AA.
+    - `cargo xtask ci`: 13 of 13 steps pass, with the 29 window tests
+      skipped; `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 13 of 13,
+      none skipped. `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-ui
+      -p tidepool-gui -p tidepool-bench --no-deps` is clean.
+    - Nothing was built for macOS or Windows: `ui` and `gui` have no OS
+      code, and CI compares the scenes there.
 
 - [ ] **M3.4 — app: event-driven main loop and shell**
   - Depends: M3.3, M2.6, M2.7
@@ -2171,6 +2270,16 @@ JetBrains Mono text over the jabbott.dev backdrop.
     machine's sizes (ADR-0045), against the loop's rule of about 1 ms a
     handler; this task moves that work off the main thread or makes it
     fast enough.
+  - Note (2026-11-22): M3.3 built what the shell's palette and popups
+    need from `ui`. `widgets::Palette` shows the items its owner ranks,
+    so the shell ranks its commands itself (ADR-0052). A tooltip's delay
+    and a toast's timeout are timers of the loop's `next_deadline`, which
+    follow `Tree::tooltip_target` and `Toast::held`. An event that comes
+    back `Response::blocked` is one the loop runs no window shortcut for
+    (ADR-0055), a press while the press guard holds after a modal opens
+    or closes among them (ADR-0056). The guard's slop is in device pixels,
+    so the loop lays the tree out with metrics whose `TextMetrics::scale`
+    is the window's, as `gui::FontMetrics`'s is.
 
 **Exit criteria (M3):** the empty Tidepool shell, side by side with
 jabbott.dev, reads as the same design (human review).

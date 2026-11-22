@@ -27,6 +27,7 @@
 
 use std::any::Any;
 use std::fmt;
+use std::ops::Range;
 
 use tidepool_core::geom::{Point, Rect};
 use tidepool_core::input::{InputEvent, TextLength};
@@ -38,9 +39,11 @@ use crate::layout::{Length, Style};
 use crate::theme::Token;
 use crate::tree::{Node, NodeId, Tree, Widget};
 use crate::widgets::button::Activator;
+use crate::widgets::modal::is_hidden;
 use crate::widgets::{
-    CELL_PADDING, CHEVRON_WIDTH, Control, FOCUS_WIDTH, Look, MAX_CELL_BYTES, MAX_VIEW_ROWS,
-    ROW_HEIGHT, ROW_PADDING, ROW_TEXT, TABLE_HEADER, TREE_INDENT, baseline, cut_to, dimmed,
+    CELL_PADDING, CHEVRON_WIDTH, Control, FOCUS_WIDTH, Look, MATCH_TEXT, MAX_CELL_BYTES,
+    MAX_VIEW_ROWS, ROW_HEIGHT, ROW_PADDING, ROW_TEXT, TABLE_HEADER, TREE_INDENT, baseline, cut_to,
+    dimmed,
 };
 
 use super::{Bound, Collection, CollectionKind, Column, Row};
@@ -63,6 +66,59 @@ pub(super) fn column_of(tree: &Tree, node: NodeId) -> Option<usize> {
 /// cluster boundary of the whole text ([`cut_to`]).
 pub(super) fn capped(text: &str) -> &str {
     cut_to(text, MAX_CELL_BYTES)
+}
+
+/// What a collection shows and names of a row's cell `text`: it
+/// [capped], with each character that shows nothing or changes how the
+/// text around it reads (a control character, a bidirectional formatting
+/// character, or an invisible format character, as a
+/// [`Modal`](crate::widgets::Modal) leaves out) made U+FFFD, the
+/// replacement character, then capped again. A cell is its owner's data,
+/// such as a file name: the replacement shows where such a character was,
+/// so `invoice\u{202E}fdp.exe` cannot pass for `invoiceexe.pdf`, and two
+/// names that differ by one never show or read as the same. JetBrains
+/// Mono, the bundled fallback face, draws it where Saira has no glyph.
+pub(super) fn shown(text: &str) -> String {
+    shown_matched(text, &[]).0
+}
+
+/// [`shown`], with `ranges` of `text` moved to where they fall in what it
+/// shows: a range's start to the start of the character it falls in, and
+/// its end to the end of the character before it.
+fn shown_matched(text: &str, ranges: &[Range<usize>]) -> (String, Vec<Range<usize>>) {
+    let kept = capped(text);
+    if !kept.chars().any(is_hidden) {
+        return (kept.to_string(), ranges.to_vec());
+    }
+    let mut out = String::with_capacity(kept.len());
+    // Each character's start in `kept`, and in `out`.
+    let mut starts: Vec<(usize, usize)> = Vec::new();
+    for (at, c) in kept.char_indices() {
+        starts.push((at, out.len()));
+        out.push(if is_hidden(c) { '\u{FFFD}' } else { c });
+    }
+    let end = out.len();
+    let map = |offset: usize, up: bool| -> usize {
+        // At or past the end of what is kept: the end, so a range there is
+        // empty, whatever the last character became.
+        if offset >= kept.len() {
+            return end;
+        }
+        match starts.binary_search_by_key(&offset, |&(from, _)| from) {
+            Ok(found) => starts.get(found).map_or(end, |&(_, to)| to),
+            // Inside a character, or at the end.
+            Err(after) if up => starts.get(after).map_or(end, |&(_, to)| to),
+            Err(after) => after
+                .checked_sub(1)
+                .and_then(|inside| starts.get(inside))
+                .map_or(0, |&(_, to)| to),
+        }
+    };
+    let ranges = ranges
+        .iter()
+        .map(|range| map(range.start, false)..map(range.end, true))
+        .collect();
+    (capped(&out).to_string(), ranges)
 }
 
 /// Where each kept row sits in the body: the gap above the first, and for
@@ -192,8 +248,12 @@ impl Tree {
         let selected = collection.selected;
         let semantics = collection.semantics();
 
+        let kept = self.row_nodes(body).len();
         let added = self.fit_rows(body, kind, &widths, window.count);
         let rows = self.row_nodes(body);
+        // Fewer rows lay out anew too, even if those left keep their
+        // heights: the last pass gave them the space the others shared.
+        let removed = rows.len() < kept;
         let at = (
             window.first,
             rows.len(),
@@ -242,7 +302,7 @@ impl Tree {
             // insert already; the node keeps what it had.
             let _ = self.set_semantics(id, semantics);
         }
-        built || added || moved
+        built || added || removed || moved
     }
 
     /// The collection's widget, to change, without marking its node.
@@ -411,10 +471,14 @@ impl Tree {
         if kind == CollectionKind::Table {
             let cells: Vec<NodeId> = self.children(node).map_or_else(Vec::new, <[_]>::to_vec);
             for (column, cell) in cells.into_iter().enumerate() {
-                let shown = widths.get(column).is_some_and(|&width| width > 0.0);
-                let text = if shown { capped(row.cell(column)) } else { "" };
+                let visible = widths.get(column).is_some_and(|&width| width > 0.0);
+                let text = if visible {
+                    shown(row.cell(column))
+                } else {
+                    String::new()
+                };
                 let changed = self.get_mut(cell).is_some_and(|data| {
-                    data.semantics = Semantics::new(Role::Cell, text);
+                    data.semantics = Semantics::new(Role::Cell, text.as_str());
                     let Some(view) = data
                         .widget
                         .as_deref_mut()
@@ -424,7 +488,7 @@ impl Tree {
                     };
                     let changed = view.text != text;
                     if changed {
-                        view.text = text.to_string();
+                        view.text = text;
                     }
                     changed
                 });
@@ -433,10 +497,10 @@ impl Tree {
                 }
             }
         }
-        let label = if kind == CollectionKind::Table {
-            String::new()
+        let (label, matched) = if kind == CollectionKind::Table {
+            (String::new(), Vec::new())
         } else {
-            capped(row.label()).to_string()
+            shown_matched(row.label(), row.matched_ranges())
         };
         let changed = self.get_mut(node).is_some_and(|data| {
             data.semantics = semantics;
@@ -447,15 +511,18 @@ impl Tree {
             else {
                 return false;
             };
+            let matched = matched_ranges(&label, &matched);
             let next = (label, row.level(), row.expansion(), selected);
             let changed = (
                 view.label.as_str(),
                 view.depth,
                 view.expansion,
                 view.selected,
-            ) != (next.0.as_str(), next.1, next.2, next.3);
+            ) != (next.0.as_str(), next.1, next.2, next.3)
+                || view.matched != matched;
             if changed {
                 (view.label, view.depth, view.expansion, view.selected) = next;
+                view.matched = matched;
             }
             changed
         });
@@ -482,7 +549,7 @@ fn on_screen(viewport: Rect, clip: Rect) -> (f64, f64) {
 /// What a row of `kind` is told about itself: its role, its text or, if
 /// that is blank, its place, whether it is selected, and a tree item's
 /// expansion. A table's row is named by the cells of its columns wider
-/// than 0, each [capped], and no others.
+/// than 0, each as [`shown`], and no others.
 fn row_semantics(
     kind: CollectionKind,
     widths: &[f32],
@@ -491,14 +558,14 @@ fn row_semantics(
     selected: bool,
 ) -> Semantics {
     let (role, name) = match kind {
-        CollectionKind::List => (Role::ListItem, capped(row.label()).to_string()),
-        CollectionKind::TreeView => (Role::TreeItem, capped(row.label()).to_string()),
+        CollectionKind::List => (Role::ListItem, shown(row.label())),
+        CollectionKind::TreeView => (Role::TreeItem, shown(row.label())),
         CollectionKind::Table => {
-            let cells: Vec<&str> = widths
+            let cells: Vec<String> = widths
                 .iter()
                 .enumerate()
                 .filter(|&(_, &width)| width > 0.0)
-                .map(|(column, _)| capped(row.cell(column)))
+                .map(|(column, _)| shown(row.cell(column)))
                 .filter(|cell| !cell.trim().is_empty())
                 .collect();
             (Role::Row, cells.join(", "))
@@ -549,6 +616,7 @@ fn row_node(kind: CollectionKind) -> Node {
         expansion: None,
         selected: false,
         cut: 0.0,
+        matched: Vec::new(),
     })
 }
 
@@ -632,6 +700,9 @@ struct RowView {
     expansion: Option<bool>,
     selected: bool,
     cut: f32,
+    /// The ranges of its label a search matched, on cluster boundaries,
+    /// sorted and apart.
+    matched: Vec<Range<usize>>,
 }
 
 /// Shows its text as its length only.
@@ -686,18 +757,96 @@ impl Widget for RowView {
 }
 
 impl RowView {
-    /// Paints the row's text from `x`, in the whole `row`.
+    /// Paints the row's text from `x`, in the whole `row`: its matched
+    /// ranges in [`MATCH_TEXT`] (Saira Bold) and `teal-hi`, the rest in
+    /// [`ROW_TEXT`] and `text`. Each run starts at the pen the runs before
+    /// it leave, each measured once in its own style, so the text runs at
+    /// the bold widths; none starts past the row's right edge, where the
+    /// row is cut, so a long label costs only what shows of it.
     fn paint_text(&self, cx: &PaintContext<'_>, row: Rect, x: f32, list: &mut DrawList) {
         if self.label.is_empty() {
             return;
         }
-        list.text(
-            Point::new(x, baseline(row, cx.metrics(), &ROW_TEXT)),
-            self.label.clone(),
-            ROW_TEXT,
-            cx.theme().color(Token::Text),
-        );
+        let y = baseline(row, cx.metrics(), &ROW_TEXT);
+        let theme = cx.theme();
+        if self.matched.is_empty() {
+            list.text(
+                Point::new(x, y),
+                self.label.clone(),
+                ROW_TEXT,
+                theme.color(Token::Text),
+            );
+            return;
+        }
+        let right = cx.bounds().right().min(cx.clip().right());
+        let mut runs: Vec<(Range<usize>, bool)> = Vec::new();
+        let mut at = 0;
+        for range in &self.matched {
+            if range.start > at {
+                runs.push((at..range.start, false));
+            }
+            runs.push((range.clone(), true));
+            at = range.end;
+        }
+        if at < self.label.len() {
+            runs.push((at..self.label.len(), false));
+        }
+        let mut pen = x;
+        for (range, matched) in runs {
+            if pen >= right {
+                break;
+            }
+            let Some(text) = self.label.get(range) else {
+                continue;
+            };
+            let (style, token) = if matched {
+                (MATCH_TEXT, Token::TealHi)
+            } else {
+                (ROW_TEXT, Token::Text)
+            };
+            list.text(Point::new(pen, y), text, style, theme.color(token));
+            pen += cx.metrics().width(text, &style);
+        }
     }
+}
+
+/// `ranges` of `label` as a row paints them: cut to the label, each
+/// widened to the extended grapheme clusters it touches, without empty
+/// ones, sorted, and those that meet joined; at most
+/// [`MAX_MATCHES`](super::super::MAX_MATCHES).
+fn matched_ranges(label: &str, ranges: &[Range<usize>]) -> Vec<Range<usize>> {
+    use tidepool_text::pos::grapheme;
+    let len = label.len();
+    let mut kept: Vec<Range<usize>> = ranges
+        .iter()
+        .take(super::super::MAX_MATCHES)
+        .filter_map(|range| {
+            let (start, end) = (range.start.min(len), range.end.min(len));
+            if start >= end {
+                return None;
+            }
+            let start = if grapheme::is_boundary(label, start) {
+                start
+            } else {
+                grapheme::prev_boundary(label, start).unwrap_or(0)
+            };
+            let end = if grapheme::is_boundary(label, end) {
+                end
+            } else {
+                grapheme::next_boundary(label, end).unwrap_or(len)
+            };
+            (start < end).then_some(start..end)
+        })
+        .collect();
+    kept.sort_by_key(|range| range.start);
+    let mut joined: Vec<Range<usize>> = Vec::with_capacity(kept.len());
+    for range in kept {
+        match joined.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => joined.push(range),
+        }
+    }
+    joined
 }
 
 /// A tree item's chevron, centred at `x` in its whole `row`, in `text-2`:
@@ -897,6 +1046,7 @@ mod tests {
             expansion: None,
             selected: false,
             cut: 0.0,
+            matched: Vec::new(),
         };
         let cell = CellView {
             text: "hunter2".to_string(),

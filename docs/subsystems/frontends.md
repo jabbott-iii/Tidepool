@@ -88,7 +88,13 @@ automatically when no display is available, with a message).
   at scale 1 and 2, and a mix at 1.5 (`crates/gui/tests/golden.rs`,
   `ui_*`, compared exactly, M3.5), of each of `ui`'s controls in each
   state, rest, hover, focus, pressed and disabled, at scale 1 and 2
-  (`crates/gui/tests/controls/mod.rs`, M3.6, ADR-0049), and of the shell
+  (`crates/gui/tests/controls/mod.rs`, M3.6, ADR-0049), of each of M3.7's
+  components, the list, tree view, table, tab strip, splitter, card, and
+  code block, in each state at scale 1 and 2
+  (`crates/gui/tests/components/mod.rs`, M3.7, ADR-0052), of the modal
+  dialog over a window it makes inert, the tooltip, the toast, and the
+  command palette, in each state at scale 1 and 2
+  (`crates/gui/tests/overlays/mod.rs`, M3.3, ADR-0052), and of the shell
   (M3.4); property tests
   that a painted frame changes only pixels inside its damage, and that
   painting the damage gives what painting the whole frame gives, idle

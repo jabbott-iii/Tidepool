@@ -55,7 +55,12 @@ authoritative, and this summarizes it.
   same target (`crates/gui/tests/controls/mod.rs`): each a grid of a row
   for each variant and a column for each state (rest, hover, focus,
   pressed, disabled), every cell a tree of its own put in its state by
-  real events, at scale 1 and 2.
+  real events, at scale 1 and 2; 14 of its collections, tab strip,
+  splitter, card, and code block (M3.7, ADR-0052,
+  `crates/gui/tests/components/mod.rs`); and 8 of its overlays: the
+  modal dialog, tooltip, toast, and command palette (M3.3,
+  `crates/gui/tests/overlays/mod.rs`), each a grid of a row for each
+  variant and a column for each state it has, at scale 1 and 2.
 - **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
   what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
   top): the framebuffer's premultiplied bytes, unchanged. Unset, the

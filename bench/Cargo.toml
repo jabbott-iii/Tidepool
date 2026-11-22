@@ -7,13 +7,16 @@ publish = false
 
 # Its row of the dependency matrix (docs/01-architecture.md) allows any
 # workspace crate: `core` parses the command line and makes the inputs,
-# `codec` reads and writes the baseline, `text` and `font` are what the
-# suites measure, and `text` saves the baseline atomically.
+# `codec` reads and writes the baseline, `text`, `font` and `ui` are what
+# the suites measure, `gui` measures `ui`'s text as the window does, and
+# `text` saves the baseline atomically.
 [dependencies]
 tidepool-core = { path = "../crates/core" }
 tidepool-codec = { path = "../crates/codec" }
 tidepool-text = { path = "../crates/text" }
 tidepool-font = { path = "../crates/font" }
+tidepool-ui = { path = "../crates/ui" }
+tidepool-gui = { path = "../crates/gui" }
 
 [lints]
 workspace = true

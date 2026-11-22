@@ -77,8 +77,13 @@ impl ButtonSize {
 /// clicked (pressed and released on it with the primary button), or, while
 /// it has focus, when Enter goes down or Space comes up.
 ///
-/// Its label is painted uppercase in [`BUTTON_LABEL`]; its accessible name
-/// is the label as written. It takes focus.
+/// Its label is painted uppercase in [`BUTTON_LABEL`], centered, and cut
+/// to the button's bounds: as wide as its label and padding when its
+/// parent gives it that, a label wider than the space it is given paints
+/// nothing outside it. It is cut rather than ended with an ellipsis, as
+/// `ui`'s [`TextMetrics`] cannot shape one, and a label that long is its
+/// owner's to shorten. Its accessible name is the label as written. It
+/// takes focus.
 ///
 /// ```
 /// use tidepool_ui::a11y::Role;
@@ -225,7 +230,11 @@ impl Widget for Button {
                 rect.x + (rect.width - width) / 2.0,
                 baseline(rect, metrics, &BUTTON_LABEL),
             );
+            // Cut to the button: a label wider than the space its parent
+            // gives it paints nothing outside it.
+            list.push_clip(rect);
             list.text(origin, self.shown.clone(), BUTTON_LABEL, theme.color(label));
+            list.pop_clip();
         });
         if cx.state().focus_visible {
             focus_outline(list, rect, theme);

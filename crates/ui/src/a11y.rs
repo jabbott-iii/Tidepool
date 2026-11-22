@@ -24,6 +24,21 @@
 //! are left out. The operating systems' accessibility bridges read it from
 //! M14.2.
 //!
+//! Overlays ([`overlay`](crate::overlay)) follow the main root's layer, in
+//! the order they were opened, each layer's outermost exposed nodes at
+//! depth 0. While a modal overlay is active, the snapshot holds only the
+//! live layers, the modal's and those above it, as HTML's modal dialogs
+//! and `inert` leave the rest out of the accessibility tree; the modal's
+//! root is marked [`modal`](AccessNode::modal), as `aria-modal` would mark
+//! it, if it has a role.
+//!
+//! A node with a tooltip ([`Tree::set_tooltip`]) has its text as its
+//! [`description`](AccessNode::description), as `aria-describedby` points
+//! a node at its tooltip. A node that keeps focus while its keys act on
+//! the selected item of a list, as a command palette's field does, names
+//! that item as its [`active`](AccessNode::active) option, as
+//! `aria-activedescendant` does.
+//!
 //! The tree keeps an invariant by construction: **every focusable node has
 //! a role and a name** ([`Semantics::is_named`]). [`Tree::insert`],
 //! [`Tree::set_semantics`] and [`Tree::set_focusable`] refuse what would
@@ -42,6 +57,7 @@ use std::fmt;
 use tidepool_core::geom::Rect;
 use tidepool_core::input::TextLength;
 
+use crate::overlay::OverlayKind;
 use crate::tree::{NodeId, Tree};
 
 /// What a node is, for assistive technology.
@@ -292,7 +308,8 @@ pub struct AccessNode {
     pub value: Option<String>,
     /// Its bounds in the last layout, in logical units.
     pub bounds: Rect,
-    /// Whether the node is focusable (its own flag; it may be disabled).
+    /// Whether the node is focusable (its own flag; it may be disabled),
+    /// `false` in a pass-through overlay, whose nodes never take focus.
     pub focusable: bool,
     /// Whether it has keyboard focus.
     pub focused: bool,
@@ -304,6 +321,17 @@ pub struct AccessNode {
     pub checked: Option<bool>,
     /// Whether it is expanded, if it can be.
     pub expanded: Option<bool>,
+    /// Whether it is the root of the active modal overlay, so that the
+    /// rest of the window is inert while it is open (`aria-modal`).
+    pub modal: bool,
+    /// What a tooltip on it says, if it has one ([`Tree::set_tooltip`]):
+    /// its accessible description, which a screen reader reads after its
+    /// name whether the tooltip shows or not (`aria-describedby`).
+    pub description: Option<String>,
+    /// The option its keys act on while it keeps focus itself, as a command
+    /// palette's field acts on the list it filters: the selected item of
+    /// that list, if it is exposed (`aria-activedescendant`).
+    pub active: Option<NodeId>,
 }
 
 /// Shows the value as its length only.
@@ -322,6 +350,9 @@ impl fmt::Debug for AccessNode {
             .field("selected", &self.selected)
             .field("checked", &self.checked)
             .field("expanded", &self.expanded)
+            .field("modal", &self.modal)
+            .field("description", &self.description.as_deref().map(TextLength))
+            .field("active", &self.active)
             .finish()
     }
 }
@@ -331,10 +362,13 @@ impl fmt::Debug for AccessNode {
 ///
 /// Its `Display` writes one line per node: two spaces per level of
 /// [`depth`](AccessNode::depth), the role, the name in quotes, ` = ` and
-/// the value in quotes if there is one, then those of `focusable`,
-/// `focused`, `disabled`, `selected`, `checked` or `unchecked`, and
-/// `expanded` or `collapsed` that hold. Names and values are escaped as
-/// [`str::escape_debug`] does, so each node is one line:
+/// the value in quotes if there is one, ` description ` and the
+/// description in quotes if there is one, ` active ` and the active
+/// option's name in quotes if there is one, then those of `modal`,
+/// `focusable`, `focused`, `disabled`, `selected`, `checked` or
+/// `unchecked`, and `expanded` or `collapsed` that hold. Names, values and
+/// descriptions are escaped as [`str::escape_debug`] does, so each node is
+/// one line:
 ///
 /// ```text
 /// window "Tidepool"
@@ -368,7 +402,14 @@ impl fmt::Display for Snapshot {
             if let Some(value) = &node.value {
                 write!(f, " = \"{}\"", value.escape_debug())?;
             }
+            if let Some(description) = &node.description {
+                write!(f, " description \"{}\"", description.escape_debug())?;
+            }
+            if let Some(active) = node.active.and_then(|active| self.get(active)) {
+                write!(f, " active \"{}\"", active.name.escape_debug())?;
+            }
             let flags = [
+                (node.modal, "modal"),
                 (node.focusable, "focusable"),
                 (node.focused, "focused"),
                 (node.disabled, "disabled"),
@@ -391,37 +432,61 @@ impl fmt::Display for Snapshot {
 
 impl Tree {
     /// A snapshot of the accessibility tree: every visible node whose role
-    /// is not [`Role::None`], in pre-order, with its depth among exposed
-    /// nodes and its bounds from the last layout.
+    /// is not [`Role::None`] in the live layers, in pre-order, layer by
+    /// layer (see the [module documentation](self)), with its depth among
+    /// exposed nodes and its bounds from the last layout.
     pub fn accessibility(&self) -> Snapshot {
         let mut nodes = Vec::new();
-        // (node, exposed ancestors), in pre-order.
-        let mut stack = vec![(self.root(), 0)];
-        while let Some((id, depth)) = stack.pop() {
-            let Some(node) = self.get(id) else { continue };
-            if node.sane.hidden {
-                continue;
+        // (node, the list whose selected item is its active option).
+        let mut actives: Vec<(usize, NodeId)> = Vec::new();
+        let modal = self.modal();
+        for (root, kind) in self.live_layers() {
+            let passes = kind == Some(OverlayKind::PassThrough);
+            // (node, exposed ancestors), in pre-order.
+            let mut stack = vec![(root, 0)];
+            while let Some((id, depth)) = stack.pop() {
+                let Some(node) = self.get(id) else { continue };
+                if node.sane.hidden {
+                    continue;
+                }
+                let semantics = &node.semantics;
+                let exposed = semantics.role != Role::None;
+                if exposed {
+                    if let Some(list) = node.active_in {
+                        actives.push((nodes.len(), list));
+                    }
+                    nodes.push(AccessNode {
+                        id,
+                        depth,
+                        role: semantics.role,
+                        name: semantics.name.clone(),
+                        value: semantics.value.clone(),
+                        bounds: node.placement.rect,
+                        focusable: node.focusable && !passes,
+                        focused: self.focused() == Some(id),
+                        disabled: !self.is_enabled(id),
+                        selected: semantics.selected,
+                        checked: semantics.checked,
+                        expanded: semantics.expanded,
+                        modal: modal == Some(id),
+                        description: node.tooltip.clone(),
+                        active: None,
+                    });
+                }
+                let below = if exposed { depth + 1 } else { depth };
+                stack.extend(node.children.iter().rev().map(|&child| (child, below)));
             }
-            let semantics = &node.semantics;
-            let exposed = semantics.role != Role::None;
-            if exposed {
-                nodes.push(AccessNode {
-                    id,
-                    depth,
-                    role: semantics.role,
-                    name: semantics.name.clone(),
-                    value: semantics.value.clone(),
-                    bounds: node.placement.rect,
-                    focusable: node.focusable,
-                    focused: self.focused() == Some(id),
-                    disabled: !self.is_enabled(id),
-                    selected: semantics.selected,
-                    checked: semantics.checked,
-                    expanded: semantics.expanded,
-                });
+        }
+        for (at, list) in actives {
+            let active = nodes
+                .iter()
+                .find(|option| {
+                    option.selected && option.id != list && self.is_within(option.id, list)
+                })
+                .map(|option| option.id);
+            if let Some(node) = nodes.get_mut(at) {
+                node.active = active;
             }
-            let below = if exposed { depth + 1 } else { depth };
-            stack.extend(node.children.iter().rev().map(|&child| (child, below)));
         }
         Snapshot { nodes }
     }
@@ -484,6 +549,9 @@ mod tests {
             selected: false,
             checked: None,
             expanded: None,
+            modal: false,
+            description: None,
+            active: None,
         };
         let shown = format!("{node:?}");
         assert!(shown.contains("Some(<7 bytes>)"), "{shown}");

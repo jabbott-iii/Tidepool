@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             report.notes.last().map(String::as_str),
             Some(
-                "themes/tidepool-dark.toml: 55 pairs used for text, 55 at or above the contrast \
+                "themes/tidepool-dark.toml: 56 pairs used for text, 56 at or above the contrast \
                  their size needs"
             )
         );

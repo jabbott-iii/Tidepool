@@ -36,9 +36,10 @@ Built, with the roadmap task that built it:
   command's ink is clipped to its bounds, and lines and cut corners are
   filled in fixed tiles, so painting the damage gives what painting the
   whole frame gives. `metrics::FontMetrics` is `ui`'s `TextMetrics` with
-  `font::layout`, and `metrics::face` picks a style's bundled face as
-  CSS would. 23 golden scenes of `ui` trees, compared exactly — M3.5
-  (ADR-0048).
+  `font::layout`, whose `scale` is its scale's, so that `ui` measures the
+  press guard's slop in device pixels (ADR-0056), and `metrics::face`
+  picks a style's bundled face as CSS would. 23 golden scenes of `ui`
+  trees, compared exactly — M3.5 (ADR-0048).
 - 16 golden scenes of `ui`'s controls, each in each state at scale 1 and
   2, every cell a tree of its own put in its state by real events
   (`tests/controls/mod.rs`, a module of the `golden` target) — M3.6
@@ -49,6 +50,13 @@ Built, with the roadmap task that built it:
   state by real events (`tests/components/mod.rs`, a module of the
   `golden` target); their references are blessed once the owner has
   looked at them — M3.7 (ADR-0052).
+- 8 golden scenes of `ui`'s overlays, the modal dialog over a window it
+  makes inert, the tooltip, the toast and the command palette (its
+  matched characters in Saira Bold), each in each state at scale 1 and
+  2, every cell a tree of its own put in its state by real events
+  (`tests/overlays/mod.rs`, a module of the `golden` target); their
+  references are blessed once the owner has looked at them — M3.3
+  (ADR-0052).
 
 Not yet, with the roadmap task that adds it:
 
@@ -193,9 +201,10 @@ by frame at scales 1 to 2, and checks that each frame changes only its
 damage and that painting the damage gives what painting the whole frame
 gives, idle frames included; a second property aims slivers of
 anti-aliased ink past a clipping node's edge. `tests/golden.rs` paints
-the 23 `ui_*` scenes, and its modules `controls` and `components` the
-controls' 16 and M3.7's components' 14, which `cargo xtask golden`
-compares exactly with `tests/golden/` (ADR-0044, ADR-0048). The window test,
+the 23 `ui_*` scenes, and its modules `controls`, `components`, and
+`overlays` the controls' 16, M3.7's components' 14, and the overlays'
+8, which `cargo xtask golden` compares exactly with
+`tests/golden/` (ADR-0044, ADR-0048). The window test,
 `tests/window.rs`, opens the window and sees its first frame presented and
 an idle turn present nothing; it runs only with `TIDEPOOL_IT_X11=1`, as
 `platform`'s do, and prints `SKIPPED:` otherwise (ADR-0039). `cargo xtask

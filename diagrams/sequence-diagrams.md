@@ -6,10 +6,12 @@ what order, and what comes back. Sections 1 to 7 are read from the code:
 engine, and loading,
 saving, editing and undoing text in `tidepool-text`, and so is 8.3, the
 first frame. The rest of sections 8 to 13 are the flows the specs plan,
-from startup to signing an Android package; most of their code does not
-exist yet, and what does is marked (built).
+from startup to signing an Android package, and section 14 a tooltip's
+delay, whose `ui` side is built and whose owner, the main loop, is
+planned; most of their code does not exist yet, and what does is marked
+(built).
 
-Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6 and ADR-0050. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050 and M3.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -32,8 +34,8 @@ Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1), 
 UML draws an answer as a dashed arrow, and Mermaid cannot dash a
 participant's box, so a sequence diagram marks planned work by its title,
 its note and its participants' labels instead of by dashes. Names in
-messages are the code's (sections 1 to 7, and 8.3) or the specs' (the
-rest of sections 8 to 13). Paths are relative to the repository root. A planned flow too long
+messages are the code's (sections 1 to 7, 8.3, and `ui`'s in 14) or the
+specs' (the rest of sections 8 to 14). Paths are relative to the repository root. A planned flow too long
 for one picture is drawn in numbered parts, read in order.
 
 ## 1. `cargo xtask ci`
@@ -156,7 +158,7 @@ sequenceDiagram
     loop each crate with scenes, in SCENES order: tidepool-gfx, tolerance 0, tidepool-font, 1, and tidepool-gui, 0
         Gold->>Cargo: cargo test --package PACKAGE<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/PACKAGE
         Note over Gold,Cargo: run_with_env: an argv vector,<br/>stdin closed, CARGO_NET_OFFLINE=true,<br/>its output straight to the terminal
-        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 53, 16 of them<br/>the controls' (M3.6) and 14<br/>the M3.7 components'
+        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 61, 16 of them<br/>the controls' (M3.6), 14 the<br/>M3.7 components' and 8 the<br/>overlays' (M3.3)
         Test->>Out: each scene draws into a Framebuffer<br/>and writes SCENE.pam: premultiplied<br/>RGBA, rows from the top
         Test-->>Cargo: exit status
         Cargo-->>Gold: exit status, a failure<br/>being a violation
@@ -997,6 +999,65 @@ sequenceDiagram
     Note over User,Sdk: Tidepool never reads the keystore. A test checks<br/>that no constructed argv holds a secret (M10.3).
 ```
 
+## 14. A tooltip's delay and its owner's timer (planned)
+
+`ui` has no clock (ADR-0052), so the delay before a tooltip shows is its
+owner's timer, one of the deadlines of the main loop's `next_deadline`
+(`docs/01-architecture.md` → "The main loop"). After each event it
+handles and each frame it draws, the owner asks `Tree::tooltip_target`
+which node's tooltip should show now, and compares it with the target it
+saw last. `ui`'s side is built (M3.3), as `Tooltip`'s rustdoc describes
+it; its owner, the app's main loop, is planned (M3.4), so the flow is
+drawn as it is to run there.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant ML as app main loop<br/>(M3.4)
+    participant Ui as ui Tree<br/>(built)
+    participant Tip as ui Tooltip<br/>(built)
+
+    Note over User,Tip: planned M3.4.<br/>ui's tooltip_target, Tooltip::open and<br/>the layer of overlays are built (M3.3).
+    User->>ML: the pointer comes to rest<br/>on a button with a tooltip
+    ML->>Ui: handle(MouseMove)
+    Ui-->>ML: a Response
+    ML->>Ui: tooltip_target()
+    Ui-->>ML: a TooltipTarget: the button,<br/>TooltipCause::Pointer
+    Note over ML,Ui: The target changed from none, so the loop<br/>sets a timer in next_deadline: a short delay<br/>for the pointer, none for focus, as it likes.
+    loop each turn before the deadline
+        ML->>Ui: handle(event), then frame
+        ML->>Ui: tooltip_target()
+        Ui-->>ML: the same target, so<br/>the timer runs on
+    end
+    ML->>ML: fire_timers: the<br/>deadline passed
+    ML->>Ui: tooltip_target()
+    Ui-->>ML: still the button
+    ML->>Tip: Tooltip::open(tree, button)
+    Tip->>Ui: open_overlay(its view, Modeless,<br/>Anchor::node(button, Below,<br/>Start, TOOLTIP_GAP))
+    Ui-->>Tip: the overlay's root
+    Tip-->>ML: the tooltip
+    Note over Ui,Tip: The pointer on the tooltip counts as on its<br/>button, so the target stays (WCAG 1.4.13).
+    alt the pointer leaves the button and its tooltip, or focus moves to another node
+        ML->>Ui: handle(MouseMove elsewhere)
+        ML->>Ui: tooltip_target()
+        Ui-->>ML: none, or another node
+        ML->>Ui: close_overlay(the tooltip)
+    else the user presses Escape
+        ML->>Ui: handle(KeyDown Escape)
+        Ui->>Tip: Escape first, to the open<br/>tooltip still anchored to its node
+        Tip-->>Ui: emits Dismiss
+        Ui-->>ML: a Response: Dismiss<br/>from the tooltip
+        ML->>Ui: tooltip_target()
+        Ui-->>ML: none, until the pointer or<br/>focus moves to another node
+        ML->>Ui: close_overlay(the tooltip)
+    end
+```
+
+- A toast's timeout runs the same way: the loop asks `Toast::held`
+  after each turn, holds off its timer while that is true, and closes
+  the toast with `Toast::close` when the timer fires
+  ([`data-flow-and-state.md`](data-flow-and-state.md), section 14).
+
 ## Sources
 
 - `xtask/src/main.rs`, `check.rs`, `cargo.rs`, `deps.rs`, `layers.rs`,
@@ -1006,13 +1067,14 @@ sequenceDiagram
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
   `crates/gfx/tests/golden.rs`, `crates/font/tests/golden.rs`,
   `crates/gui/tests/golden.rs`, `crates/gui/tests/controls/mod.rs`,
-  `crates/gui/tests/components/mod.rs`
+  `crates/gui/tests/components/mod.rs`, `crates/gui/tests/overlays/mod.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `transaction.rs`,
   `history.rs`, `pos.rs`, `lib.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
 - `crates/gui/src/frontend.rs`, `first_frame.rs`, `paint.rs`
-- `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`, `theme.rs`;
+- `crates/ui/src/input.rs`, `draw.rs`, `tree.rs`, `theme.rs`,
+  `overlay.rs`, `widgets/tooltip.rs`, `widgets/toast.rs`;
   `themes/tidepool-dark.toml`
 - `AGENTS.md` (rules 2, 6, 7 and 8)
 - `docs/00-overview.md` → "Performance budgets"
@@ -1025,5 +1087,5 @@ sequenceDiagram
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
   ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
-  ADR-0045, ADR-0046, ADR-0047, ADR-0048
+  ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0052
 - `docs/roadmap.md`: the tasks named in each section

@@ -54,10 +54,22 @@ mod window;
 /// what it has, and tells the collection when more arrives.
 ///
 /// What a row on screen shows goes into the accessibility tree as its
-/// name, as written: a list's or tree view's label, and each cell of a
-/// table that has a column wider than 0, cut to
-/// [`MAX_CELL_BYTES`](super::MAX_CELL_BYTES) as it is shown. So a row
-/// holds no secret, and keeps what it does not show out of its cells.
+/// name: a list's or tree view's label, and each cell of a table that has
+/// a column wider than 0, cut to [`MAX_CELL_BYTES`](super::MAX_CELL_BYTES)
+/// as it is shown. So a row holds no secret, and keeps what it does not
+/// show out of its cells.
+///
+/// A row's text is its owner's data, a file name or a message from a
+/// language server, so a collection shows and names each character that
+/// shows nothing or changes how the text around it reads as U+FFFD, the
+/// replacement character: a control character (such as ESC or BEL), a
+/// bidirectional formatting character (such as U+202E, which would make
+/// `invoice\u{202E}fdp.exe` read as ending in `.pdf`), or an invisible
+/// format character (such as the zero width space), as a
+/// [`Modal`](super::Modal) leaves out of its text. It replaces them rather
+/// than leaving them out, so that two names that differ by one never show
+/// or read as the same. JetBrains Mono, the bundled fallback face, draws
+/// U+FFFD.
 ///
 /// Rows are placed by an `f64` offset in units, exact up to 2^53 units,
 /// so past about 2^48 rows (2^53 ÷ 20) a row's place, and so which row a
@@ -130,8 +142,9 @@ impl Rows for Vec<String> {
 /// message, so it is never case-transformed, and its `Debug` shows each
 /// cell's length only (ADR-0043). A collection shows and names at most
 /// [`MAX_CELL_BYTES`](super::MAX_CELL_BYTES) of each cell, cut at a
-/// grapheme cluster boundary; what it shows of a row on screen is its
-/// name in the accessibility tree (see [`Rows`]).
+/// grapheme cluster boundary, its hidden characters made U+FFFD; what it
+/// shows of a row on screen is its name in the accessibility tree (see
+/// [`Rows`]).
 ///
 /// ```
 /// use tidepool_ui::widgets::Row;
@@ -152,6 +165,7 @@ pub struct Row {
     depth: u16,
     expanded: Option<bool>,
     parent: Option<usize>,
+    matched: Vec<Range<usize>>,
 }
 
 impl Row {
@@ -226,6 +240,29 @@ impl Row {
     pub const fn parent_row(&self) -> Option<usize> {
         self.parent
     }
+
+    /// The same, with `ranges` of its label, byte ranges, matched by a
+    /// search: a list or tree view paints those characters in
+    /// [`MATCH_TEXT`](super::MATCH_TEXT), Saira Bold in `teal-hi`, as the
+    /// command palette shows what a query matched. It keeps the first
+    /// [`MAX_MATCHES`](super::MAX_MATCHES); a collection moves them to
+    /// where they fall in the label it shows (its hidden characters made
+    /// U+FFFD, see [`Collection`]), cuts them to it, widens each to the
+    /// extended grapheme clusters it touches, and leaves out empty ones, so
+    /// a range out of bounds or off a character boundary draws what it can
+    /// and never panics.
+    #[must_use]
+    pub fn matched(self, ranges: impl IntoIterator<Item = Range<usize>>) -> Self {
+        Self {
+            matched: ranges.into_iter().take(super::MAX_MATCHES).collect(),
+            ..self
+        }
+    }
+
+    /// The ranges of its label it says a search matched, as given.
+    pub fn matched_ranges(&self) -> &[Range<usize>] {
+        &self.matched
+    }
 }
 
 /// Shows each cell as its length only (ADR-0043).
@@ -237,6 +274,7 @@ impl fmt::Debug for Row {
             .field("depth", &self.depth)
             .field("expanded", &self.expanded)
             .field("parent", &self.parent)
+            .field("matched", &self.matched)
             .finish()
     }
 }
@@ -486,6 +524,12 @@ pub struct Collection {
     /// Counts the owner's changes to the model.
     revision: u64,
     view: View,
+    /// The row the primary press under way went down on, and the revision
+    /// of the model then.
+    pressed: Option<(usize, u64)>,
+    /// Whether a press and release on the same row activates it, as a
+    /// command palette's list does.
+    clicks: bool,
 }
 
 impl Collection {
@@ -535,6 +579,8 @@ impl Collection {
             reveal: false,
             revision: 0,
             view: View::default(),
+            pressed: None,
+            clicks: false,
         }
     }
 
@@ -851,29 +897,41 @@ impl Collection {
 
     /// Handles a primary press: on a row, it selects it, and on a tree
     /// item's chevron expands or collapses it.
-    fn press(&mut self, cx: &mut EventContext<'_>, x: f32, y: f32) -> Handled {
-        let origin = cx.bounds();
+    /// The model's row drawn at `point`, in window coordinates, for a
+    /// collection at `origin`: `Ok` with the row, or `None` in the body
+    /// where no row is; `Err` outside the body.
+    fn row_at(&self, origin: Rect, point: Point) -> Result<Option<usize>, ()> {
         let body = Rect::new(
             origin.x + self.view.body.x,
             origin.y + self.view.body.y,
             self.view.body.width,
             self.view.body.height,
         );
-        if !body.contains(Point::new(x, y)) {
-            return Handled::No;
+        if !body.contains(point) {
+            return Err(());
         }
         // Rows are drawn where the last binding put them: row `i` at
         // `i * ROW_HEIGHT - shown` down the body, as far as they reach.
-        let down = f64::from(y - body.y);
+        let down = f64::from(point.y - body.y);
         let at = (down + self.view.shown) / f64::from(ROW_HEIGHT);
-        let len = self.model.len();
         // Not negative, as the point is in the body; a cast saturates.
         let index = at.floor() as usize;
-        if down < self.view.reach && index < len {
+        Ok((down < self.view.reach && index < self.model.len()).then_some(index))
+    }
+
+    fn press(&mut self, cx: &mut EventContext<'_>, x: f32, y: f32) -> Handled {
+        let origin = cx.bounds();
+        let body_x = origin.x + self.view.body.x;
+        let Ok(row) = self.row_at(origin, Point::new(x, y)) else {
+            self.pressed = None;
+            return Handled::No;
+        };
+        self.pressed = row.map(|row| (row, self.revision));
+        if let Some(index) = row {
             self.choose(cx, index);
             if self.kind == CollectionKind::TreeView {
                 let row = self.model.row(index);
-                let chevron = body.x + ROW_PADDING + f32::from(row.level()) * TREE_INDENT;
+                let chevron = body_x + ROW_PADDING + f32::from(row.level()) * TREE_INDENT;
                 if let Some(expanded) = row.expansion()
                     && (chevron..chevron + CHEVRON_WIDTH).contains(&x)
                 {
@@ -975,9 +1033,42 @@ impl Widget for Collection {
                 position,
                 ..
             } => self.press(cx, position.x, position.y),
+            InputEvent::MouseUp {
+                button: MouseButton::Left,
+                position,
+                ..
+            } if self.clicks => self.release(cx, position),
             InputEvent::Wheel { delta, .. } => self.wheel(cx, delta),
             _ => Handled::No,
         }
+    }
+}
+
+impl Collection {
+    /// Makes a press and release on the same row activate it, as a command
+    /// palette's list does: the release emits [`ActionKind::Activate`] if
+    /// it is over the row the press went down on, that row is still
+    /// selected, and the model has not changed since the press.
+    pub(super) fn activate_on_click(&mut self) {
+        self.clicks = true;
+    }
+
+    /// Handles the primary button coming up while it activates on a click.
+    fn release(&mut self, cx: &mut EventContext<'_>, position: Point) -> Handled {
+        let Some((row, revision)) = self.pressed.take() else {
+            return Handled::No;
+        };
+        // The press went down on this collection and is still under way:
+        // one lost to the window losing focus, or to a modal opening, is
+        // not.
+        if cx.state().pressed
+            && revision == self.revision
+            && self.selected() == Some(row)
+            && self.row_at(cx.bounds(), position) == Ok(Some(row))
+        {
+            cx.emit(ActionKind::Activate);
+        }
+        Handled::Yes
     }
 }
 

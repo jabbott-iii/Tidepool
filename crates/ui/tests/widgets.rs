@@ -340,8 +340,33 @@ fn buttons_paint_each_state_in_the_theme_s_tokens() {
         tidepool_ui::draw::Corners::TOP_RIGHT_AND_BOTTOM_LEFT
     );
     assert_eq!(*fill, color(Token::Amber));
-    assert!(matches!(&commands[1], Command::Text { text, color, .. }
+    // Its label, cut to the button.
+    assert_eq!(commands[1], Command::PushClip { rect: *rect });
+    assert!(matches!(&commands[2], Command::Text { text, color, .. }
         if text == "BUILD" && *color == self::color(Token::OnAmber)));
+    assert_eq!(commands[3], Command::PopClip);
+}
+
+#[test]
+fn a_label_wider_than_its_button_paints_nothing_outside_it() {
+    // A row 120 wide squeezes a button whose label is far wider.
+    let mut tree = Tree::new();
+    let row = tree
+        .insert(tree.root(), Node::new(Style::row().fixed(120.0, 30.0)))
+        .expect("a row");
+    let label = format!("Allow{}", " ".repeat(255));
+    let button = tree
+        .insert(row, Button::new(label, ButtonKind::Teal).node())
+        .expect("a button");
+    let commands = painted(&mut tree);
+    let bounds = tree.bounds(button).expect("bounds");
+    assert!(bounds.width <= 120.0);
+    let at = commands
+        .iter()
+        .position(|command| matches!(command, Command::Text { .. }))
+        .expect("its label");
+    assert_eq!(commands[at - 1], Command::PushClip { rect: bounds });
+    assert_eq!(commands[at + 1], Command::PopClip);
 }
 
 /// The state a control is put in, as a user would put it.

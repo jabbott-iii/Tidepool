@@ -81,8 +81,15 @@ each task once it is done and verified.
   owner provides, keeping nodes only for the rows on screen, with a
   selection the keyboard moves and scrolls into view, the tab strip, the
   splitter, the card with its tab and the code block, with five more
-  tokens and 14 golden scenes of them in each state (M3.7, ADR-0052).
-  The window still shows the first frame until the shell (M3.4).
+  tokens and 14 golden scenes of them in each state (M3.7, ADR-0052);
+  and in `ui` the overlays: a layer of them over the tree's main root,
+  where a modal one makes the rest of the window inert (no hover,
+  presses, or focus), keeps Tab within itself, and gives focus back when
+  it closes, with the modal dialog, the tooltip, the toast, and the
+  command palette, which shows the items its owner ranks, 8 golden
+  scenes of them in each state, and a `tidepool-bench` suite repainting
+  the palette (M3.3, ADR-0052 to ADR-0056). The window still shows the
+  first frame until the shell (M3.4).
 - **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

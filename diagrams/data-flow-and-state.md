@@ -3,12 +3,13 @@
 These diagrams show how data moves through Tidepool and which states its
 parts go through. Sections 1 to 5 are data-flow diagrams: a file through
 the text engine and the workspace around it, a managed tool's install, an
-agent's context, and fuzz smoke. Sections 6 to 12 are state diagrams: the
+agent's context, and fuzz smoke. Sections 6 to 14 are state diagrams: the
 fuzz engine's run, a text `History`, a saved file, workspace trust, vim
-mode, a managed tool and a language session. The text engine, the fuzz
-engine and fuzz smoke are built; the rest is planned.
+mode, a managed tool, a language session, `ui`'s press guard around a
+modal, and a toast and the column of toasts. The text engine, the fuzz engine, fuzz smoke,
+and `ui`'s overlays are built; the rest is planned.
 
-Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -780,6 +781,147 @@ stateDiagram-v2
   versioned messages, and one for an older buffer version is dropped
   (`docs/01-architecture.md` → "The main loop").
 
+## 13. State: the press guard around a modal (built)
+
+How `ui`'s tree guards presses as the active modal changes (M3.3,
+ADR-0052, ADR-0055, ADR-0056). The active modal is the topmost modal
+overlay that is shown (`Tree::modal`); while there is one, the layers
+below it are inert: none of their nodes is hovered, pressed, focused,
+sent an event, a tab stop, or in the accessibility snapshot, and what
+nothing handles comes back `Response::blocked`.
+
+Whenever the active modal changes, including to none, presses are
+guarded against a click that was aimed before the change: a press counts
+as on the active modal's root, or on nothing if none is active, reaches
+no widget, and comes back blocked, until the pointer has moved more than
+`input::PRESS_SLOP` (4) device pixels from where it rested. `ui` keeps
+that place in a private `PressGuard`, and the scale the last layout's
+`TextMetrics::scale` gave, so this needs no clock.
+
+```mermaid
+stateDiagram-v2
+    state "Unguarded<br/>a press reaches the<br/>live layers' widgets" as unguarded
+    state "Guarded, the pointer not yet placed<br/>no pointer event has placed it" as unplaced
+    state "Guarded, at where the pointer rested<br/>a press counts as on the active<br/>modal's root, or on nothing,<br/>and comes back blocked" as guarded
+
+    [*] --> unguarded: Tree new
+    unguarded --> guarded: the active modal changes,<br/>the pointer placed
+    unguarded --> unplaced: the active modal changes<br/>before any pointer event
+    unplaced --> guarded: the first pointer event<br/>at a finite position<br/>places it there
+    guarded --> guarded: a pointer event within<br/>PRESS_SLOP device pixels,<br/>or the active modal<br/>changes again
+    guarded --> unguarded: a pointer event more than<br/>PRESS_SLOP device pixels<br/>from where it rested
+
+    note right of unguarded
+        The active modal changes when one opens, is shown again, or is uncovered as the modal over it closes, and when the active one closes or is hidden, leaving another active or none.
+        PRESS_SLOP is 4 device pixels, which is 4 divided by the scale of the last layout in logical units.
+        A position that is not finite places nothing and moves nothing.
+    end note
+
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class unguarded, unplaced, guarded built
+```
+
+- So neither a click aimed before a consent prompt opened, nor the second
+  click of a double click with a pixel or two of jitter, whether its
+  first click opened a dialog or closed one with its OK, acts: each comes
+  while the guard holds (ADR-0055, ADR-0056).
+- Focus as the active modal changes: opening a modal remembers the
+  focused node and gives focus to its root, a dialog's (ADR-0053), or to
+  its default, the palette's field (ADR-0054). Tab and Shift+Tab cycle
+  the tab stops of the active modal and the live overlays above it. While
+  it is active, focus never rests on no node if its default can take it.
+  Closing it gives focus back to the node it remembered if that node can
+  still take it, or to none, and `close_overlay` returns which.
+- Hiding the active modal makes the next shown modal below it active, or
+  none; a hidden modal keeps the node it remembered until it is shown
+  again (`ui::overlay` → "Kinds").
+
+## 14. State: a toast and the column of toasts (built)
+
+Each toast is a modeless overlay of its own at the window's bottom-right,
+which keeps that anchor (`Tree::set_overlay_anchor` refuses it with
+`UiError::FixedAnchor`), and the toasts stand in one column, the newest
+at the bottom, no two overlapping (M3.3, ADR-0052, ADR-0055, ADR-0056).
+`ui` has no clock: `Toast::held` tells the owner when a toast's timeout
+should wait, and the owner closes the toast with `Toast::close` when the
+timeout runs out or on the toast's `Dismiss` (its close control, or
+Escape while focus is in it). 14.1 draws one toast, and 14.2 when the
+column keeps still.
+
+### 14.1 One toast
+
+```mermaid
+stateDiagram-v2
+    state "Waiting out of view<br/>no room in the column,<br/>held is true" as parked
+    state "Live, hit and in Tab's reach" as live {
+        state "Not held<br/>held is false, the<br/>owner's timeout runs" as free
+        state "Held by the user<br/>the pointer on it, a press<br/>on it, or focus in it,<br/>held is true" as holding
+        [*] --> free
+        free --> holding: the pointer comes onto it,<br/>a press goes down on it,<br/>or focus moves into it
+        holding --> free: none of those holds
+    }
+    state "Inert under a modal<br/>opened after it showed<br/>dimmed, held is true" as under
+    state "Waiting under the active modal<br/>shown after it, but its block<br/>overlaps the modal's,<br/>dimmed, held is true" as waiting
+
+    [*] --> parked: Toast show
+    parked --> live: a layout gives it<br/>room in the column
+    live --> parked: the column has no room<br/>for it, the older first
+    live --> under: a modal opens over it
+    under --> live: that modal closes<br/>or is hidden
+    live --> waiting: after the last layout pass,<br/>its block overlaps the<br/>active modal's block
+    waiting --> live: it would stand clear,<br/>or the modal closes<br/>or is hidden
+    live --> [*]: Toast close, or a newer toast<br/>closes the oldest the user<br/>does not hold, MAX_TOASTS shown
+    parked --> [*]: Toast close, or a<br/>newer toast
+    under --> [*]: Toast close, or a<br/>newer toast
+    waiting --> [*]: Toast close, or a<br/>newer toast
+
+    note right of waiting
+        A toast's block is the toast and the overlays its nodes host, such as a tooltip on its button. The modal's block is the modal and the overlays its nodes host.
+        A live toast never covers the active modal, so text from a language server or an agent never sits over a consent prompt's buttons.
+        Toast waiting says when a toast waits, under the modal or out of view.
+    end note
+
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class parked, free, holding, under, waiting built
+```
+
+- After the last layout pass, the tree works each toast's place in the
+  order of the overlays out anew: just above the last modal opened before
+  it was shown, hidden or not, so a toast shown while a modal is open is
+  live above it and one shown before stays inert under it; and just under
+  the active modal while it waits there. So the order holds whatever
+  happened between two layouts.
+- `Toast::show` fails with `UiError::TooManyToasts` when `MAX_TOASTS`
+  (4) show and the user holds every one, which cannot happen with four:
+  at most three are held at once, under the pointer, pressed, and with
+  focus.
+
+### 14.2 When the column keeps still
+
+The column keeps still so that a toast never slides out from under the
+pointer, or from where the user's focus is, to put another toast's
+button there.
+
+```mermaid
+stateDiagram-v2
+    state "Settling<br/>each toast lifted to its<br/>place, the newest lowest" as settling
+    state "Kept still<br/>the held toasts keep their<br/>places, the others theirs<br/>where they meet nothing" as still
+
+    [*] --> settling: the first toast shows
+    settling --> still: a toast is held, the pointer<br/>is over where one shows,<br/>inert or not, or a toast<br/>closes under the pointer
+    still --> still: a toast shows, above<br/>the others if there is room,<br/>or one closes, leaving its gap
+    still --> settling: none of those holds, and<br/>the pointer moved more than<br/>PRESS_SLOP device pixels<br/>from where one closed
+    still --> settling: the window's height<br/>changes, and they<br/>settle anew
+
+    note right of still
+        A toast that closes under the pointer pins the column where the pointer was, so the second click of a double click on a close control lands where the toast was, not on another toast's button slid under it.
+        No toast overlaps another even here: a held one with no room where it stands takes the lowest place clear of the others, or waits out of view.
+    end note
+
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class settling, still built
+```
+
 ## Sources
 
 The docs and code these diagrams were drawn from:
@@ -793,11 +935,15 @@ The docs and code these diagrams were drawn from:
 - `docs/subsystems/agents.md`
 - `docs/subsystems/vim-mode.md`
 - `docs/subsystems/languages.md`: `tidepool-rpc`, `tidepool-lang`
+- `docs/subsystems/ui-and-theme.md`: the `overlay`, `input` and
+  `widgets` rows
 - `docs/04-quality.md`: "Fuzz smoke"
 - `docs/roadmap.md`: M0.2, M4.2, M4.3, M4.5, M4.6, M4.7, M4.9, M5.1 to
-  M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to M9.5, M10.4
+  M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to M9.5, M10.4,
+  M3.3
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,
-  ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047
+  ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047, ADR-0052,
+  ADR-0053, ADR-0054, ADR-0055, ADR-0056
 - `crates/text/src/file.rs`, `encoding.rs`, `history.rs`,
   `transaction.rs`, `rope.rs`, `selection.rs`, `error.rs`, `lib.rs`
 - `crates/core/src/testing/fuzz.rs`, `testing/fuzz/engine.rs`,
@@ -806,4 +952,5 @@ The docs and code these diagrams were drawn from:
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
   `crates/font/tests/fuzz.rs`, `crates/ui/tests/fuzz.rs`
 - `xtask/src/fuzz.rs`
+- `crates/ui/src/overlay.rs`, `input.rs`, `metrics.rs`, `widgets/toast.rs`
 - `.github/workflows/ci.yml`: the fuzz-smoke step

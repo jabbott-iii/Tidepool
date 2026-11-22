@@ -351,7 +351,7 @@ fn clean_into(out: &mut String, text: &str, room: usize) -> bool {
 /// The lines of `text`, each without its line end: a line feed, a
 /// carriage return and line feed, or a lone carriage return (ADR-0019). A
 /// line end at its very end starts no line, as [`str::lines`] has it.
-fn lines_of(text: &str) -> impl Iterator<Item = &str> {
+pub(super) fn lines_of(text: &str) -> impl Iterator<Item = &str> {
     let mut rest = text;
     std::iter::from_fn(move || {
         if rest.is_empty() {

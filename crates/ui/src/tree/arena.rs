@@ -91,9 +91,10 @@ impl Tree {
         self.all_up(id, |node| !node.sane.hidden)
     }
 
-    /// Returns `true` if the node and its ancestors are all enabled.
+    /// Returns `true` if the node and its ancestors are all enabled, by
+    /// their own flags and by the widgets that squeeze them.
     pub(crate) fn is_enabled(&self, id: NodeId) -> bool {
-        self.all_up(id, |node| node.enabled)
+        self.all_up(id, |node| node.enabled && !node.squeezed)
     }
 
     /// Returns `true` if the node is in the tree and `holds` for it and
@@ -146,7 +147,7 @@ impl Tree {
     /// `id`, which is leaving the tree or being hidden.
     pub(super) fn leave(&mut self, id: NodeId) {
         if self.focus.is_some_and(|focus| self.is_within(focus, id)) {
-            self.clear_focus();
+            self.drop_focus();
         }
         if self
             .capture

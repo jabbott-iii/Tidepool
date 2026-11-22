@@ -166,6 +166,146 @@ Built, with the roadmap task that built it:
   looks, which the site gives the card and code block only, are in the
   spec; the card's tab and the code bar are three more tokens,
   `card-tab`, `on-card-tab` and `code-bar` — M3.7.
+- `overlay`: the layer of overlays (ADR-0052, ADR-0053, ADR-0055,
+  ADR-0056).
+  `Tree::open_overlay` adds a root over the main root's layer, at most 64
+  of them (`MAX_OVERLAYS`), laid out, painted, hit tested, and listed in
+  the accessibility tree in one order, from the bottom up;
+  `Tree::close_overlay`, or `Tree::remove` of its root, takes it away.
+  Each is anchored to the window, with a margin, or beside a node, on a
+  side it flips from when it fits only on the other, and kept inside the
+  window, laid out after that node's layer, so one layout places it
+  where the next does; if that node is removed, it stays where the node
+  last was,
+  hidden or not, until its owner closes it or anchors it elsewhere. One
+  that is not modal and is anchored to a node is hosted by that node's
+  layer: it sits right above it and is live or inert with it, however it
+  got there; any other goes on top. Each layout pass lays them out after
+  the main root, so a collection in one keeps its rows. An overlay is
+  modal, modeless (hit where its nodes are: a menu, a toast, a tooltip),
+  or passes the pointer through (a drag's image); a toast's keeps the
+  anchor its widget gives it (`UiError::FixedAnchor`). The topmost modal one that is shown makes every
+  layer below it inert: none of their nodes is hovered, pressed,
+  focused, sent an event, a tab stop, or in the accessibility snapshot,
+  and a point outside the live layers hits the modal's root, which the
+  snapshot marks `modal`; what nothing handles meanwhile comes back
+  `Response::blocked`, so the owner runs none of the window's shortcuts
+  for it. Opening one remembers the focused node and gives focus to its
+  root, if the root takes focus, which is not a tab stop; Tab stays
+  within it and the layers above it; closing it gives focus back to that
+  node, showing if the last key or click made it show, or to none if the
+  node was removed or can no longer take it, which `close_overlay`'s
+  `None` tells the owner, and modals closed out of order hand on the
+  node to give it back to; one closed while focus is on an overlay above
+  it, a toast's button, hands it to that overlay, which gives focus back
+  there when it closes, unless focus has left it since. While a modal is
+  active, focus never rests on no node if its default (its root, or the
+  palette's field) can take it, enabled again too. Whenever the active
+  modal changes, to another or to none (opened, shown, uncovered,
+  closed, or hidden), a press counts as on the active modal's root, or
+  on nothing, reaching no widget and coming back blocked, until the
+  pointer has moved more than 4 device pixels (`input::PRESS_SLOP`, at
+  the scale `TextMetrics::scale` gives), so a click aimed before a dialog
+  opened, or a double click's second with a pixel of jitter, whether its
+  first opened a dialog or closed one, acts on nothing (ADR-0055,
+  ADR-0056); a pointer position that is not finite places nothing.
+  Opening, moving, and closing damage what they paint, and an idle tree
+  with overlays damages nothing — M3.3.
+- `widgets`: `Modal`, the modal dialog (ADR-0052, ADR-0053): a builder
+  whose `open` is the only way to put one in a tree, as a modal overlay
+  centered in the window, at least 12 from its edges, 320 wide, with
+  focus on the dialog itself, which shows the focus outline after a key.
+  It holds a title in the section title's look and at most four lines of
+  text (`MAX_MODAL_LINES`), each and its title at most 4 KiB, read only
+  as far as kept and cleaned of control characters and Unicode's
+  default-ignorable code points (the bidirectional formatting characters
+  among them), but the zero width joiner and non-joiner and variation
+  selector 16, a set a unit test checks against the pinned Unicode data; its owner's content in
+  a body (`Modal::body`); and its owner's buttons in a row
+  (`Modal::actions`). In a short window its text gives up room first,
+  and it disables its body and row while they are squeezed, apart from
+  their own enabled flags, so a row its owner disabled stays disabled,
+  and a body made while it is squeezed is squeezed at once. Escape asks its owner to close it (`Dismiss`); its owner
+  closes it with `close_overlay`. It is a dialog named by its title, its
+  value its text. It dims the window under it with `panel`, and is
+  `panel`'s solid value, with a `line` border and the 16-unit `teal`
+  bracket corners of `.panel--brackets`; `PaintContext::clip` gives a
+  widget what its paint is cut to, the window for an overlay's root. A
+  `TextInput` takes a held Escape's repeats and emits nothing for them,
+  so one press closes one dialog — M3.3.
+- `widgets`: the tooltip, the toast and the command palette (ADR-0052,
+  ADR-0054, ADR-0055) — M3.3:
+  - `Tooltip`: `Tree::set_tooltip` gives a node a tooltip's text, at
+    most four lines (`MAX_TOOLTIP_LINES`) of at most 4 KiB, kept apart
+    from its semantics and given as its accessible description
+    (`AccessNode::description`, `aria-describedby`). `ui` has no clock:
+    `Tree::tooltip_target` names the node whose tooltip should show now
+    and why, the pointer on it or keyboard focus on it: focus once it
+    moves to another node, the pointer once it moves, and not a key that
+    moves no focus. The owner's delay timer follows it; `Tooltip::open`
+    shows it below its node, or above it near the window's bottom, in a
+    modeless overlay the pointer can rest on (WCAG 1.4.13) while it is
+    still anchored to its shown, live node, which a press on it reaches
+    nothing under, but its own node where it is forced over it, and Tab
+    never reaches. Escape goes to an open tooltip before anything else and
+    it emits `Dismiss`; then no node is the target until the pointer or
+    focus moves to another. `Tree::set_tooltip` changes an open
+    tooltip's text too. It is `panel-solid` with a `line` border and its
+    text in Saira 12 px.
+  - `Toast`: `Toast::show` opens it in a modeless overlay of its own at
+    the window's bottom-right, which keeps that anchor, in one column
+    with the others, the newest at the bottom, at most four
+    (`MAX_TOASTS`; one more closes the oldest the user does not hold, or
+    `UiError::TooManyToasts`), taking no focus. No two overlap: one with
+    no room waits out of view, and a new one until a layout places it.
+    While one is held, the pointer is over where one shows, or after one
+    closes under the pointer until the pointer moves past the slop, the
+    held ones keep their places and the rest theirs where they meet
+    nothing. In the order of the overlays it
+    stands just above the last modal opened before it showed, hidden or
+    not, so it is live above a modal shown before it and inert under one
+    shown after; one whose block (it and the overlays its nodes host)
+    would overlap the active modal's waits just under it, inert, until it
+    would stand clear or that modal closes or is hidden (ADR-0055). That
+    order is worked out anew at each change of the overlays and after
+    each layout. An info, warning or error kind (a status, or an alert),
+    at most three lines, refused if blank, an optional action and a close
+    control, all cut to its bounds; the close control and Escape emit
+    `Dismiss`; `Toast::waiting` says when it waits, and `Toast::held`
+    when the owner's timeout waits: while the user holds it, it waits,
+    or it is inert under a modal (WCAG 2.2.1); `Toast::close` closes it.
+  - `Palette`: a modal overlay at the top center, 480 wide, its focus in
+    its search field (ADR-0054), which emits `Change` on each edit, over
+    a list of the items its owner ranks and gives with
+    `Palette::set_items` (`ui` matches nothing), the first selected, or a
+    line saying there are none. Up and Down move the selection, wrapping;
+    Page Up and Page Down ten rows, stopping at the ends; Home and End
+    stay the field's; a key that moves nothing emits nothing. Enter
+    emits `Activate`, Escape `Dismiss`, and every `Select`, `Activate`
+    and `Dismiss` comes from the palette, by key or by pointer;
+    `Palette::selected` is the item. A press on an item selects it, and
+    its release activates it if it is over that item, the item is still
+    selected and no items were given since; new items keep the selection
+    on its item when exactly one has its text, else select the first; the
+    row a press selects is the palette's at once, so a key in the same
+    batch moves on from it. A press on no control comes back blocked, and focus that would rest on
+    no node goes back to the field. Its field is a combo box whose
+    `active` option is the selected item (`aria-activedescendant`). In a
+    short window its list gives up room first. It looks as a modal
+    dialog: dimmed window, opaque fill, bracket corners.
+  - `Row::matched`: the byte ranges of a list's or tree view's row a
+    search matched, at most `MAX_MATCHES`, drawn in `MATCH_TEXT` (Saira
+    Bold) and `teal-hi`, the row's text running at their widths, cut to
+    its label and widened to whole clusters, so no range panics, and
+    measured once each, none past the row's edge.
+  - A collection's rows show and name their control, bidirectional
+    formatting and invisible format characters as U+FFFD, so that
+    `invoice\u{202E}fdp.exe` cannot pass for a PDF and no two names look
+    alike; their matched ranges move with the cleaning, and one at or
+    past the label's end marks nothing.
+  - A `Button`'s label is cut to its bounds, and a `TextInput` drops what
+    a dialog's text leaves out from what is typed or pasted — M3.3's
+    fourth round, in M3.6's controls.
 
 The tests check, among the rest, that children never overflow a parent
 that does not scroll and that layout is idempotent and deterministic, over
@@ -192,7 +332,31 @@ or to no finite position, and a tab strip and a collection revealing in
 one turn); and that random turns of nested splits, a tab strip, two
 collections, owner reveals, wheels and resizes show what each turn asked
 for, in the layout the splits settle on, and then idle
-(`tests/settling.rs`). The fuzz target `theme`, in
+(`tests/settling.rs`); and that random opens, closes, removals, keys,
+presses, focus changes, hiding, and frames leave no inert node hovered,
+pressed, focused, a tab stop, or exposed, give focus back as the rules
+say, and keep every shown overlay inside the window
+(`tests/overlays.rs`, which also tests a modal's inertness, the events
+it blocks, its Tab trap and its focus given back, with its fallbacks
+and modals closed in either order, overlays anchored to nodes it makes
+inert, hidden and disabled modals, the order of overlays, their anchors
+and placement, a removed anchor, bad ids and the limit, their damage, a
+collection in one, the modal dialog's focus, role, name, keys, body,
+short windows, caps, cleaning, and looks, and a press that waits for the
+pointer to move past 4 device pixels after the active modal changes,
+closing too; its random steps open tooltips, toasts and palettes too,
+and check that focus never rests on no node while a modal's default can
+take it); and the tooltip's target, WCAG 1.4.13's dismissible, hoverable
+and persistent, a stale tooltip and one forced over its node, the
+toast's corner, column, timeout signal, controls, the oldest closed and
+none moved while one is held, no two overlapping, a double click on its
+close, its place in the order over hidden and shown modals, waiting
+there too, kept clear of what both host, and its 4 KiB action clipped,
+and the palette's keys, pointer, items given mid-click, lost releases, a
+key right after a press, combo box, matched ranges in Saira Bold (with a
+property test of random ranges and a pinned count of what a long label
+measures), rows' hidden characters, fields' cleaning, and short windows
+(`tests/popups.rs`). The fuzz target `theme`, in
 `tests/fuzz.rs`, reads with small `Limits`, from seeds made by hand in
 `fuzz/corpus/theme/`, some exactly at each limit, and from `themes/` in
 place; it checks that a theme it reads keeps the format's rules and that
@@ -201,12 +365,14 @@ a refusal names a key on a line of the input (ADR-0027, ADR-0047).
 `tidepool-gui` paints these draw lists into pixels with `gfx` and `font`,
 measures text for them with `font` (its `FontMetrics`), and draws golden
 frames of `ui`'s scenes (M3.5, ADR-0048), of each control in each state
-(M3.6, ADR-0049), and of each of M3.7's components in each state
-(ADR-0052).
+(M3.6, ADR-0049), of each of M3.7's components in each state
+(ADR-0052), and of the modal dialog, the tooltip, the toast and the
+command palette in each state (M3.3).
 
 Not yet, with the roadmap task that adds it:
 
-- the overlays: tooltip, toast, modal and the command palette — M3.3.
+- `anim`, the spec's optional transitions (hover fades, the status dot's
+  pulse): no roadmap task builds it yet.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -296,6 +462,58 @@ fn main() -> Result<(), UiError> {
 }
 ```
 
+Open a modal dialog over a window: the rest is inert while it is open,
+focus lands on the dialog itself (ADR-0053), Escape asks its owner to
+close it, and closing it gives focus back:
+
+```rust
+use tidepool_core::geom::Size;
+use tidepool_core::input::{InputEvent, Key, Modifiers};
+use tidepool_ui::input::{Action, ActionKind};
+use tidepool_ui::metrics::FixedMetrics;
+use tidepool_ui::widgets::{Button, ButtonKind, Control, Modal};
+use tidepool_ui::{Tree, UiError};
+
+fn main() -> Result<(), UiError> {
+    let mut tree = Tree::new();
+    let save = tree.insert(tree.root(), Button::new("Save", ButtonKind::Ghost).node())?;
+    tree.set_focus(save, true)?;
+
+    let dialog = Modal::new("Discard changes?")
+        .text("main.rs has changes that are not saved.")
+        .open(&mut tree)?;
+    let actions = Modal::actions(&tree, dialog).expect("its row of buttons");
+    let discard = tree.insert(actions, Button::new("Discard", ButtonKind::Amber).node())?;
+    tree.insert(actions, Button::new("Cancel", ButtonKind::Ghost).node())?;
+    tree.layout(Size::new(800.0, 600.0), &FixedMetrics::DEFAULT);
+
+    // Focus is on the dialog, so Enter accepts nothing, and comes back
+    // blocked: the owner runs no shortcut of the window for it. The button
+    // behind the dialog is inert.
+    assert_eq!(tree.focused(), Some(dialog));
+    let enter = InputEvent::KeyDown { key: Key::Enter, modifiers: Modifiers::NONE, repeat: false };
+    let response = tree.handle(&enter);
+    assert!(response.actions.is_empty() && response.blocked);
+    assert_eq!(tree.inert(save), Some(true));
+    // Tab moves to its first control.
+    let tab = InputEvent::KeyDown { key: Key::Tab, modifiers: Modifiers::NONE, repeat: false };
+    tree.handle(&tab);
+    assert_eq!(tree.focused(), Some(discard));
+    assert_eq!(
+        tree.accessibility().to_string(),
+        "dialog \"Discard changes?\" = \"main.rs has changes that are not saved.\" modal focusable\n  \
+         button \"Discard\" focusable focused\n  button \"Cancel\" focusable\n"
+    );
+
+    let escape = InputEvent::KeyDown { key: Key::Escape, modifiers: Modifiers::NONE, repeat: false };
+    let response = tree.handle(&escape);
+    assert_eq!(response.actions, [Action { node: dialog, kind: ActionKind::Dismiss }]);
+    assert_eq!(tree.close_overlay(dialog)?, Some(save));
+    assert_eq!(tree.focused(), Some(save));
+    Ok(())
+}
+```
+
 ## Documentation
 
 - Design:
@@ -307,7 +525,13 @@ fn main() -> Result<(), UiError> {
   pairs `cargo xtask theme` checks); ADR-0049 (the controls: the tree
   holds the theme, component tokens, grapheme editing with `text`, and
   the states' looks); ADR-0052 (collections window their rows over their
-  owner's model).
+  owner's model, and overlays are a layer of the tree); ADR-0053 (a modal
+  dialog: focus on the dialog, Tab through the overlays above it, the
+  window dimmed, an opaque fill); ADR-0054 (the command palette: focus in
+  its field, the window dimmed); ADR-0055 (a press waits for the pointer
+  after a modal becomes active, and only toasts shown after it are live
+  above it, kept clear of it); ADR-0056 (that wait ends only past 4
+  device pixels of movement, and holds when a modal closes too).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules
@@ -326,7 +550,7 @@ fn main() -> Result<(), UiError> {
 cargo test -p tidepool-ui
 cargo xtask theme
 cargo xtask fuzz-smoke --target theme
-cargo xtask golden    # ui's scenes and controls, which tidepool-gui paints (M3.5, M3.6)
+cargo xtask golden    # ui's scenes, controls, components and overlays, which tidepool-gui paints (M3.5, M3.6, M3.7, M3.3)
 ```
 
 `cargo xtask ci` runs the whole gate.

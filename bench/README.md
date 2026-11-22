@@ -6,11 +6,13 @@ p95, against a JSON baseline. Dev-only; it never ships.
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
 development tooling: `cargo xtask bench` builds its binary in the release
 profile and runs its suites, which may measure any crate of the workspace
-(ADR-0035). Today they measure `tidepool-text` and `tidepool-font`.
+(ADR-0035). Today they measure `tidepool-text`, `tidepool-font` and
+`tidepool-ui`.
 
 Layer 6, tools (dev-only). It may use any workspace crate, as its row of the
 dependency matrix in [`docs/01-architecture.md`](../docs/01-architecture.md)
-says; it uses `core`, `codec`, `text` and `font`.
+says; it uses `core`, `codec`, `text`, `font`, `ui`, and `gui`, whose
+`FontMetrics` measures `ui`'s text as the window does.
 
 ## Status
 
@@ -48,6 +50,11 @@ Built, with the roadmap task that built it:
   `atlas::rasterize` draws it; recorded in the baseline with `--save` on
   the reference machine (the roadmap's note on M2.5 has the numbers) —
   M2.5.
+- `suites::ui`, `ui/palette/repaint/4kib_64_matches`: the command palette
+  showing ten items, each a 4 KiB label with 64 matched ranges,
+  repainted whole with `gui`'s `FontMetrics`, after an untimed check that
+  it shows its ten items and draws only the runs that reach each row's
+  edge; not yet recorded in the baseline — M3.3.
 
 Not yet, with the roadmap task that adds it:
 

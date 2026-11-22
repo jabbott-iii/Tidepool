@@ -17,10 +17,19 @@
 //!
 //! New in Tidepool; not ported.
 //!
-//! At most one node has focus. A node can take it if it is focusable, and
-//! it and its ancestors are enabled and shown; the tab order is those
-//! nodes in pre-order. Disabling, hiding or removing the focused node (or
-//! an ancestor), or making it not focusable, clears focus.
+//! At most one node has focus. A node can take it if it is focusable, it
+//! and its ancestors are enabled and shown, and it is in a layer that
+//! takes input: not one an active modal makes inert, and not a
+//! pass-through overlay ([`overlay`](crate::overlay)). The tab order is
+//! those nodes in pre-order, layer by layer: the main root's, then each
+//! overlay's in order, or, while a modal is active, the modal's and those
+//! above it only, so Tab stays within them. A modal overlay's root is not
+//! a tab stop: it takes focus when it opens (ADR-0053), and Tab moves on
+//! from it to the first tab stop, Shift+Tab to the last. Disabling, hiding
+//! or removing the focused node (or an ancestor), making it not
+//! focusable, or opening a modal overlay over it moves focus off it;
+//! closing that modal gives it back (see
+//! [`overlay`](crate::overlay#giving-focus-back)).
 //!
 //! Whether focus *shows* follows CSS's `:focus-visible`: it shows when it
 //! came from the keyboard. A key that is not a modifier, pressed without
@@ -36,25 +45,36 @@
 //! [`NodeState::focus_within`]: crate::tree::NodeState::focus_within
 
 use crate::error::UiError;
+use crate::overlay::OverlayKind;
 use crate::tree::{NodeId, Tree};
 
 impl Tree {
-    /// The nodes that can take focus, in pre-order: focusable, and with no
-    /// disabled or hidden ancestor-or-self.
+    /// The tab stops, in pre-order, layer by layer: the nodes that can
+    /// take focus, focusable, with no disabled or hidden ancestor-or-self,
+    /// in the live layers that take input, but for a modal overlay's root
+    /// (see the [module documentation](self)).
     pub fn tab_order(&self) -> Vec<NodeId> {
         let mut order = Vec::new();
-        let mut stack = vec![self.root()];
-        while let Some(id) = stack.pop() {
-            let Some(node) = self.get(id) else {
-                continue;
-            };
-            if node.sane.hidden || !node.enabled {
+        for (root, kind) in self.live_layers() {
+            if kind == Some(OverlayKind::PassThrough) {
                 continue;
             }
-            if node.focusable {
-                order.push(id);
+            // A modal overlay's root takes focus as it opens, but is not a
+            // tab stop: Tab moves on to what it holds.
+            let skip = (kind == Some(OverlayKind::Modal)).then_some(root);
+            let mut stack = vec![root];
+            while let Some(id) = stack.pop() {
+                let Some(node) = self.get(id) else {
+                    continue;
+                };
+                if node.sane.hidden || !node.enabled || node.squeezed {
+                    continue;
+                }
+                if node.focusable && skip != Some(id) {
+                    order.push(id);
+                }
+                stack.extend(node.children.iter().rev());
             }
-            stack.extend(node.children.iter().rev());
         }
         order
     }
@@ -74,7 +94,8 @@ impl Tree {
     /// # Errors
     ///
     /// [`UiError::UnknownNode`] if the node is not in the tree, and
-    /// [`UiError::NotFocusable`] if it cannot take focus.
+    /// [`UiError::NotFocusable`] if it cannot take focus, an inert node or
+    /// one in a pass-through overlay among them.
     pub fn set_focus(&mut self, id: NodeId, visible: bool) -> Result<(), UiError> {
         if !self.contains(id) {
             return Err(UiError::UnknownNode { id });
@@ -86,8 +107,18 @@ impl Tree {
         Ok(())
     }
 
-    /// Clears focus: no node has it.
+    /// Clears focus: no node has it. While a modal is active, its default
+    /// takes focus instead ([`overlay`](crate::overlay#giving-focus-back)),
+    /// so that focus never rests on no node while every key would go to
+    /// the modal.
     pub fn clear_focus(&mut self) {
+        self.drop_focus();
+        self.settle_focus();
+    }
+
+    /// Clears focus, whatever is active: the tree's own clearing, after
+    /// which it settles focus once the change is done.
+    pub(crate) fn drop_focus(&mut self) {
         self.change_focus(None, self.focus_visible);
     }
 
@@ -132,12 +163,13 @@ impl Tree {
         Some(id)
     }
 
-    /// Returns `true` if the node can take focus: it is focusable, and it
-    /// and its ancestors are enabled and shown.
+    /// Returns `true` if the node can take focus: it is focusable, it and
+    /// its ancestors are enabled and shown, and its layer takes input.
     pub(crate) fn can_focus(&self, id: NodeId) -> bool {
         self.get(id).is_some_and(|node| node.focusable)
             && self.is_enabled(id)
             && self.is_visible(id)
+            && self.takes_input(id)
     }
 
     /// Gives `focus` focus, showing if `visible`, and repaints what that
@@ -151,6 +183,9 @@ impl Tree {
             }
             if let Some(new) = focus {
                 self.mark_path(new);
+                // A tooltip follows focus that moved, until the pointer
+                // moves ([`Tree::tooltip_target`]).
+                self.focus_last = true;
             }
         } else if self.focus_visible != visible
             && let Some(focus) = focus
@@ -159,6 +194,10 @@ impl Tree {
         }
         self.focus = focus;
         self.focus_visible = visible;
+        if old != focus {
+            self.forget_handed();
+            self.recheck_dismissed();
+        }
     }
 
     /// Sets whether focus shows, keeping the focused node.

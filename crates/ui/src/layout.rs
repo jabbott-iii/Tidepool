@@ -108,6 +108,14 @@
 //! that moved an offset, so that the owner's request wins where they
 //! share a scroller.
 //!
+//! # Overlays
+//!
+//! Each pass lays out the main root's layer, then each overlay's in the
+//! order they were opened, so an overlay anchored to a node sees where
+//! that node is in the same pass: an overlay root's size comes from its
+//! style as a stack's child's does, and its anchor places it inside the
+//! window (see [`overlay`](crate::overlay#anchors-and-placement)).
+//!
 //! Lengths and sizes are at most [`MAX_EXTENT`]. A position is finite but
 //! may lie further from the origin, inside scrolled areas.
 
@@ -524,6 +532,10 @@ fn sane_length(value: Length) -> Length {
 /// deeper.
 const SETTLE_PASSES: usize = 8;
 
+/// The most times a layout puts the toasts in their order and binds again
+/// for what that moved under the pointer.
+const ORDER_PASSES: usize = 4;
+
 /// A size made sane, as a [`length`] on each axis.
 pub(crate) fn sane_size(size: Size) -> Size {
     Size::new(length(size.width), length(size.height))
@@ -536,7 +548,9 @@ impl Tree {
     ///
     /// Every node whose bounds, clip, content size or scroll offset
     /// changed is marked to be repainted by the next
-    /// [`frame`](Tree::frame), which calls this itself. A node asked for
+    /// [`frame`](Tree::frame), which calls this itself. Each pass lays out
+    /// the overlays after the main root's layer (see
+    /// [Overlays](self#overlays)). A node asked for
     /// with [`scroll_into_view`](Tree::scroll_into_view) since the last
     /// layout is scrolled into view, passing again only if an offset
     /// moved, and after any pass the hovered path is found again at the
@@ -562,7 +576,13 @@ impl Tree {
     /// collection's space.
     pub fn layout(&mut self, size: Size, metrics: &dyn TextMetrics) {
         let size = sane_size(size);
-        let bound = self.bind_widgets(false, false);
+        let scale = metrics.scale();
+        self.scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        let bound = self.bind_widgets(false, false, metrics);
         let stale = bound || self.layout_dirty || self.layout_size != Some(size);
         if stale {
             self.run_layout(size, metrics);
@@ -580,6 +600,22 @@ impl Tree {
         if !stale && !moved {
             return;
         }
+        // The toasts' places in the order follow from the placements just
+        // made. Moving one changes what is under the pointer, and so
+        // whether a toast is held, which places them in the column: bind
+        // again while that changes anything, a few times at most.
+        for pass in 1..=ORDER_PASSES {
+            if !self.order_toasts() {
+                break;
+            }
+            self.settle_layers();
+            // The last time, no pass after it: the order then is the one
+            // the placements made give, whatever the next layout finds.
+            if pass < ORDER_PASSES && self.bind_widgets(false, false, metrics) {
+                self.run_layout(size, metrics);
+                self.settle_bound(size, metrics);
+            }
+        }
         self.layout_size = Some(size);
         self.layout_dirty = false;
         self.refresh_hover();
@@ -594,12 +630,12 @@ impl Tree {
     /// until the reveal, as no binding comes between them.
     fn settle_bound(&mut self, size: Size, metrics: &dyn TextMetrics) {
         for _ in 0..SETTLE_PASSES {
-            if !self.bind_widgets(true, false) {
+            if !self.bind_widgets(true, false, metrics) {
                 break;
             }
             self.run_layout(size, metrics);
         }
-        if self.bind_widgets(true, true) {
+        if self.bind_widgets(true, true, metrics) {
             self.run_layout(size, metrics);
         }
     }

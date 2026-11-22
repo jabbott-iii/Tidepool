@@ -155,6 +155,11 @@ impl TextMetrics for FontMetrics<'_> {
         self.set(text, style)
             .map_or(0.0, |(line, _)| self.advance(&line))
     }
+
+    /// Its scale's factor.
+    fn scale(&self) -> f32 {
+        self.scale.factor()
+    }
 }
 
 /// `value` if it is finite and positive, else 0.

@@ -155,6 +155,16 @@ pub trait TextMetrics {
     fn measure(&self, text: &str, style: &TextStyle) -> Size {
         Size::new(self.width(text, style), self.line(style).height)
     }
+
+    /// How many device pixels a logical unit is in the window these
+    /// metrics measure for: `gui`'s are its scale's (2 on a display at
+    /// 200%). The tree keeps what the last
+    /// [`layout`](crate::Tree::layout) was given, for what it measures in
+    /// device pixels, such as the slop of the press guard
+    /// ([`overlay`](crate::overlay#kinds), ADR-0056). 1 by default.
+    fn scale(&self) -> f32 {
+        1.0
+    }
 }
 
 /// Metrics in which every character has the same advance: for tests, and

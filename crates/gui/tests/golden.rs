@@ -17,9 +17,11 @@
 //! per scene, named after it, for each draw command, clips and layers
 //! included, at scale 1 and 2, and a mix of them at 1.5; in
 //! [`controls`], for each of `ui`'s controls in each state at scale 1 and 2
-//! (ADR-0049); and in [`components`], for each of M3.7's components, the
+//! (ADR-0049); in [`components`], for each of M3.7's components, the
 //! list, tree view, table, tab strip, splitter, card and code block, in
-//! each state at scale 1 and 2 (ADR-0052).
+//! each state at scale 1 and 2 (ADR-0052); and in [`overlays`], for the
+//! modal dialog over a window it makes inert, the tooltip, the toast and
+//! the command palette, in each state at scale 1 and 2 (M3.3, ADR-0052).
 //!
 //! Each scene is a `ui` tree whose widgets paint commands in window
 //! coordinates, laid out and painted by [`Painter`] over the bundled
@@ -51,10 +53,12 @@ use tidepool_ui::metrics::{Family, TextStyle, Weight};
 use tidepool_ui::theme::{Theme, Token};
 use tidepool_ui::{Node, NodeId, Tree, Widget};
 
-// The controls' scenes (M3.6) and the components' (M3.7), in modules of
-// this target, so that `cargo xtask golden` runs them with the rest.
+// The controls' scenes (M3.6), the components' (M3.7) and the overlays'
+// (M3.3), in modules of this target, so that `cargo xtask golden` runs
+// them with the rest.
 mod components;
 mod controls;
+mod overlays;
 
 /// Names the directory the scenes write to.
 const DIR_VAR: &str = "TIDEPOOL_GOLDEN_DIR";

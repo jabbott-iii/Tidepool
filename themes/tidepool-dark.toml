@@ -243,3 +243,10 @@ size = "normal"
 text = "teal-hi"
 on = ["row-hover"]
 size = "normal"
+
+# The overlays' pairs (M3.3). A tooltip's text on `panel-solid`, the spec's
+# color for menus and tooltips.
+[[contrast.use]]
+text = "text"
+on = ["panel-solid"]
+size = "normal"

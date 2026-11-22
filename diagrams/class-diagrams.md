@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6 and ADR-0050. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050 and M3.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -55,7 +55,8 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 with `core::color::Color`, and the fuzz targets' result lines with
 `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
-`text`, and `font`'s `Atlas` and `FontError` (sections 22 and 29), and
+`text`, `font`'s `Atlas` and `FontError` (sections 22 and 29), and
+`ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
 `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
@@ -66,9 +67,9 @@ atlas and outline rasterizer, `ui`'s `Theme`, draw lists and
 `core`'s geometry, colors and input events, and `TextLength` to keep a
 value out of `Debug`, reads theme files with `codec::toml` within a
 `codec::Limits`, wrapping a `codec::CodecError` in its `UiError`, and
-moves and deletes in its fields, and cuts what its tabs, rows, cells and
-code blocks show, by `text::pos::grapheme`'s cluster boundaries (section
-28).
+moves and deletes in its fields, cuts what its tabs, rows, cells and
+code blocks show, and widens the ranges a row's search matched, by
+`text::pos::grapheme`'s cluster boundaries (section 28).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -2463,7 +2464,9 @@ compares each `Summary` with the `Entry` of the same name in a `Baseline`
 recorded on a `Machine` with the same `Facts`, and with `--save` writes the
 merged `Baseline` back. `suites::all` lists the 18 text suites, which use
 `tidepool-text`'s `Rope` and `History`, then the font suite, which fills
-`tidepool-font`'s `Atlas` (M2.5).
+`tidepool-font`'s `Atlas` (M2.5), then the ui suite, which repaints a
+`tidepool-ui` `Palette`, its text measured with `tidepool-gui`'s
+`FontMetrics` (M3.3, 28.7).
 
 ```mermaid
 classDiagram
@@ -3698,7 +3701,7 @@ classDiagram
   framebuffer and the backdrop. `FontMetrics` borrows the painter's
   faces, so `Tree::frame` measures with the faces the painter draws.
 
-## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme, the controls and the collections
+## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme, the controls, the collections, and the overlays
 
 `tidepool-ui` (M3.1, ADR-0046) keeps a retained `Tree`: an arena of
 `Slot`s, each with a generation and at most one node's `NodeData`, so a
@@ -3713,7 +3716,9 @@ node the next layout scrolls into view, the nodes and damage waiting
 for the next frame, the `Theme` its widgets paint with, an `Arc` of
 the bundled one by default (ADR-0049), and the nodes of the widgets each
 layout binds, the collections, tab strips and splitters, with the rows
-they ask to be scrolled into view (ADR-0052, 28.5 and 28.6).
+they ask to be scrolled into view (ADR-0052, 28.5 and 28.6), and the
+dialogs, palettes, and toasts among the overlays it keeps over its main
+root (M3.3, 28.7).
 
 ### 28.1 The tree, its nodes and their widgets
 
@@ -4160,7 +4165,8 @@ classDiagram
 ### 28.4 The controls
 
 `ui::widgets` (M3.6, ADR-0049) has the controls of the spec's Components
-table, and the collections and other components of M3.7 (28.5, 28.6).
+table, the collections and other components of M3.7 (28.5, 28.6), and
+the overlays of M3.3 (28.7).
 Each control is a plain struct that implements `Widget` and `Control`:
 `Control` says the control's `Semantics`, its `Style` and whether it
 takes focus, and `node` makes the `Node` that holds it, so that every
@@ -4345,6 +4351,10 @@ classDiagram
   `SectionTitle`, `Eyebrow` and `Kicker` each wrap a private `Line`,
   which paints its text uppercase, as chrome is; a field's text and a
   crumb are painted as written, and every accessible name is as written.
+  A button's label is cut to its bounds, so a label wider than the space
+  it is given paints nothing outside it, and a `TextInput` drops the
+  characters the overlays' cleaner leaves out from what is typed or
+  pasted (M3.3, 28.7).
 - A secret `TextInput` paints a bullet a cluster, never gives its text as
   its node's value, and its `Debug`, as every field's, shows its text's
   length only (ADR-0043). The separators between crumbs are a private
@@ -4696,6 +4706,426 @@ classDiagram
   `Card`, `CodeSpan` and `CodeBlock` shows their text's length only
   (ADR-0043).
 
+### 28.7 The overlay layer, the dialog, the tooltip, the toast and the palette
+
+`ui::overlay` (M3.3, ADR-0052) keeps the tree's overlays: roots with no
+parent, painted over the main root, each a private `Layer` in
+`Tree::overlays`, from the bottom up, with its `OverlayKind`, its `Anchor`,
+and what the focus rules need (ADR-0053). `Tree::modal` names the active
+modal, the topmost modal overlay that is shown; the layers below it are
+inert (no hover, presses, events, focus, tab stops, or accessibility
+nodes), and `Tree::inert` says whether a node is. Whenever the active
+modal changes, to none too, `settle_layers` arms `press_guard`, a
+private `PressGuard` that keeps where the pointer rested. Until the
+pointer has moved more than `input::PRESS_SLOP` (4) device pixels from
+there, a press counts as on the active modal's root, or on nothing, and
+comes back blocked (ADR-0055, ADR-0056). The slop is in device pixels:
+each `Tree::layout` records in `scale` what its metrics'
+`TextMetrics::scale` says a logical unit is (1 by default; `gui`'s
+`FontMetrics` gives its scale), and the guard ends past `PRESS_SLOP /
+scale` units. What nothing handles while a modal is active comes back
+with `Response::blocked` too, and the accessibility snapshot holds only
+the live layers, the modal's root marked `modal`.
+
+```mermaid
+classDiagram
+    direction LR
+    class OverlayFns["ui::overlay"] {
+        <<module>>
+        +MAX_OVERLAYS: usize
+    }
+    class Tree["ui::tree::Tree"] {
+        -overlays: Vec~Layer~
+        -settled_modal: Option~NodeId~
+        -press_guard: Option~PressGuard~
+        -overlay_seq: u64
+        -toast_pin: Option~Point~
+        -scale: f32
+        -focus_last: bool
+        -dismissed: Option~NodeId~
+        +layout(size, metrics)
+        +open_overlay(node, kind, anchor) Result~NodeId~
+        +close_overlay(id) Result~Option~NodeId~~
+        +overlays() Vec~NodeId~
+        +overlay_kind(id) Option~OverlayKind~
+        +overlay_anchor(id) Option~Anchor~
+        +set_overlay_anchor(id, anchor) Result
+        +overlay_of(id) Option~NodeId~
+        +modal() Option~NodeId~
+        +inert(id) Option~bool~
+        -settle_layers()
+    }
+    class Layer["ui::overlay::Layer"] {
+        -root: NodeId
+        -kind: OverlayKind
+        -anchor: Anchor
+        -anchor_bounds: Rect
+        -restore: Option~NodeId~
+        -host: Option~NodeId~
+        -default: Option~NodeId~
+        -lift: f32
+        -seq: u64
+    }
+    class OverlayKind["ui::overlay::OverlayKind"] {
+        <<enumeration>>
+        Modal
+        Modeless
+        PassThrough
+    }
+    class Anchor["ui::overlay::Anchor"] {
+        <<enumeration>>
+        Window
+        Node
+        +window(x, y, margin) Anchor
+        +node(node, side, align, gap) Anchor
+    }
+    class Side["ui::overlay::Side"] {
+        <<enumeration>>
+        Above
+        Below
+        Left
+        Right
+    }
+    class Align["ui::layout::Align"]
+    class PressGuard["ui::input::PressGuard"] {
+        -at: Option~Point~
+    }
+    class InputFns["ui::input"] {
+        <<module>>
+        +PRESS_SLOP: f32
+    }
+    class TextMetrics["ui::metrics::TextMetrics"] {
+        <<trait>>
+        +scale() f32
+    }
+    class FontMetrics["gui::metrics::FontMetrics"]
+    class NodeId["ui::tree::NodeId"]
+    class NodeData["ui::tree::NodeData"] {
+        -tooltip: Option~String~
+        -active_in: Option~NodeId~
+        -actions_to: Option~NodeId~
+        -squeezed: bool
+        -parked: bool
+    }
+    class Response["ui::input::Response"] {
+        +actions: Vec~Action~
+        +handled: bool
+        +blocked: bool
+    }
+    class AccessNode["ui::a11y::AccessNode"] {
+        +modal: bool
+        +description: Option~String~
+        +active: Option~NodeId~
+    }
+    class UiError["ui::UiError"] {
+        <<enumeration>>
+        NotOverlay
+        TooManyOverlays
+        BadAnchor
+        FixedAnchor
+        NoTooltip
+        TooManyToasts
+    }
+
+    Tree "1" *-- "0..*" Layer : overlays, from the bottom<br/>up, at most MAX_OVERLAYS
+    Tree "1" *-- "0..1" PressGuard : press_guard, after the<br/>active modal changed
+    Tree "1" *-- "1..*" NodeData : each node's, in its slots
+    Layer *-- OverlayKind
+    Layer *-- Anchor
+    Layer --> NodeId : root, restore,<br/>host, default
+    Anchor *-- Side : Node
+    Anchor *-- Align : Window's x and y,<br/>Node's align
+    Anchor --> NodeId : Node's node
+    NodeData --> NodeId : active_in, actions_to
+    Tree ..> Response : handle returns, blocked<br/>while a modal is active<br/>or the guard holds
+    Tree ..> AccessNode : accessibility lists<br/>the live layers' nodes
+    Tree ..> UiError : open_overlay, close_overlay<br/>and set_overlay_anchor fail with,<br/>FixedAnchor for a toast's
+    Tree ..> OverlayFns : open_overlay refuses<br/>past MAX_OVERLAYS
+    Tree ..> TextMetrics : layout records<br/>its scale
+    TextMetrics <|.. FontMetrics : scale, its own
+    Tree ..> InputFns : the guard ends past<br/>PRESS_SLOP / scale
+```
+
+- The main root's layer is not a `Layer`. `restore` is the node a modal
+  remembered when it opened, which gets focus back when it closes;
+  `host` is the root of the layer an overlay that is not modal and is
+  anchored to a node sits right above, live or inert with it; `default`
+  is the node a modal gives focus to in place of its root, the palette's
+  field; `lift` is how far a toast is lifted into the column of toasts;
+  `anchor_bounds` is where its anchor node was, where the overlay stays
+  once that node is removed; and `seq` is its place in the order the
+  overlays opened in, from the tree's `overlay_seq`, which moving it in
+  the order does not change and from which the toasts' places are worked
+  out (below).
+- `settle_layers` runs after each change to the layers: it works the
+  toasts' places in the order out anew (`order_toasts`, below), drops
+  focus and a press from a node that became inert, arms `press_guard`
+  whenever the active modal changes, to none too (`settled_modal`), and
+  gives focus to the active modal's default, or its root, when no node
+  has it. If no pointer event had placed the pointer, the guard's `at`
+  is `None`, and the first pointer event places it; a position that is
+  not finite is never stored. `focus_last` and `dismissed` keep what
+  `Tree::tooltip_target` needs, and `toast_pin` where the pointer was
+  when a toast under it closed (below).
+- `NodeData`'s fields here are those M3.3 adds: a node's tooltip text;
+  `active_in`, the list whose selected item is its active option (the
+  palette's field's); `actions_to`, the node its actions are reported
+  from (the palette's list's are the palette's); `squeezed`, set on a
+  dialog's body and row while a short window squeezes them, apart from
+  their own enabled flag; and `parked`, set on a toast kept out of view
+  for want of room in the column, which hides it apart from its style's
+  `hidden`, which stays its owner's. The `UiError` box lists only the
+  variants M3.3 adds; section 29 has the rest. `set_overlay_anchor`
+  refuses a toast's overlay with `FixedAnchor`: a toast keeps the anchor
+  `Toast` gives it.
+
+`Modal`, `Toast`, and `Palette` are builders whose `open` or `show` opens
+an overlay and returns its root; `Tooltip` has only functions. Each root
+holds a private widget: `Dialog`, `TooltipView`, `ToastView`, or
+`PaletteView`. The tree binds the nodes of `Dialog`, `PaletteView`, and
+`ToastView` at each layout, as it binds the collections (28.5): a dialog
+disables its body and row while a short window squeezes them, a palette
+keeps its list's selection in step with its keys, and the toasts stand in
+one column, kept clear of the active modal (ADR-0055). `ui` has no
+clock, so a tooltip's delay and a toast's timeout are the owner's timers:
+`Tree::tooltip_target` names the node whose tooltip should show now, and
+`Toast::held` says when a toast's timeout waits (section 14 of
+[`sequence-diagrams.md`](sequence-diagrams.md), and sections 13 and 14
+of [`data-flow-and-state.md`](data-flow-and-state.md)).
+
+```mermaid
+classDiagram
+    direction LR
+    class OverlayWidgetsFns["ui::widgets"] {
+        <<module>>
+        +MODAL_WIDTH: f32
+        +MODAL_MARGIN: f32
+        +MAX_MODAL_LINES: usize
+        +TOOLTIP_MAX_WIDTH: f32
+        +MAX_TOOLTIP_LINES: usize
+        +TOAST_WIDTH: f32
+        +MAX_TOASTS: usize
+        +MAX_TOAST_LINES: usize
+        +PALETTE_WIDTH: f32
+        +PALETTE_ROWS: usize
+        +MAX_MATCHES: usize
+        +MATCH_TEXT: TextStyle
+        -is_bound(widget) bool
+    }
+    class Modal["ui::widgets::Modal"] {
+        -title: String
+        -lines: Vec~String~
+        +new(title) Modal
+        +text(text) Modal
+        +title() str
+        +lines() String slice
+        +open(tree) Result~NodeId~
+        +body(tree, dialog) Result~NodeId~
+        +actions(tree, dialog) Option~NodeId~
+    }
+    class Dialog["ui::widgets::modal::Dialog"] {
+        -cut: bool
+    }
+    class Tooltip["ui::widgets::Tooltip"] {
+        +open(tree, anchor) Result~NodeId~
+        +anchor(tree, tooltip) Option~NodeId~
+    }
+    class TooltipView["ui::widgets::tooltip::TooltipView"] {
+        -anchor: NodeId
+        -lines: Vec~String~
+    }
+    class TooltipTarget["ui::widgets::TooltipTarget"] {
+        +node: NodeId
+        +cause: TooltipCause
+    }
+    class TooltipCause["ui::widgets::TooltipCause"] {
+        <<enumeration>>
+        Pointer
+        Focus
+    }
+    class Toast["ui::widgets::Toast"] {
+        -kind: ToastKind
+        -lines: Vec~String~
+        -action: Option~String~
+        +new(text) Toast
+        +kind(kind) Toast
+        +action(label) Toast
+        +show(tree) Result~NodeId~
+        +close(tree, toast) Result
+        +toasts(tree) Vec~NodeId~
+        +of(tree, node) Option~NodeId~
+        +held(tree, toast) Option~bool~
+        +waiting(tree, toast) Option~bool~
+        +action_button(tree, toast) Option~NodeId~
+        +close_button(tree, toast) Option~NodeId~
+    }
+    class ToastKind["ui::widgets::ToastKind"] {
+        <<enumeration>>
+        Info
+        Warning
+        Error
+    }
+    class ToastView["ui::widgets::toast::ToastView"] {
+        -stripe: Token
+        -placed: bool
+        -waiting: bool
+        -seen: bool pair
+        -room: f32
+    }
+    class ToastClose["ui::widgets::toast::ToastClose"]
+    class Palette["ui::widgets::Palette"] {
+        -name: String
+        -placeholder: String
+        -empty: String
+        +new(name) Palette
+        +placeholder(placeholder) Palette
+        +empty_text(text) Palette
+        +open(tree) Result~NodeId~
+        +set_items(tree, palette, items) Result
+        +field(tree, palette) Option~NodeId~
+        +list(tree, palette) Option~NodeId~
+        +query(tree, palette) Option~str~
+        +selected(tree, palette) Option~usize~
+    }
+    class PaletteView["ui::widgets::palette::PaletteView"] {
+        -field: NodeId
+        -list: NodeId
+        -len: usize
+        -selected: Option~usize~
+    }
+    class PaletteField["ui::widgets::palette::PaletteField"] {
+        -input: TextInput
+        -name: String
+    }
+    class Row["ui::widgets::Row"] {
+        -matched: Vec~Range~usize~~
+        +matched(ranges) Row
+        +matched_ranges() Range slice
+    }
+    class Rows["ui::widgets::Rows"] {
+        <<trait>>
+    }
+    class Collection["ui::widgets::Collection"]
+    class TextInput["ui::widgets::TextInput"]
+    class Widget["ui::tree::Widget"] {
+        <<trait>>
+    }
+    class Control["ui::widgets::Control"] {
+        <<trait>>
+    }
+    class Tree["ui::tree::Tree"] {
+        +set_tooltip(id, text) Result
+        +tooltip(id) Option~str~
+        +tooltip_target() Option~TooltipTarget~
+        -bind_dialog(id, metrics) bool
+        -bind_palette(id) bool
+        -bind_toasts(after_pass, metrics) bool
+        -order_toasts() bool
+    }
+    class NodeId["ui::tree::NodeId"]
+    class ActionKind["ui::input::ActionKind"] {
+        <<enumeration>>
+        Activate
+        Change
+        Dismiss
+        Select
+    }
+    class Role["ui::a11y::Role"] {
+        <<enumeration>>
+        Dialog
+        Tooltip
+        Status
+        Alert
+        ComboBox
+    }
+
+    Widget <|.. Dialog
+    Widget <|.. TooltipView
+    Widget <|.. ToastView
+    Widget <|.. PaletteView
+    Widget <|.. PaletteField
+    Control <|.. ToastClose
+    Modal ..> Dialog : open makes the<br/>overlay's root
+    Modal ..> Tree : open opens a Modal<br/>overlay, centered, in
+    Tooltip ..> TooltipView : open makes the<br/>overlay's root
+    Tooltip ..> Tree : open opens a Modeless<br/>overlay below the node in
+    TooltipView --> NodeId : anchor
+    Tree ..> TooltipTarget : tooltip_target returns
+    TooltipTarget --> NodeId : node
+    TooltipTarget *-- TooltipCause
+    Toast *-- ToastKind
+    Toast ..> ToastView : show makes the<br/>overlay's root
+    Toast ..> ToastClose : show adds one
+    Toast ..> Tree : show opens a Modeless<br/>overlay at the corner in
+    Palette ..> PaletteView : open makes the<br/>overlay's root
+    Palette ..> PaletteField : open adds one
+    Palette ..> Collection : open adds its list,<br/>set_items gives its Rows
+    Palette ..> Tree : open opens a Modal<br/>overlay at the top in
+    PaletteView --> NodeId : field, list
+    PaletteField *-- TextInput
+    Collection "1" *-- "1" Rows : the owner's<br/>ranked items
+    Rows ..> Row : row makes one
+    Row ..> OverlayWidgetsFns : matched drawn<br/>in MATCH_TEXT
+    Tree ..> Dialog : bind_dialog disables a<br/>squeezed body and row
+    Tree ..> PaletteView : bind_palette keeps the<br/>list's selection in step
+    Tree ..> ToastView : bind_toasts lifts each into<br/>the column, order_toasts<br/>gives each its place<br/>in the overlays' order
+    Dialog ..> ActionKind : Escape emits Dismiss
+    TooltipView ..> ActionKind : Escape emits Dismiss
+    ToastView ..> ActionKind : Escape emits Dismiss
+    ToastClose ..> ActionKind : emits Dismiss
+    PaletteView ..> ActionKind : emits Select,<br/>Activate, Dismiss
+    PaletteField ..> ActionKind : its TextInput<br/>emits Change
+    Modal ..> Role : a Dialog
+    Tooltip ..> Role : a Tooltip
+    ToastKind ..> Role : a Status, or an<br/>Alert for Error
+    PaletteField ..> Role : a ComboBox
+```
+
+- `Modal::open` is the only way to put a dialog in a tree: `Dialog` is
+  private, and a doc test shows that a `Modal` cannot be put in a node by
+  hand. Its private `Heading` paints its title and text, and the private
+  `Body` and `Actions` mark the nodes that hold its owner's content
+  (`Modal::body`) and buttons (`Modal::actions`). Focus lands on the
+  dialog itself (ADR-0053).
+- A tooltip is a modeless overlay, not a pass-through one, so that the
+  pointer can rest on it (WCAG 1.4.13); it holds nothing that takes
+  focus. Its text is also its node's accessible description
+  (`AccessNode::description`).
+- Each toast is a modeless overlay of its own, anchored to the window's
+  bottom-right, which it keeps (`UiError::FixedAnchor`); its root clips
+  what it holds, so a long action's label paints nothing outside it.
+  `bind_toasts` lifts each into the column (`Layer::lift`), no two
+  overlapping, and parks one with no room out of view (`NodeData`'s
+  `parked`). While a toast is held, or the pointer is over a toast, or
+  `Tree::toast_pin` holds (a toast closed under the pointer, until it
+  moves past the slop), the column keeps still; `placed`, `seen`, and
+  `room` are what `bind_toasts` needs for that.
+- After the last layout pass, and at each change of the layers,
+  `order_toasts` works out each toast's place in the overlays' order
+  anew from the `Layer::seq`s: just above the last modal opened before it
+  was shown, hidden or not, and just under the active modal while its
+  block (it and the overlays its nodes host) overlaps the modal's block,
+  which sets `ToastView::waiting` (ADR-0055). `Toast::waiting` is that or
+  `parked`, and `Toast::held` is true while the user holds the toast, it
+  waits, or it is inert under a modal. A toast's private `ToastText`
+  paints its lines, and its action is a `Button`.
+- The text of a dialog, a tooltip, a toast, and the palette's names is
+  cleaned by one private cleaner: control characters, the line and
+  paragraph separators, the interlinear annotation characters, and
+  Unicode 17.0.0's `Default_Ignorable_Code_Point` less U+200C, U+200D,
+  and U+FE0F, which a unit test checks against the pinned data. A
+  collection shows and names the same characters as U+FFFD, and a
+  `TextInput` drops them from what is typed or pasted.
+- The palette's root holds its `PaletteField`, a search field whose role
+  is a combo box with the selected item as its `active` option, and a
+  `Collection` list of the owner's `Rows`, which never takes focus; focus
+  is in the field (ADR-0054). A `Row`'s `matched` byte ranges, at most
+  `MAX_MATCHES`, are drawn in `MATCH_TEXT`, Saira Bold, in `teal-hi`;
+  `ui` matches nothing (ADR-0052).
+- The `Debug` of `Modal`, `Toast`, and `Palette` shows their text's length
+  only (ADR-0043). The `Role` and `ActionKind` boxes list the variants
+  the overlays use.
+
 ## 29. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
@@ -4818,6 +5248,12 @@ classDiagram
         NotFocusable
         WrongWidget
         TooDeep
+        NotOverlay
+        TooManyOverlays
+        BadAnchor
+        FixedAnchor
+        NoTooltip
+        TooManyToasts
         ThemeSyntax
         Theme
     }
@@ -4904,10 +5340,6 @@ is described in words here.
 - `tidepool-platform`, besides its window, events and present (section
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
-- `tidepool-ui`, besides its tree, layout, events, frames, accessibility
-  tree, theme, controls and collections (section 28): the overlays,
-  planned (M3.3): the tooltip, toast, modal and command palette, over a
-  layer of overlays in the tree (ADR-0052).
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
@@ -4943,7 +5375,7 @@ The main files these diagrams were drawn from:
   `golden.rs`, `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`,
   `crates.rs`, `ucd.rs`, `theme.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
-  `suites.rs`, `suites/text.rs`, `suites/font.rs`
+  `suites.rs`, `suites/text.rs`, `suites/font.rs`, `suites/ui.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`, `linux/evdev.rs`
 - `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,
@@ -4961,10 +5393,11 @@ The main files these diagrams were drawn from:
   `paint.rs`, `metrics.rs`, `icon.rs`
 - `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
   `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
-  `draw.rs`, `a11y.rs`, `theme.rs`, `widgets.rs`, and `widgets/`
-  (`breadcrumbs.rs`, `button.rs`, `card.rs`, `chip.rs`, `code.rs`,
-  `collection.rs`, `collection/window.rs`, `field.rs`, `labels.rs`,
-  `scrollbar.rs`, `splitter.rs`, `tabs.rs`); `themes/tidepool-dark.toml`
+  `draw.rs`, `a11y.rs`, `theme.rs`, `overlay.rs`, `widgets.rs`, and
+  `widgets/` (`breadcrumbs.rs`, `button.rs`, `card.rs`, `chip.rs`,
+  `code.rs`, `collection.rs`, `collection/window.rs`, `field.rs`,
+  `labels.rs`, `modal.rs`, `palette.rs`, `scrollbar.rs`, `splitter.rs`,
+  `tabs.rs`, `toast.rs`, `tooltip.rs`); `themes/tidepool-dark.toml`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -4973,7 +5406,7 @@ The main files these diagrams were drawn from:
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
-  ADR-0052)
+  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

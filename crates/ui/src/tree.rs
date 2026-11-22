@@ -39,11 +39,20 @@
 //! whatever node this tree holds at that index and generation, if any.
 //! Every tree's root is `0v0`, for one.
 //!
+//! # Overlays
+//!
+//! Besides its main root, a tree may hold overlay roots, painted over the
+//! main root in the order they were opened and placed by an anchor: a
+//! dialog, the command palette, a tooltip or a toast
+//! ([`overlay`](crate::overlay), ADR-0052). An overlay root has no parent,
+//! and the nodes below it are like any others.
+//!
 //! # Limits
 //!
-//! A node may be at most [`MAX_DEPTH`] levels below the root, and the tree
-//! holds at most [`MAX_NODES`] nodes. Every operation that takes an id or
-//! a value checks it; none panics.
+//! A node may be at most [`MAX_DEPTH`] levels below the root of its layer
+//! (the main root or an overlay's), and the tree holds at most
+//! [`MAX_NODES`] nodes, overlays included. Every operation that takes an id
+//! or a value checks it; none panics.
 
 use std::any::Any;
 use std::fmt;
@@ -55,14 +64,16 @@ use tidepool_core::input::InputEvent;
 use crate::a11y::Semantics;
 use crate::draw::{Command, DrawList, PaintContext};
 use crate::error::UiError;
-use crate::input::{EventContext, Handled};
+use crate::input::{EventContext, Handled, PressGuard};
 use crate::layout::{Memo, Placement, Style};
 use crate::metrics::TextMetrics;
+use crate::overlay::Layer;
 use crate::theme::Theme;
 
 mod arena;
 
-/// The most levels a node may be below the root.
+/// The most levels a node may be below the root of its layer: the main
+/// root or an overlay's.
 pub const MAX_DEPTH: usize = 256;
 
 /// The most nodes a tree may hold, the root included.
@@ -80,6 +91,16 @@ const MAX_PENDING_DAMAGE: usize = 4 * crate::draw::MAX_DAMAGE_RECTS;
 pub struct NodeId {
     index: u32,
     generation: u32,
+}
+
+impl NodeId {
+    /// An id that names no node in any tree: its index is past
+    /// [`MAX_NODES`], which no slot reaches. For a widget that keeps ids of
+    /// nodes it has not made yet.
+    pub(crate) const NONE: Self = Self {
+        index: u32::MAX,
+        generation: u32::MAX,
+    };
 }
 
 impl fmt::Debug for NodeId {
@@ -223,8 +244,10 @@ pub trait Widget: Any {
 pub struct NodeState {
     /// The pointer is over this node or a descendant: it is on the
     /// [hit-test](Tree::hit_test) path of the pointer's last position. That
-    /// path is found again at each pointer event and after each layout, so
-    /// it follows content that moves under a pointer at rest.
+    /// path is found again at each pointer event, after each layout and
+    /// when an overlay opens or closes, so it follows content that moves
+    /// under a pointer at rest. No node an active modal makes inert is
+    /// hovered ([`overlay`](crate::overlay)).
     pub hovered: bool,
     /// The primary button went down on this node or a descendant and is
     /// not yet up.
@@ -237,7 +260,9 @@ pub struct NodeState {
     /// This node has focus, and focus should show: it came from the
     /// keyboard (`:focus-visible`).
     pub focus_visible: bool,
-    /// This node or an ancestor is disabled.
+    /// This node or an ancestor is disabled, by its own flag
+    /// ([`Tree::enabled`]) or by a modal dialog that squeezed it
+    /// ([`Modal`](crate::widgets::Modal)).
     pub disabled: bool,
 }
 
@@ -253,7 +278,7 @@ pub(crate) struct NodeData {
     pub(crate) widget: Option<Box<dyn Widget>>,
     pub(crate) parent: Option<NodeId>,
     pub(crate) children: Vec<NodeId>,
-    /// Levels below the root.
+    /// Levels below the root of its layer.
     pub(crate) depth: usize,
     /// What the last layout gave it.
     pub(crate) placement: Placement,
@@ -270,6 +295,23 @@ pub(crate) struct NodeData {
     /// Whether its next repaint damages its painted bounds even if they
     /// did not change.
     pub(crate) forced: bool,
+    /// What a tooltip on it says ([`Tree::set_tooltip`]).
+    pub(crate) tooltip: Option<String>,
+    /// The list whose selected item is its active option in the
+    /// accessibility tree: a command palette's field's.
+    pub(crate) active_in: Option<NodeId>,
+    /// The node its widget's actions are reported from, if not its own: a
+    /// command palette's list's are its palette's.
+    pub(crate) actions_to: Option<NodeId>,
+    /// Whether its owner widget disabled it for want of room, apart from
+    /// its own [`enabled`](Self::enabled) flag: a modal dialog's squeezed
+    /// body and row.
+    pub(crate) squeezed: bool,
+    /// Whether its widget keeps it out of view for want of room, apart
+    /// from its style's [`hidden`](crate::layout::Style::hidden), which
+    /// stays its owner's: a toast with no room in the column of toasts.
+    /// It is hidden, as its sanitized style says, while this is set.
+    pub(crate) parked: bool,
 }
 
 impl NodeData {
@@ -298,6 +340,11 @@ impl NodeData {
             painted: None,
             queued: false,
             forced: false,
+            tooltip: None,
+            active_in: None,
+            actions_to: None,
+            squeezed: false,
+            parked: false,
         }
     }
 }
@@ -314,8 +361,9 @@ struct Slot {
 /// The methods are spread over the modules that describe them:
 /// [`layout`](crate::layout) (laying out and scrolling),
 /// [`focus`](crate::focus), [`input`](crate::input) (routing events and
-/// hit testing), [`draw`](crate::draw) (frames and their damage) and
-/// [`a11y`](crate::a11y).
+/// hit testing), [`draw`](crate::draw) (frames and their damage),
+/// [`a11y`](crate::a11y) and [`overlay`](crate::overlay) (the layers over
+/// the main root).
 pub struct Tree {
     slots: Vec<Slot>,
     /// Free slots, used last in, first out.
@@ -327,7 +375,7 @@ pub struct Tree {
     /// Whether focus shows (keyboard modality).
     pub(crate) focus_visible: bool,
     pub(crate) window_focused: bool,
-    /// The hit-test path of the pointer, from the root down.
+    /// The hit-test path of the pointer, from the root of its layer down.
     pub(crate) hover: Vec<NodeId>,
     /// Where the last pointer event put the pointer, in window coordinates.
     pub(crate) pointer: Option<Point>,
@@ -367,6 +415,36 @@ pub struct Tree {
     /// How many of [`bound`](Self::bound) were removed since it was last
     /// cut to the nodes in the tree.
     pub(crate) bound_gone: usize,
+    /// The open overlays, from the bottom to the top
+    /// ([`overlay`](crate::overlay)).
+    pub(crate) overlays: Vec<Layer>,
+    /// Whether keyboard focus moved to another node since the pointer last
+    /// moved: which of the two a tooltip follows
+    /// ([`Tree::tooltip_target`]).
+    pub(crate) focus_last: bool,
+    /// The node whose tooltip Escape dismissed: no node is the tooltip
+    /// target until the pointer or focus moves to another
+    /// ([`Tree::tooltip_target`]).
+    pub(crate) dismissed: Option<NodeId>,
+    /// The active modal's root as the layers last settled, to see when
+    /// another modal becomes active ([`overlay`](crate::overlay)).
+    pub(crate) settled_modal: Option<NodeId>,
+    /// Set when the active modal changes, until the pointer moves past
+    /// the slop: a press meanwhile counts as on the modal's root, or on
+    /// nothing if no modal is active (ADR-0055, ADR-0056).
+    pub(crate) press_guard: Option<PressGuard>,
+    /// Counts the overlays opened, so that each knows its place in the
+    /// order they opened in, which moving one does not change.
+    pub(crate) overlay_seq: u64,
+    /// Where the pointer was when a toast under it closed: the column of
+    /// toasts keeps still until the pointer moves past the slop from
+    /// there, so that no other toast slides under it
+    /// ([`Toast`](crate::widgets::Toast)).
+    pub(crate) toast_pin: Option<Point>,
+    /// Device pixels per logical unit, as the metrics of the last layout
+    /// said ([`TextMetrics::scale`](crate::metrics::TextMetrics::scale)):
+    /// what the press guard's slop is measured in.
+    pub(crate) scale: f32,
 }
 
 impl Default for Tree {
@@ -412,12 +490,21 @@ impl Tree {
             focus_moves: 0,
             bound: Vec::new(),
             bound_gone: 0,
+            overlays: Vec::new(),
+            focus_last: false,
+            dismissed: None,
+            settled_modal: None,
+            press_guard: None,
+            overlay_seq: 0,
+            toast_pin: None,
+            scale: 1.0,
         };
         tree.mark(root);
         tree
     }
 
-    /// The root node, which is always there and fills the window.
+    /// The main root, which is always there and fills the window. Overlays
+    /// have roots of their own ([`Tree::overlays`]).
     pub const fn root(&self) -> NodeId {
         self.root
     }
@@ -452,7 +539,7 @@ impl Tree {
     /// - [`UiError::Unnamed`] if the node is focusable without a role and a
     ///   name;
     /// - [`UiError::TooDeep`] if it would be more than [`MAX_DEPTH`] levels
-    ///   below the root;
+    ///   below the root of its layer;
     /// - [`UiError::TooManyNodes`] if the tree already holds
     ///   [`MAX_NODES`].
     pub fn insert_at(
@@ -480,8 +567,37 @@ impl Tree {
         if self.count >= MAX_NODES {
             return Err(UiError::TooManyNodes { max: MAX_NODES });
         }
-        let windowed = node.widget.as_deref().is_some_and(crate::widgets::is_bound);
-        let data = NodeData::new(node, Some(parent), depth);
+        let id = self.allocate(NodeData::new(node, Some(parent), depth))?;
+        if let Some(into) = self.get_mut(parent) {
+            into.children.insert(index, id);
+        }
+        Ok(id)
+    }
+
+    /// Adds `node` as the root of a new layer, with no parent: an
+    /// overlay's, which [`open_overlay`](Tree::open_overlay) records.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::Unnamed`] if the node is focusable without a role and a
+    /// name, and [`UiError::TooManyNodes`] if the tree already holds
+    /// [`MAX_NODES`].
+    pub(crate) fn insert_root(&mut self, node: Node) -> Result<NodeId, UiError> {
+        if node.focusable && !node.semantics.is_named() {
+            return Err(UiError::Unnamed {
+                role: node.semantics.role,
+            });
+        }
+        if self.count >= MAX_NODES {
+            return Err(UiError::TooManyNodes { max: MAX_NODES });
+        }
+        self.allocate(NodeData::new(node, None, 0))
+    }
+
+    /// Puts `data` in a free slot, or a new one, and counts, lays out and
+    /// repaints it; the caller links it to its parent.
+    fn allocate(&mut self, data: NodeData) -> Result<NodeId, UiError> {
+        let windowed = data.widget.as_deref().is_some_and(crate::widgets::is_bound);
         let id = if let Some(index) = self.free.pop() {
             let slot = self
                 .slots
@@ -504,9 +620,6 @@ impl Tree {
                 generation: 0,
             }
         };
-        if let Some(into) = self.get_mut(parent) {
-            into.children.insert(index, id);
-        }
         self.count += 1;
         self.layout_dirty = true;
         self.mark(id);
@@ -518,25 +631,46 @@ impl Tree {
 
     /// Removes the node and its subtree.
     ///
-    /// Focus, the hovered path and a press inside it are cleared, and what
-    /// the removed nodes last painted is damaged at the next frame. What
+    /// Focus, the hovered path and a press inside it are cleared (focus
+    /// goes to the active modal's default, if a modal is active; see
+    /// [`overlay`](crate::overlay#giving-focus-back)), and what the removed
+    /// nodes last painted is damaged at the next frame. What
     /// waits for that frame stays bounded however many nodes come and go
     /// before it: the repaint queue is cut to the nodes still in the tree,
     /// and more than four times
     /// [`MAX_DAMAGE_RECTS`](crate::draw::MAX_DAMAGE_RECTS) damage rects
     /// become their bounding rect.
     ///
+    /// Removing an overlay's root closes the overlay, as
+    /// [`close_overlay`](Tree::close_overlay) does, focus given back
+    /// included.
+    ///
     /// # Errors
     ///
     /// [`UiError::UnknownNode`] if the node is not in the tree, and
-    /// [`UiError::RootNode`] for the root.
+    /// [`UiError::RootNode`] for the main root.
     pub fn remove(&mut self, id: NodeId) -> Result<(), UiError> {
-        let Some(node) = self.get(id) else {
+        if !self.contains(id) {
             return Err(UiError::UnknownNode { id });
-        };
+        }
         if id == self.root {
             return Err(UiError::RootNode);
         }
+        if self.is_overlay_root(id) {
+            return self.close_overlay(id).map(|_| ());
+        }
+        self.remove_subtree(id);
+        self.settle_focus();
+        Ok(())
+    }
+
+    /// Removes the node, which is in the tree and not the main root, and
+    /// its subtree, as [`remove`](Tree::remove) describes; an overlay's
+    /// record is the caller's.
+    pub(crate) fn remove_subtree(&mut self, id: NodeId) {
+        let Some(node) = self.get(id) else {
+            return;
+        };
         let parent = node.parent;
         self.leave(id);
         if let Some(parent) = parent.and_then(|parent| self.get_mut(parent)) {
@@ -572,7 +706,6 @@ impl Tree {
             self.bound = bound;
             self.bound_gone = 0;
         }
-        Ok(())
     }
 
     /// Keeps what waits for the next frame bounded: the repaint queue (an
@@ -614,7 +747,9 @@ impl Tree {
     /// bounds are damaged at the next frame, since a change of clip,
     /// opacity or visibility changes pixels its bounds may not show.
     /// Hiding the node clears focus, the hovered path and a press inside
-    /// it.
+    /// it; while a modal is active, focus goes to its default. Hiding or
+    /// showing a modal overlay's root changes which layers are inert
+    /// ([`overlay`](crate::overlay#kinds)).
     ///
     /// # Errors
     ///
@@ -623,6 +758,7 @@ impl Tree {
         let node = self.get_mut(id).ok_or(UiError::UnknownNode { id })?;
         node.style = style;
         node.sane = style.sanitized();
+        node.sane.hidden |= node.parked;
         let hidden = node.sane.hidden;
         self.layout_dirty = true;
         for inside in self.subtree(id) {
@@ -634,7 +770,29 @@ impl Tree {
         if hidden {
             self.leave(id);
         }
+        if self.is_overlay_root(id) {
+            self.settle_layers();
+        }
+        self.settle_focus();
         Ok(())
+    }
+
+    /// Keeps the node out of view, or lets it back, for want of room, as
+    /// its widget decides, leaving its style, its owner's, as it is; with
+    /// what hiding it with [`set_style`](Tree::set_style) does besides.
+    /// Returns whether that changed it.
+    pub(crate) fn park(&mut self, id: NodeId, parked: bool) -> bool {
+        let Some(node) = self.get_mut(id) else {
+            return false;
+        };
+        if node.parked == parked {
+            return false;
+        }
+        node.parked = parked;
+        let style = node.style;
+        // In the tree: found just now.
+        let _ = self.set_style(id, style);
+        true
     }
 
     /// The node's semantics.
@@ -666,7 +824,8 @@ impl Tree {
     }
 
     /// Makes the node focusable or not. Making the focused node not
-    /// focusable clears focus.
+    /// focusable clears focus, or gives it to the active modal's default
+    /// ([`overlay`](crate::overlay#giving-focus-back)).
     ///
     /// # Errors
     ///
@@ -682,8 +841,11 @@ impl Tree {
         }
         node.focusable = focusable;
         if !focusable && self.focus == Some(id) {
-            self.clear_focus();
+            self.drop_focus();
         }
+        // A modal's default made focusable again takes the focus no node
+        // has.
+        self.settle_focus();
         Ok(())
     }
 
@@ -694,7 +856,9 @@ impl Tree {
     }
 
     /// Enables or disables the node, and so its subtree, which is
-    /// repainted. Disabling clears focus and releases a press inside it.
+    /// repainted. Disabling clears focus and releases a press inside it;
+    /// while a modal is active, focus goes to its default
+    /// ([`overlay`](crate::overlay#giving-focus-back)).
     ///
     /// # Errors
     ///
@@ -708,18 +872,29 @@ impl Tree {
         for inside in self.subtree(id) {
             self.mark(inside);
         }
-        if !enabled {
-            if self.focus.is_some_and(|focus| self.is_within(focus, id)) {
-                self.clear_focus();
-            }
-            if self
-                .capture
-                .is_some_and(|capture| self.is_within(capture, id))
-            {
-                self.release_capture();
-            }
+        if enabled {
+            // A modal's default enabled again takes the focus no node has.
+            self.settle_focus();
+        } else {
+            self.leave_disabled(id);
         }
         Ok(())
+    }
+
+    /// Clears focus and releases a press inside the subtree at `id`, which
+    /// was just disabled, giving focus to the active modal's default
+    /// ([`overlay`](crate::overlay#giving-focus-back)).
+    pub(crate) fn leave_disabled(&mut self, id: NodeId) {
+        if self.focus.is_some_and(|focus| self.is_within(focus, id)) {
+            self.drop_focus();
+        }
+        if self
+            .capture
+            .is_some_and(|capture| self.is_within(capture, id))
+        {
+            self.release_capture();
+        }
+        self.settle_focus();
     }
 
     /// The node's widget, if it has one of type `T`.
@@ -872,6 +1047,35 @@ mod tests {
             tree.insert(tree.root(), Node::default()),
             Err(UiError::TooManyNodes { max: MAX_NODES })
         );
+    }
+
+    #[test]
+    fn a_modal_dialog_needs_room_for_its_three_nodes() {
+        use crate::widgets::Modal;
+        let mut tree = Tree::new();
+        let root = tree.root();
+        let kept = tree.insert(root, button("Save")).expect("a button");
+        tree.set_focus(kept, true).expect("focused");
+        // A press held on the button, which opening a modal would release.
+        tree.capture = Some(kept);
+        let moves = tree.focus_moves;
+        tree.count = MAX_NODES - 2;
+        assert_eq!(
+            Modal::new("Quit?").open(&mut tree),
+            Err(UiError::TooManyNodes { max: MAX_NODES })
+        );
+        // Refused before anything changed: focus, the press, the overlays,
+        // the count.
+        assert_eq!(tree.focused(), Some(kept));
+        assert!(tree.focus_visible());
+        assert_eq!(tree.capture, Some(kept));
+        assert_eq!(tree.focus_moves, moves);
+        assert!(tree.overlays.is_empty());
+        assert_eq!(tree.count, MAX_NODES - 2);
+        tree.count = MAX_NODES - 3;
+        let dialog = Modal::new("Quit?").open(&mut tree).expect("room for three");
+        assert_eq!(tree.count, MAX_NODES);
+        assert_eq!(tree.focused(), Some(dialog));
     }
 
     #[test]

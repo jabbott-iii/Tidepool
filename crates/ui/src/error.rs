@@ -18,7 +18,9 @@
 //!
 //! Changing the tree can fail: a stale or unknown id, the root where it
 //! cannot go, a focusable node without a role and a name, an index past
-//! the children, a node too deep or one too many. So can reading a theme
+//! the children, a node too deep or one too many, a node that is not an
+//! overlay's root where one must be, one overlay too many, or an anchor
+//! above the overlay it would place (M3.3, ADR-0052). So can reading a theme
 //! file that is not TOML or not a theme (M3.2, ADR-0047). Layout, input
 //! and frames never fail and never panic.
 
@@ -83,6 +85,45 @@ pub enum UiError {
         /// The most nodes there may be, the root included.
         max: usize,
     },
+    /// The node is not the root of an open overlay
+    /// ([`Tree::close_overlay`](crate::Tree::close_overlay)).
+    NotOverlay {
+        /// The id given.
+        id: NodeId,
+    },
+    /// The tree already holds
+    /// [`MAX_OVERLAYS`](crate::overlay::MAX_OVERLAYS) open overlays.
+    TooManyOverlays {
+        /// The most overlays there may be.
+        max: usize,
+    },
+    /// The node cannot anchor the overlay: it is in that overlay or one
+    /// above it, which are laid out after it
+    /// ([`Tree::set_overlay_anchor`](crate::Tree::set_overlay_anchor)).
+    BadAnchor {
+        /// The anchor's node.
+        id: NodeId,
+    },
+    /// The node has no tooltip to open
+    /// ([`Tooltip::open`](crate::widgets::Tooltip::open)).
+    NoTooltip {
+        /// The id given.
+        id: NodeId,
+    },
+    /// [`MAX_TOASTS`](crate::widgets::MAX_TOASTS) toasts show and the user
+    /// holds every one, so none can make room
+    /// ([`Toast::show`](crate::widgets::Toast::show)).
+    TooManyToasts {
+        /// The most toasts there may be.
+        max: usize,
+    },
+    /// The overlay keeps the anchor its widget gives it: a toast's, which
+    /// [`Toast`](crate::widgets::Toast) places in its column
+    /// ([`Tree::set_overlay_anchor`](crate::Tree::set_overlay_anchor)).
+    FixedAnchor {
+        /// The overlay's root.
+        id: NodeId,
+    },
     /// A theme file is not TOML, or breaks the
     /// [`Limits`](tidepool_codec::Limits) it was read with
     /// ([`Theme::parse`](crate::theme::Theme::parse)).
@@ -128,6 +169,21 @@ impl fmt::Display for UiError {
                 write!(f, "a node may be at most {max} levels below the root")
             }
             Self::TooManyNodes { max } => write!(f, "the tree holds at most {max} nodes"),
+            Self::NotOverlay { id } => write!(f, "node {id} is not the root of an overlay"),
+            Self::TooManyOverlays { max } => {
+                write!(f, "the tree holds at most {max} open overlays")
+            }
+            Self::BadAnchor { id } => write!(
+                f,
+                "node {id} cannot anchor the overlay: it is in that overlay or one above it"
+            ),
+            Self::NoTooltip { id } => write!(f, "node {id} has no tooltip"),
+            Self::TooManyToasts { max } => {
+                write!(f, "{max} toasts show, and each is held")
+            }
+            Self::FixedAnchor { id } => {
+                write!(f, "overlay {id} keeps the anchor its widget gives it")
+            }
         }
     }
 }
@@ -196,6 +252,31 @@ mod tests {
             (
                 UiError::TooManyNodes { max: MAX_NODES },
                 "the tree holds at most 1048576 nodes",
+            ),
+            (
+                UiError::NotOverlay { id: root },
+                "node 0v0 is not the root of an overlay",
+            ),
+            (
+                UiError::TooManyOverlays {
+                    max: crate::overlay::MAX_OVERLAYS,
+                },
+                "the tree holds at most 64 open overlays",
+            ),
+            (
+                UiError::BadAnchor { id: root },
+                "node 0v0 cannot anchor the overlay: it is in that overlay or one above it",
+            ),
+            (UiError::NoTooltip { id: root }, "node 0v0 has no tooltip"),
+            (
+                UiError::TooManyToasts {
+                    max: crate::widgets::MAX_TOASTS,
+                },
+                "4 toasts show, and each is held",
+            ),
+            (
+                UiError::FixedAnchor { id: root },
+                "overlay 0v0 keeps the anchor its widget gives it",
             ),
         ];
         for (error, message) in cases {

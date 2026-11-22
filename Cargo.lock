@@ -22,7 +22,9 @@ dependencies = [
  "tidepool-codec",
  "tidepool-core",
  "tidepool-font",
+ "tidepool-gui",
  "tidepool-text",
+ "tidepool-ui",
 ]
 
 [[package]]

@@ -43,6 +43,11 @@
 //! nothing. [`a11y`] snapshots the accessibility tree, in which every
 //! focusable node has a role and a name.
 //!
+//! [`overlay`]: the tree also keeps overlay roots, painted over the main
+//! root in the order they were opened and placed by an anchor, a node's
+//! bounds or the window. A modal one makes the rest of the window inert,
+//! keeps Tab within itself and gives focus back when it closes (ADR-0052).
+//!
 //! [`theme`] reads a theme file's tokens into a [`Theme`], and bundles
 //! `tidepool-dark`, jabbott.dev's tokens (ADR-0047); the tree holds the
 //! theme its widgets paint with. [`widgets`] has the controls, in
@@ -50,7 +55,8 @@
 //! the status dot, titles and breadcrumbs (ADR-0049); and the collections,
 //! lists, tree views and tables over their owner's rows, which keep nodes
 //! only for the rows on screen, with the tab strip, splitter, card and code
-//! block (ADR-0052).
+//! block, and the overlays: the modal dialog, the tooltip, the toast and
+//! the command palette (ADR-0052).
 //!
 //! `ui` depends on `tidepool-core`, whose geometry, colors and input types
 //! it uses, on `tidepool-codec`, whose TOML parser reads theme files, and
@@ -69,6 +75,7 @@ pub mod focus;
 pub mod input;
 pub mod layout;
 pub mod metrics;
+pub mod overlay;
 pub mod theme;
 pub mod tree;
 pub mod widgets;

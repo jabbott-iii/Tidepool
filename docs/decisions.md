@@ -3604,3 +3604,197 @@ decides; the roadmap task that first depends on one asks for the decision.
   view; a collection needs rows whose heights its owner cannot give
   before they are in view; an owner needs `ui` to match; or an overlay
   must leave the window, as a native popup.
+
+## ADR-0053 — M3.3's modal dialog: focus lands on the dialog, Tab reaches the overlays above it, the window behind is dimmed, and the fill is opaque
+
+- **Status:** Accepted
+- **Date:** 2026-11-21
+- **Context:**
+  - ADR-0052 made overlays a layer of the tree: a modal overlay makes
+    the rest inert (no hover, presses, or focus), keeps Tab within
+    itself, and gives focus back when it closes. Step 1 of M3.3 built
+    that layer and `widgets::Modal`, and met four questions the ADR
+    leaves open:
+    - Where focus goes when a modal opens. The WAI-ARIA dialog pattern
+      moves focus into the dialog. Tidepool's consent prompts will be
+      modals (installs ask first, ADR-0002), and a first button focused
+      as the prompt opens would accept on Enter.
+    - Whether Tab reaches the overlays opened above a modal, such as a
+      toast's button or a tooltip on one of the dialog's buttons. Those
+      stay live for the pointer.
+    - Whether the window behind a modal is dimmed. jabbott.dev has no
+      backdrop style for this. Its nearest popup, `.deploy__panel`, is a
+      panel with bracket corners at `rgba(12,15,17,0.97)` over a blur,
+      and Tidepool draws no blur (ADR-0049).
+    - Whether the dialog's fill is translucent, as the Components
+      table's panels are. With no blur, the `panel` token's translucent
+      value let the window's labels show through the dialog's title.
+  - The user chose the recommended option of each on 2026-11-21: "The
+    dialog itself", "Include them", "Dim it", and "Opaque".
+- **Decision:**
+  - **Focus lands on the dialog itself** when a modal dialog opens, so a
+    screen reader announces its role and title, and Enter accepts
+    nothing. The dialog is not one of the tab stops it cycles: Tab moves
+    to its first control, and Escape asks its owner to close it. The
+    owner may focus one of its controls instead. Focus goes back when it
+    closes, as ADR-0052 says.
+  - **Tab and Shift+Tab cycle** through the active modal and the live
+    overlays opened above it. Everything below the modal stays inert.
+  - **The window behind an active modal is dimmed** with the `panel`
+    token.
+  - **The dialog's fill is opaque:** the `panel` token's solid value
+    (`#0f1113`), as the Tokens table gives solid values for surfaces
+    drawn without a blur.
+- **Consequences:**
+  - A consent prompt cannot be accepted by an Enter pressed as it opens.
+    An owner that wants a control focused focuses it after inserting it.
+  - A toast's action over a dialog is reachable from the keyboard too.
+  - Each active modal paints one more rect over the window. The dialog
+    departs from the Components table's translucent `panel` fill, and
+    the spec says so.
+- **Alternatives considered:**
+  - Focus on the dialog's first control, the WAI-ARIA pattern's usual
+    choice: on a consent or discard prompt, Enter would accept at once
+    unless every owner moved focus to the safe control.
+  - Focus left to the owner, as step 1 first built it: a screen reader
+    announces nothing when an owner forgets to move it.
+  - Tab within the dialog only: an overlay above it would answer the
+    pointer but not the keyboard.
+  - No dimming: only the dialog's border and brackets set it apart from
+    the window, which still looks live.
+  - A translucent fill: the window's text shows through the dialog.
+- **Revisit when:** the screen reader bridges (M14.2) do not announce a
+  dialog whose root has focus; an owner needs a modal that leaves the
+  window undimmed; or Tidepool draws a blur.
+
+## ADR-0054 — M3.3's command palette: focus goes to its search field, and the window behind is dimmed
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - The command palette takes all input while it is open (ADR-0052), so
+    it is a modal overlay. ADR-0053 puts a modal dialog's focus on the
+    dialog itself, so that Enter accepts nothing, and dims the window
+    behind it.
+  - The palette is for typing: a search field over a list of the items
+    its owner ranks (ADR-0052). Focus on the palette itself would cost a
+    keystroke before the first letter.
+  - The user chose the recommended option of each question on
+    2026-11-22: "Its search field" and "Dim it, as a dialog".
+- **Decision:**
+  - **Focus goes to the palette's search field** when it opens. Up and
+    Down move through the results while focus stays in the field, and
+    Enter activates the selected item, which can be the owner's
+    first-ranked one.
+  - **The window behind an open palette is dimmed** with the `panel`
+    token, as behind a modal dialog (ADR-0053). Every modal overlay looks
+    the same way: what ignores input looks it. The palette's fill is
+    opaque, for ADR-0053's reason: Tidepool draws no blur.
+- **Consequences:**
+  - The user types as soon as the palette opens. An Enter pressed at
+    once activates the owner's first-ranked item, so an owner ranks
+    nothing first that should not run that way.
+  - A dialog and the palette differ in where focus lands, and the spec
+    says why.
+- **Alternatives considered:**
+  - Focus on the palette itself, as on a dialog: Enter runs nothing,
+    but every use costs a keystroke.
+  - No dimming, as some editors' palettes leave the window: the window
+    looks live while it ignores input.
+- **Revisit when:** an owner needs a palette item that must not run on
+  an Enter pressed as the palette opens; or the palette must leave the
+  window live.
+
+## ADR-0055 — M3.3's guards around a modal: a press waits for the pointer to move, and only toasts shown after it are live and kept clear of it
+
+- **Status:** Accepted; extended by ADR-0056 (the press guard ends only once the pointer has moved more than 4 device pixels, and also applies after the active modal closes)
+- **Date:** 2026-11-22
+- **Context:**
+  - ADR-0053 keeps an Enter pressed as a dialog opens from accepting it,
+    and lets the overlays opened above a modal stay live, a toast among
+    them. M3.3's second security review found three gaps around it:
+    - A dialog that opens under a resting pointer hovers the control
+      under it at once, so a press and release with no move activate
+      it. A double click on a palette row could run the row with the
+      first click and accept the consent prompt it opened with the
+      second.
+    - Toasts share one stack overlay. A toast shown while a modal is
+      open raises the stack above the modal, so the toasts shown before
+      it opened come back to life too, though ADR-0053 meant only the
+      overlays opened after it.
+    - In a small window, live toasts above a dialog can cover its
+      controls. Text from a language server or an agent could then sit
+      over a consent prompt, with an action button of its own.
+  - The user chose the recommended option of each on 2026-11-22:
+    "Ignore until pointer moves", "Only newer ones", and "Keep clear".
+- **Decision:**
+  - **A press waits for the pointer to move.** After a modal becomes
+    active, a press counts as on the modal's root until the pointer
+    moves to a new position. `ui` keeps the pointer's position, so this
+    needs no clock.
+  - **Only the toasts shown after a modal opened are live above it.**
+    The toasts shown before it stay inert and dimmed behind it, like
+    everything else there, until it closes.
+  - **Live toasts keep clear of an open dialog.** While a modal is
+    active, a live toast is placed where it does not overlap the modal's
+    bounds. A toast that cannot fit there waits, inert behind the
+    dimming, until the modal closes or the window grows.
+- **Consequences:**
+  - Every dialog is protected from a click that was aimed before it
+    opened, with no timer for its owner to set.
+  - A user who opens a dialog and clicks without moving the pointer
+    must move it first. The press is not lost silently: it comes back
+    blocked (`Response::blocked`).
+  - A toast over a dialog never hides the dialog's controls, so a
+    toast can be waiting while its owner's timeout runs. The owner sees
+    that from what `Toast::held` and the toast's state report.
+- **Alternatives considered:**
+  - The owner's delay timer, as Firefox delays the buttons of its
+    security dialogs: it protects only the dialogs whose owners
+    remember it.
+  - The whole toast stack live above the dialog, as first built: toasts
+    from before the dialog come back to life.
+  - Toasts allowed to overlap the dialog: in a small window they cover
+    its controls, though a press on a toast never activates the control
+    under it.
+- **Revisit when:** users report clicks lost after a dialog opens; a
+  toast must be seen at once even while a dialog is open; or toasts get
+  their own region of the window, as the shell's status bar might give
+  them (M3.4).
+
+## ADR-0056 — M3.3's press guard: it ends only past 4 device pixels of movement, and it also applies when a modal closes
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - ADR-0055 blocks a press after a modal becomes active until the
+    pointer moves to a new position. M3.3's third review found two gaps:
+    - Any move ends the guard, even 1 unit. A double click's two clicks
+      often land a pixel or so apart, so its second click reaches the
+      dialog the first one opened.
+    - The guard covers only a modal becoming active. When the last
+      dialog closes, the second click of a double click on its OK lands
+      on whatever is under it in the window.
+  - The user chose the recommended option of each on 2026-11-22: "Allow
+    a few px of slop" and "Yes, on close too".
+- **Decision:**
+  - **Slop.** The guard ends only once the pointer has moved more than 4
+    device pixels (4 divided by the window's scale, in logical units)
+    from where it rested when the guard began, as a drag threshold
+    works.
+  - **On close too.** When the active modal closes, or a modal stops
+    being active because it is hidden, presses are blocked the same way
+    until the pointer moves past the slop. They come back blocked
+    (`Response::blocked`).
+- **Consequences:**
+  - A double click with a little jitter cannot accept a dialog it
+    opened, nor click the window under the OK that closed one.
+  - A user who clicks again without moving after a dialog opens or
+    closes must move the pointer a few pixels first.
+- **Alternatives considered:**
+  - Any move ends the guard, as ADR-0055 first said: jitter defeats it.
+  - The guard only when a modal opens: a double click on a dialog's
+    button reaches the window under it.
+- **Revisit when:** users report lost clicks after dialogs open or
+  close; or a platform reports pointer positions coarser or finer than
+  device pixels.
