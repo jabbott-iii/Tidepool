@@ -288,6 +288,13 @@ Three documents are also read by the checks, so keep their shape:
 reference agents in `docs/subsystems/agents.md`, and `cargo xtask
 features` reads `docs/features.jsonc` with the roadmap's task lines.
 
+How to write them is in
+[`.claude/rules/docs-writing.md`](.claude/rules/docs-writing.md). Use
+plain words, and explain each term the first time it appears. Keep the
+exact numbers and limits. Write in American English, with the serial
+comma. Only Claude Code loads that file automatically, but its rules
+apply to everyone who writes docs here.
+
 ## Commits and pull requests
 
 - A commit's subject starts with the area it changes and names the roadmap

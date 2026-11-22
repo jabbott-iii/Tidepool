@@ -44,6 +44,7 @@ matching files:
 | `ai-context.md` | `agent`, `agents/` |
 | `ui-style.md` | `ui`, `gui`, `tui`, `editor`, `themes/`, `assets/` |
 | `docs-and-roadmap.md` | `docs/`, `diagrams/`, `site/`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, crate READMEs |
+| `docs-writing.md` | How to write anything people read: every Markdown file, `docs/`, `diagrams/`, `site/`, and Rust doc comments (`**/*.rs`) |
 | `ci-workflows.md` | `.github/` |
 
 **Permissions and hooks:**
