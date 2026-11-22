@@ -53,6 +53,14 @@ teal-ring = { value = "rgba(92,203,203,0.15)", solid = "#17292a", ansi = 235 }
 green-halo = { value = "rgba(61,220,151,0.16)", solid = "#132d23", ansi = 235 }
 amber-halo = { value = "rgba(242,194,0,0.16)", solid = "#30290b", ansi = 235 }
 error-halo = { value = "rgba(255,138,128,0.16)", solid = "#32201f", ansi = 235 }
+# The collections' colors that jabbott.dev's table uses beyond its `:root`
+# (ADR-0052): its header row, `slate` at 60%, and its rows' hover wash.
+table-head = { value = "rgba(41,53,58,0.60)", solid = "#1d2528", ansi = 235 }
+row-hover = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
+# The card's tab and the code block's bar (`.card__tab`, `.code-bar`).
+card-tab = { value = "#e8f3f3", ansi = 255 }
+on-card-tab = { value = "#0b1416", ansi = 233 }
+code-bar = { value = "rgba(41,53,58,0.45)", solid = "#181e21", ansi = 234 }
 
 # Lengths in logical units.
 [sizes]
@@ -167,4 +175,71 @@ size = "normal"
 text = "text"
 on = ["teal-glow"]
 over = "slate"
+size = "normal"
+
+# The collections' pairs (ADR-0052). A row's text, hovered or selected
+# (`teal-glow`), in a list, tree view or table.
+[[contrast.use]]
+text = "text"
+on = ["row-hover", "teal-glow"]
+size = "normal"
+
+# A table's column header at rest, and hovered or pressed.
+[[contrast.use]]
+text = "teal"
+on = ["table-head"]
+size = "normal"
+
+[[contrast.use]]
+text = "teal-hi"
+on = ["table-head", "slate"]
+size = "normal"
+
+# A tree item's chevron, a UI glyph, on a hovered or selected row.
+[[contrast.use]]
+text = "text-2"
+on = ["row-hover", "teal-glow"]
+size = "large"
+
+# A card's tab label on its pill, and a card's kicker and line of text on
+# its `ghost` fill.
+[[contrast.use]]
+text = "on-card-tab"
+on = ["card-tab"]
+size = "normal"
+
+[[contrast.use]]
+text = "text-2"
+on = ["ghost"]
+size = "normal"
+
+[[contrast.use]]
+text = "text-3"
+on = ["ghost"]
+size = "normal"
+
+# A code block's language and COPY on its bar, over `editor-bg`; COPY
+# hovered and pressed.
+[[contrast.use]]
+text = "text-3"
+on = ["code-bar"]
+over = "editor-bg"
+size = "normal"
+
+[[contrast.use]]
+text = "teal"
+on = ["code-bar"]
+over = "editor-bg"
+size = "normal"
+
+[[contrast.use]]
+text = "teal-hi"
+on = ["teal-wash", "teal-fill"]
+over = "editor-bg"
+size = "normal"
+
+# A hovered tab's label.
+[[contrast.use]]
+text = "teal-hi"
+on = ["row-hover"]
 size = "normal"

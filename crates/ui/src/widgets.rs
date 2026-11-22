@@ -16,11 +16,15 @@
 //! language: [`Button`]s (ghost, teal, amber with cut corners, slate),
 //! [`Chip`]s, the [`TextInput`] and search field, the [`ScrollBar`], the
 //! [focus outline](focus_outline), the [`StatusDot`], the
-//! [`SectionTitle`], [`Eyebrow`] and [`Kicker`], and [`Breadcrumbs`].
+//! [`SectionTitle`], [`Eyebrow`] and [`Kicker`], and [`Breadcrumbs`]; and
+//! the collections, a [`Collection`]: the list, the tree view and the
+//! table, which keep nodes only for the rows on screen over a model of
+//! [`Rows`] their owner provides; and the [`TabStrip`], the [`Splitter`],
+//! the [`Card`] and the [`CodeBlock`] (ADR-0052).
 //!
 //! New in Tidepool; not ported. The looks follow jabbott.dev's stylesheet
-//! (`assets/css/style.css`) at the IDE's denser scale, and ADR-0049 where
-//! the site has none.
+//! (`assets/css/style.css`) at the IDE's denser scale, and ADR-0049 and
+//! ADR-0052 where the site has none.
 //!
 //! # Controls
 //!
@@ -96,17 +100,27 @@ use crate::tree::{Node, NodeId, NodeState, Tree, Widget};
 
 mod breadcrumbs;
 mod button;
+mod card;
 mod chip;
+mod code;
+mod collection;
 mod field;
 mod labels;
 mod scrollbar;
+mod splitter;
+mod tabs;
 
 pub use breadcrumbs::{Breadcrumbs, Crumb};
 pub use button::{Button, ButtonKind, ButtonSize};
+pub use card::Card;
 pub use chip::Chip;
+pub use code::{CodeBlock, CodeSpan};
+pub use collection::{Collection, CollectionKind, Column, Row, Rows};
 pub use field::{FieldKind, MAX_INPUT_BYTES, TextInput};
 pub use labels::{Eyebrow, Kicker, SectionTitle, Status, StatusDot};
 pub use scrollbar::ScrollBar;
+pub use splitter::Splitter;
+pub use tabs::{Tab, TabKind, TabStrip};
 
 /// The opacity of a disabled control's layer.
 pub const DISABLED_OPACITY: f32 = 0.4;
@@ -184,6 +198,134 @@ pub const SECTION_GAP: f32 = 10.0;
 /// The space either side of a breadcrumb's separator.
 pub const CRUMB_GAP: f32 = 8.0;
 
+/// The height of a row of a list, tree view or table, and of a table's
+/// header: the UI body's line, 13 × 1.5, rounded to whole units as
+/// [`SCROLL_LINE`](crate::input::SCROLL_LINE) is, so that a wheel's line
+/// scrolls a row. Every row of a collection is this high, so the rows in
+/// view are found by arithmetic (ADR-0052).
+pub const ROW_HEIGHT: f32 = 20.0;
+
+/// The space left of a list's or tree view's text.
+pub const ROW_PADDING: f32 = 8.0;
+
+/// How much further right each level of a tree view starts.
+pub const TREE_INDENT: f32 = 16.0;
+
+/// The width of the box a tree item's chevron is centred in, before its
+/// text; a row with no chevron leaves it empty, so siblings' text lines up.
+pub const CHEVRON_WIDTH: f32 = 16.0;
+
+/// The space left of a table cell's text and a column header's label
+/// (`.prose th, .prose td`'s 14 px, at the IDE's scale).
+pub const CELL_PADDING: f32 = 10.0;
+
+/// How many rows a collection keeps a node for beyond each end of the part
+/// of its view on screen, within its view (ADR-0052).
+pub const ROW_MARGIN: usize = 2;
+
+/// The most rows a collection's view holds: its rows show in at most this
+/// many rows' height, 10,240 units, taller than any window, and it
+/// measures no taller (ADR-0052). So it keeps at most this many and two
+/// row nodes, however it is laid out.
+pub const MAX_VIEW_ROWS: usize = 512;
+
+/// The most bytes of a cell's text, or a list's or tree view's row's, that
+/// a collection shows and names: the rest is cut, at an extended grapheme
+/// cluster boundary.
+pub const MAX_CELL_BYTES: usize = 4096;
+
+/// The height of a tab strip's tabs (`.btn`'s 30, as no site style has
+/// tabs).
+pub const TAB_HEIGHT: f32 = 30.0;
+
+/// The space either side of a tab's label.
+pub const TAB_PADDING: f32 = 12.0;
+
+/// The side of a closable tab's close control.
+pub const TAB_CLOSE: f32 = 16.0;
+
+/// The space between a tab's label and its close control.
+pub const TAB_CLOSE_GAP: f32 = 6.0;
+
+/// The thickness of the `teal` rule under the selected tab.
+pub const TAB_RULE: f32 = 2.0;
+
+/// The most tabs a tab strip holds; more are refused.
+pub const MAX_TABS: usize = 256;
+
+/// The most bytes of a tab's label a tab strip shows and names: the rest
+/// is cut, at an extended grapheme cluster boundary.
+pub const MAX_TAB_LABEL_BYTES: usize = 256;
+
+/// The thickness of a splitter's divider, which the pointer drags.
+pub const SPLITTER_THICKNESS: f32 = 8.0;
+
+/// How far an arrow key moves a splitter's divider, in units.
+pub const SPLITTER_STEP: f32 = 10.0;
+
+/// The space inside a card's edges (`.card__body`'s 15, at the IDE's
+/// scale).
+pub const CARD_PADDING: f32 = 12.0;
+
+/// The space between a card's lines of text, and between them and what
+/// the card holds below them.
+pub const CARD_GAP: f32 = 4.0;
+
+/// How far below a card's top its tab sits (`.card__tab`'s 10).
+pub const CARD_TAB_TOP: f32 = 8.0;
+
+/// The height of a card's tab: its label's line and 4 above and below.
+pub const CARD_TAB_HEIGHT: f32 = 18.0;
+
+/// The space left of a card tab's label (`.card__tab`'s 11).
+pub const CARD_TAB_PADDING_LEFT: f32 = 9.0;
+
+/// The space right of a card tab's label, which holds its `teal` stripe
+/// (`.card__tab`'s 10).
+pub const CARD_TAB_PADDING_RIGHT: f32 = 8.0;
+
+/// The width of a card tab's `teal` stripe on its right edge
+/// (`.card__tab`'s inset 4 px shadow).
+pub const CARD_TAB_STRIPE: f32 = 4.0;
+
+/// The height of a code block's bar, which holds its language and COPY
+/// (`.code-bar`).
+pub const CODE_BAR_HEIGHT: f32 = 28.0;
+
+/// The space around a code block's code (`.prose pre`'s 16 and 18, at the
+/// IDE's scale).
+pub const CODE_PADDING: f32 = 10.0;
+
+/// The space left of a code block's code and of its language.
+pub const CODE_PADDING_LEFT: f32 = 12.0;
+
+/// The width of a code block's `teal` left border.
+pub const CODE_RULE: f32 = 2.0;
+
+/// The height of a code block's COPY button.
+pub const COPY_HEIGHT: f32 = 18.0;
+
+/// The space either side of COPY's label (`.code-copy`'s 10).
+pub const COPY_PADDING: f32 = 10.0;
+
+/// The most lines a code block keeps and paints; more are cut.
+pub const MAX_CODE_LINES: usize = 200;
+
+/// The most bytes of a line a code block keeps and paints; the rest is
+/// cut, at an extended grapheme cluster boundary.
+pub const MAX_CODE_LINE_BYTES: usize = 400;
+
+/// The most spans of a line a code block keeps; more are cut.
+pub const MAX_CODE_SPANS: usize = 32;
+
+/// The most bytes of a code block's language it shows and names, as the
+/// theme's [`MAX_TEXT_BYTES`](crate::theme::MAX_TEXT_BYTES): the rest is
+/// cut, at an extended grapheme cluster boundary.
+pub const MAX_LANGUAGE_BYTES: usize = 64;
+
+/// The most columns a table has; more are left out.
+pub const MAX_COLUMNS: usize = 64;
+
 /// The label of a button: Saira 12 px, 600, tracked 0.10em, uppercase.
 pub const BUTTON_LABEL: TextStyle = TextStyle::new(Family::Ui, 12.0)
     .weight(Weight::SemiBold)
@@ -214,6 +356,59 @@ pub const KICKER: TextStyle = TextStyle::new(Family::Ui, 11.0)
 
 /// A path, as in a breadcrumb: JetBrains Mono 12 px, as written.
 pub const PATH: TextStyle = TextStyle::new(Family::Mono, 12.0);
+
+/// The UI body, a row's text in a list, tree view or table: Saira 13 px,
+/// line height 1.5, 400, as written.
+pub const ROW_TEXT: TextStyle = TextStyle::new(Family::Ui, 13.0);
+
+/// A table's column header: Saira 11 px, 600, tracked 0.10em, uppercase,
+/// `teal`.
+pub const TABLE_HEADER: TextStyle = TextStyle::new(Family::Ui, 11.0)
+    .weight(Weight::SemiBold)
+    .letter_spacing(0.10);
+
+/// A chrome tab's label (PROBLEMS, TERMINAL): the spec's "Button / chip /
+/// tab label", Saira 12 px, 600, tracked 0.10em, uppercase. A content
+/// tab's label (a file name) is [`ROW_TEXT`], as written.
+pub const TAB_LABEL: TextStyle = BUTTON_LABEL;
+
+/// A card's kicker (`.card__meta`): Saira 11 px, 500, tracked 0.06em,
+/// uppercase, `text-3`.
+pub const CARD_META: TextStyle = TextStyle::new(Family::Ui, 11.0)
+    .weight(Weight::Medium)
+    .letter_spacing(0.06);
+
+/// A card's title (`.card__title`): Saira 16 px, 500, line height 1.3, as
+/// written.
+pub const CARD_TITLE: TextStyle = TextStyle::new(Family::Ui, 16.0)
+    .weight(Weight::Medium)
+    .line_height(1.3);
+
+/// A card's line of text (`.card__excerpt`): the UI body, `text-2`, as
+/// written.
+pub const CARD_TEXT: TextStyle = ROW_TEXT;
+
+/// A card tab's label (`.card__tab`): Saira 10 px, 700, tracked 0.10em,
+/// line height 1, uppercase.
+pub const CARD_TAB_LABEL: TextStyle = TextStyle::new(Family::Ui, 10.0)
+    .weight(Weight::Bold)
+    .letter_spacing(0.10)
+    .line_height(1.0);
+
+/// A code block's code (`.prose pre`): JetBrains Mono 13 px, line height
+/// 1.5, as written.
+pub const CODE_TEXT: TextStyle = TextStyle::new(Family::Mono, 13.0);
+
+/// A code block's language (`.code-bar`): JetBrains Mono 10 px, tracked
+/// 0.12em, uppercase, `text-3`.
+pub const CODE_BAR_TEXT: TextStyle = TextStyle::new(Family::Mono, 10.0).letter_spacing(0.12);
+
+/// COPY's label (`.code-copy`): Saira 11 px, 600, tracked 0.10em, line
+/// height 1, uppercase.
+pub const COPY_LABEL: TextStyle = TextStyle::new(Family::Ui, 11.0)
+    .weight(Weight::SemiBold)
+    .letter_spacing(0.10)
+    .line_height(1.0);
 
 /// A control: a [`Widget`] that says what its node is, so that it gives
 /// itself its role and name whether it takes focus or not.
@@ -293,6 +488,69 @@ pub fn focus_outline(list: &mut DrawList, bounds: Rect, theme: &Theme) {
     );
 }
 
+/// Whether `widget` keeps other nodes in step with it, so that the tree
+/// keeps its node among those each layout binds: a [`Collection`], a
+/// [`TabStrip`] or a [`Splitter`] (ADR-0052).
+pub(crate) fn is_bound(widget: &dyn Widget) -> bool {
+    let any = widget as &dyn std::any::Any;
+    any.is::<Collection>() || any.is::<TabStrip>() || any.is::<Splitter>()
+}
+
+impl Tree {
+    /// Binds every node of [`is_bound`] widgets, from the last layout's
+    /// placements; returns whether that added, removed or moved nodes, so
+    /// that layout must pass again. `after_pass` says that a layout pass
+    /// has just placed the nodes, and `reveal` that collections scroll a
+    /// selection asked for into view now; until then they keep their rows.
+    pub(crate) fn bind_widgets(&mut self, after_pass: bool, reveal: bool) -> bool {
+        if self.bound.is_empty() {
+            return false;
+        }
+        let mut ids = std::mem::take(&mut self.bound);
+        let mut again = false;
+        for &id in &ids {
+            if self.widget::<Collection>(id).is_some() {
+                again |= self.bind_collection(id, after_pass, reveal);
+            } else if self.widget::<TabStrip>(id).is_some() {
+                again |= self.bind_tabs(id, after_pass);
+            } else if self.widget::<Splitter>(id).is_some() {
+                again |= self.bind_splitter(id);
+            }
+        }
+        ids.retain(|&id| self.contains(id));
+        self.bound_gone = 0;
+        // Binding inserts no bound widget, but keep any all the same.
+        ids.append(&mut self.bound);
+        self.bound = ids;
+        again
+    }
+}
+
+/// `text` cut to at most `max` bytes, at an extended grapheme cluster
+/// boundary of the whole text, found from its start in what is kept and
+/// the character after it, so in time linear in what is kept, however
+/// long the text or the cluster the cut falls in.
+pub(crate) fn cut_to(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    // A boundary depends only on the text before it and the character
+    // after it (UAX #29), so those up to `max` are the whole text's in a
+    // head that holds a character past `max`.
+    let head = text
+        .get(..text.ceil_char_boundary(max.saturating_add(1)))
+        .unwrap_or(text);
+    let mut end = 0;
+    for cluster in tidepool_text::pos::grapheme::graphemes(head) {
+        if end + cluster.len() > max {
+            break;
+        }
+        end += cluster.len();
+    }
+    // `end` is a sum of whole clusters' lengths, so a char boundary.
+    text.get(..end).unwrap_or("")
+}
+
 /// `rect` grown by `by` on every side.
 pub(crate) fn grow(rect: Rect, by: f32) -> Rect {
     Rect::new(
@@ -365,4 +623,97 @@ pub(crate) fn baseline(rect: Rect, metrics: &dyn TextMetrics, style: &TextStyle)
 /// The height of a line of `style`.
 pub(crate) fn line_height(metrics: &dyn TextMetrics, style: &TextStyle) -> f32 {
     metrics.line(style).height
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use tidepool_core::testing::check_sized;
+
+    use super::*;
+
+    /// The cut as it was first written: from the start of the whole text.
+    fn cut_from_whole(text: &str, max: usize) -> &str {
+        if text.len() <= max {
+            return text;
+        }
+        let mut end = 0;
+        for cluster in tidepool_text::pos::grapheme::graphemes(text) {
+            if end + cluster.len() > max {
+                break;
+            }
+            end += cluster.len();
+        }
+        text.get(..end).unwrap_or("")
+    }
+
+    /// Pieces whose clusters reach across each other: combining marks,
+    /// regional indicators, ZWJ emoji and their modifiers, an Indic
+    /// conjunct, line ends and wide characters.
+    const PIECES: [&str; 16] = [
+        "a",
+        "e\u{301}",
+        "\u{301}",
+        "\u{300}\u{302}",
+        "\u{1F1FA}",
+        "\u{1F1F8}",
+        "\u{1F468}",
+        "\u{200D}",
+        "\u{1F469}\u{200D}\u{1F467}",
+        "\u{1F3FD}",
+        "\u{FE0F}",
+        "\u{915}\u{94D}",
+        "\u{937}",
+        "\r\n",
+        "\r",
+        "日本",
+    ];
+
+    #[test]
+    fn cutting_within_the_head_agrees_with_cutting_the_whole_text() {
+        check_sized(
+            "cut_to on clusters",
+            500,
+            |rng, size| {
+                let text: String = (0..size.max(1))
+                    .map(|_| *rng.choose(&PIECES).expect("pieces"))
+                    .collect();
+                let max = rng.range(0..text.len() as u32 + 2) as usize;
+                (text, max)
+            },
+            |(text, max)| {
+                let (new, old) = (cut_to(text, *max), cut_from_whole(text, *max));
+                if new == old {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "cut to {max}: {} bytes, not {}",
+                        new.len(),
+                        old.len()
+                    ))
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn a_cut_in_a_huge_cluster_reads_only_what_it_keeps() {
+        // One cluster of 4 MiB: an `e` and two million combining marks.
+        let mut text = String::from("e");
+        text.push_str(&"\u{301}".repeat(2 << 20));
+        let started = Instant::now();
+        for _ in 0..100 {
+            assert_eq!(cut_to(&text, MAX_TAB_LABEL_BYTES), "");
+            assert_eq!(cut_to(&text, MAX_CELL_BYTES), "");
+        }
+        // Scanning the cluster each time took about 100 ms a cut; reading
+        // only the head takes microseconds.
+        let took = started.elapsed();
+        assert!(took < Duration::from_millis(500), "{took:?}");
+        // A cluster that ends inside the head is kept.
+        let mut short = "e\u{301}".repeat(100);
+        short.push_str(&text);
+        assert_eq!(cut_to(&short, 301), "e\u{301}".repeat(100));
+    }
 }

@@ -337,6 +337,11 @@ pub struct Tree {
     pub(crate) layout_dirty: bool,
     /// The node the next layout scrolls into view: the latest request.
     pub(crate) reveal: Option<NodeId>,
+    /// The rows collections asked to be scrolled into view at this
+    /// layout, each once, in the order the layout binds the collections,
+    /// which is the order they were inserted in; the layout scrolls each in
+    /// turn, then [`reveal`](Self::reveal) (ADR-0052).
+    pub(crate) reveal_rows: Vec<NodeId>,
     /// The window size of the last layout pass.
     pub(crate) layout_size: Option<Size>,
     /// Whether the next frame repaints every node and damages the window.
@@ -352,6 +357,16 @@ pub struct Tree {
     /// How many times keyboard focus moved to another node, or the window
     /// lost focus ([`EventContext::focus_moves`](crate::input::EventContext::focus_moves)).
     pub(crate) focus_moves: u64,
+    /// The nodes whose widget keeps other nodes in step with it, which
+    /// each layout binds: a [`Collection`](crate::widgets::Collection)'s
+    /// rows, a [`TabStrip`](crate::widgets::TabStrip)'s tabs, a
+    /// [`Splitter`](crate::widgets::Splitter)'s split (ADR-0052); removed
+    /// ones are dropped by each layout, and by a removal once they are
+    /// more than half of it.
+    pub(crate) bound: Vec<NodeId>,
+    /// How many of [`bound`](Self::bound) were removed since it was last
+    /// cut to the nodes in the tree.
+    pub(crate) bound_gone: usize,
 }
 
 impl Default for Tree {
@@ -387,6 +402,7 @@ impl Tree {
             capture: None,
             layout_dirty: true,
             reveal: None,
+            reveal_rows: Vec::new(),
             layout_size: None,
             repaint_all: true,
             frame_size: None,
@@ -394,6 +410,8 @@ impl Tree {
             damage: Vec::new(),
             theme: Theme::bundled(),
             focus_moves: 0,
+            bound: Vec::new(),
+            bound_gone: 0,
         };
         tree.mark(root);
         tree
@@ -462,6 +480,7 @@ impl Tree {
         if self.count >= MAX_NODES {
             return Err(UiError::TooManyNodes { max: MAX_NODES });
         }
+        let windowed = node.widget.as_deref().is_some_and(crate::widgets::is_bound);
         let data = NodeData::new(node, Some(parent), depth);
         let id = if let Some(index) = self.free.pop() {
             let slot = self
@@ -491,6 +510,9 @@ impl Tree {
         self.count += 1;
         self.layout_dirty = true;
         self.mark(id);
+        if windowed {
+            self.bound.push(id);
+        }
         Ok(id)
     }
 
@@ -520,11 +542,15 @@ impl Tree {
         if let Some(parent) = parent.and_then(|parent| self.get_mut(parent)) {
             parent.children.retain(|&child| child != id);
         }
+        let mut bound_gone = 0;
         for gone in self.subtree(id) {
             let Some(slot) = self.slots.get_mut(gone.index as usize) else {
                 continue;
             };
             if let Some(node) = slot.node.take() {
+                if node.widget.as_deref().is_some_and(crate::widgets::is_bound) {
+                    bound_gone += 1;
+                }
                 self.damage.extend(node.painted);
                 self.count -= 1;
             }
@@ -536,6 +562,16 @@ impl Tree {
         }
         self.layout_dirty = true;
         self.bound_pending();
+        // Only a bound widget's removal leaves the list a node to drop, so
+        // removing other nodes never reads it; and it is cut only once more
+        // than half of it is gone, so the cost is spread over the removals.
+        self.bound_gone += bound_gone;
+        if bound_gone > 0 && self.bound_gone > self.bound.len() / 2 {
+            let mut bound = std::mem::take(&mut self.bound);
+            bound.retain(|&node| self.contains(node));
+            self.bound = bound;
+            self.bound_gone = 0;
+        }
         Ok(())
     }
 
@@ -967,5 +1003,59 @@ mod tests {
         let shown = format!("{:?}", Node::default().with_widget(Blank));
         assert!(shown.contains("widget: true"), "{shown}");
         assert!(shown.contains("enabled: true"), "{shown}");
+    }
+
+    #[test]
+    fn removing_nodes_reads_the_bound_list_only_for_bound_widgets_and_seldom() {
+        use crate::widgets::{Control, Tab, TabKind, TabStrip};
+        let strip = || TabStrip::new("Tabs", TabKind::Content, [Tab::new("a")]).node();
+        let mut tree = Tree::new();
+        let root = tree.root();
+        let strips: Vec<NodeId> = (0..4)
+            .map(|_| tree.insert(root, strip()).expect("a strip"))
+            .collect();
+        let plain = tree.insert(root, Node::default()).expect("a node");
+        let inner = tree.insert(plain, Node::default()).expect("a node");
+        // A stale id the list would drop if it were read: removing plain
+        // nodes leaves it there.
+        let stale = NodeId {
+            index: 9_999,
+            generation: 0,
+        };
+        tree.bound.push(stale);
+        tree.remove(inner).expect("removed");
+        tree.remove(plain).expect("removed");
+        assert_eq!(tree.bound.len(), 5);
+        assert_eq!(tree.bound.last(), Some(&stale));
+        // Removing bound widgets reads it only once more than half of it
+        // is gone: then it holds only the strips left.
+        tree.remove(strips[0]).expect("removed");
+        tree.remove(strips[1]).expect("removed");
+        assert_eq!(tree.bound.len(), 5);
+        tree.remove(strips[2]).expect("removed");
+        assert_eq!(tree.bound, [strips[3]]);
+        // A layout drops what is gone too.
+        tree.bound.push(stale);
+        tree.layout(
+            Size::new(100.0, 100.0),
+            &crate::metrics::FixedMetrics::DEFAULT,
+        );
+        assert_eq!(tree.bound, [strips[3]]);
+        // So removing many, one at a time, stays linear: the list is never
+        // more than twice the live ones and one.
+        let mut tree = Tree::new();
+        let root = tree.root();
+        let many: Vec<NodeId> = (0..2_000)
+            .map(|_| tree.insert(root, strip()).expect("a strip"))
+            .collect();
+        for (k, &id) in many.iter().enumerate() {
+            tree.remove(id).expect("removed");
+            let live = many.len() - k - 1;
+            assert!(
+                tree.bound.len() <= 2 * live + 1,
+                "{} for {live}",
+                tree.bound.len()
+            );
+        }
     }
 }

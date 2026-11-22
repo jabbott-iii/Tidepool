@@ -8,7 +8,7 @@ fuzz engine's run, a text `History`, a saved file, workspace trust, vim
 mode, a managed tool and a language session. The text engine, the fuzz
 engine and fuzz smoke are built; the rest is planned.
 
-Drawn from the code and docs as of roadmap task M3.6 (2026-11-18, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 

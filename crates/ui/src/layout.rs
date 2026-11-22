@@ -94,7 +94,8 @@
 //! # Scrolling into view
 //!
 //! [`Tree::scroll_into_view`] takes effect at the next layout: once the
-//! pass has placed every node (or at once from the last pass's placements,
+//! pass has placed every node, and the collections, tab strips and
+//! splitters have settled (or at once from the last pass's placements,
 //! if nothing changed layout since), each scrolling ancestor of the node,
 //! the nearest first, moves its offset, as that pass clamped it, the least
 //! that brings the node into its content box, and if any moved, the pass
@@ -102,7 +103,10 @@
 //! focus moves, scrolls (by the wheel or [`Tree::set_scroll_offset`]) or
 //! changes to the tree between two layouts reveal the last node asked for
 //! where it then is, from the offsets they left, and a request that
-//! scrolls nothing costs no pass.
+//! scrolls nothing costs no pass. The rows collections ask for at that
+//! layout are revealed so before it, each in turn, with a pass after each
+//! that moved an offset, so that the owner's request wins where they
+//! share a scroller.
 //!
 //! Lengths and sizes are at most [`MAX_EXTENT`]. A position is finite but
 //! may lie further from the origin, inside scrolled areas.
@@ -514,6 +518,12 @@ fn sane_length(value: Length) -> Length {
     }
 }
 
+/// The most times a layout binds the bound widgets after a pass and
+/// passes again, each time that changed anything: a split takes one for
+/// each split it is nested in, and the frames after settle what is nested
+/// deeper.
+const SETTLE_PASSES: usize = 8;
+
 /// A size made sane, as a [`length`] on each axis.
 pub(crate) fn sane_size(size: Size) -> Size {
     Size::new(length(size.width), length(size.height))
@@ -531,17 +541,41 @@ impl Tree {
     /// layout is scrolled into view, passing again only if an offset
     /// moved, and after any pass the hovered path is found again at the
     /// pointer's last position.
+    ///
+    /// Each [`Collection`](crate::widgets::Collection) binds its row
+    /// nodes to the rows of its model on screen first, from the last
+    /// layout's placements, and again after each pass, in the space that
+    /// pass gave it and the part of it on screen; it passes once more if
+    /// that added, removed or moved rows (ADR-0052). A tab strip scrolls
+    /// its own track, and a splitter gives its split its ratio kept within
+    /// the space the pass gave it. Binding and passing again goes on while
+    /// that changes anything, at most eight times, so that splits nested
+    /// that deep settle in one layout, and those nested deeper over the
+    /// next; a collection with a selection to scroll into view keeps its
+    /// rows as they are meanwhile. Once they settle, each such collection
+    /// scrolls its selection into view, within itself, in the space it now
+    /// has, and asks for its row to be scrolled into view by the scrollers
+    /// around it, which this layout does after one more pass, before the
+    /// node the owner asked for, if that is outside it, and in place of it
+    /// otherwise; then the binding settles again. A collection's nodes
+    /// take no more than it measures, so these passes change no
+    /// collection's space.
     pub fn layout(&mut self, size: Size, metrics: &dyn TextMetrics) {
         let size = sane_size(size);
-        let stale = self.layout_dirty || self.layout_size != Some(size);
+        let bound = self.bind_widgets(false, false);
+        let stale = bound || self.layout_dirty || self.layout_size != Some(size);
         if stale {
             self.run_layout(size, metrics);
+            self.settle_bound(size, metrics);
         }
         // Without a pass, the last one's placements are fresh: nothing
         // changed layout since.
-        let moved = self.reveal_pending();
-        if moved {
-            self.run_layout(size, metrics);
+        let moved = self.reveal_pending(size, metrics);
+        // A reveal moves what is on screen of the collections, and one a
+        // collection asked for that moved nothing leaves its rows kept
+        // where the selection is, not where the screen shows.
+        if stale || moved {
+            self.settle_bound(size, metrics);
         }
         if !stale && !moved {
             return;
@@ -549,6 +583,25 @@ impl Tree {
         self.layout_size = Some(size);
         self.layout_dirty = false;
         self.refresh_hover();
+    }
+
+    /// Binds the bound widgets after a pass, and passes again, while that
+    /// changes anything, at most [`SETTLE_PASSES`] times, collections
+    /// leaving a selection to scroll into view until then; then binds once
+    /// more, the collections taking those, and passes if that changed
+    /// anything. So a collection scrolls its selection in the space the
+    /// settled layout gives it, and the row it asks for keeps its node
+    /// until the reveal, as no binding comes between them.
+    fn settle_bound(&mut self, size: Size, metrics: &dyn TextMetrics) {
+        for _ in 0..SETTLE_PASSES {
+            if !self.bind_widgets(true, false) {
+                break;
+            }
+            self.run_layout(size, metrics);
+        }
+        if self.bind_widgets(true, true) {
+            self.run_layout(size, metrics);
+        }
     }
 
     /// The node's bounds in the last layout, in window coordinates; an
@@ -624,15 +677,28 @@ impl Tree {
         Ok(())
     }
 
-    /// Scrolls the node a [`scroll_into_view`](Tree::scroll_into_view)
-    /// asked for into view, from the last pass's placements, which must be
-    /// fresh, if it is still in the tree and shown, and forgets the
-    /// request. Returns whether an offset moved, so that the pass must run
-    /// again.
-    fn reveal_pending(&mut self) -> bool {
-        let Some(id) = self.reveal.take() else {
-            return false;
-        };
+    /// Scrolls the rows collections asked for into view, each in turn,
+    /// then the node a [`scroll_into_view`](Tree::scroll_into_view) asked
+    /// for, from the last pass's placements, which must be fresh, if each
+    /// is still in the tree and shown, and forgets the requests; each that
+    /// moved an offset runs the pass again, so the next one is revealed
+    /// from fresh placements. Returns whether any did.
+    fn reveal_pending(&mut self, size: Size, metrics: &dyn TextMetrics) -> bool {
+        let mut asked = std::mem::take(&mut self.reveal_rows);
+        asked.extend(self.reveal.take());
+        let mut moved = false;
+        for id in asked {
+            if self.reveal_node(id) {
+                self.run_layout(size, metrics);
+                moved = true;
+            }
+        }
+        moved
+    }
+
+    /// Scrolls `id` into view, from the last pass's placements, if it is
+    /// still in the tree and shown; returns whether an offset moved.
+    fn reveal_node(&mut self, id: NodeId) -> bool {
         if !self.is_visible(id) {
             return false;
         }
@@ -696,7 +762,7 @@ impl Tree {
 
 /// The scroll offset on one axis that brings `target` (start and length)
 /// into `view`, moving `offset` the least, clamped to 0 to `max`.
-fn reveal(offset: f32, target: (f32, f32), view: (f32, f32), max: f32) -> f32 {
+pub(crate) fn reveal(offset: f32, target: (f32, f32), view: (f32, f32), max: f32) -> f32 {
     let (start, len) = target;
     let (view_start, view_len) = view;
     let delta = if len > view_len || start < view_start {

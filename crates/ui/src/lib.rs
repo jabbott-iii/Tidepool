@@ -47,7 +47,10 @@
 //! `tidepool-dark`, jabbott.dev's tokens (ADR-0047); the tree holds the
 //! theme its widgets paint with. [`widgets`] has the controls, in
 //! jabbott.dev's design language: buttons, chips, fields, the scrollbar,
-//! the status dot, titles and breadcrumbs (ADR-0049).
+//! the status dot, titles and breadcrumbs (ADR-0049); and the collections,
+//! lists, tree views and tables over their owner's rows, which keep nodes
+//! only for the rows on screen, with the tab strip, splitter, card and code
+//! block (ADR-0052).
 //!
 //! `ui` depends on `tidepool-core`, whose geometry, colors and input types
 //! it uses, on `tidepool-codec`, whose TOML parser reads theme files, and

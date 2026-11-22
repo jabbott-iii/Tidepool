@@ -98,6 +98,14 @@ pub enum ActionKind {
     Submit,
     /// It was dismissed: Escape, or a close button.
     Dismiss,
+    /// A list, tree view or table moved its selection, by a key or a
+    /// press: its owner reads the row it selected (ADR-0052).
+    Select,
+    /// A tree view asks its owner to expand its selected row, whose
+    /// children the owner's model holds (ADR-0052).
+    Expand,
+    /// A tree view asks its owner to collapse its selected row (ADR-0052).
+    Collapse,
 }
 
 /// An action a widget emitted while handling an event.

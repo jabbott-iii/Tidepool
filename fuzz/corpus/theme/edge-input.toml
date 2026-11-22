@@ -37,6 +37,11 @@ teal-ring = { value = "rgba(92,203,203,0.15)", solid = "#17292a", ansi = 235 }
 green-halo = { value = "rgba(61,220,151,0.16)", solid = "#132d23", ansi = 235 }
 amber-halo = { value = "rgba(242,194,0,0.16)", solid = "#30290b", ansi = 235 }
 error-halo = { value = "rgba(255,138,128,0.16)", solid = "#32201f", ansi = 235 }
+table-head = { value = "rgba(41,53,58,0.60)", solid = "#1d2528", ansi = 235 }
+row-hover = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
+card-tab = { value = "#e8f3f3", ansi = 255 }
+on-card-tab = { value = "#0b1416", ansi = 233 }
+code-bar = { value = "rgba(41,53,58,0.45)", solid = "#181e21", ansi = 234 }
 
 [sizes]
 cut = 10
@@ -122,9 +127,5 @@ font-mono = "JetBrains Mono"
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding pa
+# padding padding padding padding pa
 ################################################################################

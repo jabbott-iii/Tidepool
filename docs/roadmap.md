@@ -2063,14 +2063,98 @@ JetBrains Mono text over the jabbott.dev backdrop.
     so nothing was built for macOS or Windows: that the scenes give the
     same bytes there is checked by CI's gate on the next push (M0.4's ⏳).
 
-- [ ] **M3.3 — ui: collections and overlays**
+- [x] **M3.7 — ui: collections**
   - Depends: M3.6
-  - Do: the rest of the Components table: list, tree view, table, tab
-    strip, splitter, card with its tab, code block, tooltip, toast, modal
-    and the command palette.
+  - Do: from the spec's Components table: list, tree view, table, tab
+    strip, splitter, card with its tab and code block. The list, tree
+    view and table keep nodes only for the rows in view, over a model
+    their owner provides (ADR-0052).
   - Accept: as M3.6, plus keyboard-navigation tests for the list, tree
-    view, table and palette.
+    view and table, and a test that a collection of 1,000,000 rows keeps
+    nodes only for the rows in view and a margin.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-ui`
+  - Note (2026-11-20): split from M3.3 (ADR-0052), which keeps the
+    overlays.
+  - Note (2026-11-20): done. `ui::widgets` has:
+    - `Collection`, a list, tree view or table (`CollectionKind`) over a
+      model of `Rows` its owner provides, rows 20 high. It keeps nodes
+      only for the rows on screen, cut to its clipping ancestors, and two
+      either side, at most `MAX_VIEW_ROWS` (512) and two, in a body of
+      fixed-height gaps that never scrolls, and asks the model for a row
+      only as it comes into view.
+    - A selection of one row moves with the arrow, page, Home and End
+      keys and a press, and is scrolled into view the least, by the
+      collection and by the scrollers around it. A tree view's Left and
+      Right collapse, expand or move by level, as the WAI-ARIA tree
+      pattern does.
+    - A table names its rows by the cells its columns show, each capped
+      at `MAX_CELL_BYTES`, and its column headers take focus and activate
+      for the owner to sort.
+    - `TabStrip`: one tab stop, wrapping arrows, Home, End, Delete and
+      close controls, chrome or content labels, a track that scrolls to
+      the selected tab. `Splitter`: the divider of a `Layout::Split`,
+      dragged or stepped within the panes' minimums, keeping the ratio it
+      was given. `Card`, with its right-edge tab. `CodeBlock`: spans in
+      the theme's tokens, within line, byte and span caps, with a COPY
+      button for its owner.
+    - `ActionKind` gains `Select`, `Expand` and `Collapse`. `Tree::layout`
+      binds these widgets until they settle, at most eight times, before
+      it takes their reveals. The theme gains `table-head`, `row-hover`,
+      `card-tab`, `on-card-tab` and `code-bar`, with 55 text pairs at AA.
+      `crates/gui/tests/components/mod.rs` paints 14 scenes, `ui_list` to
+      `ui_code_block_scale_2`, each a row for each variant and a column
+      for each state, at scale 1 and 2. The user looked at a contact sheet
+      of them and asked for them to be blessed; their references take
+      1.3 MB.
+  - Note (2026-11-20): reviewed in three rounds. Each round had a
+    correctness reviewer and `security-reviewer`, and every finding was
+    proven with a probe before it was fixed:
+    - The list, tree view and table: 14 findings, 11 once those both
+      reviewers found are counted once. The main one: inside a
+      scrolling pane a collection kept a node for every row, up to
+      50,005, a press could select a row other than the one drawn, and a
+      64-column table filled the tree.
+    - The tab strip, splitter, card and code block: 18 findings, 14 once
+      counted once. Among
+      them: a press on a tab removed before the next frame, a splitter
+      that lost its ratio for good after a resize, and an uncapped code
+      language.
+    - The fixes of the second round: 4 findings and 2 nits, the main one
+      a reveal lost when a split re-clamped in the same turn.
+    All are fixed. Each fix was reverted once to see its test fail, and
+    each review's probes were run again on the fixed code. Left as they
+    are, the owner chose on 2026-11-21: a row's accessible name shows in
+    full in `Semantics`'s `Debug`,
+    as M3.1's names do, and `Collection`'s name and the M3.6 controls'
+    names are not capped.
+  - Note (2026-11-20): checked on rustc 1.99.0, Linux:
+    - `cargo xtask golden`: 75 scenes ok, the 14 new ones blessed from
+      images byte-identical to those the user looked at.
+    - `cargo test -p tidepool-ui`: 63 unit tests, 3 a11y, 30
+      collections, 28 components, 12 frame, 2 fuzz, 19 input, 22 layout,
+      4 settling, 2 theme, 28 widgets and 27 doc tests pass.
+    - `cargo xtask theme`: 55 of 55 pairs at AA.
+    - `cargo xtask ci`: 13 of 13 steps pass, with the 29 window tests
+      skipped; `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 13 of 13,
+      none skipped. `RUSTDOCFLAGS='-D warnings' cargo doc -p tidepool-ui -p
+      tidepool-gui --no-deps` is clean.
+    - Nothing was built for macOS or Windows: `ui` and `gui` have no OS
+      code, and CI's gate checks the scenes there on the next push.
+
+- [ ] **M3.3 — ui: overlays**
+  - Depends: M3.7
+  - Do: the rest of the Components table: tooltip, toast, modal and the
+    command palette, over a layer of overlays in the tree (ADR-0052).
+  - Accept: as M3.6, plus keyboard-navigation tests for the palette, and
+    tests that a modal makes the rest inert, keeps Tab within itself and
+    gives focus back when it closes.
+  - Verify: `cargo xtask golden`; `cargo test -p tidepool-ui`
+  - Note (2026-11-20): ADR-0052 split this task, which was `ui:
+    collections and overlays`: M3.7 builds the list, tree view, table,
+    tab strip, splitter, card and code block; this task keeps the
+    tooltip, toast, modal and palette. The palette shows what its owner
+    ranks, and a tooltip's delay and a toast's timeout are the owner's
+    timers.
 
 - [ ] **M3.4 — app: event-driven main loop and shell**
   - Depends: M3.3, M2.6, M2.7

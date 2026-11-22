@@ -88,7 +88,7 @@ pub const MAX_TEXT_BYTES: usize = 64;
 
 /// The limits [`Theme::tidepool_dark`] parses with, which suit any theme
 /// file: 1 MiB of input, 8 levels, strings of 4 KiB, numbers of 64 bytes
-/// and 1,024 entries in a table or array. The bundled file is about 4 KiB,
+/// and 1,024 entries in a table or array. The bundled file is about 7 KiB,
 /// and 4 levels deep at `contrast.use[i].on[j]`.
 pub const LIMITS: Limits = Limits {
     max_input_bytes: 1024 * 1024,
@@ -181,11 +181,24 @@ pub enum Token {
     /// `error-halo`, translucent: the halo of a status dot that failed
     /// (ADR-0049).
     ErrorHalo,
+    /// `table-head`, translucent: a table's header row, `slate` at 60%
+    /// (ADR-0052).
+    TableHead,
+    /// `row-hover`, translucent: the wash of a hovered row of a list, tree
+    /// view or table, white at 2.5% (ADR-0052).
+    RowHover,
+    /// `card-tab`: a card's tab, its pill label (`.card__tab`, ADR-0052).
+    CardTab,
+    /// `on-card-tab`: text on `card-tab`, a card tab's label (ADR-0052).
+    OnCardTab,
+    /// `code-bar`, translucent: a code block's bar, `slate` at 45%
+    /// (`.code-bar`, ADR-0052).
+    CodeBar,
 }
 
 impl Token {
     /// How many tokens there are.
-    pub const COUNT: usize = 34;
+    pub const COUNT: usize = 39;
 
     /// Every token, in the order the spec lists them.
     pub const ALL: [Self; Self::COUNT] = [
@@ -223,6 +236,11 @@ impl Token {
         Self::GreenHalo,
         Self::AmberHalo,
         Self::ErrorHalo,
+        Self::TableHead,
+        Self::RowHover,
+        Self::CardTab,
+        Self::OnCardTab,
+        Self::CodeBar,
     ];
 
     /// The token's name in the spec and in theme files: `bg-raise`.
@@ -262,6 +280,11 @@ impl Token {
             Self::GreenHalo => "green-halo",
             Self::AmberHalo => "amber-halo",
             Self::ErrorHalo => "error-halo",
+            Self::TableHead => "table-head",
+            Self::RowHover => "row-hover",
+            Self::CardTab => "card-tab",
+            Self::OnCardTab => "on-card-tab",
+            Self::CodeBar => "code-bar",
         }
     }
 

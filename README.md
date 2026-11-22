@@ -22,7 +22,9 @@ fallback, for the bundled Saira and JetBrains Mono, and the UI toolkit's
 widget tree, with its layout, focus, input routing, draw lists and
 accessibility tree, its theme of jabbott.dev's tokens, checked for
 WCAG AA contrast, its controls (buttons, chips, text and search fields,
-the scrollbar, status dots, titles and breadcrumbs), and the painter
+the scrollbar, status dots, titles and breadcrumbs), its collections
+(lists, tree views and tables of any number of rows, tab strips,
+splitters, cards and code blocks), and the painter
 that draws its frames into pixels, the changed parts only, are built;
 and
 `cargo tp` opens a Linux window that shows the first frame,

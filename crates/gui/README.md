@@ -43,6 +43,12 @@ Built, with the roadmap task that built it:
   2, every cell a tree of its own put in its state by real events
   (`tests/controls/mod.rs`, a module of the `golden` target) — M3.6
   (ADR-0049).
+- 14 golden scenes of `ui`'s M3.7 components, the list, tree view, table,
+  tab strip, splitter, card and code block, each in each state, theirs
+  included, at scale 1 and 2, every cell a tree of its own put in its
+  state by real events (`tests/components/mod.rs`, a module of the
+  `golden` target); their references are blessed once the owner has
+  looked at them — M3.7 (ADR-0052).
 
 Not yet, with the roadmap task that adds it:
 
@@ -187,8 +193,9 @@ by frame at scales 1 to 2, and checks that each frame changes only its
 damage and that painting the damage gives what painting the whole frame
 gives, idle frames included; a second property aims slivers of
 anti-aliased ink past a clipping node's edge. `tests/golden.rs` paints
-the 23 `ui_*` scenes, which `cargo xtask golden` compares exactly with
-`tests/golden/` (ADR-0044, ADR-0048). The window test,
+the 23 `ui_*` scenes, and its modules `controls` and `components` the
+controls' 16 and M3.7's components' 14, which `cargo xtask golden`
+compares exactly with `tests/golden/` (ADR-0044, ADR-0048). The window test,
 `tests/window.rs`, opens the window and sees its first frame presented and
 an idle turn present nothing; it runs only with `TIDEPOOL_IT_X11=1`, as
 `platform`'s do, and prints `SKIPPED:` otherwise (ADR-0039). `cargo xtask

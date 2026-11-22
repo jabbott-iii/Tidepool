@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             report.notes.last().map(String::as_str),
             Some(
-                "themes/tidepool-dark.toml: 40 pairs used for text, 40 at or above the contrast \
+                "themes/tidepool-dark.toml: 55 pairs used for text, 55 at or above the contrast \
                  their size needs"
             )
         );
@@ -932,6 +932,9 @@ mod tests {
         );
         let report = checked(&text);
         let at = line("text = \"text-3\"");
+        let ghost = line("text = \"text-3\"\non = [\"ghost\"]");
+        let bar = line("text = \"text-3\"\non = [\"code-bar\"]");
+        let bar_ratio = "2.97";
         assert_eq!(
             report.violations,
             [
@@ -946,6 +949,15 @@ mod tests {
                 format!(
                     "themes/t.toml:{at}: `text-3` on `panel` is 3.39:1, below the 4.5:1 that \
                      normal text needs"
+                ),
+                // A card's kicker, and a code block's language (ADR-0052).
+                format!(
+                    "themes/t.toml:{ghost}: `text-3` on `ghost` is 3.34:1, below the 4.5:1 that \
+                     normal text needs"
+                ),
+                format!(
+                    "themes/t.toml:{bar}: `text-3` on `code-bar` over `editor-bg` is {bar_ratio}:1, \
+                     below the 4.5:1 that normal text needs"
                 ),
             ]
         );
@@ -1056,9 +1068,12 @@ mod tests {
         let at = line("on = [\"teal-glow\"]") - 1;
         // The controls' pairs on `teal-glow` (ADR-0049) fail at 0.56 too: a
         // pressed teal button's label over `bg`, and a field's selection
-        // over `slate`.
+        // over `slate`; and of the collections' (ADR-0052), a selected tree
+        // item's chevron, a glyph, where a selected row's text holds at
+        // 4.56:1 over `bg`.
         let pressed = line("text = \"teal-hi\"");
         let field = line("over = \"slate\"") - 2;
+        let chevron = line("on = [\"row-hover\", \"teal-glow\"]\nsize = \"large\"") - 1;
         assert_eq!(
             checked(&text).violations,
             [
@@ -1073,6 +1088,10 @@ mod tests {
                 format!(
                     "themes/t.toml:{field}: `text` on `teal-glow` over `slate` is 3.57:1, below \
                      the 4.5:1 that normal text needs"
+                ),
+                format!(
+                    "themes/t.toml:{chevron}: `text-2` on `teal-glow` is 2.68:1, below the 3:1 \
+                     that large text needs"
                 ),
             ]
         );
@@ -1434,17 +1453,20 @@ mod tests {
 
     #[test]
     fn many_violations_take_time_in_the_violations_not_the_file_squared() {
-        // 1,000 entries of `use` with an unknown key each, in a file of
+        // As many entries of `use` as the reader's limit of 1,024 leaves
+        // room for, nearly 1,000, with an unknown key each, in a file of
         // about 60 KiB: each violation names its line from a table of
         // line starts, made once.
+        let room = LIMITS.max_entries - THEME.matches("[[contrast.use]]").count();
+        assert!(room >= 990, "{room}");
         let mut text = THEME.to_string();
-        for _ in 0..1000 {
+        for _ in 0..room {
             text.push_str(
                 "\n[[contrast.use]]\ntext = \"text\"\non = [\"bg\"]\nsize = \"normal\"\nx = 1\n",
             );
         }
         let report = checked(&text);
-        assert_eq!(report.violations.len(), 1000);
+        assert_eq!(report.violations.len(), room);
         let last = text.rfind("x = 1").unwrap();
         assert_eq!(
             report.violations.last().map(String::as_str),

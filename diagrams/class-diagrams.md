@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.6 (2026-11-18, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2 and M3.5. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.7 (2026-11-20, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6 and ADR-0050. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -66,8 +66,9 @@ atlas and outline rasterizer, `ui`'s `Theme`, draw lists and
 `core`'s geometry, colors and input events, and `TextLength` to keep a
 value out of `Debug`, reads theme files with `codec::toml` within a
 `codec::Limits`, wrapping a `codec::CodecError` in its `UiError`, and
-moves and deletes in its fields by `text::pos::grapheme`'s cluster
-boundaries (section 28).
+moves and deletes in its fields, and cuts what its tabs, rows, cells and
+code blocks show, by `text::pos::grapheme`'s cluster boundaries (section
+28).
 
 ### 1.1 core and codec, and what xtask uses of them
 
@@ -3697,7 +3698,7 @@ classDiagram
   framebuffer and the backdrop. `FontMetrics` borrows the painter's
   faces, so `Tree::frame` measures with the faces the painter draws.
 
-## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme and the controls
+## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme, the controls and the collections
 
 `tidepool-ui` (M3.1, ADR-0046) keeps a retained `Tree`: an arena of
 `Slot`s, each with a generation and at most one node's `NodeData`, so a
@@ -3709,8 +3710,10 @@ that layout uses, and records what the last layout gave each node in a
 measured sizes in its `Memo`. The tree itself holds the focus, the hover
 path from the pointer's last position, the node a press captured, the
 node the next layout scrolls into view, the nodes and damage waiting
-for the next frame, and the `Theme` its widgets paint with, an `Arc` of
-the bundled one by default (ADR-0049).
+for the next frame, the `Theme` its widgets paint with, an `Arc` of
+the bundled one by default (ADR-0049), and the nodes of the widgets each
+layout binds, the collections, tab strips and splitters, with the rows
+they ask to be scrolled into view (ADR-0052, 28.5 and 28.6).
 
 ### 28.1 The tree, its nodes and their widgets
 
@@ -3729,6 +3732,7 @@ classDiagram
         -paint_queue: Vec~NodeId~
         -damage: Vec~Rect~
         -theme: Arc~Theme~
+        -bound: Vec~NodeId~
         +new() Tree
         +insert(parent, node) Result~NodeId~
         +remove(id) Result
@@ -3850,7 +3854,7 @@ classDiagram
     NodeData *-- Placement
     NodeData *-- Memo
     NodeData --> NodeId : parent, children
-    Tree --> NodeId : root, focus, capture, reveal
+    Tree --> NodeId : root, focus, capture,<br/>reveal, bound
     Tree ..> Node : insert takes
     Tree ..> NodeState : state returns
     Node *-- Style
@@ -3934,6 +3938,9 @@ classDiagram
         Change
         Submit
         Dismiss
+        Select
+        Expand
+        Collapse
     }
     class PaintContext["ui::draw::PaintContext"] {
         +node() NodeId
@@ -4025,7 +4032,7 @@ classDiagram
 
 `Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
 within the `Limits` it is given, and reads its tables into a `Theme`: a
-name, a `TokenColor` for each of the 34 `Token`s, in the order of
+name, a `TokenColor` for each of the 39 `Token`s, in the order of
 `Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
 two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
 of `themes/tidepool-dark.toml` compiled in, within `LIMITS`, at each
@@ -4050,7 +4057,7 @@ classDiagram
     }
     class Theme["ui::theme::Theme"] {
         -name: String
-        -colors: 34 TokenColor
+        -colors: 39 TokenColor
         -cut: f32
         -font_ui: String
         -font_mono: String
@@ -4078,7 +4085,7 @@ classDiagram
         TealLine
         GreenHalo
         +COUNT: usize
-        +ALL: 34 Token
+        +ALL: 39 Token
         +name() str
         +from_name(name) Option~Token~
     }
@@ -4120,7 +4127,7 @@ classDiagram
         <<trait>>
     }
 
-    Theme "1" *-- "34" TokenColor : colors, one per Token
+    Theme "1" *-- "39" TokenColor : colors, one per Token
     TokenColor *-- Color : value, solid
     Theme ..> Token : token, color,<br/>solid, ansi take
     Theme ..> Family : font takes
@@ -4135,10 +4142,12 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-- The `Token` box lists 10 of its 34 variants, the rows of the spec's
+- The `Token` box lists 10 of its 39 variants, the rows of the spec's
   token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
-  `comment`, and eight ADR-0049 added for the controls' component colors,
-  from `ghost` to `error-halo`, such as `teal-line` and `green-halo`.
+  `comment`, eight ADR-0049 added for the controls' component colors,
+  from `ghost` to `error-halo`, such as `teal-line` and `green-halo`, and
+  five ADR-0052 added for the collections, the card's tab and the code
+  block's bar, from `table-head` to `code-bar`.
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
 - `UiError`'s box lists only its two theme variants; section 29 has the
@@ -4151,7 +4160,8 @@ classDiagram
 ### 28.4 The controls
 
 `ui::widgets` (M3.6, ADR-0049) has the controls of the spec's Components
-table. Each is a plain struct that implements `Widget` and `Control`:
+table, and the collections and other components of M3.7 (28.5, 28.6).
+Each control is a plain struct that implements `Widget` and `Control`:
 `Control` says the control's `Semantics`, its `Style` and whether it
 takes focus, and `node` makes the `Node` that holds it, so that every
 control has its role and the name its owner gives it, focusable or not;
@@ -4339,6 +4349,352 @@ classDiagram
   its node's value, and its `Debug`, as every field's, shows its text's
   length only (ADR-0043). The separators between crumbs are a private
   widget that the accessibility tree leaves out.
+
+### 28.5 The collections
+
+`ui::widgets` (M3.7, ADR-0052) has the list, the tree view and the table
+as one `Collection` of a `CollectionKind`, over a model of `Rows` its
+owner provides, which it asks how many rows there are and, one `Row` at a
+time, what a row on screen shows; a table's `Column`s give its headers
+their titles and its cells their widths. Every row is `ROW_HEIGHT` high
+and shows in a view of at most `MAX_VIEW_ROWS` rows, so which rows are on
+screen is arithmetic. The tree keeps a collection's node among those each
+layout binds (`bound`), and `bind_collection` binds the collection's row
+nodes, private `RowView`s, to the rows on screen and `ROW_MARGIN` either
+side within the view, from the collection's own offset, an `f64` in
+units, so at most `MAX_VIEW_ROWS` and two however many rows the model
+has. The collection keeps a selection of one row, which keys and presses
+move, emitting `ActionKind::Select`, and which it scrolls into view
+within itself; the tree then scrolls the selected row's node into view
+by the scrollers around it (`reveal_rows`), before the node its owner
+asked for. A tree view emits `Expand` and `Collapse`, which its owner
+applies to its model. A table's column headers are private
+`HeaderCell`s, which activate as a button does; `Collection::column_of`
+gives an activated one's column.
+
+```mermaid
+classDiagram
+    direction LR
+    class CollectionFns["ui::widgets"] {
+        <<module>>
+        +ROW_HEIGHT: f32
+        +ROW_MARGIN: usize
+        +MAX_VIEW_ROWS: usize
+        +MAX_CELL_BYTES: usize
+        +MAX_COLUMNS: usize
+        +ROW_TEXT: TextStyle
+        +TABLE_HEADER: TextStyle
+        -is_bound(widget) bool
+    }
+    class Rows["ui::widgets::Rows"] {
+        <<trait>>
+        +len() usize
+        +is_empty() bool
+        +row(index) Row
+    }
+    class Row["ui::widgets::Row"] {
+        -cells: Vec~String~
+        -depth: u16
+        -expanded: Option~bool~
+        -parent: Option~usize~
+        +new(label) Row
+        +cells(cells) Row
+        +depth(depth) Row
+        +expanded(expanded) Row
+        +parent(parent) Row
+        +label() str
+        +cell(column) str
+    }
+    class Column["ui::widgets::Column"] {
+        -title: String
+        -width: f32
+        +new(title, width) Column
+        +title() str
+        +width() f32
+    }
+    class CollectionKind["ui::widgets::CollectionKind"] {
+        <<enumeration>>
+        List
+        TreeView
+        Table
+    }
+    class Collection["ui::widgets::Collection"] {
+        -kind: CollectionKind
+        -name: String
+        -columns: Vec~Column~
+        -model: Box dyn Rows
+        -selected: Option~usize~
+        -offset: f64
+        -revision: u64
+        +list(name, model) Collection
+        +tree_view(name, model) Collection
+        +table(name, columns, model) Collection
+        +model_as~M~() Option
+        +model_mut~M~() Option
+        +set_model(model)
+        +rows_inserted(at, count)
+        +rows_removed(rows)
+        +selected() Option~usize~
+        +select(row)
+        +scroll_to(offset)
+        +column_of(tree, node) Option~usize~
+    }
+    class RowView["ui::widgets::collection::window::RowView"] {
+        -kind: CollectionKind
+        -label: String
+        -depth: u16
+        -expansion: Option~bool~
+        -selected: bool
+        -cut: f32
+    }
+    class HeaderCell["ui::widgets::collection::window::HeaderCell"] {
+        -column: usize
+        -shown: String
+    }
+    class Tree["ui::tree::Tree"] {
+        -bound: Vec~NodeId~
+        -reveal_rows: Vec~NodeId~
+        +layout(size, metrics)
+        -bind_widgets(after_pass, reveal) bool
+        -bind_collection(id, after_pass, reveal) bool
+    }
+    class Control["ui::widgets::Control"] {
+        <<trait>>
+    }
+    class Widget["ui::tree::Widget"] {
+        <<trait>>
+    }
+    class Any["std::any::Any"] {
+        <<trait>>
+    }
+    class ActionKind["ui::input::ActionKind"] {
+        <<enumeration>>
+        Activate
+        Select
+        Expand
+        Collapse
+    }
+    class Role["ui::a11y::Role"] {
+        <<enumeration>>
+        List
+        ListItem
+        TreeView
+        TreeItem
+        Table
+        Row
+        Cell
+        ColumnHeader
+    }
+
+    Control <|.. Collection
+    Widget <|.. RowView
+    Widget <|.. HeaderCell
+    Rows ..> Any : its supertrait,<br/>for model_as
+    Collection *-- CollectionKind
+    Collection "1" *-- "0..*" Column : columns, a table's
+    Collection "1" *-- "1" Rows : model, the owner's
+    Rows ..> Row : row makes one,<br/>for a row on screen
+    Tree --> Collection : bound names<br/>its node
+    Tree ..> RowView : bind_collection keeps one<br/>a row on screen and<br/>ROW_MARGIN either side
+    Tree --> RowView : reveal_rows names<br/>a selected row's node
+    Tree ..> HeaderCell : bind_collection builds<br/>one a column
+    RowView *-- CollectionKind
+    Collection ..> HeaderCell : column_of reads<br/>its column
+    Collection ..> ActionKind : emits Select, Activate,<br/>Expand, Collapse
+    Collection ..> Role : List, TreeView or Table,<br/>its rows ListItem,<br/>TreeItem or Row
+    Tree ..> CollectionFns : insert asks is_bound<br/>which nodes to bind
+```
+
+- `Vec<Row>` and `Vec<String>` implement `Rows`; a model that makes its
+  rows as they are asked for holds a million rows in the memory of one.
+  The collection asks for rows on the main thread, as the tree is laid
+  out or an event handled, so a model answers from memory (`AGENTS.md`
+  rule 6).
+- A collection's node holds a table's private `HeaderRow` of
+  `HeaderCell`s, then a private `Body`, a column that clips, whose rows
+  sit between two private `Gap`s of fixed heights where the offset puts
+  them; a table's `RowView` holds a private `CellView` for each column.
+  `Collection` also keeps a private `View`, where it bound its rows last,
+  so that it binds them again only when that changes.
+- A row on screen is named by what it shows, as written, at most
+  `MAX_CELL_BYTES` a cell, cut at a cluster boundary; the collection's
+  value is its row count and selection. `Row`'s, `RowView`'s and
+  `CellView`'s `Debug` show their text's length only, and `Collection`'s
+  none of its rows (ADR-0043). The `Role` box lists the variants the
+  collections use.
+
+### 28.6 The tab strip, the splitter, the card and the code block
+
+The rest of M3.7's components (ADR-0052) are `Control`s too. A
+`TabStrip` is one tab stop over its `Tab`s, of a `TabKind`: chrome,
+painted uppercase, or content, as written. Keys and presses select a
+tab or ask to close one, emitting `ActionKind::Select` or `Dismiss` about
+the tab `target` names, which the owner removes with `remove`; the tree
+binds its node as it does a collection's, and `bind_tabs` keeps a
+private `TabView` a tab in a track that scrolls the selected tab into
+view. `Splitter::insert` builds a node of `Layout::Split` holding the
+first pane, the splitter and the second pane; `bind_splitter` gives the
+split the ratio the splitter keeps, within the panes' minimums, and a
+drag or a key moves it, emitting `Change`. The tree binds and lays out
+again while that changes anything, at most eight times a layout, so
+nested splits settle in one. A `Card` holds its owner's buttons below
+its kicker, title and line of text, with a tab on its right edge. A
+`CodeBlock` holds lines of `CodeSpan`s, each painted in a theme `Token`;
+`insert` adds it with its private `CopyButton`, which `copy_button`
+finds, and whose `Activate` the owner answers by copying its own
+source. Labels, names, lines and the language are cut at a cluster
+boundary to the module's limits.
+
+```mermaid
+classDiagram
+    direction LR
+    class ComponentFns["ui::widgets"] {
+        <<module>>
+        +TAB_HEIGHT: f32
+        +MAX_TABS: usize
+        +MAX_TAB_LABEL_BYTES: usize
+        +SPLITTER_THICKNESS: f32
+        +SPLITTER_STEP: f32
+        +MAX_CODE_LINES: usize
+        +MAX_CODE_LINE_BYTES: usize
+        +MAX_CODE_SPANS: usize
+        +MAX_LANGUAGE_BYTES: usize
+        -cut_to(text, max) str
+    }
+    class Control["ui::widgets::Control"] {
+        <<trait>>
+    }
+    class TabStrip["ui::widgets::TabStrip"] {
+        -kind: TabKind
+        -name: String
+        -tabs: Vec~Tab~
+        -selected: Option~usize~
+        -target: Option~usize~
+        +new(name, kind, tabs) TabStrip
+        +tabs() Tab slice
+        +selected() Option~usize~
+        +target() Option~usize~
+        +select(index)
+        +insert(at, tab) bool
+        +remove(index) Option~Tab~
+        +set_label(index, label) bool
+    }
+    class Tab["ui::widgets::Tab"] {
+        -label: String
+        -closable: bool
+        +new(label) Tab
+        +closable() Tab
+        +label() str
+        +is_closable() bool
+    }
+    class TabKind["ui::widgets::TabKind"] {
+        <<enumeration>>
+        Chrome
+        Content
+    }
+    class TabView["ui::widgets::tabs::TabView"] {
+        -kind: TabKind
+        -shown: String
+        -closable: bool
+        -selected: bool
+    }
+    class Splitter["ui::widgets::Splitter"] {
+        -axis: Axis
+        -name: String
+        -ratio: f32
+        -shown: f32
+        -grab: Option~f32~
+        +new(axis, name, ratio) Splitter
+        +ratio() f32
+        +set_ratio(ratio)
+        +insert(tree, parent, first, second) Result~NodeId~
+        +divider(tree, split) Option~NodeId~
+    }
+    class Card["ui::widgets::Card"] {
+        -kicker: String
+        -title: String
+        -text: String
+        -tab: String
+        +new(title) Card
+        +kicker(kicker) Card
+        +text(text) Card
+        +tab(label) Card
+        +set_title(title)
+        +set_text(text)
+        +set_tab(label)
+    }
+    class CodeBlock["ui::widgets::CodeBlock"] {
+        -language: String
+        -lines: Vec~Vec~CodeSpan~~
+        -cut: bool
+        +new(language, lines) CodeBlock
+        +plain(language, text) CodeBlock
+        +language() str
+        +is_cut() bool
+        +text() String
+        +insert(tree, parent) Result~NodeId~
+        +copy_button(tree, block) Option~NodeId~
+    }
+    class CodeSpan["ui::widgets::CodeSpan"] {
+        -text: String
+        -token: Token
+        +new(text, token) CodeSpan
+        +text() str
+        +token() Token
+    }
+    class CopyButton["ui::widgets::code::CopyButton"]
+    class Tree["ui::tree::Tree"] {
+        -bind_tabs(id, after_pass) bool
+        -bind_splitter(id) bool
+    }
+    class Layout["ui::layout::Layout"] {
+        <<enumeration>>
+        Split
+    }
+    class Axis["ui::layout::Axis"]
+    class Token["ui::theme::Token"]
+    class ActionKind["ui::input::ActionKind"] {
+        <<enumeration>>
+        Activate
+        Change
+        Dismiss
+        Select
+    }
+
+    Control <|.. TabStrip
+    Control <|.. Splitter
+    Control <|.. Card
+    Control <|.. CodeBlock
+    Control <|.. CopyButton
+    TabStrip *-- TabKind
+    TabStrip "1" *-- "0..*" Tab : tabs, at most MAX_TABS
+    TabView *-- TabKind
+    Tree ..> TabStrip : bind_tabs scrolls its<br/>track to the selected tab
+    Tree ..> TabView : bind_tabs keeps<br/>one a tab
+    Tree ..> Splitter : bind_splitter gives its<br/>split the ratio it keeps
+    Splitter *-- Axis
+    Splitter ..> Layout : insert builds a Split<br/>of two panes and it
+    CodeBlock "1" *-- "0..*" CodeSpan : lines
+    CodeSpan *-- Token
+    CodeBlock ..> CopyButton : insert adds one,<br/>copy_button finds it
+    TabStrip ..> ActionKind : emits Select, Dismiss
+    Splitter ..> ActionKind : emits Change
+    CopyButton ..> ActionKind : emits Activate
+    Tab ..> ComponentFns : new cuts its label<br/>with cut_to
+```
+
+- The tab strip's track and close controls are private widgets too
+  (`TabTrack`, `TabClose`); a closable tab holds a button named "Close"
+  and its label. A press finds a tab only where the last frame showed it,
+  so never one the owner moved since.
+- A splitter binds only as the middle of its split's three children, as
+  `insert` places it, and keeps the ratio it was given or moved to while
+  the split shows it within the panes' minimums (`shown`).
+- `Card` and `CodeBlock` take no focus themselves: the card's buttons
+  and the block's COPY do. Each is a group in the accessibility tree,
+  named by its title or its language. The `Debug` of `Tab`, `TabView`,
+  `Card`, `CodeSpan` and `CodeBlock` shows their text's length only
+  (ADR-0043).
 
 ## 29. Error enums across crates
 
@@ -4549,9 +4905,9 @@ is described in words here.
   24): `Pty` (`Pty::spawn(argv, env, cwd, size)`), planned (M5.9); the
   terminal's raw mode guard, planned (M7.1).
 - `tidepool-ui`, besides its tree, layout, events, frames, accessibility
-  tree, theme and controls (section 28): the collections and overlays,
-  planned (M3.3): the list, tree view, table, tab strip, splitter, card
-  with its tab, code block, tooltip, toast, modal and command palette.
+  tree, theme, controls and collections (section 28): the overlays,
+  planned (M3.3): the tooltip, toast, modal and command palette, over a
+  layer of overlays in the tree (ADR-0052).
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
@@ -4606,8 +4962,9 @@ The main files these diagrams were drawn from:
 - `crates/ui/src/lib.rs`, `error.rs`, `tree.rs`, `tree/arena.rs`,
   `layout.rs`, `layout/arrange.rs`, `focus.rs`, `input.rs`, `metrics.rs`,
   `draw.rs`, `a11y.rs`, `theme.rs`, `widgets.rs`, and `widgets/`
-  (`breadcrumbs.rs`, `button.rs`, `chip.rs`, `field.rs`, `labels.rs`,
-  `scrollbar.rs`); `themes/tidepool-dark.toml`
+  (`breadcrumbs.rs`, `button.rs`, `card.rs`, `chip.rs`, `code.rs`,
+  `collection.rs`, `collection/window.rs`, `field.rs`, `labels.rs`,
+  `scrollbar.rs`, `splitter.rs`, `tabs.rs`); `themes/tidepool-dark.toml`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -4615,7 +4972,8 @@ The main files these diagrams were drawn from:
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
-  ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049)
+  ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
+  ADR-0052)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

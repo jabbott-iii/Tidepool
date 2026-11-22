@@ -76,8 +76,13 @@ each task once it is done and verified.
   eyebrow, kicker and breadcrumbs, the controls giving their nodes
   their role and name and painting from the theme the tree now holds, with eight more
   tokens for the site's component colors, and 16 golden scenes of them
-  in each state that `gui` paints (M3.6, ADR-0049). The window still
-  shows the first frame until the shell (M3.4).
+  in each state that `gui` paints (M3.6, ADR-0049); and in `widgets` the
+  collections: the list, tree view and table over a model of rows their
+  owner provides, keeping nodes only for the rows on screen, with a
+  selection the keyboard moves and scrolls into view, the tab strip, the
+  splitter, the card with its tab and the code block, with five more
+  tokens and 14 golden scenes of them in each state (M3.7, ADR-0052).
+  The window still shows the first frame until the shell (M3.4).
 - **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

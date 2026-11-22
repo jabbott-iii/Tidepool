@@ -74,7 +74,9 @@ Built, with the roadmap task that built it:
 - `theme`: `Theme`, read from a theme file by `Theme::parse` within
   `codec`'s `Limits`, and `Theme::tidepool_dark`, the bundled
   `themes/tidepool-dark.toml` compiled in: a value for each color
-  `Token` (26; M3.6 adds eight for the controls), with the solid color over `bg` and the 256-color index
+  `Token` (26; M3.6 adds eight for the controls, and M3.7 five for the
+  collections, the card's tab and the code block's bar), with the solid
+  color over `bg` and the 256-color index
   where the file gives them, the cut-corner size and the two fonts. A
   key that is missing or unknown, a wrong type, a color that does not
   parse, a `solid` for an opaque value, a translucent `bg`, an index out
@@ -102,6 +104,68 @@ Built, with the roadmap task that built it:
   repaints every node. The site's component colors that its `:root`
   lacks are eight more tokens; pressed and disabled looks, and no
   blurred glows, are ADR-0049's — M3.6.
+- `widgets`: the collections (ADR-0052) — `Collection`, a list, tree
+  view or table over a model of `Rows` its owner provides, which it asks
+  for one `Row` at a time, only for the rows it shows (and a tree view's
+  selected row, for Left and Right). Its rows, all 20 high, show in a
+  view of at most 512 rows (`MAX_VIEW_ROWS`), which it measures no taller
+  than; it keeps nodes only for the rows of that view on screen, cut to
+  its clipping ancestors and the window, and two either side within the
+  view, so at most 514 however it is laid out, in a scroller too, and
+  binds them to other rows as each layout scrolls it, by its own offset:
+  a million rows lay out and paint as a page does. The wheel scrolls it
+  and passes on what it cannot take. It keeps a selection of one row,
+  which Up, Down, Page Up, Page Down, Home, End and a press move and
+  scroll into view, the least, within itself and by the scrollers around
+  it (`ActionKind::Select`); Enter activates, and a tree view's Left and
+  Right collapse, expand (`Collapse`, `Expand`, which the owner applies to
+  its model) or move to the parent or first child; it stays on its row as
+  the owner says rows were inserted or removed. The rows on screen are
+  list items, tree items or rows with a cell for each `Column`, named as
+  written by what they show, at most 4 KiB a cell (`MAX_CELL_BYTES`), and
+  the collection's value is its row count and selection; a table's column
+  headers take focus, if they are wider than 0, and activate for the
+  owner to sort. Its focus outline is inside its bounds. A collection put
+  in another's place builds its own parts. The table's header row and its
+  rows' hover wash are two more tokens, `table-head` and `row-hover`; the
+  selection is `teal-glow` — M3.7.
+- `widgets`: M3.7's other components (ADR-0052) — `TabStrip`, a row of
+  `Tab`s for panels (chrome, uppercase) or editors (file names, as
+  written), one tab stop whose Left and Right (wrapping), Home and End
+  select a tab, whose Delete, close controls and middle presses ask to
+  close one (`Select`, `Dismiss`, about `target()`, which moves with its
+  tab), its tabs in a track that scrolls sideways and scrolls the
+  selected tab into view when it is selected or moves, or the track's
+  width changes; a press finds a tab only where the last frame showed
+  it, so never one the owner moved since; at most 256 tabs of at most 256
+  bytes a label, and its name too; `Splitter`, the divider of a split it
+  builds over `Layout::Split`, which keeps the ratio it was given or
+  moved to and gives the split that ratio within the panes' minimums at
+  each layout, so a window too small for it, then large again, has it
+  back; dragged or stepped 10 units with the arrows along its axis, Home
+  and End to the panes' minimums, emitting `Change`, its value the ratio
+  shown as a percent; no position that is not finite drags it, and no
+  key moves a split with no length; `Card`, a `ghost` box with a kicker,
+  a title, a line of text and a right-edge tab (`READY`), holding its
+  owner's buttons below them, which take focus as it does not, named by
+  its title, its value the rest of what it shows; and `CodeBlock`, code
+  of `CodeSpan`s each in a theme token, under a bar with its language
+  (at most 64 bytes, `MAX_LANGUAGE_BYTES`) and a COPY button that
+  activates, whose owner copies its own source; it keeps at most 200
+  lines of 400 bytes and 32 spans, each line its start cut at a cluster
+  boundary of the whole line, reading no more of a span than it keeps
+  but the control characters it leaves out, and `CodeBlock::plain`
+  splits lines at LF, CR LF and a lone CR (ADR-0019). After each layout
+  pass, the tree binds these and the collections and passes again while
+  that changes anything, so nested splits settle in one layout; only then
+  do collections scroll a selection asked for, in the space they then
+  have, and collections' reveals and the owner's `scroll_into_view` take
+  effect, the owner's last. Moving a splitter repaints only what moves,
+  and a divider binds only as the middle of its split's three children.
+  Their
+  looks, which the site gives the card and code block only, are in the
+  spec; the card's tab and the code bar are three more tokens,
+  `card-tab`, `on-card-tab` and `code-bar` — M3.7.
 
 The tests check, among the rest, that children never overflow a parent
 that does not scroll and that layout is idempotent and deterministic, over
@@ -111,7 +175,24 @@ focusable node has a role and a name over random sequences of changes
 its reader panic (`tests/theme.rs`); and that random edits of a field
 keep its text one line within its limit and its caret and selection on
 grapheme cluster boundaries (`tests/widgets.rs`, which also tests each
-control's role, name, actions and colors). The fuzz target `theme`, in
+control's role, name, actions and colors); and that random keys,
+presses, scrolls, resizes and model changes, at the root or in a
+scroller, keep a collection's selection on a row, its nodes exactly those
+of the rows on screen, every row named by what it shows and each reveal
+the least (`tests/collections.rs`, which also tests the keys of the list,
+tree view and table, a million rows kept as a page's nodes in and out of
+a scroller, the damage of a scroll and the tokens each paints); and that
+random inserts, removes, keys, presses and closes, with and without
+frames between them, keep a tab strip's one valid selection, a target
+that is one of its tabs and names its tab, and one tab stop
+(`tests/components.rs`, which also tests the tab strip's, splitter's,
+card's and code block's keys, actions, caps and looks, presses after the
+owner moved tabs, nested splits, a resize after a clamp, drags cut short
+or to no finite position, and a tab strip and a collection revealing in
+one turn); and that random turns of nested splits, a tab strip, two
+collections, owner reveals, wheels and resizes show what each turn asked
+for, in the layout the splits settle on, and then idle
+(`tests/settling.rs`). The fuzz target `theme`, in
 `tests/fuzz.rs`, reads with small `Limits`, from seeds made by hand in
 `fuzz/corpus/theme/`, some exactly at each limit, and from `themes/` in
 place; it checks that a theme it reads keeps the format's rules and that
@@ -119,14 +200,13 @@ a refusal names a key on a line of the input (ADR-0027, ADR-0047).
 
 `tidepool-gui` paints these draw lists into pixels with `gfx` and `font`,
 measures text for them with `font` (its `FontMetrics`), and draws golden
-frames of `ui`'s scenes (M3.5, ADR-0048) and of each control in each
-state (M3.6, ADR-0049).
+frames of `ui`'s scenes (M3.5, ADR-0048), of each control in each state
+(M3.6, ADR-0049), and of each of M3.7's components in each state
+(ADR-0052).
 
 Not yet, with the roadmap task that adds it:
 
-- collections and overlays: list, tree view, table, tab strip, splitter,
-  card, code block, tooltip, toast, modal and the command palette —
-  M3.3.
+- the overlays: tooltip, toast, modal and the command palette — M3.3.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -226,7 +306,8 @@ fn main() -> Result<(), UiError> {
   ADR-0047 (theme files read with `codec::toml`, their format, and the
   pairs `cargo xtask theme` checks); ADR-0049 (the controls: the tree
   holds the theme, component tokens, grapheme editing with `text`, and
-  the states' looks).
+  the states' looks); ADR-0052 (collections window their rows over their
+  owner's model).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules

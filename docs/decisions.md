@@ -3519,3 +3519,88 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** a macOS CI run fails either test; a caller needs
   `file.txt/..` or a link to `file.txt/` refused on macOS; or Apple's
   `realpath(3)` starts checking a name's type before `/`.
+
+## ADR-0052 — M3.3 splits: M3.7 builds the collections and M3.3 the overlays; collections window their rows over their owner's model; overlays are a layer of the tree; the palette shows what its owner ranks
+
+- **Status:** Accepted
+- **Date:** 2026-11-20
+- **Context:**
+  - M3.3 has no `Decide first` line, but its 11 components need what
+    `ui` lacks, and each lack changes `ui`'s API or the roadmap:
+    - the tooltip, toast, modal and command palette draw above the
+      shell, and the modal and palette take all input while open, where
+      the tree has one root and no layer;
+    - the list, tree view and table hold up to hundreds of thousands of
+      rows (the file explorer, problems, SDK packages), where the tree
+      holds at most 2^20 nodes (`MAX_NODES`) and lays out every node in
+      each pass;
+    - the palette needs its items filtered and ranked as the user types.
+  - `docs/01-architecture.md`'s loop keeps the timers in the app
+    (`next_deadline`, `fire_timers`: the cursor's blink, debounce, a
+    toast), and `docs/subsystems/editor.md` plans the fuzzy file
+    finder's index in `editor::files`.
+  - jabbott.dev styles a table (`.prose th/td`), a card with its tab
+    (`.card`, `.card__tab`) and a code block (`.highlighter-rouge`,
+    `.code-bar`), and none of the list, tree view, tab strip, splitter,
+    tooltip, toast, modal or palette.
+  - The user chose the recommended option of each of four questions on
+    2026-11-20: "Overlay layer in Tree", "Window the rows", the owner
+    filters the palette, and "Split: collections first".
+- **Decision:**
+  - **The split** (ADR-0024). A new task, M3.7 (`ui: collections`),
+    builds the list, tree view, table, tab strip, splitter, card with its
+    tab and code block, and depends on M3.6. M3.3 keeps the tooltip,
+    toast, modal and command palette, the part that finishes what it
+    promised, and depends on M3.7; M3.4 still depends on M3.3.
+  - **Collections window their rows** (M3.7). A list, tree view or table
+    keeps nodes only for the rows in view and a margin, and binds them
+    to other rows as it scrolls, over a model its owner provides: how
+    many rows there are and, when asked, what one row shows. Its layout
+    and paint cost go with the rows in view, not the rows in the model.
+    The accessibility tree holds the rows in view, each with its role
+    (`ListItem`, `TreeItem`, `Row`), and the collection gives its row
+    count and its selected row. The keyboard moves a selection the
+    collection keeps, and scrolls it into view.
+  - **Overlays are a layer of the tree** (M3.3). The tree keeps ordered
+    overlay roots painted over its main root, each anchored to a node or
+    to the window. A modal one makes the rest inert (no hover, presses
+    or focus), keeps Tab within itself, and gives focus back to where it
+    was when it closes.
+  - **The palette shows what its owner ranks** (M3.3): a search field
+    over a windowed list, which emits `Change` on each edit and shows the
+    items its owner gives it, ranked, with the ranges they matched. `ui`
+    has no matcher.
+  - **`ui` has no clock.** A tooltip's delay and a toast's timeout are
+    the owner's timers, in the loop's `next_deadline`; `ui` tells its
+    owner what it needs to set them.
+  - **Tokens.** The site's component colors the theme lacks, such as the
+    table header's `slate` at 60% and its rows' hover wash of 2.5% white,
+    become tokens, as ADR-0049 made the controls' colors.
+- **Consequences:**
+  - Two changes to review in place of one; the palette builds on M3.7's
+    list.
+  - The views that show many rows (the explorer, problems, packages, from
+    M4 on) hand a collection a model, not nodes.
+  - A row out of view is not in the accessibility tree; the count and the
+    selection say where the user is. M14.2's bridges expose the rows in
+    view.
+  - The overlay layer changes `tree`, `input` and `focus` (M3.1's
+    modules), in M3.3.
+- **Alternatives considered:**
+  - A node for every row: the simplest, with every row in the
+    accessibility tree, but layout and memory grow with the rows, and
+    2^20 rows is a hard limit.
+  - An `inert` flag with overlays composed by each owner in a root stack:
+    less `ui` code, but each owner repeats the anchoring, the order and
+    the return of focus. A tree for each overlay, painted on top by the
+    frontend: no change to the tree, but focus, hover and routing split
+    across trees in `gui` and the app.
+  - A fuzzy matcher in `ui`, which the palette filters with: it works for
+    M3.4's shell as it is, but a large list would be matched on the main
+    thread (rule 6), and `editor` plans its own finder.
+  - All 11 components in one change, as M3.3 was written: one large
+    review, with the windowed rows and the overlay layer landing together.
+- **Revisit when:** a screen reader bridge (M14.2) needs rows out of
+  view; a collection needs rows whose heights its owner cannot give
+  before they are in view; an owner needs `ui` to match; or an overlay
+  must leave the window, as a native popup.
