@@ -52,7 +52,7 @@ them stand on. Only formats and text (`codec` and `text`), `xtask`,
 (M2.5), `gui`'s first frame (M2.6), painter (M3.5) and rendering of `ui`
 frames in its window (M3.8), and `ui`'s tree,
 layout, input routing, draw lists and accessibility tree (M3.1), its
-theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3) have code behind their interfaces; the app's main loop opens that window and hands the tree its input (M3.8). Each arrow names the crate in
+theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3), and `editor`'s shell (M3.4) and editor view (M4.1), have code behind their interfaces; the app's main loop opens that window and hands the tree its input (M3.8). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -64,10 +64,10 @@ flowchart TB
     i_gui(("Gui (M2.6),<br/>render (M3.8)"))
     i_front(("Frontend<br/>planned M7.1"))
     i_shell(("Shell, Panels,<br/>Flow, View (M3.4)"))
-    i_editor(("editor views<br/>and commands<br/>planned M4.1, M4.6"))
+    i_editor(("EditorView (M4.1)<br/>editing, commands<br/>planned M4.2, M4.6"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -86,19 +86,19 @@ flowchart TB
     c_app -->|"app: Tree::handle (M3.8)"| i_draw
     c_app -.->|"app:<br/>planned M7.1"| i_front
     c_app -->|"app (M3.4)"| i_shell
-    c_app -.->|"app:<br/>planned M4.1"| i_editor
+    c_app -.->|"app: shows a view,<br/>planned M4.3"| i_editor
     i_gui --- c_front
     i_front -.- c_front
     i_shell --- c_editor
-    i_editor -.- c_editor
+    i_editor --- c_editor
 
     c_front -->|"gui (M3.5)"| i_draw
     c_front -.->|"tui:<br/>planned M7.1"| i_draw
     c_front -->|"gui (M3.2)"| i_theme
     c_front -->|"gui (M2.6)"| i_raster
     c_front -->|"gui (M2.6)"| i_glyphs
-    c_editor -->|"editor: the shell (M3.4),<br/>planned M4.1: the view"| i_draw
-    c_editor -->|"editor: the shell (M3.4)"| i_theme
+    c_editor -->|"editor: the shell (M3.4),<br/>the view (M4.1)"| i_draw
+    c_editor -->|"editor: the shell (M3.4),<br/>the view (M4.1)"| i_theme
     c_editor -.->|"editor:<br/>planned M9.4, M9.5"| i_agentf
     c_editor -.->|"editor:<br/>planned M6.2, M6.6, M6.7"| i_langf
     c_editor -.->|"editor:<br/>planned M5.4, M8.2, M10.6"| i_toolf
@@ -113,9 +113,9 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_front,c_render,c_editor,i_gui,i_shell,i_raster,i_glyphs,i_draw,i_theme built
+    class c_app,c_front,c_render,c_editor,i_gui,i_shell,i_editor,i_raster,i_glyphs,i_draw,i_theme built
     class c_agents,c_lang,c_tools planned
-    class i_front,i_editor,i_agentf,i_langf,i_toolf planned
+    class i_front,i_agentf,i_langf,i_toolf planned
 ```
 
 - The app's matrix row is "all crates above", so it may use every crate in
@@ -138,7 +138,7 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     i_ws(("folders, trust,<br/>settings, buffers<br/>planned M4.7, M4.3"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -165,7 +165,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -187,7 +187,7 @@ flowchart LR
 
     c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
-    c_editor -.->|"editor, workspace:<br/>planned M4.1, M4.2, M4.3"| i_text
+    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1);<br/>editor, workspace:<br/>planned M4.2, M4.3"| i_text
     c_editor -.->|"workspace:<br/>planned M4.7"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
     c_editor -.->|"workspace:<br/>planned M4.5"| i_os_watch
@@ -215,8 +215,8 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_front,c_render,c_fmt,c_os,i_text,i_codec,i_os_win built
-    class c_editor,c_agents,c_lang,c_tools planned
+    class c_xtask,c_front,c_render,c_editor,c_fmt,c_os,i_text,i_codec,i_os_win built
+    class c_agents,c_lang,c_tools planned
     class i_os_term,i_regex,i_os_watch,i_os_proc planned
     class e_os,e_cargo external
 ```
@@ -324,14 +324,16 @@ flowchart LR
 
 `tidepool-text` has every module its spec plans (M1.1, M1.2, M1.3); this
 diagram draws who uses its interfaces, `ui`'s fields (M3.6, ADR-0049),
-the cuts of what its M3.7 components show (ADR-0052) and the matches its
-rows draw, widened to whole clusters (M3.3), and
+the cuts of what its M3.7 components show (ADR-0052), the matches its
+rows draw, widened to whole clusters (M3.3), and the editor view, which
+shows a rope and its selection and cuts long lines at a cluster boundary
+(M4.1), and
 who will, and 2.3 how its modules use one another. Each module box names
 the task that built it.
 
 ```mermaid
 flowchart LR
-    c_editor["tidepool-editor<br/>planned M4.1, M4.2, M4.4"]
+    c_editor["tidepool-editor<br/>the editor view (M4.1)<br/>planned M4.2, M4.4"]
     c_workspace["tidepool-workspace<br/>planned M4.3, M4.4"]
     c_syntax["tidepool-syntax<br/>planned M6.2, M13.2"]
     c_lang["tidepool-lang<br/>planned M6.7"]
@@ -353,10 +355,11 @@ flowchart LR
     c_file["text::file<br/>M1.3"]
     c_regex["tidepool-regex<br/>an empty library<br/>planned M4.8"]
 
-    c_editor -.->|"text rendering from<br/>the rope, planned M4.1"| i_rope
+    c_editor -->|"the view: text<br/>from the rope (M4.1)"| i_rope
     c_agent -.->|"prefix and suffix,<br/>planned M9.3"| i_rope
     c_editor -.->|"grapheme motions,<br/>planned M4.2"| i_pos
     c_lang -.->|"UTF-16 positions,<br/>planned M6.7"| i_pos
+    c_editor -->|"the view: cuts long<br/>lines at a cluster<br/>boundary (M4.1)"| i_graph
     c_ui -->|"carets and deletes<br/>by cluster (M3.6),<br/>cuts at a cluster<br/>boundary (M3.7),<br/>widens matches (M3.3)"| i_graph
     c_editor -.->|"multi-cursor,<br/>planned M4.2"| i_tx
     c_syntax -.->|"re-lex new ranges,<br/>planned M6.2"| i_tx
@@ -378,9 +381,9 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_rope,c_pos,c_tx,c_hist,c_file,c_ui built
+    class c_rope,c_pos,c_tx,c_hist,c_file,c_ui,c_editor built
     class i_rope,i_pos,i_graph,i_tx,i_hist,i_file built
-    class c_editor,c_workspace,c_syntax,c_lang,c_agent,c_regex,i_regex planned
+    class c_workspace,c_syntax,c_lang,c_agent,c_regex,i_regex planned
 ```
 
 - `pos` adds its conversions and grapheme queries to `Rope` itself, so its
@@ -565,14 +568,14 @@ overlays, and `gui`'s golden tests paint each in each state.
 
 ```mermaid
 flowchart TB
-    c_editor["tidepool-editor<br/>the shell, M3.4<br/>planned M4.1, M4.3"]
+    c_editor["tidepool-editor<br/>the shell, M3.4<br/>the editor view, M4.1<br/>planned M4.3"]
     c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the painter, M3.5<br/>the window, M3.8"]
     c_guigold["tidepool-gui tests<br/>golden.rs with<br/>controls/mod.rs (M3.6),<br/>components/mod.rs (M3.7),<br/>overlays/mod.rs (M3.3)"]
     c_app["tidepool, the app<br/>the main loop, M3.8<br/>the shell's wiring and<br/>golden scenes, M3.4"]
     c_tui["tidepool-tui<br/>planned M7.1"]
     c_bridge["OS accessibility bridges<br/>AT-SPI, NSAccessibility,<br/>UI Automation<br/>planned M14.2"]
 
-    i_controls(("widgets: Control,<br/>update, focus_outline;<br/>Button, Chip, TextInput,<br/>ScrollBar, StatusDot,<br/>SectionTitle, Eyebrow,<br/>Kicker, Breadcrumbs<br/>(M3.6)"))
+    i_controls(("widgets: Control,<br/>update, focus_outline;<br/>Button, Chip, TextInput,<br/>ScrollBar, StatusDot,<br/>SectionTitle, Eyebrow,<br/>Kicker, Breadcrumbs<br/>(M3.6); is_hidden,<br/>flag_at public (M4.1)"))
     i_collections(("widgets: Collection,<br/>Rows, Row, Column;<br/>TabStrip, Tab, Splitter,<br/>Card, CodeBlock,<br/>CodeSpan (M3.7)"))
     i_overlays(("overlay: open_overlay,<br/>close_overlay, Anchor,<br/>OverlayKind, modal, inert;<br/>Response::blocked;<br/>widgets: Modal, Tooltip,<br/>Toast, Palette (M3.3)"))
     i_tree(("Tree, Node, Widget,<br/>Style, handle,<br/>focus_next (M3.1)<br/>theme, set_theme (M3.6)"))
@@ -583,12 +586,13 @@ flowchart TB
     c_ui["tidepool-ui<br/>tree, layout, focus, input,<br/>metrics, draw, a11y (M3.1)<br/>theme (M3.2)<br/>widgets: the controls (M3.6),<br/>the collections (M3.7)<br/>overlay, and the modal,<br/>tooltip, toast and<br/>palette (M3.3)"]
     s_theme[("themes/tidepool-dark.toml<br/>the bundled theme (M3.2)")]
 
-    c_editor -->|"the shell (M3.4),<br/>planned M4.1: the view"| i_tree
-    c_editor -.->|"editor view,<br/>planned M4.1"| i_drawlist
+    c_editor -->|"the shell (M3.4),<br/>the view (M4.1)"| i_tree
+    c_editor -->|"the view paints<br/>its text (M4.1)"| i_drawlist
+    c_editor -->|"the view lays out<br/>its text (M4.1)"| i_metrics
     c_editor -->|"the shell's tab strip<br/>and splitters (M3.4),<br/>planned M4.3: explorer"| i_collections
-    c_editor -->|"the shell's section title,<br/>kicker, status dots (M3.4)"| i_controls
+    c_editor -->|"the shell's section title,<br/>kicker, status dots (M3.4);<br/>the view's scrollbars,<br/>is_hidden, flag_at (M4.1)"| i_controls
     c_editor -->|"the shell's palette<br/>and tooltips (M3.4)"| i_overlays
-    c_app -->|"its golden scenes<br/>paint the shell (M3.4)"| i_drawlist
+    c_app -->|"its golden scenes<br/>paint the shell (M3.4)<br/>and the view (M4.1)"| i_drawlist
     c_gui -->|"paints (M3.5)"| i_drawlist
     c_gui -->|"implements as<br/>FontMetrics (M3.5)"| i_metrics
     c_gui -->|"text, text-3 of<br/>tidepool_dark (M3.2)"| i_theme

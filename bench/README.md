@@ -6,13 +6,15 @@ p95, against a JSON baseline. Dev-only; it never ships.
 It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
 development tooling: `cargo xtask bench` builds its binary in the release
 profile and runs its suites, which may measure any crate of the workspace
-(ADR-0035). Today they measure `tidepool-text`, `tidepool-font` and
-`tidepool-ui`.
+(ADR-0035). Today they measure `tidepool-text`, `tidepool-font`,
+`tidepool-ui`, and `tidepool-editor`.
 
 Layer 6, tools (dev-only). It may use any workspace crate, as its row of the
 dependency matrix in [`docs/01-architecture.md`](../docs/01-architecture.md)
-says; it uses `core`, `codec`, `text`, `font`, `ui`, and `gui`, whose
-`FontMetrics` measures `ui`'s text as the window does.
+says; it uses `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, and
+`editor`. `gui`'s `FontMetrics` measures `ui`'s text as the window does,
+and its painter paints the editor view's frames into `gfx`'s
+framebuffers.
 
 ## Status
 
@@ -55,10 +57,28 @@ Built, with the roadmap task that built it:
   repainted whole with `gui`'s `FontMetrics`, after an untimed check that
   it shows its ten items and draws only the runs that reach each row's
   edge; not yet recorded in the baseline — M3.3.
+- `suites::editor`, three suites of the editor view alone at 1920 ×
+  1080, scale 1. `editor/scroll/10k_lines_1080p` scrolls a generated
+  10,000-line Rust-like file a wheel notch down an iteration with soft
+  wrap off, and `editor/scroll/10k_lines_1080p_wrap` with it on, through
+  a variant of the file whose lines are a fifth 250 to 600 bytes long,
+  so that they wrap. The view handles the notch, the tree builds the
+  frame, `gui`'s painter paints its damage (the parts of the window that
+  changed), and the view updates, as the main loop does. Before a notch
+  would reach the file's end, the next starts from a new view at the
+  top, made outside the timing. `editor/layout/long_line_10kb` is the
+  notch that brings a 10,000-byte line on screen and lays it out for the
+  first time. Each checks, untimed, that the view scrolls and repaints
+  its rows, and the wrap suite that its first frame has more rows than
+  lines; after it is measured, each checks that every measured notch
+  moved the view. Not yet recorded in the baseline: on the reference
+  machine, unpinned runs back to back differed by more than 10%, and a
+  run pinned to one core (`taskset -c 4`) sees one thread, not 16, so
+  `--save` refuses the baseline as another machine's — M4.1.
 
 Not yet, with the roadmap task that adds it:
 
-- suites for the editor (M4.1, M4.2), project search (M4.4), predictive
+- suites for editing commands (M4.2), project search (M4.4), predictive
   text and its latency (M9.4), the Lua interpreter (M15.2), plugins
   (M15.5), and the performance pass (M14.3).
 
@@ -145,11 +165,14 @@ assert!(summary.p95_ns >= summary.median_ns);
 cargo test -p tidepool-bench     # the harness, baseline and report, with fake suites
 cargo xtask bench text           # the text suites themselves, in release
 cargo xtask bench font           # the font suite
+cargo xtask bench editor         # the editor view's suites
 ```
 
 The tests never build a 100 MB text: they run the 400 KB suites, and the
-100 MB suites' routines on small inputs. `cargo xtask ci` runs the whole
-gate, which does not run the benchmarks.
+100 MB suites' routines on small inputs. They run each editor suite's
+checks and a few notches unoptimized, and scroll a 160-line file through
+several passes, so that starting again from the top is tested too.
+`cargo xtask ci` runs the whole gate, which does not run the benchmarks.
 
 ## License
 

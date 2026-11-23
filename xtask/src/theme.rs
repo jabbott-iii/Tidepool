@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             report.notes.last().map(String::as_str),
             Some(
-                "themes/tidepool-dark.toml: 68 pairs used for text, 68 at or above the contrast \
+                "themes/tidepool-dark.toml: 70 pairs used for text, 70 at or above the contrast \
                  their size needs"
             )
         );
@@ -1462,7 +1462,12 @@ mod tests {
         // room for, nearly 1,000, with an unknown key each, in a file of
         // about 60 KiB: each violation names its line from a table of
         // line starts, made once.
-        let room = LIMITS.max_entries - THEME.matches("[[contrast.use]]").count();
+        // The entries' headers, not the file's comment that names them.
+        let room = LIMITS.max_entries
+            - THEME
+                .lines()
+                .filter(|line| *line == "[[contrast.use]]")
+                .count();
         assert!(room >= 990, "{room}");
         let mut text = THEME.to_string();
         for _ in 0..room {

@@ -4284,3 +4284,183 @@ decides; the roadmap task that first depends on one asks for the decision.
   (measured); or the bench suite shows the interpreter too slow for a
   plugin that handles every keystroke in a 10,000-line file within the
   16 ms budget.
+
+## ADR-0062 — The official Lua 5.5.1 test suite's Lua files are vendored unchanged as test-only fixtures of `tidepool-lua`, imported in M15.1
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M15.1's `Decide first` line asked whether to vendor the official Lua
+    5.5 test suite as test-only fixtures, once the user confirmed its
+    license. On 2026-11-23 the user answered: "yes, vendor the Lua 5.5
+    test suite".
+  - https://www.lua.org/tests/ (read on 2026-11-23) lists
+    `lua-5.5.1-tests.tar.gz`, the suite of the current release, 5.5.1:
+    dated 2026-07-24, 150,553 bytes, with the SHA-256
+    `da07b543872dc0bb2ff12aabd0c248578d78df3eb6b67efdc537a46d455c7f31`.
+    It says all its files are distributed under the Lua license, which
+    https://www.lua.org/license.html gives as the MIT license, "Copyright
+    © 1994–2026 Lua.org, PUC-Rio".
+  - The page describes three ways to run the suite: the basic tests
+    (`lua -e"_U=true" all.lua`); the complete tests, which also need C
+    libraries built from its `libs/`; and the internal tests, which need
+    Lua compiled in debug mode with its `ltests.c`. Besides the language,
+    its files use `io`, `os`, `debug`, and the C API, which ADR-0061
+    leaves out of `tidepool-lua`.
+  - `tidepool-lua` does not exist until M15.1 creates it.
+- **Decision:**
+  - M15.1 downloads `lua-5.5.1-tests.tar.gz` from lua.org/tests, with the
+    user's approval, and checks its SHA-256 against the value above
+    before unpacking it. If the checksum differs, nothing is imported and
+    the user is asked.
+  - Its Lua files are copied, unchanged, into
+    `crates/lua/tests/lua-5.5.1-tests/`. Its C sources (`libs/` and
+    `ltests/`) are left out: `tidepool-lua` has no C API to build them
+    against.
+  - Beside them, a `NOTICE.md` gives the source URL, the archive's name
+    and SHA-256, the date of the import, and the MIT license text from
+    lua.org/license.html. A row in `docs/02-dependency-policy.md` →
+    Assets records the same. `.gitattributes` keeps their bytes as they
+    are (`-text`).
+  - They are test-only, never in a release binary. Tests in
+    `tidepool-lua` run each file that needs only the language and the
+    library ADR-0061 keeps (M15.2, M15.3), and list each file skipped with
+    its reason. `all.lua`, which drives the rest through libraries left
+    out, is not run as it is.
+- **Consequences:**
+  - The interpreter is checked against the suite Lua's own authors use,
+    not only against our reading of the manual.
+  - Many files will be skipped, because they test `io`, `os`, `debug`, or
+    the C API. The list of skips says what the suite does not cover here.
+  - About 150 KB, compressed, of third-party test code in the repository.
+    A newer 5.5 suite is taken by replacing the directory and its notice
+    in one change.
+  - `cargo xtask headers` does not check `.lua` files today. If a later
+    task adds them, for Tidepool's own plugins, it must exempt these
+    files by path, as it exempts the generated grapheme tables.
+- **Alternatives considered:**
+  - M15.2's hand-written conformance scripts alone: no third-party code,
+    but no outside check of our reading of the manual.
+  - The whole archive, C sources included: the suite exactly as shipped,
+    but with C code that nothing here builds.
+  - The 5.5.0 suite: older than the current release.
+  - Editing the files so that more of them run, by removing their uses of
+    `io` and `debug`: more coverage, but no longer the suite as
+    published.
+- **Revisit when:** a newer Lua 5.5 release ships its own suite, or
+  `tidepool-lua` gains a library that ADR-0061 left out and the suite
+  tests.
+
+## ADR-0063 — M4.1's editor view is `editor::view`, a `ui` widget over a rope; soft wrap is off by default; hidden characters show as a marker; the current line takes a new `current-line` token; the binary keeps its welcome until M4.3
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.1 builds the editor view: "text rendering from the rope, cursor,
+    selections, scrolling, gutter, current line, soft wrap", accepted on
+    the scrolling budget (60 fps through a 10,000-line Rust file at
+    1080p, `docs/00-overview.md`) and golden frames.
+  - `editor` may use `text` and `ui` but never `gui`, `tui` or `font`
+    (`docs/01-architecture.md` → "Dependency matrix"); `ui::Widget` is
+    public, and a widget measures text with `ui`'s `TextMetrics`, which
+    `gui` implements with `font::layout` and `tui` with cells.
+  - The spec's editor elements (`docs/subsystems/ui-and-theme.md` →
+    "Editor colors"): `editor-bg`; the current line a 2.5% white wash;
+    line numbers `text-3`, the current line's `text-2`; the cursor a
+    `teal` bar; the selection `teal-glow` over `editor-bg`, its text still
+    `text`; code in JetBrains Mono 14 px / 1.5. No token names the wash;
+    `row-hover` has its value.
+  - Files open in M4.3, and editing commands come in M4.2 and M4.6.
+  - `ui`'s collections already make each character that shows nothing or
+    changes how the text around it reads the replacement character
+    (`widgets::modal`'s `is_hidden` and `flag_at`, `pub(super)` today).
+  - On 2026-11-23 the user chose the recommended option of each of four
+    questions: "Keep the welcome", soft wrap "Off", "Visible marker", and
+    "New `current-line` token", the last offered as making the task
+    touch four crates (`editor`, `ui`, `tidepool`, `tidepool-bench`),
+    past `CLAUDE.md`'s three, and chosen so.
+- **Decision:**
+  - **The view is `editor::view`:** a widget its owner puts in a node of
+    a `ui::Tree`, over a `text::Rope` and a `text::Selection` the owner
+    sets, the selection checked against the text (a bad position is an
+    error, never a panic, ADR-0019). `editor` gains `text` as a
+    dependency, an edge the matrix has. It is focusable, a `TextInput` in
+    the accessibility tree with the name its owner gives; it paints
+    through draw lists alone, so `gui` and `tui` both show it.
+  - **What it draws,** on `editor-bg`, in JetBrains Mono 14 px / 1.5: a
+    gutter of line numbers, right-aligned, in `text-3`, and in `text-2`
+    on a line with a cursor, which does not scroll sideways; the text in
+    `text` (highlighting comes with M6.2); each selection's range in
+    `teal-glow` behind its text; each cursor as a `teal` bar, shown while
+    the view has focus and steady, as motion is opt-in
+    (`.claude/rules/ui-style.md`); and the `current-line` wash across
+    each row of a line that holds a caret with nothing selected, so that
+    the wash is never under `teal-glow`. A tab advances to the next stop
+    of four spaces' width.
+  - **Hidden characters show as a marker:** each character `ui`'s
+    collections would replace (a control character but the tab and the
+    line breaks, an invisible or bidirectional formatting character, the
+    line and paragraph separators, the interlinear annotation
+    characters) is drawn as U+FFFD in `error`, one marker for each, so
+    that code cannot hide or reorder what it says. The flags of England,
+    Scotland and Wales stay whole. The buffer is unchanged. `ui` makes
+    `is_hidden` and `flag_at` public, so that one definition, with its
+    test against the pinned Unicode data, serves both.
+  - **Soft wrap is off by default,** and can be turned on for a view.
+    Off, a line runs past the right edge and the view scrolls sideways;
+    on, a line wraps at the view's right edge, after the last space that
+    fits, or at a grapheme cluster boundary when none does, and only its
+    first row has a number. The setting comes with M4.7.
+  - **Scrolling costs what is on screen, not the file:** the view lays
+    out only the lines it shows, and may keep their layouts until the
+    text, the width or the wrap changes. Its position is a line, a row
+    of that line, and a pixel offset, moved by the wheel (three rows a
+    notch, sideways with Shift or a horizontal delta) and by `ui`'s
+    `ScrollBar`s; the vertical bar's range counts lines, so it needs no
+    layout of lines off screen, and the horizontal one's is the widest
+    line laid out so far. A line longer than a bound the view documents
+    shows its start and a `text-3` marker where it is cut, so that no
+    frame lays out more than that; large-file mode is M4.3's, and bounded
+    motions M4.2's.
+  - **For M4.2:** the view maps a point to a byte offset and a byte
+    offset to a point, and scrolls an offset into view.
+  - **The binary is unchanged:** the editor area keeps its welcome line
+    until M4.3 opens a file.
+  - **A `current-line` token:** `rgba(255,255,255,0.025)` in
+    `themes/tidepool-dark.toml`, with its `solid` and `ansi` values and
+    `[[contrast.use]]` entries for the line numbers and the text on it
+    over `editor-bg`, and a `Token` in `ui::theme`.
+  - **Checks:** golden scenes of the view, drawn by the `tidepool`
+    binary's `tests/golden.rs`, which may use `editor` and `gui`; and a
+    `tidepool-bench` suite, `editor`, scrolling the view alone at 1920 ×
+    1080, larger than its area in the shell, through a 10,000-line Rust
+    file a wheel notch at a time, building each frame and painting its
+    damage with `gui`'s `Painter`, whose median and p95 must stay under
+    16.7 ms, a 60 fps frame.
+- **Consequences:**
+  - M4.1 touches four crates, as chosen.
+  - The view is tested and measured but not shown in the binary until
+    M4.3; `cargo tp` looks as it did.
+  - The vertical scrollbar tracks lines, not rows: with wrap on, its
+    thumb moves evenly by line however many rows each line wraps to.
+  - A line past the view's bound is not shown whole until large-file
+    mode or a later task says otherwise.
+  - The theme gains a token, and the spec's token and contrast tables a
+    row each.
+- **Alternatives considered:**
+  - An empty scratch buffer in the binary, or opening a file from the
+    command line read-only: something to see now, but a buffer nothing
+    can edit, or part of M4.3 pulled forward.
+  - Soft wrap on by default: never a sideways scroll, but most code
+    editors start with it off, and code is written to be read unwrapped.
+  - Drawing hidden characters as the font does: simpler, but invisible
+    characters stay invisible, and a bidirectional control could make
+    code read as other code.
+  - Reusing `row-hover` for the wash: no `ui` change and three crates,
+    but a token named for hovered rows, which could no longer change
+    apart from the current line.
+  - A vertical range in rows: exact with wrap on, but it needs every
+    line laid out.
+- **Revisit when:** M4.7's settings land (wrap, tab width, font size);
+  M6.2's highlighting colors the text; M7.1's terminal UI shows the view;
+  or the bench suite misses the 16.7 ms budget.

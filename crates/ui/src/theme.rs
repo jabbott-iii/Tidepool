@@ -88,7 +88,7 @@ pub const MAX_TEXT_BYTES: usize = 64;
 
 /// The limits [`Theme::tidepool_dark`] parses with, which suit any theme
 /// file: 1 MiB of input, 8 levels, strings of 4 KiB, numbers of 64 bytes
-/// and 1,024 entries in a table or array. The bundled file is about 8.8 KiB,
+/// and 1,024 entries in a table or array. The bundled file is about 9.5 KiB,
 /// and 4 levels deep at `contrast.use[i].on[j]`.
 pub const LIMITS: Limits = Limits {
     max_input_bytes: 1024 * 1024,
@@ -232,11 +232,15 @@ pub enum Token {
     /// `amber-haze`, translucent: one coat of an amber tile's corner glow,
     /// `amber` at 5/255 (ADR-0058).
     AmberHaze,
+    /// `current-line`, translucent: the wash of the editor's current line,
+    /// white at 2.5%, as `row-hover` is, but a token of its own, so that
+    /// the two can change apart (ADR-0063).
+    CurrentLine,
 }
 
 impl Token {
     /// How many tokens there are.
-    pub const COUNT: usize = 51;
+    pub const COUNT: usize = 52;
 
     /// Every token, in the order the spec lists them.
     pub const ALL: [Self; Self::COUNT] = [
@@ -291,6 +295,7 @@ impl Token {
         Self::NeutralHaze,
         Self::TealHaze,
         Self::AmberHaze,
+        Self::CurrentLine,
     ];
 
     /// The token's name in the spec and in theme files: `bg-raise`.
@@ -347,6 +352,7 @@ impl Token {
             Self::NeutralHaze => "neutral-haze",
             Self::TealHaze => "teal-haze",
             Self::AmberHaze => "amber-haze",
+            Self::CurrentLine => "current-line",
         }
     }
 
@@ -950,6 +956,15 @@ mod tests {
         assert_eq!(
             over(theme.color(Token::TealGlow), theme.color(Token::EditorBg)),
             Color::rgb(0x27, 0x51, 0x52)
+        );
+        // The editor's current line, `current-line` over `editor-bg`, the
+        // surface `cargo xtask theme` checks its code and line number on.
+        assert_eq!(
+            over(
+                theme.color(Token::CurrentLine),
+                theme.color(Token::EditorBg)
+            ),
+            Color::rgb(0x10, 0x15, 0x17)
         );
     }
 

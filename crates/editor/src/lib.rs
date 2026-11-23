@@ -19,8 +19,12 @@
 //!
 //! Today it has the [`shell`]: the window's frame around the editor, in
 //! jabbott.dev's look, built in a `ui` tree and answering its events
-//! through `ui` alone, so any frontend can show it (M3.4, ADR-0060). The
-//! editor view comes with M4.1, and the panels' content with their tasks.
+//! through `ui` alone, so any frontend can show it (M3.4, ADR-0060); and
+//! the editor [`view`]: a rope's text with its gutter, cursors,
+//! selections, current line, soft wrap and scrolling, which lays out only
+//! the lines on screen, in a `ui` tree too (M4.1, ADR-0063). The view's
+//! errors are [`EditorError`]s; the shell's are `ui`'s. The panels' content
+//! comes with their tasks, and the binary shows a view from M4.3.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -32,4 +36,8 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+mod error;
 pub mod shell;
+pub mod view;
+
+pub use error::EditorError;

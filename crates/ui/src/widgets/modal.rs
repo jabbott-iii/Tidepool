@@ -421,27 +421,106 @@ const FLAG_SEQUENCES: [&str; 3] = [
     "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
 ];
 
-/// The flag of [`FLAG_SEQUENCES`] `text` starts with, whole, if any. Every
-/// other tag character, in a sequence that is well formed but not one of
-/// these, alone, after another base, or without its cancel tag, is
-/// [`is_hidden`]'s, so no text rides hidden in tags. The set of hidden
-/// characters stays the one its unit test checks; this is an exception on
-/// top of it, for whole sequences only.
-pub(super) fn flag_at(text: &str) -> Option<&'static str> {
+/// The flag of England, Scotland, or Wales that `text` starts with,
+/// whole, if it starts with one.
+///
+/// Each of these flags is an emoji tag sequence: a black flag (U+1F3F4),
+/// then tag characters spelling `gbeng`, `gbsct`, or `gbwls`, then the
+/// cancel tag (U+E007F). Tag characters are [hidden](is_hidden), since
+/// text could carry data in them that no reader sees. These three are the
+/// only tag sequences Unicode recommends for general interchange
+/// (`RGI_Emoji_Tag_Sequence` in Unicode 17.0's `emoji-sequences.txt`, UTS
+/// #51), so the widgets that clean text with [`is_hidden`] keep their tag
+/// characters and no others, and only whole. Any other tag character, in
+/// another sequence, alone, after another base, or without its cancel tag,
+/// stays hidden.
+///
+/// [`is_hidden`] still returns `true` for each character of these flags:
+/// this is an exception on top of it, for whole sequences only, which a
+/// caller checks first at each position, as below.
+///
+/// ```
+/// use tidepool_ui::widgets::{flag_at, is_hidden};
+///
+/// let wales = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}";
+/// assert_eq!(flag_at(&format!("{wales} Cymru")), Some(wales));
+/// // Only at the start, and only one of the three, whole.
+/// assert_eq!(flag_at(&format!("x{wales}")), None);
+/// assert_eq!(flag_at("\u{1F3F4}\u{E0061}\u{E007F}"), None);
+/// assert_eq!(flag_at(&wales[..wales.len() - 4]), None);
+///
+/// // Text shown as a collection shows it: each hidden character as
+/// // U+FFFD, the replacement character, but a flag whole.
+/// fn shown(text: &str) -> String {
+///     let mut out = String::new();
+///     let mut rest = text;
+///     while let Some(c) = rest.chars().next() {
+///         if let Some(flag) = flag_at(rest) {
+///             out.push_str(flag);
+///             rest = rest.get(flag.len()..).unwrap_or("");
+///         } else {
+///             out.push(if is_hidden(c) { '\u{FFFD}' } else { c });
+///             rest = rest.get(c.len_utf8()..).unwrap_or("");
+///         }
+///     }
+///     out
+/// }
+/// assert_eq!(shown(&format!("{wales}\u{E0041}")), format!("{wales}\u{FFFD}"));
+/// ```
+pub fn flag_at(text: &str) -> Option<&'static str> {
     FLAG_SEQUENCES
         .iter()
         .copied()
         .find(|flag| text.starts_with(flag))
 }
 
-/// Returns `true` for a character that shows nothing, or changes how the
-/// text around it reads, so that text from outside could look like other
-/// text with it: a control character, an invisible one
-/// ([`is_invisible`], the bidirectional formatting characters among
-/// them), the line and paragraph separators (U+2028, U+2029), or the
-/// interlinear annotation characters (U+FFF9 to U+FFFB), which hide text
-/// in an annotation.
-pub(super) const fn is_hidden(c: char) -> bool {
+/// Returns `true` for a hidden character: one that shows nothing, or
+/// changes how the text around it reads, so that text from outside, such
+/// as a file name or a line of code, could look like other text with it.
+///
+/// The hidden characters are:
+///
+/// - the control characters ([`char::is_control`]: U+0000 to U+001F and
+///   U+007F to U+009F), the tab, the line feed, and the carriage return
+///   among them;
+/// - Unicode's default-ignorable code points
+///   (`Default_Ignorable_Code_Point` in Unicode 17.0.0, which
+///   `crates/text/ucd/` pins), which a renderer draws as nothing, but the
+///   zero width non-joiner and joiner (U+200C, U+200D) and variation
+///   selector 16 (U+FE0F), which emoji and some scripts need. Among them
+///   are the bidirectional formatting characters (U+061C, U+200E, U+200F,
+///   U+202A to U+202E, U+2066 to U+2069), which can make text read in
+///   another order than it is stored, the zero width space (U+200B), the
+///   soft hyphen (U+00AD), the Hangul fillers, the other variation
+///   selectors, and the tag characters (U+E0000 to U+E0FFF), with which
+///   text could hide data;
+/// - the line and paragraph separators (U+2028, U+2029);
+/// - the interlinear annotation characters (U+FFF9 to U+FFFB), which hide
+///   text in an annotation.
+///
+/// A unit test reads the pinned data and checks the default-ignorable set
+/// against it.
+///
+/// In `ui`, a [`Modal`] and a [`TextInput`](super::TextInput) make tabs
+/// and line breaks spaces and leave the other hidden characters out, and a
+/// [`Collection`](super::Collection) shows and names each as U+FFFD, the
+/// replacement character, so that `invoice\u{202E}fdp.exe` cannot pass
+/// for `invoiceexe.pdf`. Each keeps whole the three emoji flags whose tag
+/// characters it would otherwise drop or replace, which [`flag_at`] finds.
+/// A caller that keeps tabs or line breaks, as a code editor does, handles
+/// them before asking about the rest.
+///
+/// ```
+/// use tidepool_ui::widgets::is_hidden;
+///
+/// // A right-to-left override, and the tab, a control character.
+/// assert!(is_hidden('\u{202E}'));
+/// assert!(is_hidden('\t'));
+/// // The zero width joiner, which emoji need, and plain text.
+/// assert!(!is_hidden('\u{200D}'));
+/// assert!(!is_hidden('a'));
+/// ```
+pub const fn is_hidden(c: char) -> bool {
     c.is_control()
         || is_invisible(c)
         || matches!(c, '\u{2028}' | '\u{2029}' | '\u{FFF9}'..='\u{FFFB}')

@@ -13,7 +13,7 @@ core library, JSON, TOML and its document model, which writes edits
 back, the text engine's rope, positions,
 selections, undo tree, encodings and atomic save, a fuzzer for the
 parsers, a benchmark harness with the text engine's suites, the
-glyph atlas's, and the command palette's, and a
+glyph atlas's, the command palette's, and the editor view's, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
@@ -27,14 +27,18 @@ the scrollbar, status dots, titles and breadcrumbs), its collections
 (lists, tree views and tables of any number of rows, tab strips,
 splitters, cards and code blocks), its overlays (a modal dialog, which
 keeps the rest of the window from taking input while it is open,
-tooltips, toasts, and the command palette), and the painter
-that draws its frames into pixels, the changed parts only, are built;
+tooltips, toasts, and the command palette), the painter
+that draws its frames into pixels, the changed parts only, and the
+editor view, which draws a file's text with line numbers, cursors,
+selections, the current line and soft wrap, laying out only the lines on
+screen, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
 which waits until something happens and draws only what changed: it shows
 the empty shell over jabbott.dev's backdrop, built off the main thread,
 with its activity bar, side and bottom panels, status bar and command
-palette, and opens no folder or file yet.
+palette, and opens no folder or file yet, so it does not show the editor
+view until M4.3.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
 what is built and what is planned.

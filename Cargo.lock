@@ -12,6 +12,7 @@ dependencies = [
  "tidepool-gfx",
  "tidepool-gui",
  "tidepool-platform",
+ "tidepool-text",
  "tidepool-ui",
 ]
 
@@ -25,7 +26,9 @@ version = "0.1.0"
 dependencies = [
  "tidepool-codec",
  "tidepool-core",
+ "tidepool-editor",
  "tidepool-font",
+ "tidepool-gfx",
  "tidepool-gui",
  "tidepool-text",
  "tidepool-ui",
@@ -47,6 +50,7 @@ name = "tidepool-editor"
 version = "0.1.0"
 dependencies = [
  "tidepool-core",
+ "tidepool-text",
  "tidepool-ui",
 ]
 

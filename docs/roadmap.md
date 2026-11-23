@@ -2460,12 +2460,65 @@ jabbott.dev, reads as the same design (human review).
 
 **Goal:** dogfooding starts. Tidepool edits its own source on Linux.
 
-- [ ] **M4.1 — editor: editor view**
+- [x] **M4.1 — editor: editor view**
   - Depends: M3.4, M1.3, M1.9
   - Do: text rendering from the rope, cursor, selections, scrolling,
     gutter, current line, soft wrap.
   - Accept: scrolling budget met on a 10,000-line file; goldens.
   - Verify: `cargo xtask golden`; `cargo xtask bench editor`
+  - Note (2026-11-23): ADR-0063 records the view's design and the
+    options the user chose that day, each the recommended one: the
+    binary keeps its welcome line until M4.3 opens files; soft wrap is
+    off by default; a hidden character shows as a visible marker; and the
+    current line's wash takes a new `current-line` token, so the task
+    touches four crates (`editor`, `ui`, `tidepool` and
+    `tidepool-bench`), as the user accepted.
+  - Note (2026-11-23): built. `editor::view::EditorView` shows a rope
+    and its selection in a `ui` tree: a gutter of line numbers, the text
+    in JetBrains Mono 14 px / 1.5, selections in `teal-glow`, `teal`
+    cursors while it has focus, the current line's wash, soft wrap, and
+    two scrollbars, laying out only the lines on screen and cutting a
+    line at 10,000 bytes (`MAX_LINE_BYTES`) with a `…`; `point_to_byte`,
+    `byte_to_point` and `scroll_into_view` are ready for M4.2. `ui` gains
+    the `current-line` token (`rgba(255,255,255,0.025)`, solid
+    `#111213`, ANSI 233; 52 tokens), two contrast entries over
+    `editor-bg` (`text` 16.31:1 and `text-2` 9.60:1, 70 pairs in all),
+    and `widgets::is_hidden` and `widgets::flag_at`, made public.
+    `tidepool`'s `tests/golden.rs` draws five scenes, which the user
+    looked at and had blessed as they are on 2026-11-23:
+    `editor_view_800x480`, `editor_view_wrap_800x480`,
+    `editor_view_scrolled_800x480`, `editor_view_cut_800x480` and
+    `editor_view_400x240_scale_2`, 19 to 125 KB each. In the first, the
+    Wales flag on line 4 draws as seven `.notdef` boxes, since no bundled
+    face has its glyphs. `xtask theme`'s room for more contrast entries
+    now counts only `[[contrast.use]]` headers, and is one entry from its
+    990 bound.
+  - Note (2026-11-23): the scrolling budget, 16.7 ms a frame at 60 fps,
+    is met. `tidepool-bench`'s `suites::editor` measures a wheel notch
+    of three rows through a 10,000-line file at 1920 × 1080: handled,
+    framed, and its damage painted with `gui`'s `Painter`. Pinned to one
+    core with `taskset -c 4` on the idle reference machine, two runs
+    agreed within 0.5%: with soft wrap off a 1.91 ms median and 2.05 ms
+    p95; with it on, over a file whose 1,930 longest lines wrap, 3.80
+    and 4.25 ms; and the first layout of a 10,000-byte line, 5.45 and
+    5.69 ms. The Verify run, unpinned at a load average of about 6 from
+    other programs, gave 2.14 and 2.35, 4.25 and 4.71, and 14.0 and
+    14.7 ms. No baseline is recorded for the three suites:
+    `--save` refuses a pinned run, which sees 1 thread against the
+    baseline's 16 (ADR-0035), and other programs loaded the machine
+    whenever it ran unpinned. Recording them later, on an idle machine,
+    takes `cargo xtask bench editor --save --machine "MSI Pulse GL66
+    11UGKV, the reference machine of docs/00-overview.md"`. The 134
+    Mermaid blocks of `diagrams/` parse and render with Mermaid 11.17.2,
+    which caught one `;` in a new sequence message, since fixed, and
+    rejected a planted broken one. `cargo xtask ci`: 13 of 13 steps,
+    2,509 tests, 30 skipped (the X11 tests, `TIDEPOOL_IT_X11` unset),
+    after a run whose only failure was `codec`'s timing test
+    `a_table_with_100000_keys_parses_in_linear_time` at 3.7 s against its
+    2 s, at a load average of about 20 from other programs, which passed
+    alone three times; M4.1 changes no `codec` code.
+    `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` of `tidepool-editor`,
+    `tidepool-ui`, `tidepool-bench` and `tidepool` is clean.
 
 - [ ] **M4.6 — editor: commands and the modal keymap engine**
   - Depends: M4.1, M1.7
@@ -3142,6 +3195,12 @@ plugins, and so that M14's fuzz campaign and security review cover them.
   - Note (2026-11-23): the user accepted ADR-0061 as written, which
     answers the first question of the `Decide first` line. The second,
     vendoring the official Lua 5.5 test suite, is still open.
+  - Note (2026-11-23): the user chose to vendor the suite, which answers
+    the second question. ADR-0062 records how: this task downloads
+    `lua-5.5.1-tests.tar.gz` with the user's approval, checks its
+    SHA-256, and copies its Lua files, unchanged and without its C
+    sources, into `crates/lua/tests/lua-5.5.1-tests/`, with a
+    `NOTICE.md`.
 
 - [ ] **M15.2 — lua: virtual machine, garbage collector, and coroutines**
   - Depends: M15.1, M1.9

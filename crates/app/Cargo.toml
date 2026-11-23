@@ -20,9 +20,11 @@ tidepool-ui = { path = "../ui" }
 tidepool-editor = { path = "../editor" }
 
 # The shell's golden scenes (`tests/golden.rs`, M3.4) paint over `gfx`'s
-# backdrop into its framebuffers.
+# backdrop into its framebuffers; the editor view's (M4.1) give the view
+# `text`'s ropes and selections.
 [dev-dependencies]
 tidepool-gfx = { path = "../gfx" }
+tidepool-text = { path = "../text" }
 
 [lints]
 workspace = true

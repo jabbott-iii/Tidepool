@@ -76,6 +76,9 @@ amber-line = { value = "rgba(242,194,0,0.55)", solid = "#8a7006", ansi = 94 }
 neutral-haze = { value = "rgba(179,189,193,0.02)" }
 teal-haze = { value = "rgba(92,203,203,0.02)" }
 amber-haze = { value = "rgba(242,194,0,0.02)" }
+# The editor's current-line wash (ADR-0063): white at 2.5%, as `row-hover`
+# is, but a token of its own, so that the two can change apart.
+current-line = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
 
 # Lengths in logical units.
 [sizes]
@@ -107,6 +110,21 @@ size = "normal"
 [[contrast.use]]
 text = "text"
 on = ["teal-glow"]
+over = "editor-bg"
+size = "normal"
+
+# The editor's current line (M4.1, ADR-0063): `current-line` over
+# `editor-bg` (#101517), where the code stays `text` and the line's number
+# is `text-2`.
+[[contrast.use]]
+text = "text"
+on = ["current-line"]
+over = "editor-bg"
+size = "normal"
+
+[[contrast.use]]
+text = "text-2"
+on = ["current-line"]
 over = "editor-bg"
 size = "normal"
 

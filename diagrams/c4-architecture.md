@@ -304,7 +304,8 @@ five diagrams. Every arrow is an edge of the dependency matrix. Only
 `platform` (on `core` and `sys`, M2.2), `gfx` (on `core`, M2.3), `gui`
 (on `core`, `platform`, `gfx` and `font`, M2.6, and `ui`, M3.2), the
 binary (on `core`, `platform` and `gui`, M2.6, `ui`, M3.8, and `codec`
-and `editor`, M3.4), `editor` (on `core` and `ui`, M3.4) and `ui` (on
+and `editor`, M3.4), `editor` (on `core` and `ui`, M3.4, and `text`,
+M4.1) and `ui` (on
 `core`, M3.1, `codec`, M3.2, and `text`, M3.6) declare dependencies yet; their
 edges, and the three dev-dependencies on `tidepool-core` that the tests
 of `codec`, `text` and `font` use, are solid. Every
@@ -485,11 +486,12 @@ flowchart LR
 
 `tidepool-editor` is where every feature is written once (ADR-0003); it
 draws through `ui` and never depends on `gui` or `tui`. Its thirteen edges
-are added as its panels land.
+are added as its parts land: those to `core` and `ui` came with the shell
+(M3.4), and the one to `text` with the editor view (M4.1).
 
 ```mermaid
 flowchart LR
-    k_editor["tidepool-editor<br/>planned M4.1:<br/>the editor view<br/>keymap engine M4.6<br/>vim mode M7.2<br/>every panel"]
+    k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)<br/>planned: keymap engine M4.6<br/>vim mode M7.2<br/>every panel"]
 
     subgraph L3["Layer 3"]
         k_lang["tidepool-lang<br/>planned M6.7"]
@@ -501,7 +503,7 @@ flowchart LR
         k_syntax["tidepool-syntax<br/>planned M6.2"]
         k_term["tidepool-term<br/>planned M5.8"]
         k_workspace["tidepool-workspace<br/>planned M4.7"]
-        k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3)"]
+        k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3, M4.1)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_codec["tidepool-codec"]
@@ -511,9 +513,9 @@ flowchart LR
         k_core["tidepool-core"]
     end
 
-    k_editor -.->|"planned M4.1"| k_core
-    k_editor -.->|"planned M4.1"| k_text
-    k_editor -.->|"planned M4.1"| k_ui
+    k_editor -->|"input, geometry (M3.4)"| k_core
+    k_editor -->|"Rope, Selection,<br/>clusters (M4.1)"| k_text
+    k_editor -->|"Tree, controls,<br/>palette (M3.4);<br/>the view's widgets,<br/>scrollbars (M4.1)"| k_ui
     k_editor -.->|"planned M4.6:<br/>keymaps in TOML"| k_codec
     k_editor -.->|"planned M4.3:<br/>explorer, tabs"| k_workspace
     k_editor -.->|"planned M4.4:<br/>find and replace"| k_regex
@@ -527,8 +529,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_codec,k_text,k_core,k_ui built
-    class k_editor,k_lang,k_vcs,k_agent,k_mobile,k_syntax,k_term,k_workspace,k_regex,k_markdown planned
+    class k_editor,k_codec,k_text,k_core,k_ui built
+    class k_lang,k_vcs,k_agent,k_mobile,k_syntax,k_term,k_workspace,k_regex,k_markdown planned
 ```
 
 ### 2.5 Layers 4 and 5: the frontends and the binary
@@ -540,8 +542,9 @@ over the backdrop it builds off the main thread, until the shell replaces
 them with the shell (M3.4, ADR-0060), whose activity bar shows `gui`'s
 first icons; `tui` is to map them onto cells (M7.1). The frontends
 know nothing of editors, languages or tools
-(`docs/subsystems/frontends.md`). `app` is to connect
-them to `editor` (M4.1). The matrix lets `app` use every crate in the rows above its own;
+(`docs/subsystems/frontends.md`). `app` connects
+them to `editor`'s shell (M3.4), and is to show its editor view from
+M4.3, when files open (ADR-0063). The matrix lets `app` use every crate in the rows above its own;
 only seven edges are drawn, each labelled with the task whose work needs
 it.
 
@@ -549,24 +552,25 @@ it.
 flowchart LR
     k_app["tidepool, crates/app:<br/>the binary<br/>--print-startup-time (M2.6)<br/>the main loop (M3.8)<br/>the shell's wiring,<br/>settings (M3.4)"]
     subgraph L4["Layer 4: views, frontends"]
-        k_editor["tidepool-editor<br/>the shell (M3.4)<br/>planned M4.1 on:<br/>the editor view"]
+        k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)"]
         k_gui["tidepool-gui<br/>Gui, first_frame,<br/>GuiError (M2.6)<br/>the theme's text<br/>colors (M3.2)<br/>Painter, FontMetrics,<br/>Icon (M3.5)<br/>render, the backdrop's<br/>builders (M3.8)<br/>icons, set_icon (M3.4)"]
         k_tui["tidepool-tui<br/>planned M7.1: renderer<br/>and input decoder"]
     end
     subgraph L2["Layer 2"]
-        k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3)"]
+        k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3, M4.1)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_gfx["tidepool-gfx"]
         k_font["tidepool-font"]
         k_platform["tidepool-platform"]
         k_codec["tidepool-codec"]
+        k_text["tidepool-text"]
         k_core["tidepool-core"]
     end
 
     k_app -->|"Gui (M2.6)"| k_gui
     k_app -.->|"planned M7.1: --tui"| k_tui
-    k_app -->|"the shell (M3.4),<br/>planned M4.1:<br/>the editor view"| k_editor
+    k_app -->|"the shell (M3.4),<br/>planned M4.3:<br/>the editor view"| k_editor
     k_app -->|"Tree: input (M3.8),<br/>the shell's tree (M3.4)"| k_ui
     k_app -->|"toml: settings (M3.4)"| k_codec
     k_app -->|"WindowConfig (M2.6),<br/>Event (M3.8),<br/>user_dirs (M3.4)"| k_platform
@@ -579,12 +583,13 @@ flowchart LR
     k_tui -.->|"planned M7.1"| k_core
     k_tui -.->|"planned M7.1:<br/>terminal guard"| k_platform
     k_tui -.->|"planned M7.1:<br/>draw lists, theme"| k_ui
-    k_editor -->|"Tree, controls,<br/>palette (M3.4)"| k_ui
+    k_editor -->|"Tree, controls,<br/>palette (M3.4);<br/>the view's widgets,<br/>scrollbars (M4.1)"| k_ui
     k_editor -->|"input, geometry (M3.4)"| k_core
+    k_editor -->|"Rope, Selection,<br/>clusters (M4.1)"| k_text
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class k_app,k_editor,k_gui,k_platform,k_codec,k_gfx,k_font,k_core,k_ui built
+    class k_app,k_editor,k_gui,k_platform,k_codec,k_text,k_gfx,k_font,k_core,k_ui built
     class k_tui planned
 ```
 
@@ -942,8 +947,12 @@ those of `ui` (M3.1), whose library depends on `core`. The benchmark harness,
 budget, and reports the median and p95 against `bench/baseline.json`; its
 suites measure the text engine: rope edits, positions, 10,000-caret
 keystrokes, typing and graphemes (ADR-0035), the glyph atlas's fill
-(M2.5), and the command palette's repaint, its text measured with
-`gui`'s `FontMetrics` as the window measures it (M3.3).
+(M2.5), the command palette's repaint, its text measured with
+`gui`'s `FontMetrics` as the window measures it (M3.3), and the editor
+view: a wheel notch through a 10,000-line file at 1080p, with soft wrap
+off and on, and the first layout of a 10,000-byte line, each handled as
+the main loop does and its damage painted with `gui`'s `Painter` into a
+`gfx` framebuffer (M4.1).
 `tidepool-testkit` is an
 empty crate; its edges are the matrix's row for it. `testkit` keeps fake
 tools in
@@ -956,15 +965,17 @@ flowchart LR
     t_text["tidepool-text tests<br/>tests/edits.rs, model.rs,<br/>positions.rs, unit tests"]
     t_ui["tidepool-ui tests<br/>tests/layout.rs, a11y.rs,<br/>theme.rs, widgets.rs,<br/>unit tests"]
     c_xtask["xtask"]
-    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, the binary"]
+    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, suites::editor,<br/>the binary"]
     s_baseline[("bench/baseline.json")]
     c_testkit["tidepool-testkit<br/>dev-only<br/>planned M5.1: fake tools<br/>planned M6.1: fake LSP<br/>server, transcripts"]
     k_core["tidepool-core<br/>testing: check,<br/>check_sized,<br/>assert_approx<br/>rng: Pcg32"]
     k_codec["tidepool-codec"]
     k_text["tidepool-text"]
     k_font["tidepool-font"]
+    k_gfx["tidepool-gfx"]
     k_ui["tidepool-ui"]
     k_gui["tidepool-gui"]
+    k_editor["tidepool-editor"]
     k_rpc["tidepool-rpc<br/>planned M6.1"]
 
     t_codec -->|"dev-dependency:<br/>property tests"| k_core
@@ -977,7 +988,9 @@ flowchart LR
     c_bench -->|"json"| k_codec
     c_bench -->|"cli::Args,<br/>rng::Pcg32"| k_core
     c_bench -->|"repaints a Palette<br/>of matched rows (M3.3)"| k_ui
-    c_bench -->|"measures its text<br/>with FontMetrics (M3.3)"| k_gui
+    c_bench -->|"measures its text<br/>with FontMetrics (M3.3);<br/>paints the view<br/>with Painter (M4.1)"| k_gui
+    c_bench -->|"scrolls an EditorView<br/>(M4.1)"| k_editor
+    c_bench -->|"the window's<br/>framebuffers (M4.1)"| k_gfx
     c_testkit -.->|"planned M5.1"| k_core
     c_testkit -.->|"planned M6.1"| k_codec
     c_testkit -.->|"planned M6.1"| k_rpc
@@ -985,7 +998,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class t_codec,t_text,t_ui,c_xtask,c_bench,k_core,k_codec,k_text,k_font,k_ui,k_gui built
+    class t_codec,t_text,t_ui,c_xtask,c_bench,k_core,k_codec,k_text,k_font,k_gfx,k_ui,k_gui,k_editor built
     class s_baseline store
     class c_testkit,k_rpc planned
 ```
@@ -1108,17 +1121,17 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-syntax` | `crates/syntax` | 2, services | deny | nothing | M6.2, M13.2, M13.3, M15.8 | none |
 | `tidepool-term` | `crates/term` | 2, services | deny | nothing | M5.8, M5.4 | none |
 | `tidepool-workspace` | `crates/workspace` | 2, services | deny | nothing | M4.7, M4.3, M4.4, M4.5 | none |
-| `tidepool-ui` | `crates/ui` | 2, services | deny | `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` and the error (M3.1); `theme`, with the bundled `themes/tidepool-dark.toml`, the error's theme variants and fuzz target `theme` (M3.2); `widgets`, the controls, the theme the tree holds and `UiError::WrongWidget` (M3.6); `widgets`' collections (list, tree view, table), tab strip, splitter, card and code block, which each layout binds (M3.7); `overlay`, `widgets`' modal dialog, tooltip, toast, and command palette, `Row::matched`, `Response::blocked`, the accessibility tree's `modal`, `description`, and `active`, `TextMetrics::scale`, `input::PRESS_SLOP`, and the error's overlay variants (M3.3) | none: `anim` has no task yet | `core`, `codec`, `text` |
+| `tidepool-ui` | `crates/ui` | 2, services | deny | `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` and the error (M3.1); `theme`, with the bundled `themes/tidepool-dark.toml`, the error's theme variants and fuzz target `theme` (M3.2); `widgets`, the controls, the theme the tree holds and `UiError::WrongWidget` (M3.6); `widgets`' collections (list, tree view, table), tab strip, splitter, card and code block, which each layout binds (M3.7); `overlay`, `widgets`' modal dialog, tooltip, toast, and command palette, `Row::matched`, `Response::blocked`, the accessibility tree's `modal`, `description`, and `active`, `TextMetrics::scale`, `input::PRESS_SLOP`, and the error's overlay variants (M3.3); the `current-line` token, and `widgets::is_hidden` and `widgets::flag_at` made public for the editor view (M4.1) | none: `anim` has no task yet | `core`, `codec`, `text` |
 | `tidepool-lang` | `crates/lang` | 3, language and tool features | deny | nothing | M6.7, M6.8, M6.3, M6.4, M6.6, M13.1 | none |
 | `tidepool-vcs` | `crates/vcs` | 3, language and tool features | deny | nothing | M8.1, M8.3 | none |
 | `tidepool-agent` | `crates/agent` | 3, language and tool features | deny | nothing | M9.3, M9.4 | none |
 | `tidepool-mobile` | `crates/mobile` | 3, language and tool features | deny | nothing | M10.2, M10.3, M10.4, M10.5, M10.6, M11.3, M11.4, M11.5 | none |
-| `tidepool-editor` | `crates/editor` | 4, views and frontends | deny | the shell, `shell`, with its commands and matcher, `shell::commands`, and its widgets, `shell::parts` (M3.4) | M4.1, M4.6, M4.2, M4.3, M4.4, M5.4, M5.6, M6.2, M6.7, M6.8, M6.3, M6.6, M7.2, M7.3, M7.4, M8.2, M8.3, M9.4, M9.5, M10.6, M11.6, M13.4, M15.5, M15.6, M15.7, M15.8 | `core`, `ui` |
+| `tidepool-editor` | `crates/editor` | 4, views and frontends | deny | the shell, `shell`, with its commands and matcher, `shell::commands`, and its widgets, `shell::parts` (M3.4); the editor view, `view`, with its error, `EditorError` (M4.1) | M4.6, M4.2, M4.3, M4.4, M5.4, M5.6, M6.2, M6.7, M6.8, M6.3, M6.6, M7.2, M7.3, M7.4, M8.2, M8.3, M9.4, M9.5, M10.6, M11.6, M13.4, M15.5, M15.6, M15.7, M15.8 | `core`, `text`, `ui` |
 | `tidepool-gui` | `crates/gui` | 4, views and frontends | deny | `Gui`, `first_frame`, the error, and the window test (M2.6), with `Gui::render` painting `ui` frames, the backdrop built on threads of its own and `first_frame::tree` (M3.8); the first frame's text colors from `ui`'s bundled theme (M3.2); `paint::Painter`, `metrics::FontMetrics`, `icon::Icon` and `ui`'s golden scenes (M3.5); the golden scenes of `ui`'s controls in `tests/controls/mod.rs` (M3.6); the golden scenes of `ui`'s M3.7 components in `tests/components/mod.rs` (M3.7); the golden scenes of `ui`'s overlays in `tests/overlays/mod.rs` (M3.3); the activity bar's six icons, `icons`, and `Gui::set_icon` (M3.4) | — | `core`, `platform`, `gfx`, `font`, `ui` |
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
-| `tidepool` (app) | `crates/app` | 5, application | deny | a `main` (M0.1) that opens the window, shows the first frame and takes `--print-startup-time` (M2.6); the event-driven main loop, with its window test (M3.8); the shell's wiring, the settings and the shell's golden scenes (M3.4) | M4.9, M7.1, M7.5, M14.4 | `core`, `platform`, `codec`, `gui`, `ui`, `editor` |
+| `tidepool` (app) | `crates/app` | 5, application | deny | a `main` (M0.1) that opens the window, shows the first frame and takes `--print-startup-time` (M2.6); the event-driven main loop, with its window test (M3.8); the shell's wiring, the settings and the shell's golden scenes (M3.4); the editor view's golden scenes (M4.1) | M4.9, M7.1, M7.5, M14.4 | `core`, `platform`, `codec`, `gui`, `ui`, `editor` |
 | `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9); `golden`, a step of `ci` (M2.4); `theme`, the last step of `ci` (M3.2) | `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
-| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5); `suites::ui` (M3.3) | suites for M4.1, M4.2, M4.4, M9.4, M14.3, M15.2, M15.5 | `core`, `codec`, `text`, `font`, `ui`, `gui` |
+| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5); `suites::ui` (M3.3); `suites::editor` (M4.1) | suites for M4.2, M4.4, M9.4, M14.3, M15.2, M15.5 | `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, `editor` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 
 ## Sources

@@ -78,9 +78,9 @@ Built, with the roadmap task that built it:
   collections, the card's tab and the code block's bar, ADR-0057
   four more of the site's `:root`, `bronze`, `bronze-hi`, `purple` and
   `purple-hi`, the colors of its backdrop's drawings, which no widget
-  uses yet, and ADR-0058 eight for the buttons' tiles: their lit labels
-  and borders and a coat of their corner glow), with the solid
-  color over `bg` and the 256-color index
+  uses yet, ADR-0058 eight for the buttons' tiles: their lit labels
+  and borders and a coat of their corner glow, and M4.1 one, below),
+  with the solid color over `bg` and the 256-color index
   where the file gives them, the cut-corner size and the two fonts. A
   key that is missing or unknown, a wrong type, a color that does not
   parse, a `solid` for an opaque value, a translucent `bg`, an index out
@@ -321,6 +321,23 @@ Built, with the roadmap task that built it:
   - A `Button`'s label is cut to its tile, and a `TextInput` drops what
     a dialog's text leaves out from what is typed or pasted — M3.3's
     fourth round, in M3.6's controls.
+- `theme` and `widgets`: what M4.1's editor view, in `editor`, takes from
+  `ui` (ADR-0063) — M4.1:
+  - `current-line`, one more color `Token`: the wash of the editor's
+    current line, white at 2.5% (`#111213` solid, 256-color 233), the
+    value `row-hover` has, but a token of its own, so that the two can
+    change apart. `cargo xtask theme` checks the code's `text` and the
+    current line number's `text-2` on it, over `editor-bg`.
+  - `widgets::is_hidden` and `widgets::flag_at`, public now and
+    unchanged: whether a character is hidden (it shows nothing, or
+    changes how the text around it reads: a control character, a
+    default-ignorable code point but the zero width joiner and non-joiner
+    and variation selector 16, the line and paragraph separators, and the
+    interlinear annotation characters), and which of the flags of
+    England, Scotland, and Wales a text starts with, whose tag characters
+    stay whole. The modal dialog, the field, and the collections clean
+    what they show with them, so that a view outside `ui` can show the
+    same characters the same way.
 
 The tests check, among the rest, that children never overflow a parent
 that does not scroll and that layout is idempotent and deterministic, over
@@ -550,7 +567,9 @@ fn main() -> Result<(), UiError> {
   above it, kept clear of it); ADR-0056 (that wait ends only past 4
   device pixels of movement, and holds when a modal closes too); ADR-0058
   (buttons take the look of jabbott.dev's header tiles, keeping their
-  four kinds and sizes).
+  four kinds and sizes); ADR-0063 (the editor view is `editor`'s, over a
+  rope, and takes a `current-line` token and the public `is_hidden` and
+  `flag_at` from `ui`).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules

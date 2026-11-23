@@ -57,7 +57,9 @@ with `core::color::Color`, and the fuzz targets' result lines with
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
 `text`, `font`'s `Atlas` and `FontError` (sections 22 and 30), and
 `ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
-`tidepool-sys` no workspace crate (section 23).
+`editor`'s `EditorView`, which `gui`'s `Painter` paints into `gfx`'s
+`Framebuffer`s (M4.1, section 29.2), and `tidepool-sys` no workspace
+crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
@@ -2466,7 +2468,9 @@ merged `Baseline` back. `suites::all` lists the 18 text suites, which use
 `tidepool-text`'s `Rope` and `History`, then the font suite, which fills
 `tidepool-font`'s `Atlas` (M2.5), then the ui suite, which repaints a
 `tidepool-ui` `Palette`, its text measured with `tidepool-gui`'s
-`FontMetrics` (M3.3, 28.7).
+`FontMetrics` (M3.3, 28.7), then the three editor suites, which scroll
+a `tidepool-editor` `EditorView` and paint it with `tidepool-gui`'s
+`Painter` (M4.1, 29.2).
 
 ```mermaid
 classDiagram
@@ -4207,7 +4211,7 @@ classDiagram
 
 `Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
 within the `Limits` it is given, and reads its tables into a `Theme`: a
-name, a `TokenColor` for each of the 51 `Token`s, in the order of
+name, a `TokenColor` for each of the 52 `Token`s, in the order of
 `Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
 two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
 of `themes/tidepool-dark.toml` compiled in, within `LIMITS`, at each
@@ -4232,7 +4236,7 @@ classDiagram
     }
     class Theme["ui::theme::Theme"] {
         -name: String
-        -colors: 51 TokenColor
+        -colors: 52 TokenColor
         -cut: f32
         -font_ui: String
         -font_mono: String
@@ -4263,8 +4267,9 @@ classDiagram
         GreenHalo
         TealLabel
         AmberHaze
+        CurrentLine
         +COUNT: usize
-        +ALL: 51 Token
+        +ALL: 52 Token
         +name() str
         +from_name(name) Option~Token~
     }
@@ -4306,7 +4311,7 @@ classDiagram
         <<trait>>
     }
 
-    Theme "1" *-- "51" TokenColor : colors, one per Token
+    Theme "1" *-- "52" TokenColor : colors, one per Token
     TokenColor *-- Color : value, solid
     Theme ..> Token : token, color,<br/>solid, ansi take
     Theme ..> Family : font takes
@@ -4321,7 +4326,7 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-- The `Token` box lists 14 of its 51 variants, the rows of the spec's
+- The `Token` box lists 15 of its 52 variants, the rows of the spec's
   token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
   `comment`, eight ADR-0049 added for the controls' component colors,
   from `ghost` to `error-halo`, such as `teal-line` and `green-halo`,
@@ -4333,7 +4338,8 @@ classDiagram
   borders, and corner glows: `neutral-label`, `teal-label`,
   `amber-label`, `neutral-line`, `amber-line`, `neutral-haze`,
   `teal-haze`, and `amber-haze` (a teal tile's lit border is the
-  existing `teal-line`).
+  existing `teal-line`). ADR-0063 added `current-line` last, the
+  editor's current-line wash, with `row-hover`'s value (M4.1).
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
 - `UiError`'s box lists only its two theme variants; section 30 has the
@@ -4387,6 +4393,8 @@ classDiagram
         +BUTTON_LABEL: TextStyle
         +update~W~(tree, id, change) Result
         +focus_outline(list, bounds, theme)
+        +is_hidden(c) bool
+        +flag_at(text) Option~str~
     }
     class Control["ui::widgets::Control"] {
         <<trait>>
@@ -5327,12 +5335,14 @@ classDiagram
   waits, or it is inert under a modal. A toast's private `ToastText`
   paints its lines, and its action is a `Button`.
 - The text of a dialog, a tooltip, a toast, and the palette's names is
-  cleaned by one private cleaner: control characters, the line and
+  cleaned by one private cleaner, whose tests for a character and a
+  flag, `widgets::is_hidden` and `widgets::flag_at`, are public since
+  M4.1, for the editor view (ADR-0063): control characters, the line and
   paragraph separators, the interlinear annotation characters, and
   Unicode 17.0.0's `Default_Ignorable_Code_Point` less U+200C, U+200D,
   and U+FE0F, which a unit test checks against the pinned data. It keeps
   tag characters only in the three RGI emoji tag sequences, the flags of
-  England, Scotland, and Wales (`FLAG_SEQUENCES`, UTS #51). A
+  England, Scotland, and Wales (UTS #51). A
   collection shows and names the same characters as U+FFFD, and a
   `TextInput` drops them from what is typed or pasted.
 - The palette's root holds its `PaletteField`, a search field whose role
@@ -5345,7 +5355,9 @@ classDiagram
   only (ADR-0043). The `Role` and `ActionKind` boxes list the variants
   the overlays use.
 
-## 29. editor: the shell
+## 29. editor: the shell and the editor view
+
+### 29.1 The shell
 
 `tidepool-editor`'s first module, `shell` (M3.4, ADR-0060), builds the
 window's frame around the editor in a `ui::Tree`: the title strip, the
@@ -5504,6 +5516,103 @@ classDiagram
   Space released, which `ui` keeps private, so the shell keeps a copy of
   that rule (`space`).
 
+### 29.2 The editor view
+
+`view` (M4.1, ADR-0063) shows a `text::Rope` and its `text::Selection` in
+a `ui::Tree`: line numbers in a gutter, the text in JetBrains Mono
+(`EDITOR_TEXT`), the selections, the cursors while it has focus, the
+current line's wash, and two `ui` scrollbars. `EditorView::insert` builds
+its nodes under a parent and returns their ids; the text node's widget,
+the private `Area`, keeps the rope, the selection, soft wrap and where
+the text is scrolled to, which `position` gives as a `ScrollPosition`,
+and lays out only the lines on screen, each cut at
+`MAX_LINE_BYTES`. `handle` gives an event to the tree and `update`s the
+view with the actions that come back, so a scrollbar's drag or a wheel
+notch scrolls the text. `point_to_byte`, `byte_to_point` and
+`scroll_into_view` are what editing (M4.2) moves carets with.
+
+```mermaid
+classDiagram
+    direction LR
+    class EditorView["editor::view::EditorView"] {
+        -root: NodeId
+        -text: NodeId
+        -vertical: NodeId
+        -horizontal: NodeId
+        +insert(tree, parent, name, text) Result~EditorView~
+        +node() NodeId
+        +text_node() NodeId
+        +scroll_bar(axis) NodeId
+        +text(tree) Result~Rope~
+        +selection(tree) Result~Selection~
+        +wrap(tree) Result~bool~
+        +position(tree) Result~ScrollPosition~
+        +set_text(tree, text) Result
+        +set_selection(tree, selection) Result
+        +set_wrap(tree, wrap) Result
+        +handle(tree, event, metrics) Result~Response~
+        +update(tree, actions, metrics) Result~bool~
+        +point_to_byte(tree, point, metrics) Result~usize~
+        +byte_to_point(tree, byte, metrics) Result~Option of Point~
+        +scroll_into_view(tree, byte, metrics) Result~bool~
+    }
+    class ScrollPosition["editor::view::ScrollPosition"] {
+        +line: usize
+        +row: usize
+        +y: f32
+        +x: f32
+    }
+    class ViewConsts["editor::view"] {
+        <<module>>
+        +EDITOR_TEXT: TextStyle
+        +GUTTER_PADDING: f32
+        +MIN_GUTTER_DIGITS: usize
+        +CURSOR_WIDTH: f32
+        +TAB_STOP_SPACES: usize
+        +WHEEL_ROWS: f32
+        +MAX_LINE_BYTES: usize
+        +MARKER: char
+        +CUT_MARKER: str
+    }
+    class EditorError["editor::EditorError"] {
+        <<enumeration>>
+        Ui
+        Text
+    }
+    class Tree["ui::Tree"]
+    class Widget["ui::Widget"] {
+        <<interface>>
+    }
+    class ScrollBar["ui::widgets::ScrollBar"]
+    class WidgetsFns["ui::widgets"] {
+        <<module>>
+        +is_hidden(c) bool
+        +flag_at(text) Option~str~
+    }
+    class Rope["text::Rope"]
+    class Selection["text::Selection"]
+
+    EditorView ..> Tree : builds its nodes in,<br/>keeps its state in
+    EditorView ..> ScrollPosition : position returns
+    EditorView ..> EditorError : its methods return
+    EditorView ..> ScrollBar : one for each axis
+    EditorView ..> Rope : shows
+    EditorView ..> Selection : shows
+    EditorView ..> WidgetsFns : finds hidden characters<br/>and flags with
+```
+
+- The private `Area` widget holds the `Rope`, the `Selection`, the soft
+  wrap flag and the scroll offsets, and `Ground`, the view's root,
+  paints `editor-bg`; both implement `ui::Widget`. `EditorView` itself
+  holds only ids, so it is `Copy`, and every method takes the tree.
+- A character `ui::widgets::is_hidden` names (a control character other
+  than the tab and line breaks the view handles first, a
+  default-ignorable one such as a bidirectional override, a line or
+  paragraph separator, or an interlinear annotation character) shows as
+  `MARKER` in `error`, except within the flag of England, Scotland, or
+  Wales, which `ui::widgets::flag_at` finds and the view keeps whole. M4.1
+  made the two public for the view (ADR-0063).
+
 ## 30. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
@@ -5523,7 +5632,10 @@ suite runs, and its `Font` the `FontError` of a font operation; each of
 `gui::icon::IconError` that refused an icon. `UiError` names the node, role, index or limit a
 call ran into, and wraps a theme file's errors: `codec`'s `CodecError` in
 `ThemeSyntax`, and `ui::theme::ThemeError`, which implements only
-`Display`, in `Theme` (28.3). `xtask`
+`Display`, in `Theme` (28.3). `EditorError` wraps the `UiError` of a
+tree that refused a change or lost the view's nodes, in `Ui`, and the
+`TextError` of a byte offset or selection the text does not have, in
+`Text` (29.2). `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -5636,6 +5748,11 @@ classDiagram
         Theme
     }
     class ThemeError["ui::theme::ThemeError"]
+    class EditorError["editor::EditorError"] {
+        <<enumeration>>
+        Ui
+        Text
+    }
     class IconError["gui::icon::IconError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
@@ -5705,6 +5822,10 @@ classDiagram
     UiError *-- CodecError : ThemeSyntax
     UiError *-- ThemeError : Theme
     Display <|.. ThemeError
+    Display <|.. EditorError
+    StdError <|.. EditorError
+    EditorError *-- UiError : Ui
+    EditorError *-- TextError : Text
 ```
 
 ## 31. Planned types
@@ -5755,7 +5876,8 @@ The main files these diagrams were drawn from:
   `golden.rs`, `metadata.rs`, `matrix.rs`, `layers.rs`, `deps.rs`,
   `crates.rs`, `ucd.rs`, `theme.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
-  `suites.rs`, `suites/text.rs`, `suites/font.rs`, `suites/ui.rs`
+  `suites.rs`, `suites/text.rs`, `suites/font.rs`, `suites/ui.rs`,
+  `suites/editor.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`, `linux/evdev.rs`
 - `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,
@@ -5781,18 +5903,21 @@ The main files these diagrams were drawn from:
   `code.rs`, `collection.rs`, `collection/window.rs`, `field.rs`,
   `labels.rs`, `modal.rs`, `palette.rs`, `scrollbar.rs`, `splitter.rs`,
   `tabs.rs`, `toast.rs`, `tooltip.rs`); `themes/tidepool-dark.toml`
+- `crates/editor/src/lib.rs`, `error.rs`, `view.rs`, `view/area.rs`,
+  `view/layout.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
-  `crates/ui/Cargo.toml`, `bench/Cargo.toml`
+  `crates/ui/Cargo.toml`, `crates/editor/Cargo.toml`, `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
-  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058)
+  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058,
+  ADR-0063)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
-  `frontends.md`, `toolchains.md`, `vim-mode.md`
+  `frontends.md`, `toolchains.md`, `vim-mode.md`, `editor.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
   `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font`,
-  `crates/gui`, `crates/ui` and `bench`
+  `crates/gui`, `crates/ui`, `crates/editor` and `bench`

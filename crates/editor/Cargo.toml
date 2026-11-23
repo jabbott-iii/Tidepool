@@ -8,9 +8,11 @@ publish = false
 # Its row of the dependency matrix (docs/01-architecture.md) allows `core`,
 # `codec`, `text`, `regex`, `markdown`, `syntax`, `term`, `workspace`, `ui`,
 # `lang`, `vcs`, `agent` and `mobile`. The shell (M3.4) uses `core`'s input
-# and geometry and `ui`'s tree, layout and controls.
+# and geometry and `ui`'s tree, layout and controls; the editor view (M4.1)
+# also uses `text`'s rope, selections and grapheme cluster boundaries.
 [dependencies]
 tidepool-core = { path = "../core" }
+tidepool-text = { path = "../text" }
 tidepool-ui = { path = "../ui" }
 
 [lints]

@@ -110,7 +110,16 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   `settings.toml`, read-only until M4.7; with golden scenes of the shell
   at 1280 × 800 and 1920 × 1080, with the palette open and at scale 2,
   drawn by the binary's `tests/golden.rs` (M3.4, ADR-0060). Every view of
-  the shell is empty until its task.
+  the shell is empty until its task; and in `tidepool-editor` the editor
+  view, `editor::view`, over a `text` rope and its selection: a gutter of
+  line numbers, the text in JetBrains Mono, selections, cursors while it
+  has focus, the current line's wash in `ui`'s new `current-line` token,
+  soft wrap (off by default), scrollbars, and hidden characters shown as
+  U+FFFD, laying out only the lines on screen and cutting a line at
+  10,000 bytes, with five golden scenes drawn by the binary's
+  `tests/golden.rs` and `tidepool-bench` suites scrolling a 10,000-line
+  file at 1080p, a wheel notch in about 2 ms with soft wrap off and 4 ms
+  with it on; the binary shows the view from M4.3 (M4.1, ADR-0063).
 - **Not built:** everything else. 13 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

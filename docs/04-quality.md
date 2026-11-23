@@ -7,7 +7,7 @@
 | Unit | `#[cfg(test)] mod tests` beside the code | Functions and types behave as documented |
 | Property | Unit tests using `tidepool_core::testing` | Invariants hold for generated inputs (rope vs `String` model, position round-trips, undo/redo) |
 | Integration | `crates/<name>/tests/` | A crate's public API works end to end |
-| Golden frames | `tests/golden/*.qoi`, compared by `cargo xtask golden` | `gfx`, `font` and `ui` render what they rendered when blessed |
+| Golden frames | `tests/golden/*.qoi`, compared by `cargo xtask golden` | `gfx`, `font`, `ui`, and `editor` render what they rendered when blessed |
 | TUI snapshots | `tests/golden/tui/*.txt` | The TUI's cell grid (text + style codes) for a scripted session |
 | Protocol transcripts | `crates/testkit/transcripts/` | LSP, DAP and TAP clients send and accept exactly the recorded messages |
 | Fake tools | `crates/testkit/fake-tools/` | `toolchain`, `vcs` and `mobile` handle real output formats and exit codes without the real tools |
@@ -60,7 +60,18 @@ authoritative, and this summarizes it.
   `crates/gui/tests/components/mod.rs`); and 8 of its overlays: the
   modal dialog, tooltip, toast, and command palette (M3.3,
   `crates/gui/tests/overlays/mod.rs`), each a grid of a row for each
-  variant and a column for each state it has, at scale 1 and 2.
+  variant and a column for each state it has, at scale 1 and 2. The
+  `tidepool` binary's 9 scenes are `editor`'s, painted by `gui`'s
+  painter in the binary's `tests/golden.rs`, since its row of the matrix
+  allows both: 4 of the shell over jabbott.dev's backdrop, at 1280 × 800
+  and 1920 × 1080, with the command palette open, and at scale 2 (M3.4,
+  ADR-0060); and 5 of the editor view alone, which is opaque and paints
+  the same pixels over any base (M4.1, ADR-0063). The view's scenes show
+  a Rust-like text written in the test, with tab-indented lines, hidden
+  characters' markers, a selection over two lines and a second caret, at
+  800 × 480 with soft wrap off and on and at 400 × 240 at scale 2; 10,000
+  lines scrolled to their end and sideways; and a line past 10,000 bytes
+  scrolled to the marker where it is cut.
 - **`TIDEPOOL_GOLDEN_DIR`.** When it names a directory, each scene writes
   what it drew there as `<scene>.pam` (Netpbm PAM, RGBA, rows from the
   top): the framebuffer's premultiplied bytes, unchanged. Unset, the
@@ -384,11 +395,17 @@ The design is ADR-0027's; the engine's rustdoc
   the `baseline` module's rustdoc shows the file.
 - **Suites:** rope edits, position conversions, a 10,000-caret keystroke
   with its undo and redo, typing into 100 MB, and grapheme queries on
-  crafted 100 MB lines (M1.9); and filling an empty glyph atlas with
-  Saira's printable ASCII at 14 px (M2.5). Highlighting a 10k-line file,
-  project search, frame build + raster at 1080p and startup come with
-  their tasks, which record them with `--save` on the reference machine
-  (ADR-0035).
+  crafted 100 MB lines (M1.9); filling an empty glyph atlas with
+  Saira's printable ASCII at 14 px (M2.5); frame build + raster at
+  1080p, as the editor view's scroll suites measure it: the view at 1920
+  × 1080, scrolled a wheel notch an iteration through a generated
+  10,000-line Rust-like file with soft wrap off, and on through a
+  variant a fifth of whose lines wrap, each notch's frames built and
+  their damage painted with `gui`'s painter (M4.1); and the notch that
+  first lays out a 10,000-byte line (M4.1). The `editor` suites' rustdoc
+  describes the files. Highlighting a 10k-line file, project search, and
+  startup come with their tasks, which record them with `--save` on the
+  reference machine (ADR-0035).
 - A change that slows a suite by more than 10% against the baseline must
   say so and why. Repeat a run that marks a suite before reading it as a
   slowdown: the text suites' baseline was recorded from a whole run, and a

@@ -36,6 +36,15 @@ Built, with the roadmap task that built it:
   `settings.toml` in the user's config folder say which panels show, a
   bad value falling back to its default with a warning in the log; and
   the shell's golden scenes, `tests/golden.rs` — M3.4 (ADR-0060).
+- the editor view's golden scenes, in the same `tests/golden.rs`:
+  `tidepool-editor`'s view alone, painted by `tidepool-gui`'s painter
+  and checked to paint the same pixels over any base. They show a
+  Rust-like text with tab-indented lines, hidden characters' markers, a
+  selection over two lines and a second caret at 800 × 480, with soft
+  wrap off and on, and at 400 × 240 at scale 2; 10,000 lines scrolled
+  to their end and sideways; and a line past 10,000 bytes scrolled to
+  its cut marker. The window shows no view until M4.3 opens a file —
+  M4.1 (ADR-0063).
 
 Not yet, with the roadmap task that adds it:
 
@@ -85,7 +94,7 @@ starts the terminal UI from M7.1.
   (the first frame, its budget and `--print-startup-time`); ADR-0059 (the
   loop, built in M3.8, and the backdrop built off the main thread);
   ADR-0060 (the shell, its icons, the settings it reads and its golden
-  scenes).
+  scenes); ADR-0063 (the editor view, whose golden scenes it draws).
 - API reference: `cargo doc -p tidepool --open`
 
 ## Rules
@@ -111,15 +120,15 @@ deadline, a distinct icon for each view, and the settings: the defaults,
 the two keys, unknown keys ignored, a wrong type, a file that is not
 TOML, missing or too large, each warning logged; they run the binary with
 arguments it refuses, which opens no window. Its `golden` target paints
-the shell's scenes, which `cargo xtask golden` compares. The second
-command also runs the window test, under Xvfb (ADR-0041): the binary
-reaches its first frame, then uses no processor time over an idle second,
-read from `/proc`; without `TIDEPOOL_IT_X11=1` it prints `SKIPPED:`. The
-third draws and compares the golden scenes, the shell's among them. The
-fourth opens the window on your display: its line must stay within the
-budget, a resize must repaint at once with the backdrop following, and
-the window must close with its close button. `cargo xtask ci` runs the
-whole gate.
+the shell's and the editor view's scenes, which `cargo xtask golden`
+compares. The second command also runs the window test, under Xvfb
+(ADR-0041): the binary reaches its first frame, then uses no processor
+time over an idle second, read from `/proc`; without `TIDEPOOL_IT_X11=1`
+it prints `SKIPPED:`. The third draws and compares the golden scenes,
+the shell's and the editor view's among them. The fourth opens the
+window on your display: its line must stay within the budget, a resize
+must repaint at once with the backdrop following, and the window must
+close with its close button. `cargo xtask ci` runs the whole gate.
 
 ## License
 

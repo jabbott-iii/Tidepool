@@ -13,9 +13,10 @@
 // limitations under the License.
 
 //! The suites, one module per crate measured. Each suite's name starts
-//! with the crate's (`text/`, `font/`, `ui/`), so that `cargo xtask bench
-//! text` runs all of that crate's.
+//! with the crate's (`text/`, `font/`, `ui/`, `editor/`), so that `cargo
+//! xtask bench text` runs all of that crate's.
 
+pub mod editor;
 pub mod font;
 pub mod text;
 pub mod ui;
@@ -23,9 +24,9 @@ pub mod ui;
 use crate::Suite;
 
 /// Every suite, in the order a run takes them: `text`'s, then `font`'s,
-/// then `ui`'s.
+/// then `ui`'s, then `editor`'s.
 pub fn all() -> Vec<Suite> {
-    [text::SUITES, font::SUITES, ui::SUITES].concat()
+    [text::SUITES, font::SUITES, ui::SUITES, editor::SUITES].concat()
 }
 
 #[cfg(test)]
@@ -51,6 +52,7 @@ mod tests {
             ("text/", text::SUITES),
             ("font/", font::SUITES),
             ("ui/", ui::SUITES),
+            ("editor/", editor::SUITES),
         ] {
             for suite in module {
                 assert!(
@@ -62,7 +64,7 @@ mod tests {
         }
         assert_eq!(
             names.len(),
-            text::SUITES.len() + font::SUITES.len() + ui::SUITES.len()
+            text::SUITES.len() + font::SUITES.len() + ui::SUITES.len() + editor::SUITES.len()
         );
         let count = names.len();
         names.sort_unstable();

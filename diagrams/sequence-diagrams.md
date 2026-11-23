@@ -646,8 +646,9 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-flow is planned in M4.1, M4.2, M4.3 and M4.6; `Transaction` and `History`
-are built (M1.2), and so are core's `InputEvent` (M0.2), `platform`'s
+flow is planned in M4.2, M4.3 and M4.6; `Transaction` and `History`
+are built (M1.2), and so are the editor view, which takes no keys until
+M4.2 and which the binary shows from M4.3 (M4.1, ADR-0063), core's `InputEvent` (M0.2), `platform`'s
 events (M2.2), `ui`'s routing of an event and its frames with their damage
 (M3.1, ADR-0046), `gui`'s painter of those frames (M3.5, ADR-0048), and
 the main loop that waits on the window, hands the tree its input and
@@ -665,7 +666,7 @@ sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
     participant Ui as ui Tree: input<br/>and focus (built)
 
-    Note over User,Ui: planned M4.1, the editor view.<br/>core's InputEvent (M0.2), platform's events (M2.2),<br/>ui's routing (M3.1) and the loop (M3.8) are built.
+    Note over User,Ui: planned M4.2, M4.3: the view takes keys,<br/>and the binary shows it. core's InputEvent (M0.2),<br/>platform's events (M2.2), ui's routing (M3.1),<br/>the loop (M3.8) and the view (M4.1) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
@@ -673,7 +674,7 @@ sequenceDiagram
     Plat-->>Fe: Event::Input: the Key from<br/>the key code, then the text<br/>from Xutf8LookupString
     Fe-->>ML: Event::Input with an<br/>InputEvent, core input (built)
     ML->>Ui: Tree::handle(event)
-    Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1), then up<br/>through its ancestors until one handles it
+    Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1, keys from M4.2),<br/>then up through its ancestors until one handles it
     Ui-->>ML: a Response: the actions widgets<br/>emitted, and whether it was handled
 ```
 
@@ -704,13 +705,13 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
-    participant View as editor view (M4.1)<br/>and ui Tree::frame (built)
+    participant View as editor view (built, M4.1)<br/>and ui Tree::frame (built)
     participant Fe as gui Gui: render<br/>(built, M3.8)
     participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M4.1, M4.3.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3), font (M2.5),<br/>gui's painter (M3.5) and render (M3.8) are built.
+    Note over ML,Bg: planned M4.3: the binary shows the view.<br/>The view (M4.1), ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3), font (M2.5),<br/>gui's painter (M3.5) and render (M3.8) are built.
     ML->>Fe: render(tree)
     Fe->>View: Tree::frame(logical size,<br/>FontMetrics at the scale)
     View-->>Fe: a Frame: the draw<br/>list in logical units,<br/>and its damage, or None<br/>when nothing is damaged

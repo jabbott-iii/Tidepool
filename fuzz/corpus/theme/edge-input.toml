@@ -54,6 +54,7 @@ amber-line = { value = "rgba(242,194,0,0.55)", solid = "#8a7006", ansi = 94 }
 neutral-haze = { value = "rgba(179,189,193,0.02)" }
 teal-haze = { value = "rgba(92,203,203,0.02)" }
 amber-haze = { value = "rgba(242,194,0,0.02)" }
+current-line = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
 
 [sizes]
 cut = 10
@@ -240,6 +241,5 @@ font-mono = "JetBrains Mono"
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
 # padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding padding padding padding padding
-# padding padding padding padding padding paddin
+# padding padding padding padding padd
 ################################################################################

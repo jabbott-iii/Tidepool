@@ -151,8 +151,9 @@
     {
       "name": "Editing Tidepool with Tidepool",
       "area": "Editor",
-      "summary": "The editor view will draw the text with cursors, selections, a gutter and soft wrap, and edit with many cursors at once, one undo step per command; keymaps will be TOML files, with your bindings over the defaults. Folders will open untrusted until you trust them, files will open in tabs and splits and reload when changed outside, and unsaved work will come back after a crash.",
-      "tasks": ["M4.1", "M4.6", "M4.2", "M4.7", "M4.3", "M4.5", "M4.9"]
+      "summary": "The editor view draws a file's text with line numbers, cursors, selections, the current line and soft wrap, laying out only the lines on screen, so a wheel notch through a 10,000-line file at 1080p takes about 2 ms, far within a 60 fps frame. It will edit with many cursors at once, one undo step per command, and the window will show it once files open; keymaps will be TOML files, with your bindings over the defaults. Folders will open untrusted until you trust them, files will open in tabs and splits and reload when changed outside, and unsaved work will come back after a crash.",
+      "tasks": ["M4.1", "M4.6", "M4.2", "M4.7", "M4.3", "M4.5", "M4.9"],
+      "ticked": ["M4.1"]
     },
     {
       "name": "Search",

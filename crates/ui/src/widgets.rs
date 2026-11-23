@@ -93,6 +93,15 @@
 //! [`DISABLED_OPACITY`], with no hover or pressed look. No control blinks
 //! or animates: an idle tree damages nothing.
 //!
+//! # Hidden characters
+//!
+//! [`is_hidden`] says which characters show nothing or change how the text
+//! around them reads, and [`flag_at`] finds the three emoji flags whose
+//! tag characters stay whole. The [`Modal`], the [`TextInput`], and the
+//! [`Collection`] clean the text they show with them; they are public so
+//! that a view outside `ui` can show the same characters the same way
+//! (ADR-0063).
+//!
 //! [`NodeState`]: crate::tree::NodeState
 
 use tidepool_core::color::Color;
@@ -130,7 +139,7 @@ pub use code::{CodeBlock, CodeSpan};
 pub use collection::{Collection, CollectionKind, Column, Row, Rows};
 pub use field::{FieldKind, MAX_INPUT_BYTES, TextInput};
 pub use labels::{Eyebrow, Kicker, SectionTitle, Status, StatusDot};
-pub use modal::Modal;
+pub use modal::{Modal, flag_at, is_hidden};
 pub use palette::Palette;
 pub use scrollbar::ScrollBar;
 pub use splitter::Splitter;

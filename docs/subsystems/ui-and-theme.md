@@ -74,10 +74,13 @@ backdrop and for the TUI. `on-amber`, `on-teal` and `comment` are the
 colors the contrast rules below name (ADR-0047). The 13 from `ghost` to
 `code-bar` are the colors the site's components use beyond its `:root`,
 which the controls (ADR-0049) and the collections (ADR-0052) take as
-tokens, and the last 8, from `neutral-label` on, the header tiles'
+tokens, and the 8 from `neutral-label` to `amber-haze` the header tiles'
 (`.nav-tile`), which the buttons take (ADR-0058): a lit tile's label, its
 accent mixed 55% with white; its border, the accent at 55%; and a coat
-of its corner glow, nine of which make the site's 16%. `bronze`, `bronze-hi`, `purple` and `purple-hi` are the colors
+of its corner glow, nine of which make the site's 16%. The last,
+`current-line`, is the editor view's current-line wash (M4.1): white at
+2.5%, the value `row-hover` has, but a token of its own, so that the two
+can change apart (ADR-0063). `bronze`, `bronze-hi`, `purple` and `purple-hi` are the colors
 of the site's backdrop drawings (ADR-0057): no widget uses them yet, and
 `gfx`'s backdrop keeps its own copies of them, as `gfx` sits below `ui`;
 a test of `gui` holds the copies to these tokens. The file writes each
@@ -138,6 +141,7 @@ format's reference.
 | `neutral-haze` | `rgba(179,189,193,0.02)` | — | — | A coat of a ghost button's corner glow (`text-2` at 2%) |
 | `teal-haze` | `rgba(92,203,203,0.02)` | — | — | A coat of a teal tile's corner glow (`teal` at 2%) |
 | `amber-haze` | `rgba(242,194,0,0.02)` | — | — | A coat of an amber tile's corner glow (`amber` at 2%) |
+| `current-line` | `rgba(255,255,255,0.025)` | `#111213` | 233 | The editor's current line (`#101517` on the editor) |
 | `cut` | 10 px | — | — | The site's cut-corner size; no widget cuts corners since buttons became tiles (ADR-0058) |
 | `font-ui` | Saira | — | — | UI chrome |
 | `font-mono` | JetBrains Mono | — | — | Code, terminal, numbers, paths |
@@ -263,7 +267,7 @@ From the site's syntax palette (`.highlight .*`):
 | Editor element | Value |
 | :- | :- |
 | Background | `editor-bg` |
-| Current line | 2.5% white wash |
+| Current line | 2.5% white wash, `current-line` (ADR-0063) |
 | Line numbers | `text-3`; current line `text-2` |
 | Cursor | `teal` bar (insert), `teal` block at 60% (vim normal mode) |
 | Matching bracket | 1 px `teal` outline |
