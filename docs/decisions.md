@@ -4057,3 +4057,102 @@ decides; the roadmap task that first depends on one asks for the decision.
   the backdrop gains motion (`ui.ambient_motion`); the worker pool of
   `docs/01-architecture.md` lands, which could take the builds; or the
   first frame takes more than 250 ms on the reference machine.
+
+## ADR-0060 — M3.4's shell lives in `editor::shell`, painted by `gui`; the activity bar has Tidepool's first outline icons; `app` reads two panel settings read-only; the palette ranks the shell's commands with a subsequence matcher
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - M3.4 builds the shell around the editor: the title strip, activity
+    bar, side panel, editor area, bottom panel, status bar and command
+    palette (`docs/subsystems/editor.md` → "Shell layout"), with
+    settings read before M4.7 builds `workspace::settings`, and golden
+    frames at 1280 × 800 and 1920 × 1080. ADR-0059 left it four
+    questions.
+  - `editor` may use `ui` but never `gui` or `tui`, and the frontends
+    never use `editor`; `app` may use every crate
+    (`docs/01-architecture.md` → "Dependency matrix"). `app` is a binary,
+    so its integration tests reach no module of its own.
+    `cargo xtask golden` runs the `golden` test target of each crate in
+    its `SCENES` table (ADR-0044).
+  - No icon set exists: `gui::Icon` holds a vector outline that a caller
+    registers with the `Painter` under a `ui::draw::IconId` (ADR-0048),
+    and `Gui` keeps its painter private (ADR-0059).
+  - `ui`'s palette shows the rows its owner ranks; `ui` has no matcher
+    (ADR-0052). M4.6 builds the named commands and the keymap engine.
+  - jabbott.dev's backdrop compresses well as QOI: `gfx_backdrop`, 480 ×
+    300, is 27.9 KB, about 0.19 bytes a pixel.
+  - On 2026-11-22 the user chose the recommended option of each of the
+    four questions: "editor::shell", "Outline icons", "Panel keys, in
+    app" and "Shell commands, fuzzy". The second was offered as making
+    the task touch four crates (`editor`, `app`, `xtask` and `gui`),
+    past `CLAUDE.md`'s three, and the user chose it so.
+- **Decision:**
+  - **The shell is `editor::shell`.** It builds the shell's nodes in a
+    `ui::Tree` and answers its events through `ui` alone, so the
+    terminal UI can show it too (M7.5) and M4's panels fill its areas.
+    `editor` gains `core` and `ui` as dependencies, edges the matrix
+    already has. `app` connects it to `gui`'s window and loop. The
+    shell's views are empty until their tasks: each says in a line what
+    it will show.
+  - **Its goldens are drawn by `tidepool`.** `crates/app/tests/golden.rs`
+    paints the shell with `gui`'s `Painter` over the backdrop, exactly
+    (tolerance 0, as `gui`'s), at 1280 × 800 and 1920 × 1080, and with
+    the palette open; `xtask golden`'s `SCENES` gains its row.
+  - **The activity bar has outline icons**, Tidepool's first: six
+    vector outlines in `gui::icons` (files, search, branch, wrench,
+    device and spark, for Explorer, Search, Source Control, Toolchains,
+    Devices and Agents), in a square viewbox, each a tooltip's anchor
+    naming its view. `editor::shell` names the `IconId` of each view;
+    `gui` gains `Gui::set_icon`, which registers an outline with the
+    window's painter and repaints, and `app` registers the six. The
+    terminal UI maps the ids to single-cell symbols (M7.1).
+  - **Settings, read-only until M4.7.** `app` reads `settings.toml` in
+    the user's config folder (`platform::user_dirs`) once at startup,
+    before the window opens, with `codec::toml` within its limits, and
+    at most 1 MiB: `[ui] side_panel` and `bottom_panel`, booleans, each
+    whether its panel shows at start, both `true` by default. A missing
+    file gives the defaults; an unknown key is ignored; a file that does
+    not parse, a value of the wrong type or one that cannot be read
+    falls back to the defaults it spoils, with a warning in the log
+    naming the file and the key. M4.7's `workspace::settings` replaces
+    it.
+  - **The palette ranks the shell's commands.** The shell's commands
+    (each side view, each bottom tab, the two panel toggles, closing the
+    window) are listed with a title such as "View: Toggle Side Panel".
+    A subsequence matcher in `editor::shell` ranks them: every character
+    of the query, compared without case, must appear in order; a match
+    at the start of a word or right after the last scores higher; ties
+    keep the list's order; the characters matched are the row's matched
+    ranges, drawn bold. An empty query lists every command. M4.6's
+    command registry replaces the list, and may keep the matcher.
+  - **Shortcuts and timers.** Ctrl+Shift+P and F1 open the palette,
+    Ctrl+B toggles the side panel and Ctrl+J the bottom panel, for a key
+    the tree did not handle and did not block (ADR-0055). A tooltip
+    shows 500 ms after the pointer comes to rest on its node, and at
+    once for keyboard focus, through the loop's `next_deadline`.
+- **Consequences:**
+  - M3.4 touches four crates, as chosen.
+  - `editor` is no longer empty; its first module is the shell, ahead
+    of the editor view (M4.1).
+  - The six icons are hand-made outlines, the start of an icon set that
+    later panels extend in `gui::icons`, until a task builds
+    `assets/icons`.
+  - The two panel settings are read twice over the roadmap: here, and by
+    M4.7, which moves them.
+  - The goldens of the whole window are large for this repository's
+    references: about 0.2 to 0.4 MB each.
+- **Alternatives considered:**
+  - The shell in `app`: fewer crates now, but `app` would need a library
+    target for its goldens, and M4 would move the shell to `editor`.
+  - Monogram tiles in the activity bar: no icon drawing and no change to
+    `gui`, but it reads less like `docs/subsystems/editor.md`'s layout
+    and jabbott.dev.
+  - `ui.scale` as a setting too: `gui` would lay out and paint at the
+    window's scale times the setting. Settings deferred to M4.7: no
+    loader now, but M3.4's promise would move.
+  - A substring filter in the palette: simpler, but "tsp" would not find
+    "View: Toggle Side Panel".
+- **Revisit when:** M4.6's command registry or M4.7's settings land; a
+  panel needs an icon of its own; the terminal UI shows the shell
+  (M7.5); or the shell's goldens outgrow 1 MB each.

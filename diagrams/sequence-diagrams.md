@@ -5,13 +5,13 @@ what order, and what comes back. Sections 1 to 7 are read from the code:
 `cargo xtask ci` and its `golden` step, `cargo xtask fuzz-smoke` and its
 engine, and loading,
 saving, editing and undoing text in `tidepool-text`, and so are 8.2 and
-8.3, the main loop to the first frame. The rest of sections 8 to 13 are
-the flows the specs plan, from startup to signing an Android package, and
-section 14 a tooltip's delay, whose `ui` side is built, and whose owner,
-the main loop, is built without the shell's timers; most of their code
-does not exist yet, and what does is marked (built).
+8.3, the main loop to the first frame, with the settings of 8.1, and so
+is section 14, a tooltip's delay, which the shell times. Sections 9 to 13
+are the flows the specs plan, from a keystroke to signing an Android
+package; most of their code does not exist yet, and what does is marked
+(built).
 
-Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.4 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, M3.3 and M3.8. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -155,10 +155,10 @@ sequenceDiagram
     Gold->>Cargo: cargo metadata<br/>--offline --no-deps
     Cargo-->>Gold: the members: those with a<br/>golden test, each with a row<br/>in SCENES, or a violation
     Gold->>Out: refuse links, empty it,<br/>make rendered/PACKAGE for each<br/>(left as it is when no crate draws)
-    loop each crate with scenes, in SCENES order: tidepool-gfx, tolerance 0, tidepool-font, 1, and tidepool-gui, 0
+    loop each crate with scenes, in SCENES order: tidepool-gfx, tolerance 0, tidepool-font, 1, tidepool-gui, 0, and tidepool, 0
         Gold->>Cargo: cargo test --package PACKAGE<br/>--test golden, TIDEPOOL_GOLDEN_DIR=<br/>target/golden/rendered/PACKAGE
         Note over Gold,Cargo: run_with_env: an argv vector,<br/>stdin closed, CARGO_NET_OFFLINE=true,<br/>its output straight to the terminal
-        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 61, 16 of them<br/>the controls' (M3.6), 14 the<br/>M3.7 components' and 8 the<br/>overlays' (M3.3)
+        Cargo->>Test: build, run its scene tests: gfx's 14,<br/>font's 8, gui's 61, 16 of them<br/>the controls' (M3.6), 14 the<br/>M3.7 components' and 8 the<br/>overlays' (M3.3), and tidepool's<br/>4, the shell's (M3.4)
         Test->>Out: each scene draws into a Framebuffer<br/>and writes SCENE.pam: premultiplied<br/>RGBA, rows from the top
         Test-->>Cargo: exit status
         Cargo-->>Gold: exit status, a failure<br/>being a violation
@@ -511,34 +511,33 @@ sequenceDiagram
 
 ## 8. Startup to the first frame
 
-From `cargo tp` to the first frame. 8.1 draws the part still planned, as
-`docs/01-architecture.md` → "The main loop" and
-`docs/subsystems/frontends.md` plan it: the settings and the choice of a
-frontend come with the shell (M3.4) and the terminal UI (M7.1). 8.2 and
-8.3 draw what the binary does today, read from the code: the event-driven
-main loop (M3.8, ADR-0012, ADR-0059), which opens the GUI's window, builds
-jabbott.dev's backdrop on threads of its own, and shows the first frame's
-lines, a line in each bundled face (M2.6, ADR-0045), as a `ui` tree that
-`gui`'s painter paints (M3.5, ADR-0048), its text in `text` and `text-3`
-from `ui`'s bundled theme (M3.2, ADR-0047). `platform`'s window and events
+From `cargo tp` to the first frame. 8.1 draws the settings, read since
+the shell (M3.4, ADR-0060), and the choice of a frontend, which the
+terminal UI brings (M7.1). 8.2 and 8.3 draw what the binary does today,
+read from the code: the event-driven main loop (M3.8, ADR-0012,
+ADR-0059), which opens the GUI's window, builds jabbott.dev's backdrop on
+threads of its own, and shows `editor`'s shell (M3.4), a `ui` tree that
+`gui`'s painter paints (M3.5, ADR-0048), in `ui`'s bundled theme (M3.2,
+ADR-0047). `platform`'s window and events
 are built (M2.2), and so are `gfx` (the framebuffer and the backdrop,
 M2.3) and `font` (the bundled faces, layout and the atlas, M2.5), which
 the painter calls: drawn as one participant.
 
-### 8.1 Settings and the frontend's choice (planned)
+### 8.1 Settings and the frontend's choice
 
 ```mermaid
 sequenceDiagram
     actor User
     participant Cli as tidepool main<br/>(built, M3.8)
-    participant Cfg as settings load<br/>(M3.4, M4.7)
+    participant Cfg as app settings (built, M3.4),<br/>workspace settings (M4.7)
     participant Fe as gui Gui (built, M3.8),<br/>tui Terminal (M7.1)
 
-    Note over User,Fe: planned M3.4 and M7.1.<br/>Built: core's Args (M0.2), and the loop<br/>and Gui::open of 8.2 (M3.8).
+    Note over User,Fe: The settings are built (M3.4), read-only,<br/>and the TUI is planned (M7.1). Built: core's Args<br/>(M0.2), and the loop and Gui::open of 8.2 (M3.8).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
-    Cli->>Cfg: load the settings
-    Cfg-->>Cli: settings.toml, a bad<br/>value replaced by its<br/>default, with a warning,<br/>read-only until M4.7
+    Cli->>Cfg: settings::load()
+    Cfg->>Cfg: platform user_dirs: the<br/>config folder's settings.toml,<br/>at most 1 MiB, codec toml
+    Cfg-->>Cli: [ui] side_panel and<br/>bottom_panel, a bad value<br/>its default, with a warning<br/>in the log, written back<br/>from M4.7
     alt --tui, or no display
         Cli->>Fe: open a tui Terminal (M7.1),<br/>first frame within 150 ms
     else the GUI, by default
@@ -584,16 +583,19 @@ sequenceDiagram
 
 ### 8.3 The main loop (M3.8)
 
-Read from the code: `crates/app/src/main.rs` and `tidepool-gui`'s
-`frontend.rs` (ADR-0012, ADR-0059). There is no settings file, shell or
-worker of the app's yet, and no theme file is read from disk: the theme is
-compiled into `ui`. `main` turns the loop until the window is asked to
-close.
+Read from the code: `crates/app/src/main.rs`, `tidepool-gui`'s
+`frontend.rs` (ADR-0012, ADR-0059) and `tidepool-editor`'s `shell.rs`
+(ADR-0060). There is no worker of the app's yet, and no theme file is read
+from disk: the theme is compiled into `ui`. Before the loop, `main` reads
+the settings (8.1), opens the window (8.2), registers the activity bar's
+six icons with `Gui::set_icon` and builds the shell in a tree with
+`Shell::new`. It turns the loop until the window is asked to close.
 
 ```mermaid
 sequenceDiagram
     actor User
     participant Main as tidepool main
+    participant Shell as editor Shell
     participant Tree as ui Tree
     participant Gui as gui Gui
     participant Draw as gui Painter,<br/>gfx and font
@@ -602,15 +604,18 @@ sequenceDiagram
 
     loop until the window is asked to close
         Main->>Gui: next_deadline(): t0 + 250 ms<br/>until the first present or<br/>the backdrop, then None
-        Main->>Gui: wait_events(deadline, events)
+        Main->>Shell: next_deadline(): a<br/>tooltip's, if one is due
+        Main->>Gui: wait_events(the earlier, events)
         Gui->>Plat: wait_events: poll on the<br/>X connection and the<br/>Waker's self-pipe
         Plat-->>Gui: input, exposes, a resize,<br/>a close request, a wake,<br/>or the deadline
         Gui->>Gui: keeps the exposes, and for<br/>a resize asks for a backdrop<br/>and goes back to the flat bg,<br/>then takes finished builds,<br/>dropping stale ones
         Gui-->>Main: every event
-        Main->>Tree: handle(input), for each<br/>input event, in order
-        opt a close request
+        Main->>Shell: handle(tree, input, now),<br/>for each input event, in order
+        Shell->>Tree: handle(input), then the actions:<br/>a view, a tab, the palette's<br/>query or command, then a<br/>shortcut if none handled<br/>or blocked it
+        opt a close request, or the Close Window command
             Main-->>User: exit status 0, the<br/>events after it unanswered
         end
+        Main->>Shell: update(tree, now): follows<br/>tooltip_target, fires the<br/>tooltip's timer
         Main->>Gui: render(tree)
         opt nothing presented yet, no backdrop, and before t0 + 250 ms
             Gui-->>Main: false: nothing presented
@@ -626,6 +631,7 @@ sequenceDiagram
             Plat->>Disp: XPutImage of each rect
         end
         Gui-->>Main: whether it presented
+        Main->>Shell: update(tree, now) again, as the<br/>layout may move a node under<br/>the pointer: render again if it<br/>opened or closed a tooltip
         opt the first present, with --print-startup-time
             Main-->>User: first frame: 131.5 ms, on stdout
         end
@@ -996,7 +1002,7 @@ sequenceDiagram
     Note over User,Sdk: Tidepool never reads the keystore. A test checks<br/>that no constructed argv holds a secret (M10.3).
 ```
 
-## 14. A tooltip's delay and its owner's timer (planned)
+## 14. A tooltip's delay and its owner's timer (M3.4)
 
 `ui` has no clock (ADR-0052), so the delay before a tooltip shows is its
 owner's timer, one of the deadlines of the main loop's `next_deadline`
@@ -1004,29 +1010,31 @@ owner's timer, one of the deadlines of the main loop's `next_deadline`
 handles and each frame it draws, the owner asks `Tree::tooltip_target`
 which node's tooltip should show now, and compares it with the target it
 saw last. `ui`'s side is built (M3.3), as `Tooltip`'s rustdoc describes
-it; its owner, the app's main loop, is built (M3.8), but its timers come
-with the shell (M3.4), so the flow is drawn as it is to run there.
+it, and so is its owner: `editor`'s shell (M3.4, ADR-0060), whose
+`Shell::update` the app's main loop (M3.8) calls after each event and
+each frame, and whose `next_deadline` it waits for. Read from
+`crates/editor/src/shell.rs`: the delay is 500 ms for the pointer, and
+none for keyboard focus.
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant ML as app main loop<br/>(built, M3.8), its<br/>timers (M3.4)
-    participant Ui as ui Tree<br/>(built)
-    participant Tip as ui Tooltip<br/>(built)
+    participant ML as editor Shell, from<br/>the app's main loop
+    participant Ui as ui Tree
+    participant Tip as ui Tooltip
 
-    Note over User,Tip: planned M3.4.<br/>ui's tooltip_target, Tooltip::open and<br/>the layer of overlays (M3.3) and the loop (M3.8) are built.
     User->>ML: the pointer comes to rest<br/>on a button with a tooltip
     ML->>Ui: handle(MouseMove)
     Ui-->>ML: a Response
     ML->>Ui: tooltip_target()
     Ui-->>ML: a TooltipTarget: the button,<br/>TooltipCause::Pointer
-    Note over ML,Ui: The target changed from none, so the loop<br/>sets a timer in next_deadline: a short delay<br/>for the pointer, none for focus, as it likes.
+    Note over ML,Ui: The target changed from none, so update sets the<br/>timer in next_deadline: 500 ms for the pointer,<br/>none for focus (TOOLTIP_DELAY).
     loop each turn before the deadline
         ML->>Ui: handle(event), then frame
         ML->>Ui: tooltip_target()
         Ui-->>ML: the same target, so<br/>the timer runs on
     end
-    ML->>ML: fire_timers: the<br/>deadline passed
+    ML->>ML: update at the deadline:<br/>the timer fired
     ML->>Ui: tooltip_target()
     Ui-->>ML: still the button
     ML->>Tip: Tooltip::open(tree, button)
@@ -1050,9 +1058,10 @@ sequenceDiagram
     end
 ```
 
-- A toast's timeout runs the same way: the loop asks `Toast::held`
-  after each turn, holds off its timer while that is true, and closes
-  the toast with `Toast::close` when the timer fires
+- A toast's timeout is to run the same way, once the shell shows toasts,
+  which no task names yet: its owner asks `Toast::held` after each turn,
+  holds off its timer while that is true, and closes the toast with
+  `Toast::close` when the timer fires
   ([`data-flow-and-state.md`](data-flow-and-state.md), section 14).
 
 ## Sources

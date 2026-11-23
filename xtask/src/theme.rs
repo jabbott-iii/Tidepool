@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             report.notes.last().map(String::as_str),
             Some(
-                "themes/tidepool-dark.toml: 66 pairs used for text, 66 at or above the contrast \
+                "themes/tidepool-dark.toml: 68 pairs used for text, 68 at or above the contrast \
                  their size needs"
             )
         );
@@ -948,6 +948,11 @@ mod tests {
                 ),
                 format!(
                     "themes/t.toml:{at}: `text-3` on `panel` is 3.39:1, below the 4.5:1 that \
+                     normal text needs"
+                ),
+                // A status dot that is off, in the shell's status bar (M3.4).
+                format!(
+                    "themes/t.toml:{at}: `text-3` on `bar` is 3.02:1, below the 4.5:1 that \
                      normal text needs"
                 ),
                 // A card's kicker, and a code block's language (ADR-0052).
@@ -1004,8 +1009,8 @@ mod tests {
     fn a_pair_used_for_large_text_needs_three_to_one() {
         // `text-3` on `slate` is 3.51:1: enough for large text only.
         let large = edited(
-            "on = [\"bg\", \"editor-bg\", \"panel\"]\nsize = \"normal\"",
-            "on = [\"bg\", \"editor-bg\", \"panel\"]\nsize = \"normal\"\n\n[[contrast.use]]\n\
+            "on = [\"bg\", \"editor-bg\", \"panel\", \"bar\"]\nsize = \"normal\"",
+            "on = [\"bg\", \"editor-bg\", \"panel\", \"bar\"]\nsize = \"normal\"\n\n[[contrast.use]]\n\
              text = \"text-3\"\non = [\"slate\"]\nsize = \"large\"",
         );
         assert_eq!(checked(&large).violations, Vec::<String>::new());

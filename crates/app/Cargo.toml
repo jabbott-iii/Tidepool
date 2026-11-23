@@ -7,13 +7,22 @@ publish = false
 
 # Its row of the dependency matrix (docs/01-architecture.md) allows every
 # crate above it. The main loop (M3.8) uses `core` to read the command line,
-# `platform` for the window's configuration and its events, `gui` to open
-# the window and draw, and `ui` for the tree that input is routed to.
+# `platform` for the window's configuration, its events and the user's
+# folders, `gui` to open the window and draw, and `ui` for the tree that
+# input is routed to; the shell (M3.4) uses `editor`'s shell, and `codec`
+# to read the settings.
 [dependencies]
 tidepool-core = { path = "../core" }
 tidepool-platform = { path = "../platform" }
+tidepool-codec = { path = "../codec" }
 tidepool-gui = { path = "../gui" }
 tidepool-ui = { path = "../ui" }
+tidepool-editor = { path = "../editor" }
+
+# The shell's golden scenes (`tests/golden.rs`, M3.4) paint over `gfx`'s
+# backdrop into its framebuffers.
+[dev-dependencies]
+tidepool-gfx = { path = "../gfx" }
 
 [lints]
 workspace = true

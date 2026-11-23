@@ -5,5 +5,13 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+# Its row of the dependency matrix (docs/01-architecture.md) allows `core`,
+# `codec`, `text`, `regex`, `markdown`, `syntax`, `term`, `workspace`, `ui`,
+# `lang`, `vcs`, `agent` and `mobile`. The shell (M3.4) uses `core`'s input
+# and geometry and `ui`'s tree, layout and controls.
+[dependencies]
+tidepool-core = { path = "../core" }
+tidepool-ui = { path = "../ui" }
+
 [lints]
 workspace = true

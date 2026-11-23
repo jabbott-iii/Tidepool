@@ -31,8 +31,9 @@ that draws its frames into pixels, the changed parts only, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
 which waits until something happens and draws only what changed: it shows
-the first frame, jabbott.dev's backdrop, built off the main thread, and a
-line in each bundled face, and does nothing else yet.
+the empty shell over jabbott.dev's backdrop, built off the main thread,
+with its activity bar, side and bottom panels, status bar and command
+palette, and opens no folder or file yet.
 [`docs/roadmap.md`](docs/roadmap.md) ticks each task as it is done, each
 crate's `README.md` says what it has, and [`diagrams/`](diagrams/) draws
 what is built and what is planned.

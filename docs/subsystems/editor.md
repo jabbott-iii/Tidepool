@@ -57,6 +57,32 @@ knows which frontend is drawing. `workspace` is the project model under it.
 Activity bar views: Explorer, Search, Source Control, Toolchains, Devices
 (Android/iOS), Agents.
 
+What is built (M3.4, ADR-0060): `editor::shell` builds this frame in a `ui`
+tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
+`editor::shell` is authoritative for its sizes and behavior; in short:
+
+- a title strip 40 high, with the brand, the workspace's line (`NO
+  FOLDER` until M4.7 opens one) and the header's `teal` glow rule; an
+  activity bar 48 wide with an outline icon for each view (`gui::icons`)
+  and a tooltip naming it; a status bar 24 high on `bar`, with
+  rust-analyzer's and git's status dots, off until their tasks, and the
+  palette's shortcut;
+- the side panel beside a splitter, at 22% of the space beside the bar
+  and at least 160 wide, and the bottom panel under one, the editor area
+  above it at 70% of the height; each panel can be hidden, and its space
+  goes to the editor area;
+- every view and bottom tab empty until its task, saying so in a line;
+  the editor area shows the backdrop, with a welcome line;
+- the command palette lists the shell's 13 commands, ranked by a
+  subsequence matcher that scores word starts and runs higher; Ctrl+Shift+P
+  or F1 opens it, Ctrl+B and Ctrl+J toggle the panels, for a key no widget
+  handled and no modal blocked; M4.6's command registry replaces the list;
+- a tooltip shows 500 ms after the pointer rests on its node, and at once
+  for keyboard focus, through the main loop's deadline;
+- the settings `[ui] side_panel` and `bottom_panel` in `settings.toml`
+  say which panels show at start, read by the binary, read-only until
+  M4.7 moves them into `workspace::settings`.
+
 ### Panels
 
 | Panel | Backed by | Milestone |
@@ -84,7 +110,13 @@ Activity bar views: Explorer, Search, Source Control, Toolchains, Devices
 
 - Command tests drive `editor` headlessly and assert buffer, cursor and
   view state.
-- Golden frames of the shell at 1280×800 and 1920×1080; TUI snapshots of the
-  same layout.
+- Golden frames of the shell at 1280×800 and 1920×1080, with the palette
+  open, and at scale 2, drawn by the `tidepool` binary's `tests/golden.rs`
+  over the backdrop (M3.4, ADR-0060); TUI snapshots of the same layout
+  (M7.5).
+- The shell's behavior, headless (`crates/editor/tests/shell.rs`, M3.4):
+  its layout at three sizes, hidden panels, the activity bar, the palette
+  and its ranking, the shortcuts, the tooltip's timer, the accessibility
+  tree, and idleness.
 - Session restore round-trips.
 - Responsiveness suite with slow fakes (`docs/04-quality.md`).

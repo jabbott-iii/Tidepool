@@ -16,18 +16,22 @@
 //!
 //! Specification: `docs/01-architecture.md` → "The main loop".
 //!
-//! It opens the GUI's window and runs the event-driven main loop (M3.8,
-//! ADR-0012, ADR-0059) until the window is closed. Each turn waits on the
-//! window until something happens or the earliest deadline passes (only
-//! `gui`'s for now: the most the first present waits for the backdrop),
-//! hands every input event to the `ui` tree before anything else, stops at
-//! a close request, and then renders, which presents only what changed. So
-//! an idle Tidepool waits and draws nothing. The tree shows the first
-//! frame's lines (`tidepool_gui::first_frame`) until the shell replaces
-//! them (M3.4).
+//! It reads the settings (read-only until M4.7, [`settings`]), opens the
+//! GUI's window, builds the shell in a `ui` tree (`editor::shell`, M3.4,
+//! ADR-0060) with the activity bar's icons registered with the window, and
+//! runs the event-driven main loop (M3.8, ADR-0012, ADR-0059) until the
+//! window is closed. Each turn waits on the window until something happens
+//! or the earliest deadline passes (`gui`'s, the most the first present
+//! waits for the backdrop, and the shell's, a tooltip's delay), hands every
+//! input event to the shell, which gives it to the tree before anything
+//! else, stops at a close request, fires the shell's timer, and then
+//! renders, which presents only what changed. So an idle Tidepool waits and
+//! draws nothing.
 //!
 //! `--print-startup-time` prints, on standard output, the time from the
 //! start of `main` to the return of the first present (ADR-0045).
+
+mod settings;
 
 use std::fmt;
 use std::io::{self, Write};
@@ -35,10 +39,11 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use tidepool_core::cli::Args;
-use tidepool_gui::{Gui, GuiError, first_frame};
+use tidepool_editor::shell::{Flow, Shell, View};
+use tidepool_gui::{Gui, GuiError, Icon, icons};
 use tidepool_platform::events::Event;
 use tidepool_platform::window::WindowConfig;
-use tidepool_ui::Tree;
+use tidepool_ui::{Tree, UiError};
 
 /// The exit code for a command line that was not understood.
 const EXIT_USAGE: u8 = 2;
@@ -98,6 +103,8 @@ enum Error {
     Usage(String),
     /// The window could not be opened or drawn.
     Gui(GuiError),
+    /// The shell's tree refused a change, which would be a bug.
+    Ui(UiError),
 }
 
 impl fmt::Display for Error {
@@ -105,6 +112,7 @@ impl fmt::Display for Error {
         match self {
             Self::Usage(error) => write!(f, "{error}"),
             Self::Gui(error) => write!(f, "{error}"),
+            Self::Ui(error) => write!(f, "the shell failed: {error}"),
         }
     }
 }
@@ -114,26 +122,39 @@ impl std::error::Error for Error {
         match self {
             Self::Usage(_) => None,
             Self::Gui(error) => Some(error),
+            Self::Ui(error) => Some(error),
         }
     }
 }
 
-/// Opens the window and runs the main loop until the window is asked to
-/// close, writing the startup time to `out` after the first present if
-/// `options` asks.
+/// Reads the settings, opens the window, builds the shell and runs the
+/// main loop until the window is asked to close, writing the startup time
+/// to `out` after the first present if `options` asks.
 fn run(options: &Options, start: Instant, out: &mut dyn Write) -> Result<(), Error> {
+    let settings = settings::load();
     let mut gui = Gui::open(&WindowConfig::default()).map_err(Error::Gui)?;
-    let mut tree = first_frame::tree();
+    for view in View::ALL {
+        gui.set_icon(view.icon(), icon(view));
+    }
+    let mut tree = Tree::new();
+    let mut shell = Shell::new(&mut tree, settings.panels).map_err(Error::Ui)?;
     let mut events = Vec::with_capacity(64);
     let mut first = true;
     loop {
         events.clear();
-        gui.wait_events(gui.next_deadline(), &mut events)
-            .map_err(Error::Gui)?;
-        if handle(&mut tree, &events) == Flow::Quit {
+        let deadline = earliest(gui.next_deadline(), shell.next_deadline());
+        gui.wait_events(deadline, &mut events).map_err(Error::Gui)?;
+        if handle(&mut tree, &mut shell, &events, Instant::now()).map_err(Error::Ui)? == Flow::Quit
+        {
             return Ok(());
         }
-        let presented = gui.render(&mut tree).map_err(Error::Gui)?;
+        shell.update(&mut tree, Instant::now()).map_err(Error::Ui)?;
+        let mut presented = gui.render(&mut tree).map_err(Error::Gui)?;
+        // A layout can move a node under the pointer at rest, which opens
+        // or closes a tooltip: drawn at once, not at the next event.
+        if shell.update(&mut tree, Instant::now()).map_err(Error::Ui)? {
+            presented |= gui.render(&mut tree).map_err(Error::Gui)?;
+        }
         if presented && first {
             first = false;
             if options.print_startup_time {
@@ -147,34 +168,48 @@ fn run(options: &Options, start: Instant, out: &mut dyn Write) -> Result<(), Err
     }
 }
 
-/// Whether the loop goes on after a turn's events.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Flow {
-    /// Wait for the next events.
-    Continue,
-    /// The user asked to close the window.
-    Quit,
+/// The outline `view`'s button shows, from `gui`'s icons (ADR-0060).
+fn icon(view: View) -> Icon {
+    match view {
+        View::Explorer => icons::files(),
+        View::Search => icons::search(),
+        View::SourceControl => icons::branch(),
+        View::Toolchains => icons::wrench(),
+        View::Devices => icons::device(),
+        View::Agents => icons::spark(),
+    }
 }
 
-/// Answers a turn's `events` in order: each input event goes to `tree`,
-/// which routes it to the focused node or the one under the pointer
-/// (`Tree::handle`), and a close request ends the loop, leaving the events
-/// after it unanswered. The rest are `gui`'s, which took them as it waited.
-///
-/// No widget of the first frame emits actions, and the window has no
-/// shortcuts yet, so what comes back from the tree is not used until the
-/// shell (M3.4).
-fn handle(tree: &mut Tree, events: &[Event]) -> Flow {
+/// The earlier of two deadlines, `None` meaning none.
+fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Answers a turn's `events` in order, at `now`: each input event goes to
+/// the shell, which gives it to the tree first, and a close request, or a
+/// command that closes the window, ends the loop, leaving the events after
+/// it unanswered. The rest are `gui`'s, which took them as it waited.
+fn handle(
+    tree: &mut Tree,
+    shell: &mut Shell,
+    events: &[Event],
+    now: Instant,
+) -> Result<Flow, UiError> {
     for event in events {
         match event {
             Event::Input(input) => {
-                let _response = tree.handle(input);
+                if shell.handle(tree, input, now)? == Flow::Quit {
+                    return Ok(Flow::Quit);
+                }
             }
-            Event::CloseRequested => return Flow::Quit,
+            Event::CloseRequested => return Ok(Flow::Quit),
             Event::Resized(_) | Event::Exposed(_) | Event::Woken | Event::Pasted { .. } => {}
         }
     }
-    Flow::Continue
+    Ok(Flow::Continue)
 }
 
 /// The line `--print-startup-time` prints: the time to the first frame, in
@@ -218,68 +253,93 @@ fn is_escaped(c: char) -> bool {
 mod tests {
     use tidepool_core::geom::{DeviceRect, DeviceSize, Size};
     use tidepool_core::input::{InputEvent, Key, Modifiers};
+    use tidepool_editor::shell::Panels;
     use tidepool_ui::metrics::FixedMetrics;
-    use tidepool_ui::widgets::{Button, ButtonKind, Control};
 
     use super::*;
 
-    /// A tree of two buttons, laid out, and their ids.
-    fn buttons() -> (Tree, [tidepool_ui::NodeId; 2]) {
-        let mut tree = Tree::new();
-        let root = tree.root();
-        let ids = ["OPEN", "CLOSE"].map(|label| {
-            tree.insert(root, Button::new(label, ButtonKind::Ghost).node())
-                .expect("a node")
-        });
-        let _ = tree.frame(Size::new(320.0, 200.0), &FixedMetrics::DEFAULT);
-        (tree, ids)
+    fn parse(args: &[&str]) -> Result<Options, String> {
+        Options::parse(Args::new(args.iter().copied()).expect("within the limits"))
     }
 
-    fn tab() -> Event {
+    /// The shell in a tree, laid out.
+    fn shell() -> (Tree, Shell) {
+        let mut tree = Tree::new();
+        let shell = Shell::new(&mut tree, Panels::default()).expect("the shell builds");
+        let _ = tree.frame(Size::new(1280.0, 800.0), &FixedMetrics::DEFAULT);
+        (tree, shell)
+    }
+
+    fn ctrl(key: Key) -> Event {
         Event::Input(InputEvent::KeyDown {
-            key: Key::Tab,
-            modifiers: Modifiers::NONE,
+            key,
+            modifiers: Modifiers::CTRL,
             repeat: false,
         })
     }
 
-    fn focused(tree: &Tree, id: tidepool_ui::NodeId) -> bool {
-        tree.state(id).expect("in the tree").focused
-    }
-
     #[test]
-    fn input_goes_to_the_tree_in_order() {
-        let (mut tree, [open, close]) = buttons();
-        assert_eq!(handle(&mut tree, &[tab()]), Flow::Continue);
-        assert!(focused(&tree, open) && !focused(&tree, close));
+    fn input_goes_to_the_shell_in_order() {
+        let (mut tree, mut shell) = shell();
+        let now = Instant::now();
+        let flow = handle(&mut tree, &mut shell, &[ctrl(Key::B)], now).expect("handled");
+        assert_eq!(flow, Flow::Continue);
+        assert!(!shell.panels().side);
+        let flow = handle(
+            &mut tree,
+            &mut shell,
+            &[
+                Event::Exposed(DeviceRect::new(0, 0, 8, 8)),
+                Event::Resized(DeviceSize::new(640, 400)),
+                Event::Woken,
+                ctrl(Key::B),
+                ctrl(Key::J),
+            ],
+            now,
+        )
+        .expect("handled");
+        assert_eq!(flow, Flow::Continue, "the events gui takes are passed over");
         assert_eq!(
-            handle(
-                &mut tree,
-                &[
-                    Event::Exposed(DeviceRect::new(0, 0, 8, 8)),
-                    Event::Resized(DeviceSize::new(640, 400)),
-                    Event::Woken,
-                    tab(),
-                ]
-            ),
-            Flow::Continue,
-            "the events gui takes are passed over"
+            shell.panels(),
+            Panels {
+                side: true,
+                bottom: false
+            }
         );
-        assert!(focused(&tree, close) && !focused(&tree, open));
     }
 
     #[test]
     fn a_close_request_ends_the_loop_before_the_events_after_it() {
-        let (mut tree, [open, _]) = buttons();
-        assert_eq!(
-            handle(&mut tree, &[Event::CloseRequested, tab()]),
-            Flow::Quit
-        );
-        assert!(!focused(&tree, open), "the Tab after it went nowhere");
+        let (mut tree, mut shell) = shell();
+        let flow = handle(
+            &mut tree,
+            &mut shell,
+            &[Event::CloseRequested, ctrl(Key::B)],
+            Instant::now(),
+        )
+        .expect("handled");
+        assert_eq!(flow, Flow::Quit);
+        assert!(shell.panels().side, "the Ctrl+B after it went nowhere");
     }
 
-    fn parse(args: &[&str]) -> Result<Options, String> {
-        Options::parse(Args::new(args.iter().copied()).expect("within the limits"))
+    #[test]
+    fn the_earliest_deadline_wins() {
+        let now = Instant::now();
+        let later = now + Duration::from_millis(5);
+        assert_eq!(earliest(None, None), None);
+        assert_eq!(earliest(Some(now), None), Some(now));
+        assert_eq!(earliest(None, Some(later)), Some(later));
+        assert_eq!(earliest(Some(later), Some(now)), Some(now));
+    }
+
+    #[test]
+    fn every_view_has_its_own_icon() {
+        let mut seen: Vec<Icon> = Vec::new();
+        for view in View::ALL {
+            let icon = icon(view);
+            assert!(!seen.contains(&icon), "{view:?}");
+            seen.push(icon);
+        }
     }
 
     #[test]

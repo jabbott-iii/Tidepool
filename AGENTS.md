@@ -1,10 +1,10 @@
 # Tidepool — zero-dependency IDE (Rust; Linux, macOS, Windows)
 
 **Status:** in development, at version 0.1: `cargo tp` opens a window on
-Linux and runs the event-driven main loop, showing its first frame,
-jabbott.dev's backdrop and a line in each bundled face, and does nothing
-else yet (M2.6, M3.8). `docs/roadmap.md` ticks each task once it is done
-and verified.
+Linux and runs the event-driven main loop, showing the empty shell in
+jabbott.dev's look, its panels, command palette and shortcuts, and does
+nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
+`docs/roadmap.md` ticks each task once it is done and verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
   M0.9–M0.11), with doc tests that forbid `unsafe` outside `sys` and
@@ -98,9 +98,20 @@ and verified.
   frame's lines now a `ui` tree, over jabbott.dev's backdrop, which it
   builds on threads of its own, showing the theme's flat `bg` until the
   backdrop arrives, and the first present waits for it up to 250 ms
-  (M3.8, ADR-0059). The window shows the first frame's lines until the
-  shell (M3.4).
-- **Not built:** everything else. 14 of the 26 workspace members are empty
+  (M3.8, ADR-0059); and in `tidepool-editor` the shell, which the
+  binary shows: the title strip, the activity bar with Tidepool's first
+  icons (`gui::icons`, registered with `Gui::set_icon`) and a tooltip for
+  each view, the side and bottom panels beside splitters, either of which
+  can be hidden, the editor area over the backdrop, the status bar, and
+  the command palette, which ranks the shell's 13 commands with a
+  subsequence matcher; Ctrl+Shift+P or F1 opens it, Ctrl+B and Ctrl+J
+  toggle the panels, a tooltip shows 500 ms after the pointer rests, and
+  the binary reads `[ui] side_panel` and `bottom_panel` from
+  `settings.toml`, read-only until M4.7; with golden scenes of the shell
+  at 1280 × 800 and 1920 × 1080, with the palette open and at scale 2,
+  drawn by the binary's `tests/golden.rs` (M3.4, ADR-0060). Every view of
+  the shell is empty until its task.
+- **Not built:** everything else. 13 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.
 - **Next:** the first unticked task whose dependencies are all ticked,
@@ -314,7 +325,7 @@ These exist now:
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`, or a new, empty or earlier `DIR`: runs the gate and the `tidepool-codec` and `tidepool-text` examples, and fills `site/`, starting only `cargo` and with no network. `pages.yml` publishes it at https://jabbott.dev/Tidepool/ after CI passes on `main` (ADR-0030) |
 | `cargo xtask --help` | Lists the commands |
 | `sh scripts/check-deps.sh` | The narrower dependency check the Claude Code hook falls back to when `xtask` cannot be built |
-| `cargo tp` | Builds and runs the `tidepool` binary, which opens a window on Linux and shows the first frame until it is closed (M2.6); `cargo tp -- --print-startup-time` also prints the time from the start of `main` to that frame (ADR-0045) |
+| `cargo tp` | Builds and runs the `tidepool` binary, which opens a window on Linux and shows the shell until it is closed (M2.6, M3.4); `cargo tp -- --print-startup-time` also prints the time from the start of `main` to its first frame (ADR-0045) |
 
 Planned. Until its task lands, each exits 1 with "not yet implemented":
 

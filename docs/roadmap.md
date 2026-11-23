@@ -2371,7 +2371,7 @@ JetBrains Mono text over the jabbott.dev backdrop.
     that it looks right, which meets the two criteria left for a person;
     the time it printed there was not reported back.
 
-- [ ] **M3.4 — app: the shell**
+- [x] **M3.4 — app: the shell**
   - Depends: M3.3, M3.8, M2.6, M2.7
   - Decide first (ADR-0059):
     - where the shell's views live: `editor`, where
@@ -2400,6 +2400,46 @@ JetBrains Mono text over the jabbott.dev backdrop.
     which answers the note above; this task keeps the shell. The user
     accepted ADR-0012 that day, which answers the `Decide first` line
     this task had; the line now holds the shell's questions.
+  - Note (2026-11-22): ADR-0060 answers the `Decide first` line with the
+    options the user chose that day, each the recommended one: the shell
+    in `editor::shell`, its goldens drawn by `tidepool`'s
+    `tests/golden.rs`; outline icons in `gui::icons`, registered through
+    `Gui::set_icon`, so the task touches four crates (`editor`, `app`,
+    `xtask` and `gui`), as the user accepted; `[ui] side_panel` and
+    `bottom_panel` read by `app`; and the shell's commands ranked by a
+    subsequence matcher.
+  - Note (2026-11-22): built. `editor::shell` builds the shell in a `ui`
+    tree: the title strip with the header's `teal` glow, the activity bar
+    (`parts::ActivityButton`, each with a tooltip), the side and bottom
+    panels beside splitters, either hidden by turning its split into a
+    plain row or column, the editor area over the backdrop, the status bar
+    on `bar`, and the palette, whose 13 commands `shell::commands::rank`
+    ranks; Ctrl+Shift+P or F1, Ctrl+B and Ctrl+J are the shortcuts.
+    `gui::icons` has the six icons and `Gui::set_icon` registers them,
+    repainting only when one changes. `app` reads `[ui] side_panel` and
+    `bottom_panel` (`settings.rs`, at most 1 MiB) and drives the shell
+    from the loop, its tooltip timer among the deadlines. The theme lists
+    `text-2` and `text-3` on `bar` (8.79:1 and 4.68:1), in its existing
+    entries, so the reader's room for 990 more stays. The side and bottom
+    panels draw no hairline of their own, as the splitter's rule divides
+    them. Under Xvfb the first frame, now the shell, took 116 to 139 ms in
+    a dev build and 98 to 194 ms in a release build, at a load average of
+    about 10. The 133 Mermaid blocks of `diagrams/` parse and render with
+    Mermaid 11.17.2, which caught two `;` in new sequence messages, since
+    fixed, and rejected a planted broken one.
+  - Note (2026-11-23): the user looked at the four scenes on 2026-11-22
+    and had them blessed: `shell_1280x800`, `shell_1920x1080`,
+    `shell_palette_1280x800` and `shell_960x600_scale_2`, 91 to 275 KB
+    each. `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`: 13 of 13 steps,
+    2,463 tests, none skipped, after a run whose only failure was `ui`'s
+    timing test `a_huge_text_costs_what_a_short_one_does` at 567 ms
+    against its 500 ms, at a load average of about 16 from other
+    programs, which passed alone three times (0.24 to 0.29 s) and then in
+    the full run; M3.4 changes no `ui` code. `RUSTDOCFLAGS='-D warnings'
+    cargo doc -p tidepool-editor -p tidepool-gui -p tidepool --no-deps` is
+    clean. Resizing and HiDPI are checked headlessly (the areas at three
+    sizes and one smaller, the scale-2 scene) and by M3.8's resize path;
+    the shell was not tried by hand on the reference machine's desktop.
   - Note (2026-11-22): M3.3 built what the shell's palette and popups
     need from `ui`. `widgets::Palette` shows the items its owner ranks,
     so the shell ranks its commands itself (ADR-0052). A tooltip's delay

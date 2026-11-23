@@ -18,8 +18,17 @@ Layer 4, views and frontends. It may use `core`, `codec`, `text`, `regex`,
 Version 0.1, not published (`publish = false`): the API changes as the
 roadmap needs.
 
-Nothing yet: besides what every library carries (ADR-0028, ADR-0036),
-the crate is only its doc comment, which names its spec.
+Built, with the roadmap task that built it:
+
+- the shell, `shell::Shell`: the title strip, the activity bar with a
+  button and tooltip for each view, the side panel and the bottom panel
+  beside splitters, each of which can be hidden, the editor area, the
+  status bar, and the command palette, built in a `ui` tree and answering
+  its events through `ui` alone; the palette ranks the shell's commands
+  with a subsequence matcher (`shell::commands::rank`), Ctrl+Shift+P or F1
+  opens it, Ctrl+B and Ctrl+J toggle the panels, and a tooltip shows
+  500 ms after the pointer rests, at once for keyboard focus — M3.4
+  (ADR-0060). Every view and tab is empty until its task, and says so.
 
 Not yet, with the roadmap task that adds it:
 
@@ -43,7 +52,40 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
 ## Usage
 
-Nothing to use yet: the editor view lands in M4.1.
+A workspace crate whose row of the matrix allows it depends on it by path:
+
+```toml
+[dependencies]
+tidepool-editor = { path = "../editor" }
+```
+
+Build the shell in a tree, lay it out, and give it events; the frontend
+paints the tree's frames (the `tidepool` binary does it with
+`tidepool-gui`):
+
+```rust
+use std::time::Instant;
+
+use tidepool_core::geom::Size;
+use tidepool_core::input::{InputEvent, Key, Modifiers};
+use tidepool_editor::shell::{Command, Flow, Panels, Shell, commands};
+use tidepool_ui::Tree;
+use tidepool_ui::metrics::FixedMetrics;
+
+let mut tree = Tree::new();
+let mut shell = Shell::new(&mut tree, Panels::default())?;
+let window = Size::new(1280.0, 800.0);
+assert!(tree.frame(window, &FixedMetrics::DEFAULT).is_some());
+
+// Ctrl+B hides the side panel.
+let ctrl_b = InputEvent::KeyDown { key: Key::B, modifiers: Modifiers::CTRL, repeat: false };
+assert_eq!(shell.handle(&mut tree, &ctrl_b, Instant::now())?, Flow::Continue);
+assert!(!shell.panels().side);
+
+// The palette ranks the commands: "tsp" finds the side panel's toggle.
+assert_eq!(commands::rank("tsp")[0].command, Command::ToggleSidePanel);
+# Ok::<(), tidepool_ui::UiError>(())
+```
 
 ## Documentation
 
@@ -51,7 +93,8 @@ Nothing to use yet: the editor view lands in M4.1.
   [`docs/subsystems/vim-mode.md`](../../docs/subsystems/vim-mode.md),
   [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
-  first, features in `editor`); ADR-0006 (vim mode, Proposed).
+  first, features in `editor`); ADR-0006 (vim mode, Proposed); ADR-0060
+  (the shell in `editor::shell`, its icons, settings and palette).
 - API reference: `cargo doc -p tidepool-editor --open`
 
 ## Rules
@@ -68,9 +111,22 @@ Nothing to use yet: the editor view lands in M4.1.
 
 ```bash
 cargo test -p tidepool-editor
+cargo xtask golden
 ```
 
-`cargo xtask ci` runs the whole gate.
+The tests build the shell headless: its areas tile the window at
+800 × 600, 1280 × 800 and 1920 × 1080 and stay inside a smaller one;
+hidden panels give their space to the rest; Ctrl+B and Ctrl+J toggle
+them; the activity bar switches views and hides the shown one; the
+palette ranks the commands as its query changes, runs the first with
+Enter, closes with Escape and blocks the shortcuts while open; every
+command runs; a tooltip waits 500 ms for the pointer and none for focus;
+the accessibility tree names every part; and an idle shell draws nothing.
+The matcher's unit tests check word starts, runs, the best alignment and
+the matched ranges. The shell's golden scenes are drawn by the
+`tidepool` binary's `tests/golden.rs`, which paints it with `gui`;
+`cargo xtask golden` compares them, and `cargo xtask ci` runs the whole
+gate.
 
 ## License
 

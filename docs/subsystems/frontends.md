@@ -57,6 +57,22 @@ automatically when no display is available, with a message).
   with the window's exposes; a resize or a new base repaints the whole
   window through `Tree::invalidate_all`, and an idle tree presents
   nothing.
+- **Icons** (M3.4, ADR-0060): `icons` is Tidepool's icon set, hand-made
+  outlines until a task builds `assets/icons`. Its first six are the
+  shell's activity bar's: `files`, `search`, `branch`, `wrench`,
+  `device`, and `spark`, for Explorer, Search, Source Control,
+  Toolchains, Devices, and Agents. Each is an `Icon` in a 24-unit
+  viewbox, line art drawn as if with a pen 2 units wide. Every straight
+  edge is on an even unit, so that it lands on whole device pixels when
+  the icon is drawn 24 logical pixels across at scales 1, 1.5, and 2.
+  The outlines are computed with IEEE 754 arithmetic and `sqrt` alone,
+  never a library function such as `sin`, so their pixels are the same
+  on every OS. `Gui::set_icon` registers an icon for a `ui` `IconId`
+  with the window's painter and returns the one it replaces. Unless it
+  is the same icon, the next render repaints the whole window
+  (`Tree::invalidate_all`), as `ui` cannot know which nodes draw an id
+  whose registration changed. Which id names which icon is the caller's
+  choice.
 - **The base** is jabbott.dev's backdrop (`gfx::backdrop`, in
   `BackdropStyle::jabbott_dev()`, whose `bg` a test holds to the
   theme's), built on threads of its own, never on the loop's: asked for
@@ -69,8 +85,9 @@ automatically when no display is available, with a message).
   first present waits for the first backdrop, up to `FIRST_FRAME_WAIT`
   (250 ms) after the window opened, whichever comes first, and
   `Gui::next_deadline` gives the loop that deadline.
-- **The first frame** (M2.6, ADR-0045) is what the window shows until the
-  shell replaces it (M3.4): `first_frame::tree()`, a `ui` tree whose one
+- **The first frame** (M2.6, ADR-0045) is what the window showed until
+  the binary showed `editor`'s shell (M3.4, ADR-0060), and what `gui`'s
+  window test shows: `first_frame::tree()`, a `ui` tree whose one
   node paints a line in each bundled face, its name in `text-3` and a
   sample in `text`, from the typography table
   (`docs/subsystems/ui-and-theme.md`), in the tree's theme's colors
@@ -113,8 +130,14 @@ automatically when no display is available, with a message).
   (`crates/gui/tests/components/mod.rs`, M3.7, ADR-0052), of the modal
   dialog over a window it makes inert, the tooltip, the toast, and the
   command palette, in each state at scale 1 and 2
-  (`crates/gui/tests/overlays/mod.rs`, M3.3, ADR-0052), and of the shell
-  (M3.4); property tests
+  (`crates/gui/tests/overlays/mod.rs`, M3.3, ADR-0052), and of the shell,
+  which `tidepool`'s `crates/app/tests/golden.rs` paints with the
+  painter (M3.4, ADR-0060); unit tests of the icons (each builds in its
+  viewbox and inks inside it at 24, 36, and 48 px, is line art and not
+  a solid block, has its strokes and holes where it draws them, and
+  differs from the others; straight edges are crisp at scale 1.5) and
+  of `Gui::set_icon` through the screen (the whole window repainted with
+  the icon, nothing for the same icon again) (M3.4); property tests
   that a painted frame changes only pixels inside its damage, and that
   painting the damage gives what painting the whole frame gives, idle
   frames included (`crates/gui/tests/paint.rs`, M3.5); unit tests,

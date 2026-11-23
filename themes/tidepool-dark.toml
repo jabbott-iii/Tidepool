@@ -110,15 +110,17 @@ on = ["teal-glow"]
 over = "editor-bg"
 size = "normal"
 
+# On `bar` too: the shell's status bar (M3.4, ADR-0060).
 [[contrast.use]]
 text = "text-2"
-on = ["bg", "editor-bg", "panel", "slate"]
+on = ["bg", "editor-bg", "panel", "slate", "bar"]
 size = "normal"
 
-# Not on `slate`: placeholder and muted text there use `text-2`.
+# Not on `slate`: placeholder and muted text there use `text-2`. On
+# `bar`: a status dot that is off, in the shell's status bar (M3.4).
 [[contrast.use]]
 text = "text-3"
-on = ["bg", "editor-bg", "panel"]
+on = ["bg", "editor-bg", "panel", "bar"]
 size = "normal"
 
 [[contrast.use]]

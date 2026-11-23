@@ -14,8 +14,9 @@
 
 //! The first frame's content: a line in each of the seven bundled faces
 //! (M2.6, ADR-0045), as a `ui` tree that [`Gui`](crate::Gui) paints over
-//! jabbott.dev's backdrop (M3.8, ADR-0059). The window shows it until the
-//! shell replaces it (M3.4).
+//! jabbott.dev's backdrop (M3.8, ADR-0059). The `tidepool` binary showed it
+//! until it showed `editor`'s shell (M3.4, ADR-0060); `gui`'s window test
+//! still shows it.
 //!
 //! New in Tidepool.
 //!

@@ -135,8 +135,8 @@ Nothing else is downloaded: the workspace has no third-party crates, and
 Everything built so far but the window is headless, and is meant to
 build and test on all three; CI's macOS and Windows runs are still to be
 confirmed (M0.4), and the Claude Code hook is known not to handle Windows
-paths yet (M12.5). The GUI comes to Linux first: `cargo tp` shows its
-first frame there (M2.6), and fails on macOS and Windows until M11 and
+paths yet (M12.5). The GUI comes to Linux first: `cargo tp` shows the
+shell there (M2.6, M3.4), and fails on macOS and Windows until M11 and
 M12 bring their windows.
 
 Real-tool tests run only when you ask for them, with `TIDEPOOL_IT_RA=1`
@@ -164,7 +164,7 @@ Windows, and the same commands CI runs:
 | `cargo xtask fuzz-smoke [--secs N] [--target T]` | Fuzzes each parser's target (or `T`) for `N` seconds, 60 by default, and fails on a panic, a hang, over-allocation or a process that died. Not part of `ci`; CI runs it on Linux for 30 s per target |
 | `cargo xtask bench [FILTER] [--save --machine NAME]` | Runs the benchmark suites whose names contain `FILTER` in a release build, and reports each median and p95 against `bench/baseline.json` when that was recorded on a machine like yours. Not part of `ci`; only `--save` writes the baseline (ADR-0035) |
 | `cargo xtask site [--out DIR]` | Builds the demo page into `target/site`: runs the gate and the two library examples, and fills `site/`. Not part of `ci`; the Pages workflow runs it after CI passes on `main` and publishes https://jabbott.dev/Tidepool/ |
-| `cargo tp` | Runs Tidepool, which opens a window on Linux and shows its first frame until you close it (M2.6); `cargo tp -- --print-startup-time` also prints the time to that frame |
+| `cargo tp` | Runs Tidepool, which opens a window on Linux and shows the shell until you close it (M2.6, M3.4); `cargo tp -- --print-startup-time` also prints the time to its first frame |
 
 On the way, each with its roadmap task: `tools` (M5.1) and `package`
 (M11.6, M12.4, M14.4).

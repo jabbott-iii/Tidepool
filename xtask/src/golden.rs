@@ -117,9 +117,11 @@ impl Scenes {
 
 /// The crates that draw scenes, in the order they run, with their
 /// tolerances: `gfx` exactly (M2.4); `font` within 1, for the coverage
-/// its scenes blend themselves (M2.5); and `gui` exactly, painting `ui`'s
-/// draw lists with `gfx` and `font` (M3.5, ADR-0048). A crate draws scenes
-/// when it is a member of the workspace with a test target named `golden`
+/// its scenes blend themselves (M2.5); `gui` exactly, painting `ui`'s
+/// draw lists with `gfx` and `font` (M3.5, ADR-0048); and the `tidepool`
+/// binary exactly, painting the shell, `editor`'s, with `gui`'s painter,
+/// as the window shows it (M3.4, ADR-0060). A crate draws scenes when it
+/// is a member of the workspace with a test target named `golden`
 /// ([`select`]); each such crate needs its row here.
 pub(crate) const SCENES: &[Scenes] = &[
     Scenes {
@@ -132,6 +134,10 @@ pub(crate) const SCENES: &[Scenes] = &[
     },
     Scenes {
         package: "tidepool-gui",
+        tolerance: 0,
+    },
+    Scenes {
+        package: "tidepool",
         tolerance: 0,
     },
 ];

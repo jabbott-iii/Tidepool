@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, M3.7 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.4 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, M3.7, M3.3 and M3.8. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -59,14 +59,15 @@ its group that will use an interface and the task that adds that use.
 
 ```mermaid
 flowchart TB
-    c_app["App: tidepool, the binary<br/>the main loop, M3.8<br/>the shell planned M3.4"]
+    c_app["App: tidepool, the binary<br/>the main loop, M3.8<br/>the shell's wiring, M3.4"]
 
     i_gui(("Gui (M2.6),<br/>render (M3.8)"))
     i_front(("Frontend<br/>planned M7.1"))
+    i_shell(("Shell, Panels,<br/>Flow, View (M3.4)"))
     i_editor(("editor views<br/>and commands<br/>planned M4.1, M4.6"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -84,9 +85,11 @@ flowchart TB
     c_app -->|"app (M2.6, M3.8)"| i_gui
     c_app -->|"app: Tree::handle (M3.8)"| i_draw
     c_app -.->|"app:<br/>planned M7.1"| i_front
+    c_app -->|"app (M3.4)"| i_shell
     c_app -.->|"app:<br/>planned M4.1"| i_editor
     i_gui --- c_front
     i_front -.- c_front
+    i_shell --- c_editor
     i_editor -.- c_editor
 
     c_front -->|"gui (M3.5)"| i_draw
@@ -94,7 +97,8 @@ flowchart TB
     c_front -->|"gui (M3.2)"| i_theme
     c_front -->|"gui (M2.6)"| i_raster
     c_front -->|"gui (M2.6)"| i_glyphs
-    c_editor -.->|"editor:<br/>planned M4.1"| i_draw
+    c_editor -->|"editor: the shell (M3.4),<br/>planned M4.1: the view"| i_draw
+    c_editor -->|"editor: the shell (M3.4)"| i_theme
     c_editor -.->|"editor:<br/>planned M9.4, M9.5"| i_agentf
     c_editor -.->|"editor:<br/>planned M6.2, M6.6, M6.7"| i_langf
     c_editor -.->|"editor:<br/>planned M5.4, M8.2, M10.6"| i_toolf
@@ -109,8 +113,8 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_front,c_render,i_gui,i_raster,i_glyphs,i_draw,i_theme built
-    class c_editor,c_agents,c_lang,c_tools planned
+    class c_app,c_front,c_render,c_editor,i_gui,i_shell,i_raster,i_glyphs,i_draw,i_theme built
+    class c_agents,c_lang,c_tools planned
     class i_front,i_editor,i_agentf,i_langf,i_toolf planned
 ```
 
@@ -134,7 +138,7 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     i_ws(("folders, trust,<br/>settings, buffers<br/>planned M4.7, M4.3"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -161,7 +165,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4)<br/>tidepool-workspace<br/>planned M4.1, M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -489,7 +493,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    c_app["tidepool, the app<br/>the first frame, M2.6<br/>main loop planned M3.4"]
+    c_app["tidepool, the app<br/>the main loop, M3.8<br/>the settings, M3.4"]
     c_workspace["tidepool-workspace<br/>planned M4.5, M4.7"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
@@ -501,7 +505,7 @@ flowchart TB
 
     c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>the rest planned<br/>M4.5 to M5.9"]
 
-    c_app -.->|"settings,<br/>planned M3.4"| i_paths
+    c_app -->|"settings.toml's<br/>folder (M3.4)"| i_paths
     c_workspace -.->|"trust in user data,<br/>planned M4.7"| i_paths
     c_workspace -.->|"debounced events,<br/>planned M4.5"| i_watch
     c_toolchain -.->|"standard locations,<br/>planned M5.1"| i_paths
@@ -530,9 +534,9 @@ flowchart TB
 `gfx`, `font` and `ui` are pure: no `unsafe` and no OS calls. `ui` lays
 out in logical units and emits draw lists in resolved colors (M3.1,
 ADR-0046); `gui` paints them with `gfx` and `font`, their damage only
-(M3.5, ADR-0048, 3.4), though its window still shows the first frame
-(M2.6) until the shell (M3.4), and `tui` is to map them onto cells
-(M7.1). `TextMetrics` is a trait that `ui` defines, with `FixedMetrics`
+(M3.5, ADR-0048, 3.4), in its window since M3.8, which shows the shell
+that `editor` builds of `ui`'s controls, collections and overlays (M3.4,
+ADR-0060), and `tui` is to map them onto cells (M7.1). `TextMetrics` is a trait that `ui` defines, with `FixedMetrics`
 for tests (M3.1); `gui` implements it as `FontMetrics` (M3.5), and `tui`
 is to (M7.1).
 Widgets live in the tree's nodes, and the tree routes each event to them
@@ -561,10 +565,10 @@ overlays, and `gui`'s golden tests paint each in each state.
 
 ```mermaid
 flowchart TB
-    c_editor["tidepool-editor<br/>planned M4.1, M4.3"]
-    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the painter, M3.5"]
+    c_editor["tidepool-editor<br/>the shell, M3.4<br/>planned M4.1, M4.3"]
+    c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the painter, M3.5<br/>the window, M3.8"]
     c_guigold["tidepool-gui tests<br/>golden.rs with<br/>controls/mod.rs (M3.6),<br/>components/mod.rs (M3.7),<br/>overlays/mod.rs (M3.3)"]
-    c_app["tidepool, the app<br/>the first frame, M2.6<br/>the shell planned M3.4"]
+    c_app["tidepool, the app<br/>the main loop, M3.8<br/>the shell's wiring and<br/>golden scenes, M3.4"]
     c_tui["tidepool-tui<br/>planned M7.1"]
     c_bridge["OS accessibility bridges<br/>AT-SPI, NSAccessibility,<br/>UI Automation<br/>planned M14.2"]
 
@@ -579,10 +583,12 @@ flowchart TB
     c_ui["tidepool-ui<br/>tree, layout, focus, input,<br/>metrics, draw, a11y (M3.1)<br/>theme (M3.2)<br/>widgets: the controls (M3.6),<br/>the collections (M3.7)<br/>overlay, and the modal,<br/>tooltip, toast and<br/>palette (M3.3)"]
     s_theme[("themes/tidepool-dark.toml<br/>the bundled theme (M3.2)")]
 
-    c_editor -.->|"editor view,<br/>planned M4.1"| i_tree
+    c_editor -->|"the shell (M3.4),<br/>planned M4.1: the view"| i_tree
     c_editor -.->|"editor view,<br/>planned M4.1"| i_drawlist
-    c_editor -.->|"explorer and tabs,<br/>planned M4.3"| i_collections
-    c_app -.->|"the shell's command<br/>palette, planned M3.4"| i_overlays
+    c_editor -->|"the shell's tab strip<br/>and splitters (M3.4),<br/>planned M4.3: explorer"| i_collections
+    c_editor -->|"the shell's section title,<br/>kicker, status dots (M3.4)"| i_controls
+    c_editor -->|"the shell's palette<br/>and tooltips (M3.4)"| i_overlays
+    c_app -->|"its golden scenes<br/>paint the shell (M3.4)"| i_drawlist
     c_gui -->|"paints (M3.5)"| i_drawlist
     c_gui -->|"implements as<br/>FontMetrics (M3.5)"| i_metrics
     c_gui -->|"text, text-3 of<br/>tidepool_dark (M3.2)"| i_theme
@@ -607,9 +613,9 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_gui,c_guigold,c_app,c_ui,i_controls,i_collections,i_overlays,i_tree,i_drawlist,i_metrics,i_a11y,i_theme built
+    class c_gui,c_guigold,c_app,c_editor,c_ui,i_controls,i_collections,i_overlays,i_tree,i_drawlist,i_metrics,i_a11y,i_theme built
     class s_theme store
-    class c_editor,c_tui,c_bridge planned
+    class c_tui,c_bridge planned
 ```
 
 - The accessibility bridges (M14.2) read `ui`'s tree, and no spec names

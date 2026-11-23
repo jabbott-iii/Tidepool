@@ -11,14 +11,14 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, ADR-0057, ADR-0058 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.4 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, ADR-0057, ADR-0058, M3.3 and M3.8. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 30, and drawn in the other files of `diagrams/` under the names
+section 31, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -55,7 +55,7 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 with `core::color::Color`, and the fuzz targets' result lines with
 `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
-`text`, `font`'s `Atlas` and `FontError` (sections 22 and 29), and
+`text`, `font`'s `Atlas` and `FontError` (sections 22 and 30), and
 `ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
 `tidepool-sys` no workspace crate (section 23).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
@@ -2577,7 +2577,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 29.
+- `BenchError` is in section 30.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2734,7 +2734,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 29.
+- `MissingSymbols` is in section 30.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -3458,7 +3458,7 @@ classDiagram
 - A `Font` keeps its bytes and the ranges and headers of the tables it
   checked; a glyph's data is read, and checked, only when its outline is
   asked for. `FontError` names the `Tag` of a table or the `GlyphId` of a
-  glyph; it is in section 29.
+  glyph; it is in section 30.
 - `Limits` and every type above but `Font`, `Outline` and `Bitmap` are
   `Copy`. `Outline::new` checks its contour ends and that every point is
   finite.
@@ -3642,7 +3642,7 @@ classDiagram
   from outliving the next call to `Atlas::glyph`, which may move glyphs
   when it evicts. A glyph is at most `glyph_limit()` a side, and a key
   that fails is remembered with its error until `clear`. `FontError` gains
-  `Faces` and `Atlas` (section 29).
+  `Faces` and `Atlas` (section 30).
 
 ## 27. gui: the window, the first frame and the painter
 
@@ -3657,7 +3657,9 @@ flat `bg`, then the `Backdrop` once it arrives) into its framebuffer, and
 hands what changed to `present`, as a `platform::surface::Pixels` view of
 its bytes (ADR-0040). `Builds` starts each build through a `Builder`:
 `Threads`, one thread per build, at most two at once, each sending its
-`Backdrop` back over a channel and waking the window. `first_frame::tree`
+`Backdrop` back over a channel and waking the window. `Gui::set_icon`
+registers an `Icon` with the screen's painter, and `gui::icons` makes the
+activity bar's six (M3.4, ADR-0060). `first_frame::tree`
 gives the `ui` tree of the first frame's lines, a line in each bundled
 face, the labels in `text-3` and the samples in `text` from the tree's
 theme (M3.2, ADR-0047).
@@ -3676,6 +3678,18 @@ classDiagram
         +wait_events(deadline, events) Result
         +render(tree) Result~bool~
         +backdrop_ready() bool
+        +set_icon(id, icon) Option~Icon~
+    }
+    class IconsFns["gui::icons"] {
+        <<module>>
+        +SIDE: f32
+        +ALL: name and MakeIcon, 6
+        +files() Icon
+        +search() Icon
+        +branch() Icon
+        +wrench() Icon
+        +device() Icon
+        +spark() Icon
     }
     class Screen["gui::screen::Screen"] {
         -painter: Painter
@@ -3747,6 +3761,7 @@ classDiagram
     class BackdropStyle["gfx::backdrop::BackdropStyle"]
     class Painter["gui::Painter"]
     class Tree["ui::Tree"]
+    class Icon["gui::icon::Icon"]
 
     Gui "1" *-- "1" Window
     Gui "1" *-- "1" Screen
@@ -3768,6 +3783,8 @@ classDiagram
     Threads ..> Backdrop : each thread builds
     Threads ..> Failure
     FirstFrameFns ..> Tree : tree makes
+    IconsFns ..> Icon : each makes one
+    Gui ..> Icon : set_icon registers<br/>with the painter
 ```
 
 - `Gui` and `Window` are neither `Send` nor `Sync`: the window stays on
@@ -3775,7 +3792,7 @@ classDiagram
   sent: the `Want`, the style and the channel's sender, and the window's
   `Waker` in `Wake`, a function its `Report` calls after sending, even as
   a panic unwinds it. `Want` is `Copy`. `GuiError` wraps the error of the
-  crate that failed (section 29); a build that fails is a `Failure` that
+  crate that failed (section 30); a build that fails is a `Failure` that
   is logged, not an error.
 
 The painter (M3.5, ADR-0048) paints `ui`'s frames, which the window shows
@@ -4184,7 +4201,7 @@ classDiagram
   writes names and values as they are, and a secret is never a value.
 - `UiError`, which only the calls that change the tree's nodes, focus or
   scrolling, and reading a theme (28.3), return (layout, input and frames
-  never fail), is in section 29.
+  never fail), is in section 30.
 
 ### 28.3 The theme
 
@@ -4319,7 +4336,7 @@ classDiagram
   existing `teal-line`).
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
-- `UiError`'s box lists only its two theme variants; section 29 has the
+- `UiError`'s box lists only its two theme variants; section 30 has the
   rest. `ThemeError` implements `Display` but not `std::error::Error`:
   `UiError` is the error a caller gets, and its `source` is the
   `CodecError` of `ThemeSyntax`.
@@ -5075,7 +5092,7 @@ classDiagram
   their own enabled flag; and `parked`, set on a toast kept out of view
   for want of room in the column, which hides it apart from its style's
   `hidden`, which stays its owner's. The `UiError` box lists only the
-  variants M3.3 adds; section 29 has the rest. `set_overlay_anchor`
+  variants M3.3 adds; section 30 has the rest. `set_overlay_anchor`
   refuses a toast's overlay with `FixedAnchor`: a toast keeps the anchor
   `Toast` gives it.
 
@@ -5328,7 +5345,166 @@ classDiagram
   only (ADR-0043). The `Role` and `ActionKind` boxes list the variants
   the overlays use.
 
-## 29. Error enums across crates
+## 29. editor: the shell
+
+`tidepool-editor`'s first module, `shell` (M3.4, ADR-0060), builds the
+window's frame around the editor in a `ui::Tree`: the title strip, the
+activity bar, the side and bottom panels beside `ui`'s splitters, the
+editor area and the status bar, of `ui`'s controls and four widgets of its
+own, in `shell::parts`. `Shell::handle` gives each event to the tree and
+acts on the actions that come back: an `ActivityButton`'s `Activate`
+shows its `View`, the `TabStrip`'s `Select` a `PanelTab`, and the
+palette's `Change` and `Activate` rank and run the `Command`s, which
+`shell::commands::rank` matches as subsequences of their titles, best
+first, in `Ranked`s. `Shell::update` follows the tree's tooltip target and
+opens a `Tooltip` when its timer fires; `next_deadline` gives the main
+loop that timer. The `tidepool` binary reads the two `Panels` settings
+and registers each `View`'s icon with `gui`.
+
+```mermaid
+classDiagram
+    direction LR
+    class Shell["editor::shell::Shell"] {
+        -ids: Ids
+        -view: View
+        -tab: PanelTab
+        -panels: Panels
+        -palette: Option of OpenPalette
+        -tooltip: Option~NodeId~
+        -seen: Option~TooltipTarget~
+        -due: Option~Instant~
+        +new(tree, panels) Result~Shell~
+        +handle(tree, event, now) Result~Flow~
+        +update(tree, now) Result~bool~
+        +run(tree, command) Result~Flow~
+        +open_palette(tree) Result
+        +next_deadline() Option~Instant~
+        +view() View
+        +tab() PanelTab
+        +panels() Panels
+        +palette() Option~NodeId~
+        +tooltip() Option~NodeId~
+        +button(view) NodeId
+        +area(area) NodeId
+    }
+    class Panels["editor::shell::Panels"] {
+        +side: bool
+        +bottom: bool
+    }
+    class Flow["editor::shell::Flow"] {
+        <<enumeration>>
+        Continue
+        Quit
+    }
+    class Area["editor::shell::Area"] {
+        <<enumeration>>
+        ActivityBar
+        SidePanel
+        Editor
+        BottomPanel
+        StatusBar
+    }
+    class View["editor::shell::View"] {
+        <<enumeration>>
+        Explorer
+        Search
+        SourceControl
+        Toolchains
+        Devices
+        Agents
+        +name() str
+        +title() str
+        +empty_text() str
+        +icon() IconId
+    }
+    class PanelTab["editor::shell::PanelTab"] {
+        <<enumeration>>
+        Problems
+        Terminal
+        Output
+        Devices
+        +label() str
+        +empty_text() str
+    }
+    class Command["editor::shell::Command"] {
+        <<enumeration>>
+        Show: View
+        ShowTab: PanelTab
+        ToggleSidePanel
+        ToggleBottomPanel
+        CloseWindow
+        +title() str
+    }
+    class Ranked["editor::shell::commands::Ranked"] {
+        +command: Command
+        +score: u32
+        +matched: Vec of byte ranges
+    }
+    class CommandsFns["editor::shell::commands"] {
+        <<module>>
+        +rank(query) Vec~Ranked~
+    }
+    class TitleStrip["editor::shell::parts::TitleStrip"] {
+        -workspace: String
+    }
+    class ActivityButton["editor::shell::parts::ActivityButton"] {
+        -view: View
+        -active: bool
+        -space: Option~u64~
+    }
+    class Surface["editor::shell::parts::Surface"] {
+        +fill: Option~Token~
+        +edges: Edges
+    }
+    class Label["editor::shell::parts::Label"] {
+        -text: String
+        -style: TextStyle
+        -token: Token
+    }
+    class Tree["ui::Tree"]
+    class Widget["ui::Widget"] {
+        <<interface>>
+    }
+    class Control["ui::widgets::Control"] {
+        <<interface>>
+    }
+    class Palette["ui::widgets::Palette"]
+    class Tooltip["ui::widgets::Tooltip"]
+    class Splitter["ui::widgets::Splitter"]
+    class TabStrip["ui::widgets::TabStrip"]
+
+    Shell ..> Tree : builds its nodes in,<br/>handles events through
+    Shell *-- Panels
+    Shell ..> Flow : handle and run return
+    Shell ..> Area : area takes
+    Shell ..> Command : run takes
+    Shell ..> CommandsFns : ranks the palette with
+    CommandsFns ..> Ranked : rank returns
+    Ranked *-- Command
+    Command ..> View
+    Command ..> PanelTab
+    Shell ..> Palette : opens, gives rows
+    Shell ..> Tooltip : opens when the timer fires
+    Shell ..> Splitter : the side and bottom splits
+    Shell ..> TabStrip : the bottom panel's tabs
+    Shell ..> ActivityButton : one per view
+    TitleStrip ..|> Widget
+    ActivityButton ..|> Control
+    Control --|> Widget
+    Surface ..|> Widget
+    Label ..|> Widget
+    ActivityButton --> View
+```
+
+- `Shell` holds `NodeId`s, never the nodes: the tree owns them, and the
+  shell changes them through it. A hidden panel's split becomes a plain
+  row or column, so `Shell` keeps the splitter's ratio for when it shows
+  again.
+- `ActivityButton` activates as `ui`'s buttons do, by a click, Enter, or
+  Space released, which `ui` keeps private, so the shell keeps a copy of
+  that rule (`space`).
+
+## 30. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
@@ -5531,10 +5707,11 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-## 30. Planned types
+## 31. Planned types
 
-The other 14 members are empty crates, so they have no class diagram yet;
-the `tidepool` binary's few types are private to its `main.rs`.
+The other 13 members are empty crates, so they have no class diagram yet;
+the `tidepool` binary's few types are private to its `main.rs` and
+`settings.rs`.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
 the other files of `diagrams/` draw them dashed. A spec that gives no name
 is described in words here.

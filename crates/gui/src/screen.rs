@@ -14,11 +14,12 @@
 
 //! [`Screen`]: the part of [`Gui`](crate::Gui) that needs no window
 //! (M3.8, ADR-0059). It keeps the framebuffer the window is presented from,
-//! the base painted under the tree, the [`Painter`], and what the window
-//! asked to have shown again; [`Screen::render`] paints a `ui` tree's frame
-//! and hands what changed to a function that presents it. `Gui` adds the
-//! window and the backdrop's builds; [`Gui`](crate::Gui)'s documentation
-//! says what the window shows, and why.
+//! the base painted under the tree, the [`Painter`] and the icons
+//! registered with it (M3.4, ADR-0060), and what the window asked to have
+//! shown again; [`Screen::render`] paints a `ui` tree's frame and hands
+//! what changed to a function that presents it. `Gui` adds the window and
+//! the backdrop's builds; [`Gui`](crate::Gui)'s documentation says what the
+//! window shows, and why.
 //!
 //! New in Tidepool.
 
@@ -30,9 +31,10 @@ use tidepool_gfx::backdrop::Backdrop;
 use tidepool_gfx::damage::Damage;
 use tidepool_gfx::framebuffer::Framebuffer;
 use tidepool_ui::Tree;
+use tidepool_ui::draw::IconId;
 use tidepool_ui::theme::Token;
 
-use crate::{GuiError, Painter};
+use crate::{GuiError, Icon, Painter};
 
 /// What the window shows, without the window.
 #[derive(Debug)]
@@ -50,6 +52,10 @@ pub(crate) struct Screen {
     /// Whether the base changed since the last paint, which then repaints
     /// the whole window.
     base_changed: bool,
+    /// Whether an icon's registration changed since the last paint, which
+    /// then repaints the whole window: `ui` cannot know that a command
+    /// drawing its id now draws other pixels (ADR-0048).
+    icons_changed: bool,
     /// What the window asked to have shown again since the last present.
     exposes: Damage,
     /// Until when the first present waits for the backdrop; `None` once a
@@ -99,6 +105,7 @@ impl Screen {
             target: None,
             base: Base::None,
             base_changed: false,
+            icons_changed: false,
             exposes: Damage::new(),
             wait_until,
         }
@@ -134,6 +141,18 @@ impl Screen {
         }
     }
 
+    /// Registers `icon` for `id` with the painter, and returns the icon it
+    /// replaces. Unless that is the same icon, the next render repaints the
+    /// whole window, as the painter asks of whoever changes what an id draws
+    /// (ADR-0048).
+    pub(crate) fn set_icon(&mut self, id: IconId, icon: Icon) -> Option<Icon> {
+        let replaced = self.painter.set_icon(id, icon);
+        if replaced.as_ref() != self.painter.icon(id) {
+            self.icons_changed = true;
+        }
+        replaced
+    }
+
     /// Whether the base is the backdrop of the frame's size.
     pub(crate) fn backdrop_ready(&self) -> bool {
         matches!(&self.base, Base::Backdrop(backdrop) if backdrop.base().size() == self.size)
@@ -153,8 +172,9 @@ impl Screen {
     /// present waits: until the backdrop arrives, or `now` reaches the
     /// deadline. It makes the framebuffer and the flat base when they are
     /// missing, the base again when the theme's `bg` changed, and repaints
-    /// the whole window ([`Tree::invalidate_all`]) when either is new or
-    /// the backdrop arrived.
+    /// the whole window ([`Tree::invalidate_all`]) when either is new, the
+    /// backdrop arrived, or an icon's registration changed
+    /// ([`Screen::set_icon`]).
     ///
     /// # Errors
     ///
@@ -181,7 +201,8 @@ impl Screen {
         self.make_base(bg)?;
         let new_target = self.make_target()?;
         let new_base = std::mem::take(&mut self.base_changed);
-        if new_target || new_base {
+        let new_icons = std::mem::take(&mut self.icons_changed);
+        if new_target || new_base || new_icons {
             tree.invalidate_all();
         }
 
@@ -261,6 +282,7 @@ mod tests {
 
     use tidepool_core::color::Color;
     use tidepool_core::geom::{DevicePoint, Rect};
+    use tidepool_font::outline::OutlinePoint;
     use tidepool_gfx::backdrop::BackdropStyle;
     use tidepool_platform::surface::PixelsError;
     use tidepool_ui::draw::{DrawList, PaintContext};
@@ -269,7 +291,7 @@ mod tests {
     use tidepool_ui::{Node, NodeId, Widget};
 
     use super::*;
-    use crate::FIRST_FRAME_WAIT;
+    use crate::{FIRST_FRAME_WAIT, icons};
 
     /// Fills its bounds.
     struct Fill(Color);
@@ -277,6 +299,15 @@ mod tests {
     impl Widget for Fill {
         fn paint(&self, cx: &PaintContext<'_>, list: &mut DrawList) {
             list.rect(cx.bounds(), self.0);
+        }
+    }
+
+    /// Draws an icon over its bounds, in teal.
+    struct Glyph(IconId);
+
+    impl Widget for Glyph {
+        fn paint(&self, cx: &PaintContext<'_>, list: &mut DrawList) {
+            list.icon(cx.bounds(), self.0, TEAL);
         }
     }
 
@@ -493,6 +524,78 @@ mod tests {
         assert_eq!(screen.next_deadline(), None);
         assert!(screen.resize(DeviceSize::new(50, 32)));
         assert!(render_at(&mut screen, &mut tree, opened).is_some());
+    }
+
+    #[test]
+    fn registering_an_icon_repaints_the_whole_window_with_it() {
+        let id = IconId(7);
+        for factor in [1.0, 1.5, 2.0] {
+            let size = DeviceSize::new(96, 64);
+            let mut screen = new_screen(size, factor);
+            let mut tree = Tree::new();
+            let node = Node::new(Style::default().fixed(24.0, 24.0)).with_widget(Glyph(id));
+            tree.insert(tree.root(), node).expect("a node");
+            // A device pixel at `x`, `y` units into the 24-unit icon.
+            let at = |x: f32, y: f32| DevicePoint::new((x * factor) as i32, (y * factor) as i32);
+            let teal = Some(TEAL.premultiply());
+
+            // With no icon registered for the id, a hollow box, empty inside.
+            let (_, frame) = render(&mut screen, &mut tree).expect("the first frame");
+            assert_eq!(frame.pixel(at(12.0, 12.0)), Some(bg()), "at {factor}");
+            assert!(render(&mut screen, &mut tree).is_none(), "idle");
+
+            // A square filling the viewbox: the whole window is repainted,
+            // though the tree did not change, and the square is in it.
+            let on = |x, y| OutlinePoint {
+                x,
+                y,
+                on_curve: true,
+            };
+            let square = vec![on(0.0, 0.0), on(4.0, 0.0), on(4.0, 4.0), on(0.0, 4.0)];
+            let square = Icon::new(4.0, square, vec![4]).expect("an icon");
+            assert_eq!(screen.set_icon(id, square.clone()), None);
+            let (rects, frame) = render(&mut screen, &mut tree).expect("a repaint");
+            assert_eq!(rects, whole(size), "at {factor}");
+            assert_eq!(frame.pixel(at(12.0, 12.0)), teal, "at {factor}");
+            assert!(render(&mut screen, &mut tree).is_none(), "idle again");
+
+            // The same icon again changes no pixel, and repaints nothing.
+            assert_eq!(screen.set_icon(id, square.clone()), Some(square.clone()));
+            assert!(render(&mut screen, &mut tree).is_none(), "at {factor}");
+
+            // The explorer's page in its place: its left side is drawn,
+            // the page below its lines is empty.
+            assert_eq!(screen.set_icon(id, icons::files()), Some(square));
+            let (rects, frame) = render(&mut screen, &mut tree).expect("a repaint");
+            assert_eq!(rects, whole(size), "at {factor}");
+            assert_eq!(frame.pixel(at(5.0, 12.0)), teal, "at {factor}");
+            assert_eq!(frame.pixel(at(12.0, 18.0)), Some(bg()), "at {factor}");
+        }
+    }
+
+    #[test]
+    fn an_icon_registered_while_the_first_present_waits_is_painted_once_it_ends() {
+        let size = DeviceSize::new(48, 32);
+        let opened = Instant::now();
+        let deadline = opened + FIRST_FRAME_WAIT;
+        let painter = Painter::new().expect("the bundled faces load");
+        let mut screen = Screen::new(painter, size, Scale::ONE, Some(deadline));
+        let mut tree = Tree::new();
+        let node = Node::new(Style::default().fixed(24.0, 24.0)).with_widget(Glyph(IconId(1)));
+        tree.insert(tree.root(), node).expect("a node");
+        assert!(render_at(&mut screen, &mut tree, opened).is_none());
+        assert_eq!(screen.set_icon(IconId(1), icons::files()), None);
+        assert!(
+            render_at(&mut screen, &mut tree, opened).is_none(),
+            "still waiting"
+        );
+        let (rects, frame) = render_at(&mut screen, &mut tree, deadline).expect("a present");
+        assert_eq!(rects, whole(size));
+        assert_eq!(
+            frame.pixel(DevicePoint::new(5, 12)),
+            Some(TEAL.premultiply())
+        );
+        assert!(render(&mut screen, &mut tree).is_none());
     }
 
     #[test]

@@ -29,9 +29,16 @@
 //!   which is built on threads of its own, over the theme's flat `bg`
 //!   until it arrives. The first present waits for the backdrop, up to
 //!   [`FIRST_FRAME_WAIT`].
-//! - [`first_frame::tree`] is what the window shows until the shell
-//!   (M3.4): a line in each of the seven bundled faces (M2.6, ADR-0045),
-//!   as a `ui` tree.
+//! - [`icons`] is Tidepool's icon set, its first six the shell's activity
+//!   bar's (M3.4, ADR-0060): [`icons::files`], [`icons::search`],
+//!   [`icons::branch`], [`icons::wrench`], [`icons::device`] and
+//!   [`icons::spark`], line art in a 24-unit viewbox, crisp at scales 1,
+//!   1.5 and 2. [`Gui::set_icon`] registers an icon for a `ui` icon id
+//!   with the window's [`Painter`], and repaints the whole window.
+//! - [`first_frame::tree`] is the first frame's content, a line in each of
+//!   the seven bundled faces (M2.6, ADR-0045), as a `ui` tree: what the
+//!   window showed until the `tidepool` binary showed `editor`'s shell
+//!   (M3.4), and what `gui`'s window test still shows.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -43,6 +50,7 @@ mod error;
 pub mod first_frame;
 mod frontend;
 pub mod icon;
+pub mod icons;
 pub mod metrics;
 pub mod paint;
 mod screen;

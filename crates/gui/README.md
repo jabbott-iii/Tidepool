@@ -74,10 +74,22 @@ Built, with the roadmap task that built it:
   `Gui::next_deadline` gives the loop that deadline. `Gui::scale`,
   `Gui::backdrop_ready`, and `first_frame::tree`, the first frame's lines
   as a `ui` tree, idle after its first frame — M3.8 (ADR-0059).
+- Tidepool's icon set, `icons`, its first six the shell's activity bar's:
+  `files` (Explorer, a page with a cut corner), `search` (a magnifier),
+  `branch` (Source Control, a git branch of three rings), `wrench`
+  (Toolchains), `device` (Devices, a phone) and `spark` (Agents, a
+  four-pointed spark), each a function returning an `Icon` in a 24-unit
+  viewbox, listed by name in `icons::ALL`. They are line art, drawn as if
+  with a pen 2 units wide, every straight edge on an even unit so that it
+  is crisp at scales 1, 1.5 and 2, and computed with `+ − × ÷` and `sqrt`
+  alone, so they are the same on every OS. And `Gui::set_icon`, which
+  registers an icon for a `ui` icon id with the window's painter, returns
+  the one it replaces, and repaints the whole window unless the icon is
+  the one the id had — M3.4 (ADR-0060).
 
-Not yet, with the roadmap task that adds it:
-
-- the shell, which replaces the first frame's lines in the window — M3.4.
+Not yet: no roadmap task's title names `gui` for more. The shell (M3.4,
+ADR-0060) is `editor::shell`'s, a `ui` tree that `gui` paints as it
+paints any other.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -190,6 +202,52 @@ assert_eq!(target.pixel(DevicePoint::new(479, 0)), Some(bg));
 assert!(tree.frame(window, &painter.metrics(scale)).is_none());
 ```
 
+Register Tidepool's icons with a painter, each under a `ui` icon id of
+the caller's choice, and paint a tree that draws one, at scale 1.5 over
+the theme's flat `bg`. With a window, `Gui::set_icon` registers them
+with the window's painter, and repaints it:
+
+```rust
+use tidepool_core::geom::{DevicePoint, DeviceSize, Scale};
+use tidepool_gfx::framebuffer::Framebuffer;
+use tidepool_gui::{Painter, icons};
+use tidepool_ui::draw::{DrawList, IconId, PaintContext};
+use tidepool_ui::layout::Style;
+use tidepool_ui::theme::Token;
+use tidepool_ui::{Node, Tree, Widget};
+
+/// Draws the icon registered for its id over its bounds, in teal.
+struct Glyph(IconId);
+
+impl Widget for Glyph {
+    fn paint(&self, cx: &PaintContext<'_>, list: &mut DrawList) {
+        list.icon(cx.bounds(), self.0, cx.theme().color(Token::Teal));
+    }
+}
+
+let mut painter = Painter::new().expect("the bundled faces load");
+for (id, (_name, make)) in (0..).zip(icons::ALL) {
+    painter.set_icon(IconId(id), make());
+}
+// `icons::ALL[1]` is the magnifier, 24 units across.
+let mut tree = Tree::new();
+let root = tree.root();
+let node = Node::new(Style::default().fixed(24.0, 24.0)).with_widget(Glyph(IconId(1)));
+tree.insert(root, node).expect("a node");
+
+let (size, scale) = (DeviceSize::new(36, 36), Scale::new(1.5).expect("a scale"));
+let frame = tree.frame(scale.to_logical(size), &painter.metrics(scale)).expect("a frame");
+let bg = tree.theme().color(Token::Bg).premultiply();
+let teal = tree.theme().color(Token::Teal).premultiply();
+let mut base = Framebuffer::new(size).expect("a base");
+base.clear(bg);
+let mut target = Framebuffer::new(size).expect("a target");
+painter.paint(&mut target, &base.view(), &frame, scale).expect("painted");
+// The ring's left side is drawn; the lens inside it is empty.
+assert_eq!(target.pixel(DevicePoint::new(4, 15)), Some(teal));
+assert_eq!(target.pixel(DevicePoint::new(15, 15)), Some(bg));
+```
+
 ## Documentation
 
 - Design: [`docs/subsystems/frontends.md`](../../docs/subsystems/frontends.md),
@@ -203,7 +261,9 @@ assert!(tree.frame(window, &painter.metrics(scale)).is_none());
   the golden scenes); ADR-0012 (the event-driven main loop, on plain
   threads); ADR-0059 (`gui` presents `ui` frames, the backdrop built on
   threads of its own over the flat `bg` meanwhile, and the first
-  present's wait of up to 250 ms).
+  present's wait of up to 250 ms); ADR-0060 (the shell in `editor`, and
+  the activity bar's outline icons in `gui::icons`, registered through
+  `Gui::set_icon`).
 - API reference: `cargo doc -p tidepool-gui --open`
 
 ## Rules
@@ -255,7 +315,18 @@ nothing, and a failed build or a thread that cannot start logs a
 warning, all with a stand-in builder and no threads; and, on real
 threads, a build sends its backdrop and then wakes, and a build `gfx`
 refuses or that panics is reported. The frame's limit is 16,384 px a
-side. The painter's check each command against what
+side. Registering an icon with the screen repaints the whole window,
+though the tree did not change, at scales 1, 1.5 and 2, and the icon is
+in it; registering the same icon again repaints nothing; and one
+registered while the first present waits is painted when it ends. The
+icons': each builds in its 24-unit viewbox under a name of its own and
+is the same each time; each inks inside the viewbox at 24, 36 and 48 px;
+no two are the same, as outlines or at 24 px; each is line art, not a
+solid block (5% to 45% of its 576 pixels fully covered, at least a third
+empty); a pixel each one's pen covers, and one in its hole or gap, land
+where it draws them; straight edges on even units are crisp at scale
+1.5; and arcs are split into pieces of at most 50°. The painter's check
+each command against what
 `gfx` draws for it, the rounding at fractional scales, neighbours `ui`
 lays out sharing their edges, clips, layers and their growth, text
 against `font`'s own glyphs, icons, images, the tiles, and geometry that

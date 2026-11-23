@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! [`Gui`]: the window, and the `ui` frames it shows (M3.8, ADR-0059).
-//! [`Gui`]'s documentation says what it shows, and why.
+//! [`Gui`]: the window, and the `ui` frames it shows (M3.8, ADR-0059),
+//! with the icons registered for them (M3.4, ADR-0060). [`Gui`]'s
+//! documentation says what it shows, and why.
 //!
 //! New in Tidepool.
 
@@ -27,10 +28,11 @@ use tidepool_platform::events::Event;
 use tidepool_platform::surface::Pixels;
 use tidepool_platform::window::{Window, WindowConfig};
 use tidepool_ui::Tree;
+use tidepool_ui::draw::IconId;
 
 use crate::builds::{Builds, Threads, Want};
 use crate::screen::Screen;
-use crate::{GuiError, Painter};
+use crate::{GuiError, Icon, Painter};
 
 /// How long the first present waits for the backdrop after the window
 /// opened: 250 ms ([`Gui`'s "The first present waits"](Gui#the-first-present-waits)).
@@ -241,6 +243,23 @@ impl Gui {
     /// the flat `bg` that stands in until its build arrives.
     pub fn backdrop_ready(&self) -> bool {
         self.screen.backdrop_ready()
+    }
+
+    /// Registers `icon` for `id` with the window's [`Painter`], so that a
+    /// `ui` icon command naming `id` draws it, and returns the icon it
+    /// replaces. [`icons`](crate::icons) has Tidepool's.
+    ///
+    /// Unless `icon` is the one `id` already had, the next
+    /// [`render`](Gui::render) repaints the whole window
+    /// ([`Tree::invalidate_all`]): `ui` cannot know that a command naming
+    /// `id` now draws other pixels, and the painter leaves that damage to
+    /// whoever changed the registration ([`Painter::set_icon`], ADR-0048).
+    /// The whole window, because which nodes draw `id` is the tree's
+    /// owner's to know, not the window's. An icon registered before the
+    /// first render costs no extra paint: the first frame paints the whole
+    /// window anyway.
+    pub fn set_icon(&mut self, id: IconId, icon: Icon) -> Option<Icon> {
+        self.screen.set_icon(id, icon)
     }
 }
 
