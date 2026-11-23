@@ -16,7 +16,9 @@ These rules apply to everything written for people to read:
   `SECURITY.md`;
 - the diagrams and the demo page (`site/`, with `llms.txt`);
 - Rust doc comments (`///` and `//!`), which `cargo doc` turns into the
-  API reference.
+  API reference;
+- commit messages and pull request descriptions, whose form is in
+  "Commit messages" below.
 
 Other files tell you which docs to update and how to keep them in shape:
 - `CONTRIBUTING.md` → "Documentation" says which docs a change must
@@ -115,6 +117,72 @@ A reader lands on one item's page, not at the top of the crate.
 - **Fix only the text you change.** Don't sweep a whole page for spelling
   or commas as part of another task (`AGENTS.md`, rule 10: the smallest
   complete change). Mention the ones you notice in your summary instead.
+
+## Commit messages
+
+Commits follow [Conventional Commits
+1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) from 2026-11-22
+on. Earlier commits keep the older form, with the area first, as in
+`ui: overlays (M3.3)`. Never rewrite history to change them (`AGENTS.md`,
+rule 11).
+
+- **The subject** is `<type>(<scope>): <summary> (<IDs>)`, for example:
+  - `feat(text): encodings and atomic save (M1.3)`
+  - `fix(platform,core): CI on ubuntu-26.04 and macOS (ADR-0050, ADR-0051)`
+  - `docs: accept ADR-0017 (xtask runs cargo itself)`
+- **The type** says what kind of change the commit is. The spec defines
+  `feat` and `fix`. The others are the ones the spec cites from
+  `@commitlint/config-conventional` (the Angular convention):
+
+  | Type | Use it for |
+  | :- | :- |
+  | `feat` | Something new Tidepool can do, such as a roadmap task's code |
+  | `fix` | A bug fixed, a failing check or CI run included |
+  | `docs` | Docs only: the specs, ADRs, the roadmap, diagrams, READMEs, rules, and skills |
+  | `test` | Tests only: test code, golden references, and fuzz seeds |
+  | `refactor` | Code changed with no change in behavior |
+  | `perf` | Code made faster or smaller, with no change in behavior |
+  | `build` | Manifests, the lockfile, the toolchain pin, and `.cargo/` |
+  | `ci` | `.github/`: workflows, Dependabot, and templates |
+  | `style` | Formatting only, such as `cargo fmt` |
+  | `chore` | Anything else that changes no code Tidepool ships |
+
+  A commit that does several of these takes the type of its main
+  purpose: a task's code, with its tests and docs, is `feat`.
+- **The scope** is the area the commit changes: a crate's short name
+  (`ui`, `text`, `platform`), `xtask`, `bench`, `site`, or `fuzz`. Write
+  two areas with a comma and no space, `(platform,core)`. A change to
+  more than two is probably mis-scoped (`CLAUDE.md` → "Working style"),
+  unless it spans the whole repository, which takes no scope.
+- **The summary** names what the commit brings, as a phrase, the way the
+  roadmap names its tasks. It starts in lowercase unless it starts with a
+  name or an identifier, and has no final period.
+- **The IDs:** the roadmap task, and the ADRs the commit records or
+  follows, go in parentheses at the end. Keep the subject to about 72
+  characters, so `git log --oneline` stays readable; when the ADRs make
+  it longer, name them in the body instead.
+- **A breaking change** of a public API, a file format, a protocol,
+  configuration, data, or behavior is allowed only when the task
+  authorizes it, and is recorded in an ADR (`AGENTS.md`, rule 10). Its
+  commit puts `!` before the colon, as in `feat(ui)!: …`, and adds a
+  `BREAKING CHANGE:` footer that says what breaks and names the ADR. The
+  spec accepts either; Tidepool uses both, so `git log --oneline` shows
+  the break and the footer explains it.
+- **The body** starts one blank line after the subject, wraps at 72
+  columns, and says what changed and why, in the plain words the rest of
+  this file asks for.
+- **Footers** follow the body after a blank line, in the git trailer
+  form the spec uses: a token with `-` in place of spaces, a colon and a
+  space, then the value, as in `Refs: #123`. Use only footers about the
+  change itself, such as `BREAKING CHANGE:` and `Refs:`. Never add one
+  that credits an agent or a tool, such as a `Co-Authored-By:` line for
+  it, a `Claude-Session:` line, or a "Generated with …" line (`AGENTS.md`,
+  rule 11).
+- **Case:** types and scopes are lowercase. `BREAKING CHANGE` is
+  uppercase, as the spec requires.
+- **Pull requests:** a pull request's title takes the same form as a
+  subject. Its description follows `.github/pull_request_template.md` and
+  the rest of this file.
 
 ## Before finishing: the two-reader check
 

@@ -97,9 +97,9 @@ Leave all changes uncommitted. Do not commit, amend, rebase, tag or push.
 - **Not run:** checks that weren't run, and why. Include `⏳` items.
 - **Assumptions** you made.
 - **Unresolved issues and residual risks.**
-- **Commit message:** a proposed message in the repository's style: the
-  area first, then the summary and the task ID, as in
-  `text: encodings and atomic save (M1.3)` (`CONTRIBUTING.md` →
-  "Commits and pull requests"). It ends with its body: no attribution
-  lines (`AGENTS.md` rule 11).
+- **Commit message:** a proposed message in Conventional Commits form:
+  the type, the area as its scope, then the summary and the task ID, as
+  in `feat(text): encodings and atomic save (M1.3)`
+  (`.claude/rules/docs-writing.md` → "Commit messages"). It ends with its
+  body: no attribution lines (`AGENTS.md` rule 11).
 - **Next:** the next unblocked task ID.

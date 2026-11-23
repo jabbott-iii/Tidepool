@@ -297,9 +297,15 @@ apply to everyone who writes docs here.
 
 ## Commits and pull requests
 
-- A commit's subject starts with the area it changes and names the roadmap
-  task, as in `text: rope, positions and UAX #29 graphemes (M1.1)` or
-  `docs: accept ADR-0017 (xtask runs cargo itself)`.
+- A commit follows [Conventional Commits
+  1.0.0](https://www.conventionalcommits.org/en/v1.0.0/): its subject
+  gives the type, the area as its scope, and a summary that names the
+  roadmap task, as in `feat(text): rope, positions, and UAX #29 graphemes
+  (M1.1)` or `docs: accept ADR-0017 (xtask runs cargo itself)`. A
+  breaking change adds `!` before the colon and a `BREAKING CHANGE:`
+  footer. [`.claude/rules/docs-writing.md`](.claude/rules/docs-writing.md)
+  → "Commit messages" has the types and the rest. Commits before
+  2026-11-22 use the older form, with the area first.
 - A commit message or pull request description credits no coding agent or
   tool: no `Co-Authored-By:` line for one, and no "Generated with …"
   line. Naming a tool the change is about is fine, and Dependabot's own
