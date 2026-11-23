@@ -1,0 +1,17 @@
+# Tidepool's default keymap (ADR-0064): the keys that run commands in its
+# one mode, `insert`. `tidepool-editor` compiles this file in, as
+# `keymap::DEFAULT_TOML`, and its rustdoc (`editor::keymap`) gives the
+# format: keys in `ctrl+shift+p` notation, each naming a command's id.
+#
+# A user's bindings go in `settings.toml`, as `[keymap.<mode>]` tables in
+# the same form, a layer over these; an empty string unbinds keys. Vim mode
+# adds the other modes from M7.2 (docs/subsystems/vim-mode.md).
+
+version = 1
+start = "insert"
+
+[keymap.insert]
+"ctrl+shift+p" = "palette.open"
+f1 = "palette.open"
+"ctrl+b" = "view.toggleSidePanel"
+"ctrl+j" = "view.toggleBottomPanel"

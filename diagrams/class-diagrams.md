@@ -59,7 +59,9 @@ with `core::color::Color`, and the fuzz targets' result lines with
 `ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
 `editor`'s `EditorView`, which `gui`'s `Painter` paints into `gfx`'s
 `Framebuffer`s (M4.1, section 29.2), and `tidepool-sys` no workspace
-crate (section 23).
+crate (section 23). `tidepool-editor` reads keymaps with `codec::toml`
+within its own `keymap::Limits`, wrapping a `codec::CodecError` in its
+`EditorError` (M4.6, section 29.3).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
@@ -2192,7 +2194,7 @@ classDiagram
     class Reading["core::testing::fuzz::Reading"]
     class Kept["core::testing::fuzz::Kept"]
     class XtaskError["error::Error"]
-    SmokeFns "1" o-- "6" SmokeTarget : TARGETS
+    SmokeFns "1" o-- "7" SmokeTarget : TARGETS
     Options "1" o-- "1..*" SmokeTarget : borrows
     Options ..> Args : parse reads
     Options ..> XtaskError : parse fails with Usage
@@ -2201,7 +2203,7 @@ classDiagram
     Verdict *-- Summary : Clean, Found, Failed
     Summary *-- Reading : memory, reserved
     SmokeFns ..> Kept : keep_died
-    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>encoding in tidepool-text,<br/>ttf in tidepool-font<br/>and theme in tidepool-ui"
+    note for SmokeTarget "TARGETS holds json, toml<br/>and qoi in tidepool-codec,<br/>encoding in tidepool-text,<br/>ttf in tidepool-font,<br/>theme in tidepool-ui<br/>and keymap in tidepool-editor"
 ```
 
 `cargo xtask golden` asks `cargo metadata` which members have a test
@@ -5355,7 +5357,7 @@ classDiagram
   only (ADR-0043). The `Role` and `ActionKind` boxes list the variants
   the overlays use.
 
-## 29. editor: the shell and the editor view
+## 29. editor: the shell, the editor view, commands and keymaps
 
 ### 29.1 The shell
 
@@ -5368,7 +5370,10 @@ acts on the actions that come back: an `ActivityButton`'s `Activate`
 shows its `View`, the `TabStrip`'s `Select` a `PanelTab`, and the
 palette's `Change` and `Activate` rank and run the `Command`s, which
 `shell::commands::rank` matches as subsequences of their titles, best
-first, in `Ranked`s. `Shell::update` follows the tree's tooltip target and
+first, in `Ranked`s, over the shell's `command::Registry` of 14 (M4.6,
+29.3). A key no widget handled and no modal blocked goes to the shell's
+keymap `Engine`, and a command it resolves to runs by its id, but not on
+an auto-repeat. `Shell::update` follows the tree's tooltip target and
 opens a `Tooltip` when its timer fires; `next_deadline` gives the main
 loop that timer. The `tidepool` binary reads the two `Panels` settings
 and registers each `View`'s icon with `gui`.
@@ -5398,6 +5403,9 @@ classDiagram
         +tooltip() Option~NodeId~
         +button(view) NodeId
         +area(area) NodeId
+        +registry() Registry
+        +keymap_engine() Engine
+        +set_keymap(keymap)
     }
     class Panels["editor::shell::Panels"] {
         +side: bool
@@ -5445,6 +5453,9 @@ classDiagram
         ToggleSidePanel
         ToggleBottomPanel
         CloseWindow
+        OpenPalette
+        +id() str
+        +from_id(id) Option~Command~
         +title() str
     }
     class Ranked["editor::shell::commands::Ranked"] {
@@ -5455,6 +5466,7 @@ classDiagram
     class CommandsFns["editor::shell::commands"] {
         <<module>>
         +rank(query) Vec~Ranked~
+        +registry() Registry
     }
     class TitleStrip["editor::shell::parts::TitleStrip"] {
         -workspace: String
@@ -5613,6 +5625,171 @@ classDiagram
   Wales, which `ui::widgets::flag_at` finds and the view keeps whole. M4.1
   made the two public for the view (ADR-0063).
 
+### 29.3 Commands and keymaps
+
+`command` (M4.6, ADR-0064) is a `Registry` of named commands, each an
+`Entry` of an id and its palette title, which runs nothing itself: its
+owner runs a command by its id. `rank` matches a query against the
+titles as subsequences, best first, in `Match`es. `keymap` reads a
+`Keymap` from TOML: the default keymap, `DEFAULT_TOML`, compiled in from
+`keymaps/default.toml`, and the user's layer over it, each mode's
+`Binding`s of a `Sequence` of `Step`s to a command id, within `Limits`,
+with the `Problem`s found (a conflict, an override, or an error, by
+`ProblemKind`), each at a `Place`. An `Engine` holds a keymap, a stack of
+its modes and the steps of a pending sequence, and resolves each key going
+down to a `Resolution`.
+
+```mermaid
+classDiagram
+    direction LR
+    class Registry["editor::command::Registry"] {
+        -entries: Vec~Entry~
+        +new() Registry
+        +register(id, title) Result
+        +get(id) Option~Entry~
+        +contains(id) bool
+        +entries() slice of Entry
+        +len() usize
+        +is_empty() bool
+        +rank(query) Vec~Match~
+    }
+    class Entry["editor::command::Entry"] {
+        +id() str
+        +title() str
+    }
+    class Match["editor::command::Match"] {
+        +entry: Entry
+        +score: u32
+        +matched: Vec of byte ranges
+    }
+    class CommandFns["editor::command"] {
+        <<module>>
+        +is_valid_id(id) bool
+        +MAX_ID_BYTES: usize
+    }
+    class Keymap["editor::keymap::Keymap"] {
+        +read(text, user, registry, limits) Result~Keymap~
+        +bundled(registry, user) Keymap
+        +start() str
+        +modes() iterator of str
+        +has_mode(mode) bool
+        +bindings(mode) slice of Binding
+        +problems() slice of Problem
+    }
+    class Binding["editor::keymap::Binding"] {
+        +keys() Sequence
+        +command() str
+        +layer() Layer
+    }
+    class Layer["editor::keymap::Layer"] {
+        <<enumeration>>
+        Default
+        User
+    }
+    class Limits["editor::keymap::Limits"] {
+        +toml: codec Limits
+        +max_bindings: usize
+        +max_steps: usize
+        +max_modes: usize
+        +DEFAULT: Limits
+    }
+    class Sequence["editor::keymap::Sequence"] {
+        +parse(text, limits) Result~Sequence~
+        +steps() slice of Step
+        +is_extension_of(other) bool
+    }
+    class Step["editor::keymap::Step"] {
+        +new(modifiers, key) Option~Step~
+        +parse(text) Result~Step~
+        +modifiers() Modifiers
+        +key() Key
+    }
+    class NotationError["editor::keymap::NotationError"] {
+        +offset: usize
+        +kind: NotationErrorKind
+    }
+    class Problem["editor::keymap::Problem"] {
+        <<enumeration>>
+        Duplicate
+        Prefix
+        Override
+        NotAString
+        BadKeys
+        UnknownCommand
+        UnknownMode
+        BadModeName
+        ModeNotATable
+        TooManyModes
+        TooManyBindings
+        +kind() ProblemKind
+    }
+    class ProblemKind["editor::keymap::ProblemKind"] {
+        <<enumeration>>
+        Conflict
+        Override
+        Error
+    }
+    class Place["editor::keymap::Place"]
+    class Engine["editor::keymap::Engine"] {
+        +new(keymap) Engine
+        +handle(event) Resolution
+        +press(step, repeat) Resolution
+        +enter(mode) bool
+        +leave() bool
+        +cancel()
+        +mode() str
+        +stack() iterator of str
+        +pending() slice of Step
+        +keymap() Keymap
+    }
+    class Resolution["editor::keymap::Resolution"] {
+        <<enumeration>>
+        Ignored
+        Unbound
+        Pending
+        Canceled
+        Command: id, repeat
+        Mode: changed, repeat
+    }
+    class FileError["editor::keymap::FileError"] {
+        <<enumeration>>
+        MissingVersion
+        UnsupportedVersion
+        BadStart
+        UnknownStart
+        MissingModes
+        UnknownKey
+    }
+    class Table["codec::toml::Table"]
+
+    Registry *-- Entry
+    Registry ..> Match : rank returns
+    Match --> Entry
+    Registry ..> CommandFns : checks ids with
+    Keymap ..> Registry : bindings name its commands
+    Keymap ..> Table : the user's layer
+    Keymap ..> Limits : read within
+    Keymap *-- Binding
+    Keymap *-- Problem
+    Binding *-- Sequence
+    Binding --> Layer
+    Sequence *-- Step
+    Sequence ..> NotationError : parse fails with
+    Problem *-- Place
+    Problem ..> ProblemKind : kind
+    Engine *-- Keymap
+    Engine ..> Resolution : handle and press return
+    Keymap ..> FileError : read fails with
+```
+
+- The registry refuses an id whose first segment is `mode`: those are the
+  engine's two commands, `mode.enter.<mode>` and `mode.leave`, which a
+  binding may name and the engine runs itself.
+- `Shell::new` takes the default keymap (`Keymap::bundled` with no user
+  layer); the binary builds one with `settings.toml`'s `[keymap]` as the
+  user's layer over the shell's `registry()`, and passes it to
+  `set_keymap` (29.1).
+
 ## 30. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
@@ -5635,7 +5812,10 @@ call ran into, and wraps a theme file's errors: `codec`'s `CodecError` in
 `Display`, in `Theme` (28.3). `EditorError` wraps the `UiError` of a
 tree that refused a change or lost the view's nodes, in `Ui`, and the
 `TextError` of a byte offset or selection the text does not have, in
-`Text` (29.2). `xtask`
+`Text` (29.2); since M4.6 it also names a bad or taken command id, wraps
+the `CodecError` of a keymap file that is not TOML in `KeymapSyntax`,
+and holds the `keymap::FileError` of one that is TOML but not a keymap
+in `Keymap` (29.3). `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -5752,7 +5932,12 @@ classDiagram
         <<enumeration>>
         Ui
         Text
+        BadCommandId
+        TakenCommandId
+        KeymapSyntax
+        Keymap
     }
+    class KeymapFileError["editor::keymap::FileError"]
     class IconError["gui::icon::IconError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
@@ -5826,6 +6011,10 @@ classDiagram
     StdError <|.. EditorError
     EditorError *-- UiError : Ui
     EditorError *-- TextError : Text
+    EditorError *-- CodecError : KeymapSyntax
+    EditorError *-- KeymapFileError : Keymap
+    Display <|.. KeymapFileError
+    StdError <|.. KeymapFileError
 ```
 
 ## 31. Planned types
@@ -5850,7 +6039,7 @@ is described in words here.
   `Outdated`, `Installing` and `Broken`, planned (M5.1); the `Spawn`
   builder and the `SecretArg` and `SecretEnv` types that redact
   themselves, planned (M5.2).
-- `tidepool-editor`: the modal keymap engine, planned (M4.6); vim mode's
+- `tidepool-editor`: vim mode's
   modes `Normal`, `Insert`, `Replace` and `OperatorPending`, planned
   (M7.2); `Visual`, `VisualLine` and `VisualBlock`, planned (M7.3);
   `CommandLine` and `Search`, planned (M7.4).
@@ -5904,7 +6093,9 @@ The main files these diagrams were drawn from:
   `labels.rs`, `modal.rs`, `palette.rs`, `scrollbar.rs`, `splitter.rs`,
   `tabs.rs`, `toast.rs`, `tooltip.rs`); `themes/tidepool-dark.toml`
 - `crates/editor/src/lib.rs`, `error.rs`, `view.rs`, `view/area.rs`,
-  `view/layout.rs`
+  `view/layout.rs`, `command.rs`, `keymap.rs`, `keymap/notation.rs`,
+  `keymap/read.rs`, `keymap/engine.rs`, `shell.rs`, `shell/commands.rs`;
+  `keymaps/default.toml`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -5914,7 +6105,7 @@ The main files these diagrams were drawn from:
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
   ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058,
-  ADR-0063)
+  ADR-0063, ADR-0064)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`, `editor.md`

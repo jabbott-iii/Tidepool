@@ -63,11 +63,18 @@
 //! [`Shell::handle`] gives each input event to the tree first
 //! ([`Tree::handle`]), then acts on what the widgets emitted: an activity
 //! button shows its view, or hides the side panel if its view is shown
-//! already; the tab strip selects a tab; the palette ranks the
-//! [`Command`]s as its query changes ([`commands::rank`]) and runs the one
-//! activated. A key that no widget handled and that no modal blocked
-//! (ADR-0055) may be a shortcut: Ctrl+Shift+P or F1 opens the palette,
-//! Ctrl+B toggles the side panel and Ctrl+J the bottom panel.
+//! already; the tab strip selects a tab; the palette ranks the commands of
+//! the shell's [`Registry`] as its query changes ([`Registry::rank`]) and
+//! runs the one activated.
+//!
+//! A key that no widget handled and that no modal blocked (ADR-0055) goes
+//! to the shell's keymap [`Engine`], which may resolve it to a command
+//! (M4.6, ADR-0064). The shell runs the commands that are its own
+//! ([`Command::from_id`]) on a key going down, never on an auto-repeat.
+//! The default keymap ([`Keymap::bundled`]) binds four keys: Ctrl+Shift+P
+//! or F1 opens the palette, Ctrl+B toggles the side panel and Ctrl+J the
+//! bottom panel. Its owner may give the shell another keymap, such as the
+//! default with the user's layer over it ([`Shell::set_keymap`]).
 //!
 //! A tooltip shows [`TOOLTIP_DELAY`] after the pointer comes to rest on its
 //! node, and at once for keyboard focus: [`Shell::update`], called after
@@ -81,7 +88,7 @@ pub mod parts;
 use std::time::{Duration, Instant};
 
 use tidepool_core::geom::Size;
-use tidepool_core::input::{InputEvent, Key, Modifiers};
+use tidepool_core::input::InputEvent;
 use tidepool_ui::a11y::{Role, Semantics};
 use tidepool_ui::input::{Action, ActionKind};
 use tidepool_ui::layout::{Align, Axis, Insets, Length, Style};
@@ -91,6 +98,9 @@ use tidepool_ui::widgets::{
     Status, StatusDot, Tab, TabKind, TabStrip, Tooltip, TooltipCause, TooltipTarget,
 };
 use tidepool_ui::{Node, NodeId, Tree, UiError};
+
+use crate::command::Registry;
+use crate::keymap::{Engine, Keymap, Resolution};
 
 pub use commands::{Command, PanelTab, View};
 
@@ -221,11 +231,16 @@ pub struct Shell {
     seen: Option<TooltipTarget>,
     /// When the target's tooltip opens, unless the target changes first.
     due: Option<Instant>,
+    /// The shell's commands, which the palette lists.
+    registry: Registry,
+    /// The keymap engine that keys no widget handled go to.
+    keys: Engine,
 }
 
 impl Shell {
     /// Builds the shell in `tree`, under its main root, with the Explorer
-    /// view and the Problems tab selected, and `panels` showing.
+    /// view and the Problems tab selected, `panels` showing, and the
+    /// default keymap ([`Keymap::bundled`]).
     ///
     /// # Errors
     ///
@@ -396,6 +411,8 @@ impl Shell {
             Node::new(Style::default()).with_widget(Label::new(PALETTE_HINT, PATH, Token::Text2)),
         )?;
 
+        let registry = commands::registry();
+        let keys = Engine::new(Keymap::bundled(&registry, None));
         let mut shell = Self {
             ids: Ids {
                 activity,
@@ -418,6 +435,8 @@ impl Shell {
             tooltip: None,
             seen: None,
             due: None,
+            registry,
+            keys,
         };
         shell.set_side(tree, panels.side)?;
         shell.set_bottom(tree, panels.bottom)?;
@@ -467,6 +486,26 @@ impl Shell {
         }
     }
 
+    /// The shell's commands, each with its id and title: what its palette
+    /// lists, and what a keymap given to [`set_keymap`](Self::set_keymap)
+    /// is read against.
+    pub const fn registry(&self) -> &Registry {
+        &self.registry
+    }
+
+    /// The keymap engine that keys no widget handled go to: its keymap,
+    /// mode and pending steps.
+    pub const fn keymap_engine(&self) -> &Engine {
+        &self.keys
+    }
+
+    /// Uses `keymap` for the keys no widget handles, in place of the one
+    /// before, in its start mode with nothing pending. A binding of a
+    /// command that is not the shell's does nothing here.
+    pub fn set_keymap(&mut self, keymap: Keymap) {
+        self.keys = Engine::new(keymap);
+    }
+
     /// When the shell's next timer fires: the tooltip's, if one is due.
     /// The main loop waits no longer than this.
     pub const fn next_deadline(&self) -> Option<Instant> {
@@ -493,18 +532,12 @@ impl Shell {
                 flow = Flow::Quit;
             }
         }
-        if !response.handled && !response.blocked {
-            let ran = match shortcut(event) {
-                Some(Shortcut::Palette) => {
-                    self.open_palette(tree)?;
-                    Flow::Continue
-                }
-                Some(Shortcut::Run(command)) => self.run(tree, command)?,
-                None => Flow::Continue,
-            };
-            if ran == Flow::Quit {
-                flow = Flow::Quit;
-            }
+        if !response.handled
+            && !response.blocked
+            && let Some(command) = self.shortcut(event)
+            && self.run(tree, command)? == Flow::Quit
+        {
+            flow = Flow::Quit;
         }
         self.update(tree, now)?;
         Ok(flow)
@@ -565,6 +598,7 @@ impl Shell {
             Command::ToggleSidePanel => self.set_side(tree, !self.panels.side)?,
             Command::ToggleBottomPanel => self.set_bottom(tree, !self.panels.bottom)?,
             Command::CloseWindow => return Ok(Flow::Quit),
+            Command::OpenPalette => self.open_palette(tree)?,
         }
         Ok(Flow::Continue)
     }
@@ -637,7 +671,17 @@ impl Shell {
         Ok(Flow::Continue)
     }
 
-    /// Ranks the commands for the open palette's query, and gives it them.
+    /// The shell's command that `event` resolves to in its keymap, if any:
+    /// on a key going down, not on an auto-repeat.
+    fn shortcut(&mut self, event: &InputEvent) -> Option<Command> {
+        match self.keys.handle(event) {
+            Resolution::Command { id, repeat: false } => Command::from_id(id),
+            _ => None,
+        }
+    }
+
+    /// Ranks the registry's commands for the open palette's query, and
+    /// gives it them.
     fn rank(&mut self, tree: &mut Tree) -> Result<(), UiError> {
         let Some(open) = &mut self.palette else {
             return Ok(());
@@ -645,12 +689,19 @@ impl Shell {
         let query = Palette::query(tree, open.node)
             .unwrap_or_default()
             .to_string();
-        let ranked = commands::rank(&query);
-        let rows: Vec<Row> = ranked
-            .iter()
-            .map(|ranked| Row::new(ranked.command.title()).matched(ranked.matched.clone()))
-            .collect();
-        open.commands = ranked.into_iter().map(|ranked| ranked.command).collect();
+        let (rows, ranked): (Vec<Row>, Vec<Command>) = self
+            .registry
+            .rank(&query)
+            .into_iter()
+            .filter_map(|ranked| {
+                let command = Command::from_id(ranked.entry.id())?;
+                Some((
+                    Row::new(ranked.entry.title()).matched(ranked.matched),
+                    command,
+                ))
+            })
+            .unzip();
+        open.commands = ranked;
         Palette::set_items(tree, open.node, rows)
     }
 
@@ -737,36 +788,6 @@ pub enum Area {
     BottomPanel,
     /// The status bar.
     StatusBar,
-}
-
-/// A shortcut of the window's.
-enum Shortcut {
-    /// Opens the palette.
-    Palette,
-    /// Runs a command.
-    Run(Command),
-}
-
-/// The shortcut `event` is, if any: Ctrl+Shift+P or F1, Ctrl+B and
-/// Ctrl+J, each going down and not repeating, with exactly those modifiers.
-fn shortcut(event: &InputEvent) -> Option<Shortcut> {
-    let InputEvent::KeyDown {
-        key,
-        modifiers,
-        repeat: false,
-    } = *event
-    else {
-        return None;
-    };
-    let ctrl = Modifiers::CTRL;
-    let ctrl_shift = Modifiers::CTRL.union(Modifiers::SHIFT);
-    match key {
-        Key::P if modifiers == ctrl_shift => Some(Shortcut::Palette),
-        Key::F1 if modifiers == Modifiers::NONE => Some(Shortcut::Palette),
-        Key::B if modifiers == ctrl => Some(Shortcut::Run(Command::ToggleSidePanel)),
-        Key::J if modifiers == ctrl => Some(Shortcut::Run(Command::ToggleBottomPanel)),
-        _ => None,
-    }
 }
 
 /// The three children of a split made by [`Splitter::insert`]: the first

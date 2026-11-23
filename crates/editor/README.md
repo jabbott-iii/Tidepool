@@ -29,6 +29,9 @@ Built, with the roadmap task that built it:
   opens it, Ctrl+B and Ctrl+J toggle the panels, and a tooltip shows
   500 ms after the pointer rests, at once for keyboard focus — M3.4
   (ADR-0060). Every view and tab is empty until its task, and says so.
+  From M4.6 the palette lists the shell's 14 commands from its command
+  registry, `palette.open` among them, and its four keys are the default
+  keymap's, which the shell's owner can replace (`Shell::set_keymap`).
 - the editor view, `view::EditorView`: a `text` rope's text in a `ui`
   tree, with a gutter of line numbers, the selection's ranges and a
   steady cursor bar at each head while it has focus, the focus outline
@@ -39,10 +42,27 @@ Built, with the roadmap task that built it:
   (`view::MAX_LINE_BYTES`), and maps points to byte offsets and back for
   M4.2. Its errors are `EditorError`s. The binary does not show it until
   M4.3 opens a file — M4.1 (ADR-0063).
+- named commands, `command::Registry`: each an id, such as
+  `view.toggleSidePanel` (dotted segments of ASCII letters and digits,
+  each starting with a lowercase letter, at most 128 bytes), and its
+  palette title, ranked for the palette by the subsequence matcher, which
+  moved here from the shell; a bad or taken id is an `EditorError` — M4.6
+  (ADR-0064).
+- the modal keymap engine, `keymap`: keys in `ctrl+shift+p` notation
+  (`keymap::Sequence`, shown as `Ctrl+Shift+P`); keymaps read from TOML
+  layers, the default one (`keymaps/default.toml`, compiled in, one mode,
+  `insert`) and the user's over it, where an empty string unbinds, within
+  `keymap::Limits` (4,096 bindings and 32 modes a layer, 8 steps); the
+  conflicts, overrides and errors found, each with its layer, mode and
+  keys (`keymap::Problem`); and `keymap::Engine`, a stack of modes and a
+  pending sequence that waits without a timeout, looking keys up in the
+  top mode only, entering and leaving modes with `mode.enter.<mode>` and
+  `mode.leave`, and saying whether a key was an auto-repeat — M4.6
+  (ADR-0064, ADR-0006). Nothing shows a pending sequence or the problems
+  on screen yet: no task builds the keymap viewer.
 
 Not yet, with the roadmap task that adds it:
 
-- commands and the keymap engine — M4.6.
 - editing commands, multi-cursor, undo and clipboard — M4.2.
 - explorer, tabs, splits, the trust prompt — M4.3.
 - search — M4.4.
@@ -51,7 +71,8 @@ Not yet, with the roadmap task that adds it:
 - highlighting — M6.2.
 - language features — M6.7, M6.8, M6.3.
 - the Markdown preview — M6.6.
-- vim mode — M7.2, M7.3, M7.4.
+- vim mode, with its modes and bindings by typed character — M7.2,
+  M7.3, M7.4.
 - git panels — M8.2, M8.3.
 - AI completion, chat and proposals — M9.4, M9.5.
 - mobile panels — M10.6, M11.6.
@@ -132,16 +153,74 @@ assert_eq!(view.position(&tree)?.line, 3);
 # Ok::<(), tidepool_editor::EditorError>(())
 ```
 
+Read a keymap against a registry of commands, with a user's layer over
+it, and resolve keys with the engine; its owner runs the commands it
+resolves to by their ids:
+
+```rust
+use tidepool_codec::toml;
+use tidepool_core::input::{InputEvent, Key, Modifiers};
+use tidepool_editor::command::Registry;
+use tidepool_editor::keymap::{Engine, Keymap, Limits, ProblemKind, Resolution};
+
+let mut registry = Registry::new();
+registry.register("editor.save", "File: Save")?;
+registry.register("editor.saveAll", "File: Save All")?;
+let default = r#"
+version = 1
+start = "normal"
+
+[keymap.normal]
+i = "mode.enter.insert"
+"ctrl+s" = "editor.save"
+
+[keymap.insert]
+escape = "mode.leave"
+"#;
+// The user's layer, as `settings.toml`'s `[keymap.<mode>]` tables give it.
+let settings = toml::parse(
+    "[keymap.normal]\n\"ctrl+s\" = \"editor.saveAll\"\n\"ctrl+k ctrl+s\" = \"editor.save\"\n",
+    tidepool_codec::Limits::DEFAULT,
+)
+.expect("TOML");
+let user = settings.get("keymap").and_then(|keymap| keymap.as_table());
+let keymap = Keymap::read(default, user, &registry, Limits::DEFAULT)?;
+// The user's Ctrl+S overrides the default's: listed, not a conflict.
+assert_eq!(keymap.problems().len(), 1);
+assert_eq!(keymap.problems()[0].kind(), ProblemKind::Override);
+
+let mut engine = Engine::new(keymap);
+let down = |key, modifiers| InputEvent::KeyDown { key, modifiers, repeat: false };
+assert_eq!(
+    engine.handle(&down(Key::S, Modifiers::CTRL)),
+    Resolution::Command { id: "editor.saveAll", repeat: false }
+);
+// A sequence waits for its next key, with no timeout.
+assert_eq!(engine.handle(&down(Key::K, Modifiers::CTRL)), Resolution::Pending);
+assert_eq!(
+    engine.handle(&down(Key::S, Modifiers::CTRL)),
+    Resolution::Command { id: "editor.save", repeat: false }
+);
+// `i` enters Insert mode, where only Insert's bindings count.
+engine.handle(&down(Key::I, Modifiers::NONE));
+assert_eq!(engine.mode(), "insert");
+assert_eq!(engine.handle(&down(Key::S, Modifiers::CTRL)), Resolution::Unbound);
+# Ok::<(), tidepool_editor::EditorError>(())
+```
+
 ## Documentation
 
 - Design: [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md),
   [`docs/subsystems/vim-mode.md`](../../docs/subsystems/vim-mode.md),
   [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
-  first, features in `editor`); ADR-0006 (vim mode, Proposed); ADR-0060
+  first, features in `editor`); ADR-0006 (vim mode as a modal keymap
+  engine in `editor`); ADR-0060
   (the shell in `editor::shell`, its icons, settings and palette);
   ADR-0063 (the editor view in `editor::view`, soft wrap off at first,
-  hidden characters as markers, and the `current-line` token).
+  hidden characters as markers, and the `current-line` token); ADR-0064
+  (the command registry, and keymaps as TOML layers in `ctrl+shift+p`
+  notation, the user's in `settings.toml`).
 - API reference: `cargo doc -p tidepool-editor --open`
 
 ## Rules
@@ -159,6 +238,7 @@ assert_eq!(view.position(&tree)?.line, 3);
 ```bash
 cargo test -p tidepool-editor
 cargo xtask golden
+cargo xtask fuzz-smoke --target keymap
 ```
 
 The tests build the shell headless: its areas tile the window at
@@ -170,7 +250,34 @@ Enter, closes with Escape and blocks the shortcuts while open; every
 command runs; a tooltip waits 500 ms for the pointer and none for focus;
 the accessibility tree names every part; and an idle shell draws nothing.
 The matcher's unit tests check word starts, runs, the best alignment and
-the matched ranges.
+the matched ranges. From M4.6 the shell's tests also check that the
+palette lists its registry's 14 commands, that `palette.open` reopens it,
+that a keymap from the shell's owner replaces the default one, and that a
+key a widget handled or a modal blocked never reaches the keymap.
+
+The keymap's tests (`tests/keymap.rs`) check the default keymap (no
+problems, and every binding naming a registered command); a keymap of two
+modes, `normal` entering `insert` with `i` and `insert` leaving with
+Escape, switching between them and looking keys up in the top mode only;
+a sequence waiting for its next key, canceled by a wrong one, and cleared
+by a change of mode; auto-repeats resolving like presses and saying so;
+modifier keys alone changing nothing; the user's layer, its overrides, its
+unbinding and its modes; the same keys twice in a layer, keys that start
+another binding's in either layer, and each error, reported with their
+layer, mode and keys and escaped in messages; the limits at their
+defaults, with 4,096 bindings and 32 modes a layer and 8 steps, and user
+tables of 100,000 entries that are not modes, or are bad bindings in one
+mode, giving problems within the documented bound; a file that is not a
+keymap; and a property test, which prints its seed when it fails, that
+the engine's stack and pending steps stay in bounds. Unit
+tests check the notation, with a property test that keys in any spelling
+read and show in one form that reads back the same, the command ids, and
+the registry. The fuzz target `keymap` (`tests/fuzz.rs`, seeds in
+`fuzz/corpus/keymap/` and `keymaps/`) reads any text as a keymap file, as
+the user's layer and as keys, and presses keys the input chooses, the
+keymap's own bindings among them; a test checks that its driver can press
+every default binding. `cargo xtask fuzz-smoke --target keymap` mutates
+it.
 
 The editor view's tests build it headless too: the gutter's numbers,
 right-aligned, `text-2` where a cursor's head is, and a gutter that grows

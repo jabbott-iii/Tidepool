@@ -1,0 +1,8 @@
+# A hand-made seed of the `keymap` fuzz target: a binding of exactly 8
+# steps, the target's limit, so that one more is past it.
+version = 1
+start = "insert"
+
+[keymap.insert]
+"ctrl+k ctrl+k ctrl+k ctrl+k ctrl+k ctrl+k ctrl+k ctrl+k" = "window.close"
+"ctrl+b" = "view.toggleSidePanel"

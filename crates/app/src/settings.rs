@@ -13,17 +13,21 @@
 // limitations under the License.
 
 //! The settings the shell reads at startup, read-only until M4.7 builds
-//! `workspace::settings` (M3.4, ADR-0060).
+//! `workspace::settings` (M3.4, ADR-0060; M4.6, ADR-0064).
 //!
 //! It reads `settings.toml` in the user's config folder
 //! (`platform::paths::user_dirs`, on Linux `$XDG_CONFIG_HOME/tidepool`),
 //! once, before the window opens, with `codec::toml` within its default
-//! limits and at most [`MAX_FILE_BYTES`]. Of it, two keys:
+//! limits and at most [`MAX_FILE_BYTES`]. Of it, two keys and a table:
 //!
 //! ```toml
 //! [ui]
 //! side_panel = true    # whether the side panel shows at start
 //! bottom_panel = true  # whether the bottom panel shows at start
+//!
+//! [keymap.insert]      # the user's bindings, over the default keymap's
+//! "ctrl+k ctrl+b" = "view.toggleSidePanel"
+//! "ctrl+b" = ""        # an empty string unbinds the default's keys
 //! ```
 //!
 //! A missing file, or a missing key, gives the default, `true`. An unknown
@@ -31,6 +35,13 @@
 //! too large, or is not valid TOML gives every default, and a value of the
 //! wrong type gives its own; each logs a warning naming the file and, for a
 //! value, its key.
+//!
+//! `[keymap]`, a table of modes, is the user's layer of the shell's keymap
+//! (`editor::keymap`): [`keymap`] reads it over the default keymap, against
+//! the shell's commands, and logs what the reading found, each naming the
+//! file: a conflict or an error as a warning, and an override at info. A
+//! `keymap` that is not a table gives the default keymap alone, with a
+//! warning.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -38,8 +49,10 @@ use std::path::Path;
 
 use tidepool_codec::Limits;
 use tidepool_codec::toml::{self, Table};
-use tidepool_core::log::warn;
+use tidepool_core::log::{info, warn};
 use tidepool_core::path;
+use tidepool_editor::command::Registry;
+use tidepool_editor::keymap::{Keymap, ProblemKind};
 use tidepool_editor::shell::Panels;
 
 /// The settings file's name in the user's config folder.
@@ -49,11 +62,21 @@ pub(crate) const FILE_NAME: &str = "settings.toml";
 /// with a warning.
 pub(crate) const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
+/// The most keymap problems [`keymap`] logs, one line each; one more line
+/// says how many it did not. The keymap keeps them all, within its limits
+/// (`editor::keymap::Limits`), but a settings file of thousands of bad
+/// bindings must not flood the log, whose writer drops lines once its
+/// queue is full, nor hold up the start for long.
+pub(crate) const MAX_LOGGED_PROBLEMS: usize = 64;
+
 /// What the settings say.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Settings {
     /// Which of the shell's panels show at start.
     pub(crate) panels: Panels,
+    /// The user's layer of the keymap: `[keymap]`, a table of modes, if the
+    /// file has one.
+    pub(crate) keymap: Option<Table>,
 }
 
 /// Reads the settings from the user's config folder, logging what it
@@ -66,6 +89,33 @@ pub(crate) fn load() -> Settings {
             Settings::default()
         }
     }
+}
+
+/// The shell's keymap: the default one, with the user's layer from
+/// `settings` over it, read against `registry`, the shell's commands. Logs
+/// the first [`MAX_LOGGED_PROBLEMS`] problems the reading found, naming the
+/// settings file, a conflict or an error as a warning and an override at
+/// info, and then, if there were more, one warning saying how many it did
+/// not log.
+pub(crate) fn keymap(registry: &Registry, settings: &Settings) -> Keymap {
+    let keymap = Keymap::bundled(registry, settings.keymap.as_ref());
+    let problems = keymap.problems();
+    for problem in problems.iter().take(MAX_LOGGED_PROBLEMS) {
+        match problem.kind() {
+            ProblemKind::Override => info!("{FILE_NAME} [keymap]: {problem}"),
+            ProblemKind::Conflict | ProblemKind::Error => {
+                warn!("{FILE_NAME} [keymap]: {problem}");
+            }
+        }
+    }
+    let unlogged = problems.len().saturating_sub(MAX_LOGGED_PROBLEMS);
+    if unlogged > 0 {
+        warn!(
+            "{FILE_NAME} [keymap]: {unlogged} more problems were not logged; the first \
+             {MAX_LOGGED_PROBLEMS} were"
+        );
+    }
+    keymap
 }
 
 /// Reads the settings from `file`, logging what it could not use.
@@ -137,6 +187,16 @@ fn from_bytes(bytes: &[u8]) -> (Settings, Vec<String>) {
         settings.panels.side = boolean(ui, "side_panel", settings.panels.side, &mut warnings);
         settings.panels.bottom = boolean(ui, "bottom_panel", settings.panels.bottom, &mut warnings);
     }
+    settings.keymap = match root.get("keymap") {
+        None => None,
+        Some(value) => match value.as_table() {
+            Some(table) => Some(table.clone()),
+            None => {
+                warnings.push("`keymap` is not a table of modes".to_string());
+                None
+            }
+        },
+    };
     (settings, warnings)
 }
 
@@ -167,6 +227,7 @@ mod tests {
     fn panels(side: bool, bottom: bool) -> Settings {
         Settings {
             panels: Panels { side, bottom },
+            keymap: None,
         }
     }
 
@@ -270,5 +331,113 @@ mod tests {
         assert_eq!(load_from(&folder), Settings::default());
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_keymap_table_is_the_user_s_layer() {
+        let (got, warnings) = settings(
+            "[ui]\nside_panel = false\n[keymap.insert]\n\"ctrl+b\" = \"\"\n\"alt+b\" = \"view.toggleSidePanel\"\n",
+        );
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(
+            got.panels,
+            Panels {
+                side: false,
+                bottom: true
+            }
+        );
+        let table = got.keymap.as_ref().expect("a table");
+        let insert = table
+            .get("insert")
+            .and_then(|v| v.as_table())
+            .expect("a mode");
+        assert_eq!(insert.len(), 2);
+        assert_eq!(settings("").0.keymap, None, "none in an empty file");
+        let (got, warnings) = settings("keymap = \"vim\"\n[ui]\nbottom_panel = false\n");
+        assert_eq!(got, panels(true, false), "the rest still counts");
+        assert_eq!(warnings, ["`keymap` is not a table of modes"]);
+    }
+
+    #[test]
+    fn the_user_s_layer_goes_over_the_default_keymap_and_its_problems_are_logged() {
+        log::set_stderr(false);
+        let registry = tidepool_editor::shell::commands::registry();
+        let none = keymap(&registry, &Settings::default());
+        assert_eq!(none.problems(), [], "the default alone");
+        assert_eq!(none.bindings("insert").len(), 4);
+
+        let (got, _) = settings(
+            "[keymap.insert]\n\"ctrl+b\" = \"window.close\"\n\"alt+q\" = \"window.quit\"\n\"ctrl+j ctrl+j\" = \"panel.showOutput\"\n",
+        );
+        let keymap = keymap(&registry, &got);
+        let kinds: Vec<ProblemKind> = keymap.problems().iter().map(|p| p.kind()).collect();
+        assert_eq!(
+            kinds,
+            [
+                ProblemKind::Error,
+                ProblemKind::Override,
+                ProblemKind::Conflict
+            ]
+        );
+        let logged = log::tail(50).join("\n");
+        let line = |needle: &str| {
+            logged
+                .lines()
+                .rev()
+                .find(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("no line with {needle:?} in {logged}"))
+                .to_string()
+        };
+        let unknown = line("no command is named `window.quit`");
+        assert!(
+            unknown.contains(" WARN ") && unknown.contains("settings.toml [keymap]: "),
+            "{unknown}"
+        );
+        let over = line("`ctrl+b`: overrides default layer");
+        assert!(over.contains(" INFO "), "{over}");
+        let prefix = line("`ctrl+j ctrl+j`: starts with the keys of");
+        assert!(prefix.contains(" WARN "), "{prefix}");
+        let binding = keymap
+            .bindings("insert")
+            .iter()
+            .find(|binding| binding.keys().to_string() == "Ctrl+B")
+            .expect("bound");
+        assert_eq!(binding.command(), "window.close");
+    }
+
+    #[test]
+    fn at_most_the_cap_of_keymap_problems_is_logged_then_how_many_were_not() {
+        log::set_stderr(false);
+        let registry = tidepool_editor::shell::commands::registry();
+        // 100 bindings of commands no registry has, each named so that its
+        // line can be told from other tests' lines.
+        let mut text = String::from("[keymap.insert]\n");
+        for n in 0..100 {
+            text.push_str(&format!(
+                "\"alt+f{} {}\" = \"logcap.test{n}\"\n",
+                n % 12 + 1,
+                char::from(b'a' + n % 26)
+            ));
+        }
+        let (got, warnings) = settings(&text);
+        assert_eq!(warnings, Vec::<String>::new());
+        let keymap = keymap(&registry, &got);
+        let problems = keymap.problems().len();
+        assert!(problems > MAX_LOGGED_PROBLEMS, "{problems} problems");
+        let logged = log::tail(log::RING_CAPACITY);
+        let lines = logged
+            .iter()
+            .filter(|line| line.contains("no command is named `logcap.test"))
+            .count();
+        assert_eq!(lines, MAX_LOGGED_PROBLEMS);
+        let summary = format!(
+            "{} more problems were not logged; the first {MAX_LOGGED_PROBLEMS} were",
+            problems - MAX_LOGGED_PROBLEMS
+        );
+        let summary = logged
+            .iter()
+            .find(|line| line.contains(&summary))
+            .unwrap_or_else(|| panic!("no line with {summary:?}"));
+        assert!(summary.contains(" WARN "), "{summary}");
     }
 }

@@ -1,0 +1,28 @@
+# A hand-made seed of the `keymap` fuzz target: exactly 8 modes in its one
+# layer, the target's limit, so that one more is past it.
+version = 1
+start = "insert"
+
+[keymap.insert]
+"ctrl+o" = "mode.enter.normal"
+
+[keymap.normal]
+escape = "mode.leave"
+
+[keymap.visual]
+escape = "mode.leave"
+
+[keymap.visualLine]
+escape = "mode.leave"
+
+[keymap.visualBlock]
+escape = "mode.leave"
+
+[keymap.replace]
+escape = "mode.leave"
+
+[keymap.operatorPending]
+escape = "mode.leave"
+
+[keymap.search]
+escape = "mode.leave"

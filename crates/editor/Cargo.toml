@@ -9,9 +9,11 @@ publish = false
 # `codec`, `text`, `regex`, `markdown`, `syntax`, `term`, `workspace`, `ui`,
 # `lang`, `vcs`, `agent` and `mobile`. The shell (M3.4) uses `core`'s input
 # and geometry and `ui`'s tree, layout and controls; the editor view (M4.1)
-# also uses `text`'s rope, selections and grapheme cluster boundaries.
+# also uses `text`'s rope, selections and grapheme cluster boundaries; the
+# keymaps (M4.6) are TOML, read with `codec::toml`.
 [dependencies]
 tidepool-core = { path = "../core" }
+tidepool-codec = { path = "../codec" }
 tidepool-text = { path = "../text" }
 tidepool-ui = { path = "../ui" }
 

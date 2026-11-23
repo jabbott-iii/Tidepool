@@ -12,45 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The shell's views, its bottom panel's tabs, its commands, and the
-//! matcher that ranks the commands for the palette (M3.4, ADR-0060).
+//! The shell's views, its bottom panel's tabs, and its commands, with
+//! their ids, which the shell registers in a [`Registry`] (M3.4,
+//! ADR-0060; M4.6, ADR-0064).
 //!
 //! New in Tidepool.
 //!
 //! # How the palette ranks commands
 //!
-//! [`rank`] keeps the commands whose title holds every character of the
-//! query, in order, compared without case: a *subsequence* match, so
-//! `tsp` finds "View: Toggle Side Panel". Of all the ways a title can
-//! match, it takes the one that scores highest:
-//!
-//! - each character matched scores [`MATCH`];
-//! - one at the start of a word (the title's first character, one after a
-//!   character that is not a letter or digit, or a capital after a small
-//!   letter) scores [`WORD_START`] more;
-//! - one right after the last one matched scores [`RUN`] more.
-//!
-//! The commands are then listed best first, and commands that score the
-//! same keep [`Command::ALL`]'s order. An empty query keeps every command,
-//! in that order. The characters matched are given as byte ranges of the
-//! title, which the palette draws bold (ADR-0052).
+//! The palette ranks the registry's titles with the subsequence matcher of
+//! [`Registry::rank`], whose documentation (in [`command`](crate::command))
+//! gives its scores; [`rank`] ranks the shell's own commands the same way.
+//! Commands that score the same keep [`Command::ALL`]'s order, which is
+//! the order the shell registers them in.
 
 use std::ops::Range;
 
 use tidepool_ui::draw::IconId;
 
-/// What one character matched scores.
-pub const MATCH: u32 = 1;
+use crate::command::Registry;
 
-/// What a character matched at the start of a word scores more.
-pub const WORD_START: u32 = 8;
-
-/// What a character matched right after the last one scores more.
-pub const RUN: u32 = 4;
-
-/// The longest query [`rank`] matches, in characters. No title is longer,
-/// so a longer query matches nothing, and is not compared at all.
-pub const MAX_QUERY_CHARS: usize = 64;
+pub use crate::command::{MATCH, MAX_QUERY_CHARS, RUN, WORD_START};
 
 /// A view of the side panel, which the activity bar switches between.
 ///
@@ -200,12 +182,15 @@ pub enum Command {
     ToggleBottomPanel,
     /// Closes the window, which ends Tidepool.
     CloseWindow,
+    /// Opens the command palette (Ctrl+Shift+P or F1), unless it is open.
+    OpenPalette,
 }
 
 impl Command {
-    /// Every command, in the order the palette lists them for an empty
-    /// query, and in which equal scores stay.
-    pub const ALL: [Command; 13] = [
+    /// Every command, in the order the shell registers them, so the order
+    /// the palette lists them in for an empty query, and in which equal
+    /// scores stay.
+    pub const ALL: [Command; 14] = [
         Command::Show(View::Explorer),
         Command::Show(View::Search),
         Command::Show(View::SourceControl),
@@ -219,7 +204,33 @@ impl Command {
         Command::ToggleSidePanel,
         Command::ToggleBottomPanel,
         Command::CloseWindow,
+        Command::OpenPalette,
     ];
+
+    /// Its id, which keymaps bind keys to (ADR-0064).
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Show(View::Explorer) => "view.showExplorer",
+            Self::Show(View::Search) => "view.showSearch",
+            Self::Show(View::SourceControl) => "view.showSourceControl",
+            Self::Show(View::Toolchains) => "view.showToolchains",
+            Self::Show(View::Devices) => "view.showDevices",
+            Self::Show(View::Agents) => "view.showAgents",
+            Self::ShowTab(PanelTab::Problems) => "panel.showProblems",
+            Self::ShowTab(PanelTab::Terminal) => "panel.showTerminal",
+            Self::ShowTab(PanelTab::Output) => "panel.showOutput",
+            Self::ShowTab(PanelTab::Devices) => "panel.showDevices",
+            Self::ToggleSidePanel => "view.toggleSidePanel",
+            Self::ToggleBottomPanel => "view.toggleBottomPanel",
+            Self::CloseWindow => "window.close",
+            Self::OpenPalette => "palette.open",
+        }
+    }
+
+    /// The command whose id is `id`, if it is one of the shell's.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|command| command.id() == id)
+    }
 
     /// Its title in the palette, as written: a category, then what it does.
     pub const fn title(self) -> &'static str {
@@ -237,8 +248,33 @@ impl Command {
             Self::ToggleSidePanel => "View: Toggle Side Panel",
             Self::ToggleBottomPanel => "View: Toggle Bottom Panel",
             Self::CloseWindow => "Window: Close",
+            Self::OpenPalette => "Command Palette: Show",
         }
     }
+}
+
+/// A registry of the shell's commands, each with its id and title, in
+/// [`Command::ALL`]'s order: the registry the shell's palette lists, and
+/// which a keymap of the shell's keys is read against.
+///
+/// ```
+/// use tidepool_editor::shell::commands::{Command, registry};
+///
+/// let registry = registry();
+/// assert_eq!(registry.len(), Command::ALL.len());
+/// assert_eq!(
+///     registry.get("palette.open").map(|entry| entry.title()),
+///     Some(Command::OpenPalette.title())
+/// );
+/// ```
+pub fn registry() -> Registry {
+    let mut registry = Registry::new();
+    for command in Command::ALL {
+        registry
+            .register(command.id(), command.title())
+            .expect("the shell's ids are valid and distinct: its tests check them");
+    }
+    registry
 }
 
 /// A command the palette lists for a query, with what it matched.
@@ -253,8 +289,8 @@ pub struct Ranked {
     pub matched: Vec<Range<usize>>,
 }
 
-/// The commands whose titles match `query`, best first, as the [module
-/// documentation](self#how-the-palette-ranks-commands) says.
+/// The shell's commands whose titles match `query`, best first, as the
+/// shell's palette ranks them ([`Registry::rank`] over [`registry`]).
 ///
 /// ```
 /// use tidepool_editor::shell::commands::{Command, rank};
@@ -267,115 +303,17 @@ pub struct Ranked {
 /// assert!(rank("zzz").is_empty());
 /// ```
 pub fn rank(query: &str) -> Vec<Ranked> {
-    let query: Vec<char> = query.chars().collect();
-    let mut ranked: Vec<Ranked> = Command::ALL
-        .iter()
-        .filter_map(|&command| {
-            let (score, matched) = best_match(&query, command.title())?;
+    registry()
+        .rank(query)
+        .into_iter()
+        .filter_map(|ranked| {
             Some(Ranked {
-                command,
-                score,
-                matched,
+                command: Command::from_id(ranked.entry.id())?,
+                score: ranked.score,
+                matched: ranked.matched,
             })
         })
-        .collect();
-    // A stable sort: equal scores keep `Command::ALL`'s order.
-    ranked.sort_by_key(|ranked| std::cmp::Reverse(ranked.score));
-    ranked
-}
-
-/// The best way `query` matches `title` as a subsequence: its score and
-/// the byte ranges matched; `None` if it does not match. An empty query
-/// matches with a score of 0 and no ranges.
-fn best_match(query: &[char], title: &str) -> Option<(u32, Vec<Range<usize>>)> {
-    if query.is_empty() {
-        return Some((0, Vec::new()));
-    }
-    if query.len() > MAX_QUERY_CHARS {
-        return None;
-    }
-    let chars: Vec<(usize, char)> = title.char_indices().collect();
-    let (m, n) = (query.len(), chars.len());
-    if m > n {
-        return None;
-    }
-    // `score[i][j]`: the best score of matching `query[..=i]` with
-    // `query[i]` at `chars[j]`; `from[i][j]`, where `query[i - 1]` went.
-    let mut score = vec![vec![None::<u32>; n]; m];
-    let mut from = vec![vec![0usize; n]; m];
-    for (i, &wanted) in query.iter().enumerate() {
-        // The best of row `i - 1` at any column before the one before `j`,
-        // and where it is: a match there is not a run.
-        let mut best_before: Option<(u32, usize)> = None;
-        for j in 0..n {
-            if i > 0
-                && j >= 2
-                && let Some(s) = score[i - 1][j - 2]
-                && best_before.is_none_or(|(b, _)| s > b)
-            {
-                best_before = Some((s, j - 2));
-            }
-            if !same(wanted, chars[j].1) {
-                continue;
-            }
-            let own = MATCH + if word_start(&chars, j) { WORD_START } else { 0 };
-            if i == 0 {
-                score[0][j] = Some(own);
-                continue;
-            }
-            let run = j
-                .checked_sub(1)
-                .and_then(|k| score[i - 1][k].map(|s| (s + RUN, k)));
-            let candidate = match (run, best_before) {
-                (Some(r), Some(b)) => Some(if r.0 >= b.0 { r } else { b }),
-                (r, b) => r.or(b),
-            };
-            if let Some((s, k)) = candidate {
-                score[i][j] = Some(s + own);
-                from[i][j] = k;
-            }
-        }
-    }
-    // The best end; the first of equal ends, so matches lean left.
-    let (mut j, best) = score[m - 1]
-        .iter()
-        .enumerate()
-        .filter_map(|(j, s)| s.map(|s| (j, s)))
-        .fold(None, |acc: Option<(usize, u32)>, (j, s)| match acc {
-            Some((_, b)) if b >= s => acc,
-            _ => Some((j, s)),
-        })?;
-    let mut at = vec![0usize; m];
-    for i in (0..m).rev() {
-        at[i] = j;
-        j = from[i][j];
-    }
-    let mut ranges: Vec<Range<usize>> = Vec::new();
-    for &j in &at {
-        let (start, c) = chars[j];
-        let end = start + c.len_utf8();
-        match ranges.last_mut() {
-            Some(last) if last.end == start => last.end = end,
-            _ => ranges.push(start..end),
-        }
-    }
-    Some((best, ranges))
-}
-
-/// Whether two characters are the same without case: their first
-/// lowercase characters are equal.
-fn same(a: char, b: char) -> bool {
-    a == b || a.to_lowercase().next() == b.to_lowercase().next()
-}
-
-/// Whether `chars[j]` starts a word: it is the first, follows a character
-/// that is not a letter or digit, or is a capital after a small letter.
-fn word_start(chars: &[(usize, char)], j: usize) -> bool {
-    let Some(previous) = j.checked_sub(1).map(|k| chars[k].1) else {
-        return true;
-    };
-    let here = chars[j].1;
-    !previous.is_alphanumeric() || (previous.is_lowercase() && here.is_uppercase())
+        .collect()
 }
 
 #[cfg(test)]
@@ -517,5 +455,56 @@ mod tests {
                 .iter()
                 .all(|c| c.title().chars().count() <= MAX_QUERY_CHARS)
         );
+    }
+
+    #[test]
+    fn the_commands_have_the_ids_of_adr_0064_and_read_back_from_them() {
+        let ids: Vec<&str> = Command::ALL.iter().map(|c| c.id()).collect();
+        assert_eq!(
+            ids,
+            [
+                "view.showExplorer",
+                "view.showSearch",
+                "view.showSourceControl",
+                "view.showToolchains",
+                "view.showDevices",
+                "view.showAgents",
+                "panel.showProblems",
+                "panel.showTerminal",
+                "panel.showOutput",
+                "panel.showDevices",
+                "view.toggleSidePanel",
+                "view.toggleBottomPanel",
+                "window.close",
+                "palette.open",
+            ]
+        );
+        for command in Command::ALL {
+            assert!(crate::command::is_valid_id(command.id()), "{command:?}");
+            assert_eq!(Command::from_id(command.id()), Some(command));
+        }
+        assert_eq!(Command::from_id("palette.close"), None);
+        assert_eq!(Command::from_id("View.showExplorer"), None);
+    }
+
+    #[test]
+    fn the_registry_holds_every_command_in_order_with_its_title() {
+        let registry = registry();
+        assert_eq!(registry.len(), 14);
+        for (entry, command) in registry.entries().iter().zip(Command::ALL) {
+            assert_eq!((entry.id(), entry.title()), (command.id(), command.title()));
+        }
+    }
+
+    #[test]
+    fn opening_the_palette_has_its_own_entry_that_tog_does_not_match() {
+        // The palette golden scene types "tog": the palette's own entry
+        // must not join its rows.
+        assert_eq!(
+            commands("tog"),
+            [Command::ToggleSidePanel, Command::ToggleBottomPanel]
+        );
+        assert_eq!(commands("palette")[0], Command::OpenPalette);
+        assert_eq!(commands("cps")[0], Command::OpenPalette);
     }
 }

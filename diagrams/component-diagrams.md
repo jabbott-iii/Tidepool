@@ -64,10 +64,10 @@ flowchart TB
     i_gui(("Gui (M2.6),<br/>render (M3.8)"))
     i_front(("Frontend<br/>planned M7.1"))
     i_shell(("Shell, Panels,<br/>Flow, View (M3.4)"))
-    i_editor(("EditorView (M4.1)<br/>editing, commands<br/>planned M4.2, M4.6"))
+    i_editor(("EditorView (M4.1)<br/>command Registry,<br/>keymap Engine (M4.6)<br/>editing planned M4.2"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -85,7 +85,7 @@ flowchart TB
     c_app -->|"app (M2.6, M3.8)"| i_gui
     c_app -->|"app: Tree::handle (M3.8)"| i_draw
     c_app -.->|"app:<br/>planned M7.1"| i_front
-    c_app -->|"app (M3.4)"| i_shell
+    c_app -->|"app (M3.4),<br/>set_keymap (M4.6)"| i_shell
     c_app -.->|"app: shows a view,<br/>planned M4.3"| i_editor
     i_gui --- c_front
     i_front -.- c_front
@@ -138,7 +138,7 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     i_ws(("folders, trust,<br/>settings, buffers<br/>planned M4.7, M4.3"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -165,7 +165,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -188,7 +188,7 @@ flowchart LR
     c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
     c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1);<br/>editor, workspace:<br/>planned M4.2, M4.3"| i_text
-    c_editor -.->|"workspace:<br/>planned M4.7"| i_codec
+    c_editor -->|"editor: keymaps (M4.6);<br/>workspace:<br/>planned M4.7"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
     c_editor -.->|"workspace:<br/>planned M4.5"| i_os_watch
     c_agents -.->|"agent:<br/>planned M9.3"| i_text
@@ -257,7 +257,7 @@ flowchart LR
     c_toolchain["tidepool-toolchain<br/>planned M5.1"]
     c_syntax["tidepool-syntax<br/>planned M6.2"]
     c_agent["tidepool-agent<br/>planned M9.3"]
-    c_editor["tidepool-editor<br/>planned M4.6, M13.4"]
+    c_editor["tidepool-editor<br/>keymaps (M4.6)<br/>planned M13.4"]
     c_workspace["tidepool-workspace<br/>planned M4.7"]
     c_mobile["tidepool-mobile<br/>planned M10.2, M11.3"]
 
@@ -288,7 +288,8 @@ flowchart LR
     c_toolchain -.->|"descriptors,<br/>planned M5.1"| i_tparse
     c_syntax -.->|"language packs,<br/>planned M6.2"| i_tparse
     c_agent -.->|"agent.toml,<br/>planned M9.3"| i_tparse
-    c_editor -.->|"keymaps,<br/>planned M4.6"| i_tparse
+    c_editor -->|"keymaps (M4.6)"| i_tparse
+    c_editor -->|"Keymap::read takes,<br/>EditorError wraps (M4.6)"| i_limits
     c_editor -.->|"image viewer,<br/>planned M13.4"| i_png
     c_workspace -.->|"settings written back,<br/>planned M4.7"| i_tdoc
     c_mobile -.->|"inspect,<br/>planned M10.2"| i_zip
@@ -306,8 +307,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_bench,c_ui,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
-    class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_editor,c_workspace,c_mobile planned
+    class c_xtask,c_bench,c_ui,c_editor,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
+    class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_workspace,c_mobile planned
     class i_png,i_zip,i_plist planned
 ```
 
@@ -1256,6 +1257,7 @@ flowchart TB
     c_tfz["text tests/fuzz.rs<br/>target encoding"]
     c_ffz["font tests/fuzz.rs<br/>target ttf"]
     c_ufz["ui tests/fuzz.rs<br/>target theme, M3.2"]
+    c_efz["editor tests/fuzz.rs<br/>target keymap, M4.6"]
     c_more["fuzz targets to come:<br/>regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
 
     i_target(("testing::fuzz:<br/>Target, Outcome,<br/>assert_clean"))
@@ -1264,6 +1266,7 @@ flowchart TB
     i_tdec(("Decoder::push,<br/>decode, encode"))
     i_fparse(("Font::parse, outline,<br/>outline::rasterize"))
     i_uparse(("Theme::parse"))
+    i_kparse(("Keymap::read,<br/>Sequence::parse,<br/>Engine"))
 
     subgraph sg_core["tidepool-core"]
         c_engine["testing::fuzz<br/>the fuzz engine,<br/>ADR-0027, M1.6"]
@@ -1274,6 +1277,7 @@ flowchart TB
     c_text["tidepool-text library"]
     c_font["tidepool-font library"]
     c_ui["tidepool-ui library"]
+    c_editorlib["tidepool-editor library"]
     f_corpus[("fuzz/corpus seeds,<br/>fuzz/crashes findings")]
 
     c_main -->|"fuzz-smoke"| i_fuzzrun
@@ -1283,6 +1287,7 @@ flowchart TB
     e_cargo -->|"runs"| c_tfz
     e_cargo -->|"runs"| c_ffz
     e_cargo -->|"runs"| c_ufz
+    e_cargo -->|"runs"| c_efz
     c_fuzz -->|"reads the<br/>fuzz-result line"| i_summary
     c_fuzz -->|"checks rows<br/>and seeds"| f_corpus
 
@@ -1290,11 +1295,13 @@ flowchart TB
     c_tfz -->|"encoding"| i_target
     c_ffz -->|"ttf"| i_target
     c_ufz -->|"theme"| i_target
+    c_efz -->|"keymap"| i_target
     c_more -.->|"planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
     c_cfz -->|"fuzzes"| i_cparse
     c_tfz -->|"fuzzes"| i_tdec
     c_ffz -->|"fuzzes"| i_fparse
     c_ufz -->|"fuzzes"| i_uparse
+    c_efz -->|"fuzzes"| i_kparse
 
     i_target --- c_engine
     i_summary --- c_engine
@@ -1305,13 +1312,14 @@ flowchart TB
     i_tdec --- c_text
     i_fparse --- c_font
     i_uparse --- c_ui
+    i_kparse --- c_editorlib
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_ufz,c_engine,c_rng,c_codec,c_text,c_font,c_ui built
-    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse,i_uparse built
+    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_ufz,c_efz,c_engine,c_rng,c_codec,c_text,c_font,c_ui,c_editorlib built
+    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse,i_uparse,i_kparse built
     class c_more planned
     class e_cargo external
     class f_corpus store
@@ -1319,7 +1327,8 @@ flowchart TB
 
 - A `fuzz-smoke` target is a test in its crate's `tests/fuzz.rs`, seeds in
   `fuzz/corpus/<target>/` and a row in `fuzz.rs`'s table (ADR-0027).
-  `theme` also reads `themes/` in place (ADR-0047).
+  `theme` also reads `themes/` in place (ADR-0047), and `keymap`
+  `keymaps/` (ADR-0064).
 
 ### 6.5 The property harness, bench and testkit
 

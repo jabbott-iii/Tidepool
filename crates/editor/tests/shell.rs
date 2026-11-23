@@ -15,12 +15,17 @@
 //! The shell's layout and behavior, headless (M3.4, ADR-0060): its areas
 //! at the window's sizes, its panels hidden and shown, the activity bar,
 //! the palette and its ranking, the shortcuts, the tooltip's timer, the
-//! accessibility tree, and an idle shell drawing nothing.
+//! accessibility tree, and an idle shell drawing nothing; and its keymap
+//! (M4.6, ADR-0064): the 14 commands of its registry in the palette, a
+//! keymap from its owner in place of the default one, and keys that a
+//! widget handled or a modal blocked never reaching it.
 
 use std::time::{Duration, Instant};
 
+use tidepool_codec::toml;
 use tidepool_core::geom::{Point, Rect, Size};
 use tidepool_core::input::{InputEvent, Key, Modifiers, MouseButton};
+use tidepool_editor::keymap::{Keymap, Resolution};
 use tidepool_editor::shell::parts::Label;
 use tidepool_editor::shell::{
     ACTIVITY_WIDTH, Area, BOTTOM_MIN_HEIGHT, Command, EDITOR_MIN_HEIGHT, Flow, MAIN_MIN_WIDTH,
@@ -28,7 +33,7 @@ use tidepool_editor::shell::{
 };
 use tidepool_ui::a11y::Role;
 use tidepool_ui::metrics::FixedMetrics;
-use tidepool_ui::widgets::{Palette, SectionTitle};
+use tidepool_ui::widgets::{Collection, Palette, SectionTitle};
 use tidepool_ui::{NodeId, Tree};
 
 const SIZES: [Size; 3] = [
@@ -426,6 +431,7 @@ fn every_command_runs_from_the_shell() {
             Command::Show(view) => assert!(shell.view() == view && shell.panels().side),
             Command::ShowTab(tab) => assert!(shell.tab() == tab && shell.panels().bottom),
             Command::CloseWindow => assert_eq!(flow, Flow::Quit),
+            Command::OpenPalette => assert!(shell.palette().is_some()),
             Command::ToggleSidePanel | Command::ToggleBottomPanel => {}
         }
     }
@@ -518,5 +524,149 @@ fn an_idle_shell_draws_nothing_and_a_change_draws_only_what_changed() {
     assert!(
         tree.frame(size, &FixedMetrics::DEFAULT).is_none(),
         "idle again"
+    );
+}
+
+/// How many rows the open palette lists.
+fn palette_rows(tree: &Tree, shell: &Shell) -> usize {
+    let palette = shell.palette().expect("open");
+    let list = Palette::list(tree, palette).expect("a list");
+    tree.widget::<Collection>(list).expect("a collection").len()
+}
+
+#[test]
+fn the_palette_lists_the_registry_s_fourteen_commands_opening_it_among_them() {
+    let size = Size::new(1280.0, 800.0);
+    let (mut tree, mut shell) = shell_in(size, Panels::default());
+    let now = Instant::now();
+    assert_eq!(shell.registry().len(), 14);
+    send(&mut tree, &mut shell, size, &[ctrl_shift(Key::P)], now);
+    assert_eq!(palette_rows(&tree, &shell), Command::ALL.len());
+    let events: Vec<InputEvent> = "command palette"
+        .chars()
+        .map(|c| text(&c.to_string()))
+        .collect();
+    send(&mut tree, &mut shell, size, &events, now);
+    assert_eq!(palette_rows(&tree, &shell), 1);
+    let before = shell.palette();
+    send(
+        &mut tree,
+        &mut shell,
+        size,
+        &[key(Key::Enter, Modifiers::NONE)],
+        now,
+    );
+    // It ran: the palette closed, and opened again, its query empty.
+    let palette = shell.palette().expect("open again");
+    assert_ne!(Some(palette), before);
+    assert_eq!(Palette::query(&tree, palette), Some(""));
+    assert_eq!(palette_rows(&tree, &shell), 14);
+}
+
+#[test]
+fn a_keymap_from_the_owner_replaces_the_default_one() {
+    let size = Size::new(1280.0, 800.0);
+    let (mut tree, mut shell) = shell_in(size, Panels::default());
+    let now = Instant::now();
+    let settings = toml::parse(
+        r#"
+[keymap.insert]
+"ctrl+b" = ""
+"ctrl+k ctrl+b" = "view.toggleSidePanel"
+"alt+t" = "panel.showTerminal"
+"alt+w" = "window.close"
+"#,
+        tidepool_codec::Limits::DEFAULT,
+    )
+    .expect("TOML");
+    let user = settings
+        .get("keymap")
+        .and_then(|keymap| keymap.as_table())
+        .expect("a table");
+    let keymap = Keymap::bundled(shell.registry(), Some(user));
+    assert_eq!(keymap.problems().len(), 1, "the one override");
+    shell.set_keymap(keymap);
+    assert_eq!(shell.keymap_engine().mode(), "insert");
+
+    send(&mut tree, &mut shell, size, &[ctrl(Key::B)], now);
+    assert!(shell.panels().side, "Ctrl+B is unbound");
+    send(&mut tree, &mut shell, size, &[ctrl(Key::K)], now);
+    assert_eq!(shell.keymap_engine().pending().len(), 1, "waiting");
+    send(&mut tree, &mut shell, size, &[ctrl(Key::B)], now);
+    assert!(!shell.panels().side, "Ctrl+K Ctrl+B toggled it");
+    let alt = |k| key(k, Modifiers::ALT);
+    send(&mut tree, &mut shell, size, &[alt(Key::T)], now);
+    assert_eq!(shell.tab(), PanelTab::Terminal);
+    // The default's other keys still work, and an auto-repeat of a
+    // window command does nothing.
+    let repeat = InputEvent::KeyDown {
+        key: Key::J,
+        modifiers: Modifiers::CTRL,
+        repeat: true,
+    };
+    send(&mut tree, &mut shell, size, &[repeat], now);
+    assert!(shell.panels().bottom, "a repeat is ignored");
+    send(&mut tree, &mut shell, size, &[ctrl(Key::J)], now);
+    assert!(!shell.panels().bottom);
+    let flow = send(&mut tree, &mut shell, size, &[alt(Key::W)], now);
+    assert_eq!(flow, Flow::Quit);
+}
+
+#[test]
+fn keys_a_widget_handled_or_a_modal_blocked_never_reach_the_keymap() {
+    let size = Size::new(1280.0, 800.0);
+    let (mut tree, mut shell) = shell_in(size, Panels::default());
+    let now = Instant::now();
+    let settings = toml::parse(
+        "[keymap.insert]\n\"ctrl+k ctrl+b\" = \"view.toggleSidePanel\"\n\"ctrl+k enter\" = \"window.close\"\n",
+        tidepool_codec::Limits::DEFAULT,
+    )
+    .expect("TOML");
+    let user = settings.get("keymap").and_then(|keymap| keymap.as_table());
+    shell.set_keymap(Keymap::bundled(shell.registry(), user));
+    // Enter on a focused button is the button's: after Ctrl+K, it shows
+    // the button's view, and does not finish `ctrl+k enter`.
+    tree.set_focus(shell.button(View::Search), true)
+        .expect("focusable");
+    send(&mut tree, &mut shell, size, &[ctrl(Key::K)], now);
+    assert_eq!(shell.keymap_engine().pending().len(), 1);
+    let flow = send(
+        &mut tree,
+        &mut shell,
+        size,
+        &[key(Key::Enter, Modifiers::NONE)],
+        now,
+    );
+    assert_eq!((flow, shell.view()), (Flow::Continue, View::Search));
+    assert_eq!(shell.keymap_engine().pending().len(), 1, "still waiting");
+    shell.set_keymap(Keymap::bundled(shell.registry(), user));
+    // While the palette is open, keys are blocked: the engine never sees
+    // Ctrl+K, so nothing is pending when it closes.
+    send(&mut tree, &mut shell, size, &[ctrl_shift(Key::P)], now);
+    send(&mut tree, &mut shell, size, &[ctrl(Key::K)], now);
+    assert_eq!(shell.keymap_engine().pending(), []);
+    send(
+        &mut tree,
+        &mut shell,
+        size,
+        &[key(Key::Escape, Modifiers::NONE)],
+        now,
+    );
+    assert_eq!(shell.palette(), None);
+    send(&mut tree, &mut shell, size, &[ctrl(Key::B)], now);
+    assert!(!shell.panels().side, "Ctrl+B, the default's, still works");
+    send(
+        &mut tree,
+        &mut shell,
+        size,
+        &[ctrl(Key::K), ctrl(Key::B)],
+        now,
+    );
+    assert!(shell.panels().side, "and so does the chord");
+    // A modifier key going down alone is nothing to the keymap.
+    let mut keys = shell.keymap_engine().clone();
+    assert_eq!(
+        keys.handle(&key(Key::LeftControl, Modifiers::CTRL)),
+        Resolution::Ignored
     );
 }

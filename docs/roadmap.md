@@ -2520,7 +2520,7 @@ jabbott.dev, reads as the same design (human review).
     `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` of `tidepool-editor`,
     `tidepool-ui`, `tidepool-bench` and `tidepool` is clean.
 
-- [ ] **M4.6 — editor: commands and the modal keymap engine**
+- [x] **M4.6 — editor: commands and the modal keymap engine**
   - Depends: M4.1, M1.7
   - Decide first: accept ADR-0006 (vim mode as a modal keymap engine in
     `editor`), which is `Proposed`.
@@ -2530,6 +2530,45 @@ jabbott.dev, reads as the same design (human review).
   - Accept: command tests; a test keymap with two modes switches correctly;
     a conflicting binding is reported.
   - Verify: `cargo test -p tidepool-editor`
+  - Note (2026-11-23): the user accepted ADR-0006 that day with `Search`
+    added to its modes, which answers the `Decide first` line. ADR-0064
+    records the design and the options the user chose, each the
+    recommended one: the user's bindings in `settings.toml`'s `[keymap]`
+    tables, read by the binary at start; keys in `ctrl+shift+p`
+    notation; and a prefix conflict reported, the shorter binding
+    winning, with a started sequence waiting for its next key without a
+    timeout. The task touches three crates, `editor`, `tidepool` and
+    `xtask` (the fuzz target `keymap`).
+  - Note (2026-11-23): built. `editor::command` is the registry of named
+    commands, each an id and its palette title, which the palette ranks;
+    the shell's 13 commands take ids such as `view.toggleSidePanel`, and
+    opening the palette is a 14th, `palette.open` ("Command Palette:
+    Show"). `editor::keymap` reads keys in `ctrl+shift+p` notation and
+    keymaps from TOML layers within its `Limits` (4,096 bindings a layer,
+    8 steps, 32 modes), reports conflicts, overrides and errors, and its
+    `Engine` keeps a stack of modes and a pending sequence. The default
+    keymap, `keymaps/default.toml`, binds the four shortcuts the shell
+    matched in code; the shell's goldens are unchanged. The binary reads
+    `settings.toml`'s `[keymap]` tables as the user's layer and logs the
+    first 64 problems. The `keymap` fuzz target reads any text as a
+    keymap file, a user layer and keys, and drives an engine over each:
+    1,079,262 inputs in 60 s, no findings.
+  - Note (2026-11-23): the security review found no panic, injection, or
+    way for a workspace to supply bindings, and two findings, both fixed
+    with tests: entries of a user layer that were not modes counted
+    toward no limit, so a 1 MiB `settings.toml` gave about 124,000
+    problems and flooded the log (now every entry counts, a layer's
+    problems are bounded by its limits, and the binary logs at most 64);
+    and the fuzz target's driver could not press most chords (now it
+    presses any key with any modifiers, and the keymap's own bindings).
+    It also notes that a user's mode without a `mode.leave` binding
+    leaves the keyboard without shortcuts until a restart, and that M4.7
+    must not let an untrusted workspace's settings add a layer of
+    bindings. The 135 Mermaid blocks of `diagrams/` parse and render with
+    Mermaid 11.17.2, which rejected a planted broken one. `cargo xtask
+    ci`: 13 of 13 steps, 2,563 tests, 30 skipped (the X11 tests,
+    `TIDEPOOL_IT_X11` unset). `RUSTDOCFLAGS='-D warnings' cargo doc
+    --no-deps -p tidepool-editor -p tidepool` is clean.
 
 - [ ] **M4.2 — editor: editing commands, multi-cursor, undo and clipboard**
   - Depends: M4.6, M1.2, M2.7

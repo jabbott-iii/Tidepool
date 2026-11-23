@@ -1,0 +1,7 @@
+# A hand-made seed of the `keymap` fuzz target: the least keymap, one mode
+# with one binding.
+version = 1
+start = "insert"
+
+[keymap.insert]
+"ctrl+b" = "view.toggleSidePanel"

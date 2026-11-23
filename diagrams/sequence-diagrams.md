@@ -216,7 +216,7 @@ sequenceDiagram
     alt they disagree
         Smoke->>Dev: the violation lines,<br/>then fuzz-smoke: FAILED,<br/>nothing was run
     else they agree
-        Smoke->>Dev: fuzz-smoke: 6 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
+        Smoke->>Dev: fuzz-smoke: 7 targets, 60 s<br/>each, the seed, and how<br/>to pass it again
         loop each target, in table order
             Smoke->>Dev: == json: the variables<br/>and the command line
             Smoke->>Cargo: cargo test --profile fuzz<br/>-p tidepool-codec --test fuzz<br/>-- --exact json --nocapture
@@ -611,7 +611,7 @@ sequenceDiagram
         Gui->>Gui: keeps the exposes, and for<br/>a resize asks for a backdrop<br/>and goes back to the flat bg,<br/>then takes finished builds,<br/>dropping stale ones
         Gui-->>Main: every event
         Main->>Shell: handle(tree, input, now),<br/>for each input event, in order
-        Shell->>Tree: handle(input), then the actions:<br/>a view, a tab, the palette's<br/>query or command, then a<br/>shortcut if none handled<br/>or blocked it
+        Shell->>Tree: handle(input), then the actions:<br/>a view, a tab, the palette's<br/>query or command, then a key<br/>to the keymap engine (M4.6)<br/>if none handled or blocked it
         opt a close request, or the Close Window command
             Main-->>User: exit status 0, the<br/>events after it unanswered
         end
@@ -646,8 +646,9 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-flow is planned in M4.2, M4.3 and M4.6; `Transaction` and `History`
-are built (M1.2), and so are the editor view, which takes no keys until
+flow is planned in M4.2 and M4.3; `Transaction` and `History`
+are built (M1.2), and so are the keymap engine, which resolves a key in
+its mode to a named command (M4.6, ADR-0064), the editor view, which takes no keys until
 M4.2 and which the binary shows from M4.3 (M4.1, ADR-0063), core's `InputEvent` (M0.2), `platform`'s
 events (M2.2), `ui`'s routing of an event and its frames with their damage
 (M3.1, ADR-0046), `gui`'s painter of those frames (M3.5, ADR-0048), and
@@ -683,12 +684,12 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
-    participant Keys as editor keymap<br/>engine (M4.6)
+    participant Keys as editor keymap<br/>engine (built, M4.6)
     participant Cmd as editor command and<br/>buffer (M4.2, M4.3)
     participant Txt as text Transaction<br/>and History (built)
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M4.2, M4.3, M4.6.<br/>Transaction and History are built (M1.2),<br/>and so is the loop (M3.8).
+    Note over ML,Bg: planned M4.2, M4.3. Transaction and<br/>History (M1.2), the loop (M3.8) and the<br/>keymap engine (M4.6) are built.
     ML->>Keys: the key, in the current<br/>mode: the default keymap<br/>has one, vim mode adds<br/>the rest (M7.2)
     Keys->>Cmd: a named command, such<br/>as typing a character
     Cmd->>Txt: Transaction::change_each(text,<br/>selection, an edit per cursor)

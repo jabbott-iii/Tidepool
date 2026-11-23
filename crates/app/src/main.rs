@@ -18,7 +18,8 @@
 //!
 //! It reads the settings (read-only until M4.7, [`settings`]), opens the
 //! GUI's window, builds the shell in a `ui` tree (`editor::shell`, M3.4,
-//! ADR-0060) with the activity bar's icons registered with the window, and
+//! ADR-0060) with the activity bar's icons registered with the window and
+//! the user's bindings over the default keymap (M4.6, ADR-0064), and
 //! runs the event-driven main loop (M3.8, ADR-0012, ADR-0059) until the
 //! window is closed. Each turn waits on the window until something happens
 //! or the earliest deadline passes (`gui`'s, the most the first present
@@ -138,6 +139,8 @@ fn run(options: &Options, start: Instant, out: &mut dyn Write) -> Result<(), Err
     }
     let mut tree = Tree::new();
     let mut shell = Shell::new(&mut tree, settings.panels).map_err(Error::Ui)?;
+    let keymap = settings::keymap(shell.registry(), &settings);
+    shell.set_keymap(keymap);
     let mut events = Vec::with_capacity(64);
     let mut first = true;
     loop {

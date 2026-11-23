@@ -127,11 +127,14 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0006 — Vim mode is a frontend-agnostic modal keymap engine in `editor`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** The user requires vim support in the terminal UI. Building
   it in the TUI alone would leave the GUI without it and duplicate the
-  command layer.
+  command layer. On 2026-11-23, for M4.6, the user accepted this ADR with
+  one condition: "Accept, add Search", so its modes include `Search` (for
+  `/` and `?`), as `docs/subsystems/vim-mode.md` lists them. ADR-0064
+  records the keymap engine's design.
 - **Decision:**
   - `editor` has a keymap engine with modes from M4 (`Normal`, `Insert`,
     `Visual`, `VisualLine`, `VisualBlock`, `OperatorPending`, `Replace`,
@@ -4464,3 +4467,143 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** M4.7's settings land (wrap, tab width, font size);
   M6.2's highlighting colors the text; M7.1's terminal UI shows the view;
   or the bench suite misses the 16.7 ms budget.
+
+## ADR-0064 — M4.6's commands are a registry of named commands, and keymaps are TOML layers in `ctrl+shift+p` notation, the user's in `settings.toml`, whose sequences wait without a timeout and whose conflicts are reported
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.6 builds "named commands with palette entries; the keymap engine
+    with a mode stack and a key-sequence parser; keymaps as TOML, with
+    user bindings over the defaults and conflicts listed; the default
+    keymap (one mode)", accepted on command tests, a test keymap with two
+    modes that switches correctly, and a conflicting binding reported.
+  - ADR-0006, accepted the same day with `Search` among its modes, puts
+    the engine in `editor`, shared by both frontends; the default keymap
+    uses one mode, `Insert`, and vim mode (M7.2 to M7.4) adds the rest.
+  - `docs/01-architecture.md` → "Configuration and user data" puts the
+    keymaps in `settings.toml`; ADR-0013 makes every user-edited file TOML
+    with a version key. `workspace::settings` is M4.7's; until then the
+    binary reads `settings.toml` once, read-only (M3.4, ADR-0060).
+  - `core::input::Key` names physical keys by their US-layout label, and
+    a `KeyDown` carries the exact modifiers held; typed text arrives
+    after it as `InputEvent::Text`.
+  - The shell (M3.4) lists 13 commands in an enum and matches four
+    shortcuts in code: Ctrl+Shift+P and F1 open the palette, Ctrl+B and
+    Ctrl+J toggle the panels, on a key going down, not on an auto-repeat.
+    `docs/subsystems/editor.md` says M4.6's command registry replaces the
+    list. The plugin API (M15.6) is to add commands and bindings at run
+    time and remove them when a plugin is turned off.
+  - On 2026-11-23 the user chose the recommended option of each of four
+    questions: the user's bindings in `settings.toml` (`[keymap]`), read
+    by the binary at start; the `ctrl+shift+p` notation; and "Report;
+    chords wait": a prefix conflict is reported and the shorter binding
+    wins, and a started sequence waits for its next key with no timeout.
+- **Decision:**
+  - **Commands:** `editor::command` holds a registry of named commands,
+    each an id and its palette title. An id is dotted segments of ASCII
+    letters and digits, each starting with a lowercase letter, in the
+    spec's form (`editor.action.copy`, `workspace.openFile`), at most 128
+    bytes; registering a bad or a taken id is an error. The registry
+    holds no handlers: its owner runs a command by its id, so a plugin's
+    commands (M15.6) can come and go. The palette ranks the registry's
+    titles with M3.4's subsequence matcher. The shell's commands take
+    these ids: `view.showExplorer`, `view.showSearch`,
+    `view.showSourceControl`, `view.showToolchains`, `view.showDevices`,
+    `view.showAgents`, `panel.showProblems`, `panel.showTerminal`,
+    `panel.showOutput`, `panel.showDevices`, `view.toggleSidePanel`,
+    `view.toggleBottomPanel`, and `window.close`; opening the palette
+    becomes the 14th, `palette.open`, with an entry of its own.
+  - **Notation:** a binding's keys are one or more steps separated by a
+    space (`ctrl+k ctrl+s`). A step is modifiers then a key, joined by
+    `+`: `ctrl`, `shift`, `alt` and `super`, each at most once, in any
+    order, then one key, named by its unshifted US-layout label: `a` to
+    `z`, `0` to `9`, the punctuation by its character (`-`, `=`, `[`,
+    `]`, `\`, `;`, `'`, `` ` ``, `,`, `.`, `/`), and the others by
+    `core::input::Key`'s names in lowercase (`f1`, `enter`, `escape`,
+    `pageup`, `numpad0`). Names are matched without regard to case, and
+    shown in the form `Ctrl+Shift+P`. A modifier key is not a key a step
+    can end with. A step matches a `KeyDown` with exactly its modifiers.
+    Bindings by typed character, such as `$` on any layout, are vim
+    mode's to add (M7.2).
+  - **Files:** a keymap is a TOML table of modes, each a table of
+    `"keys" = "command id"`. The default keymap is
+    `keymaps/default.toml`, compiled into `editor` with `include_str!`,
+    as `ui` compiles its theme in; it has `version = 1`, its start mode
+    (`start = "insert"`), and `[keymap.insert]`, which binds the four
+    shortcuts the shell had. The user's bindings are `[keymap.<mode>]`
+    tables in `settings.toml`, a layer over the default; an empty string
+    unbinds those keys in the layers below. The binary reads them once at
+    start, with the file's existing limit (1 MiB), until M4.7 moves them
+    into `workspace::settings`; M4.7 decides whether a workspace's
+    settings may bind keys, under workspace trust (ADR-0014). A mode name
+    is ASCII letters and digits starting with a lowercase letter, at most
+    32 bytes (ADR-0006's modes: `insert`, `normal`, `replace`, `visual`,
+    `visualLine`, `visualBlock`, `operatorPending`, `commandLine`,
+    `search`).
+  - **Limits:** reading a keymap takes its `Limits`: at most 4,096
+    bindings in a layer, 8 steps in a sequence, and 32 modes. Reading never
+    panics, and has a fuzz target, `keymap` (the `Parsers` convention of
+    `AGENTS.md`).
+  - **The engine:** a mode stack, starting with the keymap's start mode,
+    and the steps of a pending sequence. A key goes down: the engine looks
+    the pending steps and it up in the top mode's bindings only. A whole
+    binding resolves to its command, and a prefix of one waits for the
+    next key, with no timeout. A key that continues no binding cancels
+    the pending sequence and is consumed; with none pending, it resolves
+    to nothing. `KeyDown`s of the modifier keys alone change
+    nothing. A changed mode clears the pending steps. Two engine
+    commands change modes: `mode.enter.<mode>` pushes a mode, and
+    `mode.leave` pops one, never the last. An auto-repeat resolves like
+    a press, and the result says it was a repeat, so the shell keeps
+    ignoring repeats of its window commands while M4.2's editing commands
+    can repeat.
+  - **Conflicts,** reported with the mode, the keys, and the layer of
+    each binding (`default` or `user`), and logged by the binary as
+    warnings: two bindings of the same keys in one mode and layer (the
+    first in the file wins), and a binding that is a prefix of another in
+    one mode, across layers too (the shorter wins, so the longer is never
+    reached). A user binding of keys a default binds is an override,
+    listed but not a conflict. A binding that names an unknown command
+    or mode command, keys that do not parse, a value that is not a
+    string, and a layer past the limits are reported too, and the binding
+    is left out.
+- **Consequences:**
+  - `editor` gains `codec` as a dependency, an edge the matrix has, to
+    read keymaps; the binary passes `settings.toml`'s `[keymap]` table to
+    it. The task touches three crates: `editor`, `tidepool`, and `xtask`
+    (the fuzz target's row in `fuzz-smoke`), with a new folder,
+    `keymaps/`.
+  - The shell's four shortcuts behave as before: the same keys, on a key
+    going down, not on a repeat, and only for a key no widget handled
+    and no modal blocked (ADR-0055). The palette lists 14 commands, with
+    `palette.open` as the 14th.
+  - Nothing shows a pending sequence or the keymap's conflicts on screen
+    yet: no roadmap task builds the spec's keymap viewer, and the status
+    bar shows a mode from vim mode on (M7.2).
+  - A user's binding takes effect only after a restart until M4.7 watches
+    settings.
+- **Alternatives considered:**
+  - A separate `keymap.toml` of `[[binding]]` entries, as VS Code's
+    `keybindings.json`: room for conditions later, but a second file the
+    architecture does not plan.
+  - The engine with no user layer until M4.7: smaller, but user bindings
+    would do nothing until then.
+  - Vim's notation (`<C-S-p>`, `<C-k><C-s>`), or both notations: Vim's
+    is what vim-mode.md's mappings use, but it is less familiar for an
+    IDE's shortcuts, and both would double the parser and its tests.
+    Vim's mappings (M7.4) map keys to keys in their own settings section,
+    so they may still take Vim's notation.
+  - Timeouts as Vim's `timeoutlen` (1,000 ms), so that a prefix and a
+    longer binding coexist: Vim's Insert-mode `jk` mappings need them,
+    and M7.4 can add them to its mappings, but they add a timer to the
+    main loop now, for a default keymap that has no prefixes.
+  - Looking a key up down the mode stack when the top mode has no
+    binding for it: Insert's typed letters would reach Normal's commands.
+  - Command handlers stored in the registry: the shell, the editor view
+    and later plugins each run their own, and a handler table would have
+    to borrow all of them.
+- **Revisit when:** vim mode (M7.2) needs bindings by typed character or
+  a table shared by every mode; M7.4's mappings need timeouts; M15.6's
+  plugins add a layer of bindings; a task builds the keymap viewer; or a
+  user of a non-US layout reports that a binding names the wrong key.

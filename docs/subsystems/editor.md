@@ -69,6 +69,64 @@ behavior; in short:
 - Keymaps are TOML; user bindings override defaults; conflicts are listed
   in the keymap viewer.
 
+What is built (M4.6, ADR-0064): `editor::command`, a registry of named
+commands, and `editor::keymap`, keymaps read from TOML layers and the
+modal engine that resolves keys as they go down, which the shell runs its
+shortcuts through. The rustdoc of the two modules is authoritative for
+their rules, names and limits; in short:
+
+- a command is an id and its palette title. An id is one or more segments
+  joined by `.`, each of ASCII letters and digits and starting with a
+  lowercase letter, at most 128 bytes; registering a bad id, a taken one,
+  or one whose first segment is `mode` (the engine's) is an error. The
+  registry runs nothing itself: its owner runs a command by its id, so a
+  plugin's commands (M15.6) can come and go. The palette ranks the
+  registry's titles with M3.4's subsequence matcher, which moved into
+  `editor::command`;
+- the shell registers its 14 commands, `view.showExplorer` to
+  `window.close` and `palette.open` ("Command Palette: Show");
+- keys are steps separated by one space, each its modifiers (`ctrl`,
+  `shift`, `alt`, `super`, each at most once, in any order) and one key,
+  joined by `+`: `ctrl+shift+p`, `ctrl+k ctrl+s`. A key is named by its
+  unshifted US-layout label (`a`, `1`, `/`) or by `core::input::Key`'s
+  name in lowercase (`f1`, `pageup`); a modifier key (`leftshift`) ends no
+  step. Names are matched without regard to case, and keys are shown in
+  one form, `Ctrl+Shift+P`, which reads back the same. A step matches a
+  key going down with exactly its modifiers;
+- a keymap file has `version = 1`, its `start` mode, and `[keymap.<mode>]`
+  tables of `"keys" = "command id"`. The default keymap is
+  `keymaps/default.toml`, compiled in: `start = "insert"`, and
+  `[keymap.insert]` with the four shortcuts the shell had. The user's
+  bindings are `settings.toml`'s `[keymap.<mode>]` tables, a layer over
+  it, read once at start by the binary, where an empty string unbinds the
+  default's keys;
+- a binding may name `mode.enter.<mode>`, which pushes a mode the keymap
+  has, or `mode.leave`, which pops one, never the last; the stack holds at
+  most 32 modes;
+- the engine looks keys up in the top mode only. A started sequence waits
+  for its next key with no timeout; a key that continues no binding
+  cancels it and is consumed; a modifier key going down alone changes
+  nothing; a change of mode clears the pending steps; and an auto-repeat
+  resolves like a press, saying so, so the shell ignores repeats of its
+  commands while M4.2's editing commands can repeat;
+- reading never fails for a binding: each problem is kept with the
+  keymap, naming the layer, the mode and the keys. Conflicts (the same
+  keys twice in one mode and layer, where the first wins; keys that start
+  another binding's in one mode, in either layer, where the shorter wins)
+  and errors (keys that do not read, a value that is not a string, an
+  unknown command or mode, a bad mode, a layer past its limits) are logged
+  by the binary as warnings, and overrides (a user binding of a default's
+  keys) at info, the first 64 and then how many more there were;
+- reading takes its limits, by default 4,096 bindings and 32 modes a layer
+  and 8 steps a sequence, never panics, and has a fuzz target, `keymap`.
+  Every entry of a layer counts toward its limits before it is looked at,
+  so a layer gives at most `max_modes + 1` problems about its modes and
+  `2 × max_bindings + 1` about its bindings, however large its tables.
+
+Nothing shows a pending sequence or the problems on screen yet: no task
+builds the keymap viewer, and the status bar shows a mode from vim mode on
+(M7.2).
+
 ### Shell layout (jabbott.dev look, `docs/subsystems/ui-and-theme.md`)
 
 ```
@@ -103,10 +161,11 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
   goes to the editor area;
 - every view and bottom tab empty until its task, saying so in a line;
   the editor area shows the backdrop, with a welcome line;
-- the command palette lists the shell's 13 commands, ranked by a
-  subsequence matcher that scores word starts and runs higher; Ctrl+Shift+P
-  or F1 opens it, Ctrl+B and Ctrl+J toggle the panels, for a key no widget
-  handled and no modal blocked; M4.6's command registry replaces the list;
+- the command palette lists the 14 commands of the shell's command
+  registry (M4.6), ranked by a subsequence matcher that scores word starts
+  and runs higher; in the default keymap, Ctrl+Shift+P or F1 opens it,
+  and Ctrl+B and Ctrl+J toggle the panels, on a key going down, for a key
+  no widget handled and no modal blocked;
 - a tooltip shows 500 ms after the pointer rests on its node, and at once
   for keyboard focus, through the main loop's deadline;
 - the settings `[ui] side_panel` and `bottom_panel` in `settings.toml`
@@ -159,7 +218,20 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
 - The shell's behavior, headless (`crates/editor/tests/shell.rs`, M3.4):
   its layout at three sizes, hidden panels, the activity bar, the palette
   and its ranking, the shortcuts, the tooltip's timer, the accessibility
-  tree, and idleness.
+  tree, and idleness; and from M4.6 the palette's 14 commands, a keymap
+  from the shell's owner in place of the default one, and keys a widget
+  handled or a modal blocked never reaching the keymap.
+- Keymaps and the engine, headless (`crates/editor/tests/keymap.rs`,
+  M4.6): the default keymap, with no problems and every binding naming a
+  registered command; a keymap of two modes switching between them;
+  pending sequences, their cancel, auto-repeats and modifier keys; the
+  user's layer, its overrides and its modes; each conflict and error
+  reported; the limits at their defaults; the file's errors; and a
+  property test of the engine's bounds. Unit tests check the notation
+  (with a property test that any spelling of keys reads back the same),
+  the command ids and the registry. The fuzz target `keymap`
+  (`crates/editor/tests/fuzz.rs`) reads any text as a keymap file, as the
+  user's layer and as keys (`docs/04-quality.md` → "Fuzz smoke").
 - The editor view's behavior, headless (`crates/editor/tests/view.rs`,
   M4.1): the gutter, tab stops, hidden characters' markers, selections and
   cursors, the current line, scrolling with soft wrap off and on, the

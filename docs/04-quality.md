@@ -151,15 +151,16 @@ The design is ADR-0027's; the engine's rustdoc
   `fuzz/corpus/` or `fuzz/crashes/` has no row, or when a row's
   `fuzz/corpus/<target>/` is missing or holds no regular file that is not
   hidden. `fuzz/NOTICE.md` says where a saved input may come from.
-- **Targets now** (M1.6, `qoi` from M2.4, `ttf` from M2.8 and `theme`
-  from M3.2). The
+- **Targets now** (M1.6, `qoi` from M2.4, `ttf` from M2.8, `theme`
+  from M3.2 and `keymap` from M4.6). The
   parsers run with small `Limits` (4 KiB of input, depth 32, strings of
   1 KiB, numbers of 64 bytes, 256 entries, images of 64 px a side and
   4 KiB of pixels; for `ttf`, 4 KiB of file, 256 points a glyph, 4 levels
   and 64 components of composites, 8 kerning subtables, bitmaps of 64 px
   a side, and 4,096 steps of work to rasterize a glyph; for `theme`, 16 KiB
   of input, depth 8, strings of 128 bytes, numbers of 32 and 64
-  entries), and
+  entries; for `keymap`, the same TOML limits but 128 entries, and 64
+  bindings and 8 modes a layer and 8 steps a binding), and
   their corpora hold `edge-*` seeds that sit exactly at each limit, so
   that one mutation crosses it; the decoder of `text::encoding` takes no
   `Limits`. Each has a 16 MiB written-memory cap.
@@ -172,6 +173,7 @@ The design is ADR-0027's; the engine's rustdoc
   | `encoding` | `text` | `encoding::Decoder`, fed in pieces that the input decides, and `decode` | the pieces decode as the whole does; the text and the detected format are what `std` decodes; the runs of replaced bytes keep their promises; `original_bytes()` is the input; a text decoded without a replacement encodes back to it | — |
   | `ttf` | `font` | `ttf::Font::parse`; for a font that parses, its first 64 glyphs and its last: their metrics and outlines, and `outline::rasterize` of each at 12 px and at 40 px shifted 0.75 px; `glyph_index`, `kerning`, the names and `OS/2` | a parse error's offset is in the input, where its kind says (inside the table its record gives, or at the directory record), and a limit's error names that limit; a glyph's error names a glyph that exists, at an offset in the input; an outline has at most the limit's points and its contours end at its point count; a bitmap is within the limit, `width × height` bytes whose four edges are the scaled control box rounded outwards, the same twice, or is refused for its size or its work alone; characters map only to glyphs that exist and are not `.notdef`; kerning is 0 past the glyph count | — |
   | `theme` | `ui` | `theme::Theme::parse` of the input, or of its lossy decoding when it is not UTF-8 | a theme that reads keeps the format's rules (`bg` opaque; a `solid` opaque and only for a translucent value; every token's solid color opaque; `cut` from 0 to 64; the name and fonts one line of plain text, not blank, of at most 64 bytes) and reads again the same; a refusal names a key, on a line of the input, in a message with nothing unescaped that `xtask` escapes; nothing but those and `codec`'s errors is returned | `themes/` (ADR-0047) |
+  | `keymap` | `editor` | `keymap::Keymap::read` of the input, or of its lossy decoding, as a keymap file; its `keymap` table, if it has one, parsed with `codec`'s default limits as the binary parses `settings.toml`, as the user's layer over the default keymap; `keymap::Sequence::parse` of each of its first 64 lines; and a `keymap::Engine` over each keymap read, given up to 256 presses that the input's bytes choose, three bytes each: any key with any modifiers, or a whole binding's steps or one step of the keymap's own, so that chords finish and modes change | a keymap that reads starts in one of its modes, whose names are mode names, each once; each mode's bindings are sorted, none starting another's, of 1 to 8 steps, naming a registered command or an engine command of a mode it has, their keys reading back as shown, within the limits for two layers; every problem is of its kind, and each layer gives at most `max_modes + 1` about its modes and `2 × max_bindings + 1` about its bindings, however many entries its tables have; reading again gives the same keymap; the engine's stack holds 1 to 32 modes of the keymap and fewer than 8 steps pending, and it resolves only to registered commands with the key's repeat flag; keys that read show in a form that reads back the same, twice, and keys that do not give an offset at a character boundary; no message shows unescaped what `xtask` escapes; nothing but those and `codec`'s errors is returned | `keymaps/` (ADR-0064) |
 
   Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, Markdown, regex
   compile, VT parser, JSON-RPC framing, LSP messages, TAP messages, git

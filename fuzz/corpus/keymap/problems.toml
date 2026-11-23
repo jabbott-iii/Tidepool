@@ -1,0 +1,31 @@
+# A hand-made seed of the `keymap` fuzz target: a keymap with a problem of
+# each kind; read as the user's layer over the default keymap, its
+# `[keymap.insert]` overrides and unbinds the default's keys too.
+version = 1
+start = "normal"
+
+[keymap.normal]
+i = "mode.enter.insert"
+"g g" = "view.showExplorer"
+"G G" = "view.showSearch"
+"ctrl+k" = "view.showAgents"
+"ctrl+k ctrl+s" = "window.close"
+"ctrl+q" = "window.quit"
+"ctrl+e" = "mode.enter.visual"
+"ctrl+m" = "mode.other"
+"ctrl+n" = 3
+"ctrl+" = "palette.open"
+"ctrl+leftshift" = "palette.open"
+"a b c d e f g h i" = "palette.open"
+
+[keymap.insert]
+escape = "mode.leave"
+"ctrl+b" = "window.close"
+"ctrl+j" = ""
+"ctrl+shift+p ctrl+shift+p" = "palette.open"
+
+[keymap.Visual]
+v = "mode.leave"
+
+[keymap]
+bad = "not a table"

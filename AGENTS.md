@@ -119,7 +119,15 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   10,000 bytes, with five golden scenes drawn by the binary's
   `tests/golden.rs` and `tidepool-bench` suites scrolling a 10,000-line
   file at 1080p, a wheel notch in about 2 ms with soft wrap off and 4 ms
-  with it on; the binary shows the view from M4.3 (M4.1, ADR-0063).
+  with it on; the binary shows the view from M4.3 (M4.1, ADR-0063); and
+  in `tidepool-editor` the named commands, `editor::command`, whose
+  registry the palette ranks, and the keymaps, `editor::keymap`: keys in
+  `ctrl+shift+p` notation, the default keymap `keymaps/default.toml`
+  compiled in, the user's bindings in `settings.toml`'s `[keymap]`
+  tables over it, which the binary reads and whose conflicts it logs, and
+  the modal engine, a stack of modes whose started sequences wait for
+  their next key, which runs the shell's four shortcuts; with the fuzz
+  target `keymap` (M4.6, ADR-0064, ADR-0006).
 - **Not built:** everything else. 13 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.
@@ -166,7 +174,7 @@ or file is there.
 | `crates/gfx`, `crates/font`, `assets/fonts` | `docs/subsystems/rendering.md` |
 | `crates/ui`, `themes/` | `docs/subsystems/ui-and-theme.md` |
 | `crates/gui`, `crates/tui` | `docs/subsystems/frontends.md` |
-| `crates/editor`, `crates/workspace` | `docs/subsystems/editor.md` |
+| `crates/editor`, `crates/workspace`, `keymaps/` | `docs/subsystems/editor.md` |
 | Vim mode (`crates/editor/src/vim`) | `docs/subsystems/vim-mode.md` |
 | `crates/syntax`, `crates/markdown`, `crates/rpc`, `crates/lang`, `languages/` | `docs/subsystems/languages.md` |
 | `crates/toolchain`, `crates/vcs`, `crates/term`, `toolchains/` | `docs/subsystems/toolchains.md` |

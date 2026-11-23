@@ -45,10 +45,17 @@ Built, with the roadmap task that built it:
   to their end and sideways; and a line past 10,000 bytes scrolled to
   its cut marker. The window shows no view until M4.3 opens a file —
   M4.1 (ADR-0063).
+- the user's keymap: `[keymap.<mode>]` in `settings.toml`, read once at
+  startup, read-only, with the file's 1 MiB limit, is the user's layer
+  over `tidepool-editor`'s default keymap, which the shell's keys go
+  through; each conflict or error the reading finds is logged as a
+  warning, and each override at info, naming the file, the first 64 of
+  them and then how many more there were — M4.6 (ADR-0064).
 
 Not yet, with the roadmap task that adds it:
 
-- settings written back, and the workspace's own — M4.7.
+- settings written back, and the workspace's own, and bindings that
+  take effect without a restart — M4.7.
 - the channel of messages from workers to the loop — M4.3.
 - crash reports and buffer recovery — M4.9.
 - `--tui` — M7.1, M7.5.
@@ -76,6 +83,18 @@ side_panel = true
 bottom_panel = false
 ```
 
+The same file's `[keymap.<mode>]` tables bind keys to commands over the
+default keymap, whose one mode is `insert`, in `ctrl+shift+p` notation;
+an empty string unbinds a default's keys (`tidepool-editor`'s
+`keymap` rustdoc gives the rules):
+
+```toml
+[keymap.insert]
+"ctrl+k ctrl+b" = "view.toggleSidePanel"
+"ctrl+b" = ""
+"alt+t" = "panel.showTerminal"
+```
+
  With `--print-startup-time` it
 also prints a line such as `first frame: 131.5 ms`, the time from the
 start of `main` to the return of the first present; the budget is
@@ -94,7 +113,9 @@ starts the terminal UI from M7.1.
   (the first frame, its budget and `--print-startup-time`); ADR-0059 (the
   loop, built in M3.8, and the backdrop built off the main thread);
   ADR-0060 (the shell, its icons, the settings it reads and its golden
-  scenes); ADR-0063 (the editor view, whose golden scenes it draws).
+  scenes); ADR-0063 (the editor view, whose golden scenes it draws);
+  ADR-0064 (keymaps as TOML layers, the user's in `settings.toml`, whose
+  problems it logs).
 - API reference: `cargo doc -p tidepool --open`
 
 ## Rules
@@ -118,7 +139,11 @@ The tests check the command line, the startup line, that the loop hands
 input to the shell in order and stops at a close request, the earliest
 deadline, a distinct icon for each view, and the settings: the defaults,
 the two keys, unknown keys ignored, a wrong type, a file that is not
-TOML, missing or too large, each warning logged; they run the binary with
+TOML, missing or too large, each warning logged; the `[keymap]` table as
+the user's layer over the default keymap, a `keymap` that is not a table,
+and the keymap's problems logged, a conflict or an error as a warning and
+an override at info, at most 64 of them and then one line saying how many
+more were not; they run the binary with
 arguments it refuses, which opens no window. Its `golden` target paints
 the shell's and the editor view's scenes, which `cargo xtask golden`
 compares. The second command also runs the window test, under Xvfb

@@ -15,6 +15,9 @@ crates/codec/tests/json/** -text
 # The theme target reads Tidepool's themes as seeds in place, and `ui`
 # compiles the bundled one in, byte for byte on every OS (ADR-0047).
 themes/** -text
+# The keymap target reads Tidepool's keymaps as seeds in place, and `editor`
+# compiles the default one in, byte for byte on every OS (ADR-0064).
+keymaps/** -text
 # Golden references are images, compared pixel for pixel (ADR-0044).
 tests/golden/** -text
 # The bundled fonts and their licenses are kept as downloaded, and pinned by

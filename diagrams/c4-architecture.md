@@ -46,10 +46,12 @@ shell (M3.4, ADR-0060), a `ui` tree the GUI paints, until the window is
 closed; every other arrow from it is planned.
 
 - Tidepool's TOML files are `settings.toml` in the user config directory,
-  the keymaps (M4.6) and `languages/ID.toml` (M6.2). It reads
-  `settings.toml`'s `[ui] side_panel` and `bottom_panel`, read-only
-  (M3.4, ADR-0060), and is to read them all and write settings back
-  (M4.7).
+  the keymaps and `languages/ID.toml` (M6.2). The default keymap,
+  `keymaps/default.toml`, is compiled into `tidepool-editor` (M4.6,
+  ADR-0064). The binary reads `settings.toml`'s `[ui] side_panel` and
+  `bottom_panel` (M3.4, ADR-0060) and its `[keymap]` tables, the user's
+  bindings (M4.6, ADR-0064), read-only, and is to read them all and
+  write settings back (M4.7).
 - The theme is not read at run time: `tidepool-ui` compiles
   `themes/tidepool-dark.toml` in with `include_str!`, and `gui`'s first
   frame takes its two text colors, `text` and `text-3`, from it (M3.2,
@@ -71,7 +73,7 @@ flowchart LR
             c_gui["GUI frontend, tidepool-gui<br/>a native window<br/>in the jabbott.dev look<br/>today the first frame (M2.6),<br/>a ui tree it paints (M3.8),<br/>in the bundled theme (M3.2)"]
             c_tui["TUI frontend, tidepool-tui<br/>tidepool --tui, terminal cells<br/>planned M7.1"]
         end
-        s_toml[("Settings and Tidepool's<br/>TOML files<br/>settings.toml read (M3.4),<br/>planned M4.6, M4.7, M6.2")]
+        s_toml[("Settings and Tidepool's<br/>TOML files<br/>settings.toml read (M3.4),<br/>its [keymap] (M4.6),<br/>planned M4.7, M6.2")]
         s_desc[("Managed-tool records<br/>descriptors, toolchains.toml<br/>planned M5.1")]
     end
     e_folders[("Workspace folders<br/>the developer's projects")]
@@ -81,7 +83,7 @@ flowchart LR
     p_dev -.->|"planned M7.1:<br/>edits in a terminal"| c_tui
     c_app -->|"opens the window,<br/>loops until closed (M3.8)"| c_gui
     c_app -.->|"planned M7.1:<br/>with --tui"| c_tui
-    c_app -->|"reads [ui] (M3.4),<br/>planned M4.7: writes"| s_toml
+    c_app -->|"reads [ui] (M3.4),<br/>[keymap] (M4.6),<br/>planned M4.7: writes"| s_toml
     c_app -.->|"planned M5.1:<br/>loads, records"| s_desc
     c_app -.->|"planned M4.7, M4.3:<br/>opens, edits, saves"| e_folders
 
@@ -247,7 +249,9 @@ scenes drew, and a failing scene's images, into `target/golden`.
 `tidepool-bench`, which `cargo xtask bench` runs, reads
 `bench/baseline.json` and writes it only with `--save` (ADR-0035).
 `theme` reads each `themes/*.toml`, and building `tidepool-ui` compiles
-`themes/tidepool-dark.toml` in (M3.2, ADR-0047).
+`themes/tidepool-dark.toml` in (M3.2, ADR-0047); building
+`tidepool-editor` compiles `keymaps/default.toml` in, and the `keymap`
+fuzz target reads `keymaps/` as seeds (M4.6, ADR-0064).
 `codeql.yml` analyzes the Rust code and the workflows.
 
 ```mermaid
@@ -268,6 +272,7 @@ flowchart LR
         s_goldout[("target/golden<br/>what the scenes drew,<br/>a failing scene's<br/>actual and diff images")]
         s_baseline[("bench/baseline.json")]
         s_themes[("themes/tidepool-dark.toml<br/>the bundled theme<br/>(M3.2)")]
+        s_keymaps[("keymaps/default.toml<br/>the default keymap<br/>(M4.6)")]
     end
 
     e_gha -->|"codeql.yml:<br/>analyzes the Rust<br/>and the workflows"| s_repo
@@ -285,12 +290,13 @@ flowchart LR
     c_bench -->|"reads; --save<br/>writes it"| s_baseline
     c_xtask -->|"theme: reads<br/>each themes/*.toml,<br/>checks its contrast"| s_themes
     e_cargo -->|"building tidepool-ui<br/>compiles it in<br/>(include_str!)"| s_themes
+    e_cargo -->|"building tidepool-editor<br/>compiles it in; the<br/>keymap target reads it"| s_keymaps
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class c_xtask,c_bench built
-    class s_repo,s_ucd,s_tables,s_fuzz,s_site,s_out,s_golden,s_goldout,s_baseline,s_themes store
+    class s_repo,s_ucd,s_tables,s_fuzz,s_site,s_out,s_golden,s_goldout,s_baseline,s_themes,s_keymaps store
     class e_gha,e_cargo external
 ```
 
@@ -304,8 +310,8 @@ five diagrams. Every arrow is an edge of the dependency matrix. Only
 `platform` (on `core` and `sys`, M2.2), `gfx` (on `core`, M2.3), `gui`
 (on `core`, `platform`, `gfx` and `font`, M2.6, and `ui`, M3.2), the
 binary (on `core`, `platform` and `gui`, M2.6, `ui`, M3.8, and `codec`
-and `editor`, M3.4), `editor` (on `core` and `ui`, M3.4, and `text`,
-M4.1) and `ui` (on
+and `editor`, M3.4), `editor` (on `core` and `ui`, M3.4, `text`, M4.1,
+and `codec`, M4.6) and `ui` (on
 `core`, M3.1, `codec`, M3.2, and `text`, M3.6) declare dependencies yet; their
 edges, and the three dev-dependencies on `tidepool-core` that the tests
 of `codec`, `text` and `font` use, are solid. Every
@@ -487,11 +493,12 @@ flowchart LR
 `tidepool-editor` is where every feature is written once (ADR-0003); it
 draws through `ui` and never depends on `gui` or `tui`. Its thirteen edges
 are added as its parts land: those to `core` and `ui` came with the shell
-(M3.4), and the one to `text` with the editor view (M4.1).
+(M3.4), the one to `text` with the editor view (M4.1), and the one to
+`codec` with the keymaps (M4.6).
 
 ```mermaid
 flowchart LR
-    k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)<br/>planned: keymap engine M4.6<br/>vim mode M7.2<br/>every panel"]
+    k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)<br/>commands, keymaps (M4.6)<br/>planned: vim mode M7.2<br/>every panel"]
 
     subgraph L3["Layer 3"]
         k_lang["tidepool-lang<br/>planned M6.7"]
@@ -516,7 +523,7 @@ flowchart LR
     k_editor -->|"input, geometry (M3.4)"| k_core
     k_editor -->|"Rope, Selection,<br/>clusters (M4.1)"| k_text
     k_editor -->|"Tree, controls,<br/>palette (M3.4);<br/>the view's widgets,<br/>scrollbars (M4.1)"| k_ui
-    k_editor -.->|"planned M4.6:<br/>keymaps in TOML"| k_codec
+    k_editor -->|"toml: keymaps (M4.6)"| k_codec
     k_editor -.->|"planned M4.3:<br/>explorer, tabs"| k_workspace
     k_editor -.->|"planned M4.4:<br/>find and replace"| k_regex
     k_editor -.->|"planned M5.4:<br/>terminal panel"| k_term
@@ -552,7 +559,7 @@ it.
 flowchart LR
     k_app["tidepool, crates/app:<br/>the binary<br/>--print-startup-time (M2.6)<br/>the main loop (M3.8)<br/>the shell's wiring,<br/>settings (M3.4)"]
     subgraph L4["Layer 4: views, frontends"]
-        k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)"]
+        k_editor["tidepool-editor<br/>the shell (M3.4)<br/>the editor view (M4.1)<br/>commands, keymaps (M4.6)"]
         k_gui["tidepool-gui<br/>Gui, first_frame,<br/>GuiError (M2.6)<br/>the theme's text<br/>colors (M3.2)<br/>Painter, FontMetrics,<br/>Icon (M3.5)<br/>render, the backdrop's<br/>builders (M3.8)<br/>icons, set_icon (M3.4)"]
         k_tui["tidepool-tui<br/>planned M7.1: renderer<br/>and input decoder"]
     end
@@ -570,9 +577,9 @@ flowchart LR
 
     k_app -->|"Gui (M2.6)"| k_gui
     k_app -.->|"planned M7.1: --tui"| k_tui
-    k_app -->|"the shell (M3.4),<br/>planned M4.3:<br/>the editor view"| k_editor
+    k_app -->|"the shell (M3.4),<br/>the user's keymap (M4.6),<br/>planned M4.3:<br/>the editor view"| k_editor
     k_app -->|"Tree: input (M3.8),<br/>the shell's tree (M3.4)"| k_ui
-    k_app -->|"toml: settings (M3.4)"| k_codec
+    k_app -->|"toml: settings (M3.4),<br/>[keymap] (M4.6)"| k_codec
     k_app -->|"WindowConfig (M2.6),<br/>Event (M3.8),<br/>user_dirs (M3.4)"| k_platform
     k_app -->|"command line (M2.6)"| k_core
     k_gui -->|"geometry,<br/>colors (M2.6)"| k_core
@@ -586,6 +593,7 @@ flowchart LR
     k_editor -->|"Tree, controls,<br/>palette (M3.4);<br/>the view's widgets,<br/>scrollbars (M4.1)"| k_ui
     k_editor -->|"input, geometry (M3.4)"| k_core
     k_editor -->|"Rope, Selection,<br/>clusters (M4.1)"| k_text
+    k_editor -->|"toml: keymaps (M4.6)"| k_codec
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
@@ -871,7 +879,7 @@ test` on the saved crashes and seeds alone, and on mutated inputs when
 
 ```mermaid
 flowchart TB
-    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text, ttf in tidepool-font, theme in tidepool-ui"]
+    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text, ttf in tidepool-font, theme in tidepool-ui, keymap in tidepool-editor"]
     e_cargo["cargo test --profile fuzz -p PACKAGE --test fuzz -- --exact TARGET --nocapture<br/>with TIDEPOOL_FUZZ_SECS, TIDEPOOL_FUZZ_SEED, and TIDEPOOL_FUZZ_REPLAY=1 for --replay"]
     subgraph b_codec["tidepool-codec: tests/fuzz.rs"]
         t_json["test json<br/>json::parse_bytes and json::parse, both dialects, small Limits"]
@@ -887,6 +895,9 @@ flowchart TB
     subgraph b_ui["tidepool-ui: tests/fuzz.rs"]
         t_theme["test theme<br/>theme::Theme::parse with small Limits, what reads keeps the format's rules (M3.2)"]
     end
+    subgraph b_editor["tidepool-editor: tests/fuzz.rs"]
+        t_keymap["test keymap<br/>keymap::Keymap::read as a file and as a user layer, Sequence::parse, and an Engine over each keymap, with small Limits (M4.6)"]
+    end
     subgraph b_fuzz["tidepool-core: testing::fuzz"]
         f_api["fuzz.rs<br/>Target: new, seeds_in, dictionary, memory_cap, run<br/>Outcome, Summary, Finding, FuzzError, keep_died"]
         f_engine["engine<br/>the target on its own thread with a 2 MiB stack<br/>the caller is the watchdog, HANG_LIMIT 5 s"]
@@ -894,8 +905,8 @@ flowchart TB
         f_memory["memory<br/>VmHWM against memory_cap, VmPeak against reserved_cap"]
         f_paths["paths<br/>each directory looked at without following a link, made one level at a time"]
     end
-    s_corpus[("fuzz/corpus/json, toml, qoi, encoding, ttf, theme<br/>the seeds")]
-    s_inplace[("crates/codec/tests/json, crates/codec/tests/toml-test and themes/<br/>more seeds, read in place")]
+    s_corpus[("fuzz/corpus/json, toml, qoi, encoding, ttf, theme, keymap<br/>the seeds")]
+    s_inplace[("crates/codec/tests/json, crates/codec/tests/toml-test, themes/ and keymaps/<br/>more seeds, read in place")]
     s_crashes[("fuzz/crashes/TARGET<br/>KIND-HASH findings, .last-input, died-HASH")]
     e_proc["Linux: /proc/self/status"]
 
@@ -906,12 +917,14 @@ flowchart TB
     e_cargo -->|"runs"| t_enc
     e_cargo -->|"runs"| t_ttf
     e_cargo -->|"runs"| t_theme
+    e_cargo -->|"runs"| t_keymap
     t_json -->|"Target"| f_api
     t_toml -->|"Target"| f_api
     t_qoi -->|"Target"| f_api
     t_enc -->|"Target"| f_api
     t_ttf -->|"Target"| f_api
     t_theme -->|"Target"| f_api
+    t_keymap -->|"Target"| f_api
     f_api -->|"run_with: the saved crashes first, then the seeds"| f_paths
     f_api --> f_engine
     f_engine --> f_mutate
@@ -927,7 +940,7 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_smoke,t_json,t_toml,t_qoi,t_enc,t_ttf,t_theme,f_api,f_engine,f_mutate,f_memory,f_paths built
+    class c_smoke,t_json,t_toml,t_qoi,t_enc,t_ttf,t_theme,t_keymap,f_api,f_engine,f_mutate,f_memory,f_paths built
     class s_corpus,s_inplace,s_crashes store
     class e_cargo,e_proc external
 ```
@@ -1126,10 +1139,10 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-vcs` | `crates/vcs` | 3, language and tool features | deny | nothing | M8.1, M8.3 | none |
 | `tidepool-agent` | `crates/agent` | 3, language and tool features | deny | nothing | M9.3, M9.4 | none |
 | `tidepool-mobile` | `crates/mobile` | 3, language and tool features | deny | nothing | M10.2, M10.3, M10.4, M10.5, M10.6, M11.3, M11.4, M11.5 | none |
-| `tidepool-editor` | `crates/editor` | 4, views and frontends | deny | the shell, `shell`, with its commands and matcher, `shell::commands`, and its widgets, `shell::parts` (M3.4); the editor view, `view`, with its error, `EditorError` (M4.1) | M4.6, M4.2, M4.3, M4.4, M5.4, M5.6, M6.2, M6.7, M6.8, M6.3, M6.6, M7.2, M7.3, M7.4, M8.2, M8.3, M9.4, M9.5, M10.6, M11.6, M13.4, M15.5, M15.6, M15.7, M15.8 | `core`, `text`, `ui` |
+| `tidepool-editor` | `crates/editor` | 4, views and frontends | deny | the shell, `shell`, with its commands and matcher, `shell::commands`, and its widgets, `shell::parts` (M3.4); the editor view, `view`, with its error, `EditorError` (M4.1); the command registry, `command`, and the keymaps and their engine, `keymap`, with the default keymap `keymaps/default.toml` and fuzz target `keymap` (M4.6) | M4.2, M4.3, M4.4, M5.4, M5.6, M6.2, M6.7, M6.8, M6.3, M6.6, M7.2, M7.3, M7.4, M8.2, M8.3, M9.4, M9.5, M10.6, M11.6, M13.4, M15.5, M15.6, M15.7, M15.8 | `core`, `codec`, `text`, `ui` |
 | `tidepool-gui` | `crates/gui` | 4, views and frontends | deny | `Gui`, `first_frame`, the error, and the window test (M2.6), with `Gui::render` painting `ui` frames, the backdrop built on threads of its own and `first_frame::tree` (M3.8); the first frame's text colors from `ui`'s bundled theme (M3.2); `paint::Painter`, `metrics::FontMetrics`, `icon::Icon` and `ui`'s golden scenes (M3.5); the golden scenes of `ui`'s controls in `tests/controls/mod.rs` (M3.6); the golden scenes of `ui`'s M3.7 components in `tests/components/mod.rs` (M3.7); the golden scenes of `ui`'s overlays in `tests/overlays/mod.rs` (M3.3); the activity bar's six icons, `icons`, and `Gui::set_icon` (M3.4) | — | `core`, `platform`, `gfx`, `font`, `ui` |
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
-| `tidepool` (app) | `crates/app` | 5, application | deny | a `main` (M0.1) that opens the window, shows the first frame and takes `--print-startup-time` (M2.6); the event-driven main loop, with its window test (M3.8); the shell's wiring, the settings and the shell's golden scenes (M3.4); the editor view's golden scenes (M4.1) | M4.9, M7.1, M7.5, M14.4 | `core`, `platform`, `codec`, `gui`, `ui`, `editor` |
+| `tidepool` (app) | `crates/app` | 5, application | deny | a `main` (M0.1) that opens the window, shows the first frame and takes `--print-startup-time` (M2.6); the event-driven main loop, with its window test (M3.8); the shell's wiring, the settings and the shell's golden scenes (M3.4); the editor view's golden scenes (M4.1); the user's keymap, `settings.toml`'s `[keymap]` (M4.6) | M4.9, M7.1, M7.5, M14.4 | `core`, `platform`, `codec`, `gui`, `ui`, `editor` |
 | `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9); `golden`, a step of `ci` (M2.4); `theme`, the last step of `ci` (M3.2) | `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
 | `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5); `suites::ui` (M3.3); `suites::editor` (M4.1) | suites for M4.2, M4.4, M9.4, M14.3, M15.2, M15.5 | `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, `editor` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |

@@ -19,12 +19,16 @@
 //!
 //! Today it has the [`shell`]: the window's frame around the editor, in
 //! jabbott.dev's look, built in a `ui` tree and answering its events
-//! through `ui` alone, so any frontend can show it (M3.4, ADR-0060); and
-//! the editor [`view`]: a rope's text with its gutter, cursors,
-//! selections, current line, soft wrap and scrolling, which lays out only
-//! the lines on screen, in a `ui` tree too (M4.1, ADR-0063). The view's
-//! errors are [`EditorError`]s; the shell's are `ui`'s. The panels' content
-//! comes with their tasks, and the binary shows a view from M4.3.
+//! through `ui` alone, so any frontend can show it (M3.4, ADR-0060); the
+//! editor [`view`]: a rope's text with its gutter, cursors, selections,
+//! current line, soft wrap and scrolling, which lays out only the lines on
+//! screen, in a `ui` tree too (M4.1, ADR-0063); and named [`command`]s
+//! with the [`keymap`]s that bind keys to them, read from TOML layers, and
+//! the modal engine that resolves keys as they go down, which the shell
+//! runs its shortcuts through (M4.6, ADR-0064). The view's, the registry's
+//! and the keymap reader's errors are [`EditorError`]s; the shell's are
+//! `ui`'s. The panels' content comes with their tasks, and the binary
+//! shows a view from M4.3.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -36,7 +40,9 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+pub mod command;
 mod error;
+pub mod keymap;
 pub mod shell;
 pub mod view;
 

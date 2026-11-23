@@ -326,9 +326,9 @@ flowchart TB
     test(["A target's test<br/>in tests/fuzz.rs<br/>Target::run: Config<br/>from the environment,<br/>reads the inputs"])
     engine(["fuzz engine<br/>unchanged inputs, then<br/>mutated ones, a watchdog<br/>for hangs, the<br/>memory checks"])
     mutator(["mutate<br/>1 to 16 changes,<br/>from a Pcg32 stream<br/>for each input"])
-    parser(["The code under test<br/>json, toml, qoi,<br/>encoding, ttf or theme,<br/>on a thread<br/>with a 2 MiB stack"])
+    parser(["The code under test<br/>json, toml, qoi,<br/>encoding, ttf, theme<br/>or keymap, on a thread<br/>with a 2 MiB stack"])
     corpus[("fuzz/corpus/TARGET/<br/>the seeds,<br/>in name order")]
-    inPlace[("Seeds read in place<br/>crates/codec/tests/json/,<br/>crates/codec/tests/<br/>toml-test/, themes/")]
+    inPlace[("Seeds read in place<br/>crates/codec/tests/json/,<br/>crates/codec/tests/<br/>toml-test/, themes/,<br/>keymaps/")]
     crashes[("fuzz/crashes/TARGET/<br/>KIND-HASH files,<br/>died-HASH, the<br/>hidden .last-input")]
     report(["Outcome and Summary<br/>the fuzz-result: line,<br/>and assert_clean fails<br/>the test with the report"])
 
