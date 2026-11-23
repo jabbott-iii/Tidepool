@@ -86,18 +86,23 @@ jobs:
     steps:
       # When main has moved on, the run for the newer commit publishes the
       # page, so this one does not put an older page over it. A run by hand
-      # publishes only a commit that CI passed, as the page says. This step
-      # reads no checkout and runs none of the repository's code; the
-      # commit comes from the event, through `env`, and must be a hash.
+      # publishes only a commit that CI passed, as the page says. The build
+      # checks out the event's own commit (`github.sha`), so that must be
+      # the commit CI passed too; where it is not, as after main moved and
+      # was forced back while the event was made, this run skips, and a run
+      # by hand publishes. This step reads no checkout and runs none of the
+      # repository's code; both commits come from the event, through `env`,
+      # and must be hashes.
       - name: Check that the commit is still main's, and passed CI
         id: current
         env:
           COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::the commit to publish is not a 40-digit hash"
+          if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::a commit of this run is not a 40-digit hash"
             exit 1
           fi
           main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
@@ -112,6 +117,9 @@ jobs:
           elif [ "$passed" = 0 ]; then
             echo "current=false" >> "$GITHUB_OUTPUT"
             echo "::notice::CI has not passed on main's $COMMIT, so the page stays as it is."
+          elif [ "$SHA" != "$COMMIT" ]; then
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::this run's event names $SHA, not $COMMIT, which CI passed: a run by hand publishes it."
           else
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
@@ -153,12 +161,20 @@ jobs:
             echo "::notice::main is at $main, past $COMMIT: its own run publishes the page."
           fi
 
-      # The commit CI passed, not whatever main is by now.
+      # The event's own commit (`github.sha`), with no `ref` taken from a
+      # job's output, which CodeQL reads as untrusted code checked out where
+      # main's cache is written (its untrusted-checkout and cache-poisoning
+      # queries). After CI, that is the last commit on the default branch,
+      # main; by hand, the last commit on the branch dispatched (GitHub's
+      # docs, "Events that trigger workflows"; actions/checkout uses the
+      # event's commit when given no `ref`). The gate goes on only when it
+      # is the commit CI passed and main is still at it, the check above
+      # only while main is, and the build step below refuses a checkout
+      # that is not that commit.
       - name: Check out
         if: steps.current.outputs.current == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.gate.outputs.commit }}
           persist-credentials: false
 
       # Workflow commands are paused in this step and the next run: step, as

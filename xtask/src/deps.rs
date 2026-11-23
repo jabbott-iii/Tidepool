@@ -2113,7 +2113,9 @@ mod tests {
 
     #[test]
     fn credentials_in_a_source_url_are_never_shown() {
-        for (text, shown) in [
+        // The messages in this test name a case by its number, and print
+        // neither a value nor what holds one where they fail.
+        for (case, (text, shown)) in [
             (
                 "git+https://FAKETOKEN@example.invalid/x",
                 "git+https://…@example.invalid/x",
@@ -2132,8 +2134,14 @@ mod tests {
                 "`source = \"git+https://…@h\"`",
             ),
             ("no url", "no url"),
-        ] {
-            assert_eq!(without_userinfo(text), shown, "{text}");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                without_userinfo(text) == shown,
+                "case {case}: the URL is not shown as expected"
+            );
         }
         let pins = [];
         let message = pin_problem("x", "1.0.0", "git+https://FAKETOKEN@h/x", &pins);
@@ -2146,25 +2154,31 @@ mod tests {
             &pins,
             &mut violations,
         );
-        assert_eq!(violations.len(), 2, "{violations:?}");
+        // First: the check after it prints the violations, which this shows
+        // hold no value.
         assert!(
             violations.iter().all(|v| !v.contains("FAKETOKEN")),
-            "{violations:?}"
+            "a violation shows the token"
         );
+        assert_eq!(violations.len(), 2, "{violations:?}");
     }
 
     #[test]
     fn a_value_opened_after_a_table_header_is_followed_too() {
-        for text in [
+        // Each case by its number: its text and violations hold the value.
+        for (case, text) in [
             "[env] A = \"\"\"\nFAKESEC25 = 1\n[FAKESEC25b]\n\"\"\"\n",
             "[env]A = [\nFAKESEC26 = 1,\n]\n",
             "[[bin]] x = '''\nFAKESEC27 = 1\n'''\n",
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let found = config_violations(text);
-            assert!(!found.is_empty(), "{text}");
+            assert!(!found.is_empty(), "case {case}: no violation");
             assert!(
                 found.iter().all(|v| !v.contains("FAKESEC")),
-                "{text}:\n{found:?}"
+                "case {case}: a violation shows the value"
             );
         }
     }
@@ -2177,11 +2191,14 @@ mod tests {
             "[registry]\ntoken = \"s3cr3t\"\n[alias]\nx = \"run --config=s3cr3t\"\n\
              [registries.x] token = \"s3cr3t\"\n[[s3cr3t\n\"s3cr3t\",\n",
         );
-        assert_eq!(found.len(), 6, "{found:?}");
+        // Each check that no value is shown comes first, printing nothing
+        // that could hold one; the checks after it print the violations,
+        // which it has shown hold none.
         assert!(
             found.iter().all(|violation| !violation.contains("s3cr3t")),
-            "{found:?}"
+            "a violation shows the token"
         );
+        assert_eq!(found.len(), 6, "{found:?}");
         // A line that continues a multi-line string or array has no key,
         // whatever it looks like; a quoted key, or a header's quoted segment,
         // can hold a secret too.
@@ -2191,6 +2208,19 @@ mod tests {
              [patch.\"https://ghp_SECRET@github.com/org/repo\"]\n\
              [registries.\"tok\"]\n\"tok=en\" = 1\n",
         );
+        for secret in [
+            "FAKETOKENA0123",
+            "SECRET",
+            "ghp_",
+            "\"tok",
+            "tok=en",
+            "https",
+        ] {
+            assert!(
+                found.iter().all(|violation| !violation.contains(secret)),
+                "a violation repeats a value it must not show"
+            );
+        }
         let shown: Vec<(&str, &str)> = found
             .iter()
             .map(|violation| {
@@ -2232,20 +2262,9 @@ mod tests {
             ),
             "{found:?}"
         );
-        for secret in [
-            "FAKETOKENA0123",
-            "SECRET",
-            "ghp_",
-            "\"tok",
-            "tok=en",
-            "https",
-        ] {
-            assert!(
-                found.iter().all(|violation| !violation.contains(secret)),
-                "{secret}: {found:?}"
-            );
-        }
-        for (line, shown) in [
+        // Each line by its number: a line, and what is shown of it where
+        // this fails, can hold a value.
+        for (case, (line, shown)) in [
             ("[registry] # a comment", "[registry]"),
             ("[registry] # a [comment]", "[registry]"),
             ("[ alias ]", "[ alias ]"),
@@ -2273,8 +2292,14 @@ mod tests {
             ("a b = 1", "…"),
             ("= 1", "…"),
             ("\"x\",", "…"),
-        ] {
-            assert_eq!(shown_config_line(line), shown, "{line}");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                shown_config_line(line) == shown,
+                "case {case}: the line is not shown as expected"
+            );
         }
     }
 

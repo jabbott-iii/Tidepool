@@ -1228,7 +1228,10 @@ mod tests {
         );
         add_secret(&mut logger, "dropped");
         let notice = logger.drop_notice(UNIX_EPOCH, 3).expect("a notice");
-        assert!(!notice.text.contains("dropped"), "{}", notice.text);
+        assert!(
+            !notice.text.contains("dropped"),
+            "the drop notice still has the secret"
+        );
     }
 
     #[test]
@@ -1452,11 +1455,6 @@ mod tests {
         );
     }
 
-    /// The last few characters of a long line, for assertion messages.
-    fn end_of(line: &str) -> &str {
-        &line[line.floor_char_boundary(line.len().saturating_sub(60))..]
-    }
-
     #[test]
     fn a_secret_cut_by_the_ring_is_redacted_when_registered_later() {
         // A line longer than the ring's limit is logged before the secret is
@@ -1479,12 +1477,12 @@ mod tests {
                 let (kept, notice) = tail[0]
                     .rsplit_once(" …[truncated ")
                     .expect("the line is cut");
+                // The messages name `k` only: what is left of the line, or of
+                // the secret, would print the secret.
                 for (end, _) in secret.char_indices().skip(1) {
                     assert!(
                         !kept.ends_with(&secret[..end]),
-                        "k = {k}: {:?} is left: …{:?}",
-                        &secret[..end],
-                        end_of(kept)
+                        "k = {k}: the start of the secret is left before the cut"
                     );
                 }
                 // The cut falls inside the secret (moved back to a character
@@ -1495,8 +1493,7 @@ mod tests {
                 assert!(at > PREFIX.len() + pad.len(), "k = {k}");
                 assert!(
                     kept == format!("{PREFIX}{pad}[REDACTED]"),
-                    "k = {k}: …{:?}",
-                    end_of(kept)
+                    "k = {k}: the cut line does not end in the marker"
                 );
                 assert_eq!(notice, format!("{} bytes]", full.len() - at), "k = {k}");
                 assert_eq!(logger.withheld, 0);
@@ -1520,8 +1517,7 @@ mod tests {
             let redacted = format!("{prefix}{pad}{REDACTED}{pad}");
             assert!(
                 kept == &redacted[..RING_MAX_LINE_BYTES],
-                "k = {k}: …{:?}",
-                end_of(kept)
+                "k = {k}: the cut line is not the start of the redacted one"
             );
         }
     }
@@ -1536,8 +1532,7 @@ mod tests {
         let once = logger.ring.tail(1);
         assert!(
             once[0] == format!("{prefix}{pad}[REDACTED] …[truncated 9 bytes]"),
-            "…{:?}",
-            end_of(&once[0])
+            "the line is not cut after the marker, with its notice"
         );
         // An unrelated secret leaves the line as it was.
         add_secret(&mut logger, "zzzz");

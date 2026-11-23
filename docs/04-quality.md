@@ -1663,10 +1663,18 @@ network through its tool.
        that passes.
   2. **The build**, on `ubuntu-latest` with `contents: read` and
      `CARGO_NET_OFFLINE: "true"`, checks out the commit CI passed, with
-     `persist-credentials: false`, installs the pinned toolchain with
-     rustup, and restores its cache, which only `main`'s runs write: a
-     run on the default branch restores no pull request's cache (GitHub's
-     docs, "Dependency caching"). Then one step, with workflow commands
+     `persist-credentials: false`. It takes the event's own commit
+     (`github.sha`), with no `ref` from the gate's output, which CodeQL's
+     untrusted-checkout and cache-poisoning queries read as untrusted. The
+     gate lets a run through only when the event's commit is the one CI
+     passed, and skips it otherwise, as when `main` moved and was forced
+     back while the event was made: a re-run keeps the event's commit, so
+     a run by hand publishes then. The build step also refuses a checkout
+     that is not the gate's commit. The build installs the
+     pinned toolchain with rustup, and restores its cache, which only
+     `main`'s runs write: a run on the default branch restores no pull
+     request's cache (GitHub's docs, "Dependency caching"). Then one
+     step, with workflow commands
      paused (above), reads the checked-out commit's hash (`%H`), committer
      date (`%cs`) and subject (`%s`) with `git log -1`, and runs `cargo
      xtask site` with them in `TIDEPOOL_SITE_COMMIT`, `TIDEPOOL_SITE_DATE`

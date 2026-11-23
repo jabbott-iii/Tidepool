@@ -250,11 +250,13 @@ fn records_logged_while_formatting_are_redacted_and_reach_every_sink() {
     let ring = log::tail(2).join("\n");
     let expected = ["inner sees [REDACTED]", "outer sees leaky"];
     for (sink, text) in [("file", &file), ("stderr", &captured), ("ring", &ring)] {
+        // First, and naming the sink only: the checks after it print the
+        // text, which this shows holds no secret.
+        assert!(!text.contains(secret), "{sink} has the secret");
         assert_eq!(messages(text), expected, "{sink}:\n{text}");
         for line in text.lines() {
             assert_record_start(line, "INFO");
         }
-        assert!(!text.contains(secret), "{sink}:\n{text}");
     }
 }
 
@@ -414,8 +416,14 @@ fn a_registered_secret_never_appears_in_any_sink() {
         for secret in [password, api_key] {
             let debug = format!("{secret:?}");
             let escaped = debug.trim_matches('"');
-            assert!(!text.contains(secret), "{sink} has {secret:?}:\n{text}");
-            assert!(!text.contains(escaped), "{sink} has {escaped}:\n{text}");
+            // These messages never print the text or the secret: where they
+            // fail, the text holds it. The checks below print the text, as
+            // these have shown it holds neither secret.
+            assert!(!text.contains(secret), "{sink} has a secret as written");
+            assert!(
+                !text.contains(escaped),
+                "{sink} has a secret as `Debug` escapes it"
+            );
         }
         assert!(
             text.contains("login failed with [REDACTED]"),
@@ -444,7 +452,12 @@ fn registering_a_secret_rescrubs_the_ring_buffer() {
 
     log::register_secret(secret);
     let tail = log::tail(log::RING_CAPACITY);
-    assert!(tail.iter().all(|line| !line.contains(secret)), "{tail:?}");
+    // Naming no line: where this fails, one holds the secret. The check
+    // after it prints the lines, which this shows hold none.
+    assert!(
+        tail.iter().all(|line| !line.contains(secret)),
+        "a line in the ring still has the secret"
+    );
     assert!(
         log::tail(1)[0].ends_with("logged before registration: [REDACTED]"),
         "{tail:?}"
@@ -481,8 +494,13 @@ fn a_secret_that_ends_with_a_line_break_never_appears_in_any_sink() {
     let file = read(&path);
     let ring = log::tail(2).join("\n");
     for (sink, text) in [("file", &file), ("stderr", &captured), ("ring", &ring)] {
-        assert!(!text.contains(token), "{sink}:\n{text}");
-        assert!(!text.contains(token.trim_end()), "{sink}:\n{text}");
+        // Naming the sink only; the check after them prints the text, which
+        // they show holds no token.
+        assert!(!text.contains(token), "{sink} has the token");
+        assert!(
+            !text.contains(token.trim_end()),
+            "{sink} has the token without its line end"
+        );
         assert_eq!(
             messages(text),
             ["using token [REDACTED]", "next record"],
@@ -507,12 +525,14 @@ fn a_secret_in_nested_debug_output_never_appears_in_any_sink() {
     close_and_flush();
 
     let file = read(&path);
+    // First, and printing nothing of the file: the check after it prints
+    // the file, which this shows holds none of the password.
+    assert!(!file.contains("word-tp"), "the file has the password");
     assert_eq!(
         messages(&file),
         [r#"login: Err("bad password \"[REDACTED]\"")"#],
         "{file}"
     );
-    assert!(!file.contains("word-tp"), "{file}");
 }
 
 /// The ring buffer cuts long lines. A secret registered after such a line
@@ -537,17 +557,17 @@ fn registering_a_secret_rescrubs_a_ring_line_cut_through_it() {
     let (kept, notice) = after
         .rsplit_once(" …[truncated ")
         .expect("the line is still cut");
+    // The messages never print the end of the line: where they fail, it
+    // holds the start of the secret.
     for (end, _) in secret.char_indices().skip(1) {
         assert!(
             !kept.ends_with(&secret[..end]),
-            "…{}",
-            &kept[kept.len() - 60..]
+            "the start of the secret is left before the cut"
         );
     }
     assert!(
         kept.ends_with(&format!("x{}", log::REDACTED)),
-        "…{}",
-        &kept[kept.len() - 60..]
+        "the cut line does not end in the marker"
     );
     assert_eq!(notice, "10 bytes]");
 }
@@ -586,8 +606,10 @@ fn registering_a_secret_rescrubs_lines_queued_for_stderr_and_the_file() {
         "late [REDACTED]",
     ];
     for (sink, text) in [("file", &file), ("stderr", &captured)] {
+        // First, and naming the sink only: the check after it prints the
+        // text, which this shows holds no secret.
+        assert!(!text.contains(secret), "{sink} has the secret");
         assert_eq!(messages(text), expected, "{sink}:\n{text}");
-        assert!(!text.contains(secret), "{sink}:\n{text}");
     }
 }
 

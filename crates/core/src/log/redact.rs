@@ -552,7 +552,10 @@ mod tests {
         assert_eq!(redacted(&s, &three), r#""\"\\\"[REDACTED]\\\"\"""#);
         // `escape_debug` of a `{:?}` form, and the other way round.
         let mixed = format!("{:?}", format!("{pw:?}").escape_debug().to_string());
-        assert!(!redacted(&s, &mixed).contains("word-tp"), "{mixed}");
+        assert!(
+            !redacted(&s, &mixed).contains("word-tp"),
+            "the password is left in its mixed escaped form"
+        );
     }
 
     #[test]
@@ -580,7 +583,12 @@ mod tests {
         // number must stay small: 54 when this was written, for the secret
         // and its trimmed form together.
         let nasty = secrets(&["\u{301}a'\"\\\u{1b}\n\r\n"]);
-        assert!(nasty.pattern_count() <= 64, "{}", nasty.pattern_count());
+        // The message names no count: a value computed from secrets stays
+        // out of a panic message, which CodeQL reads as a log.
+        assert!(
+            nasty.pattern_count() <= 64,
+            "an escaped secret makes more than 64 patterns"
+        );
     }
 
     #[test]
@@ -703,11 +711,16 @@ mod tests {
     fn debug_never_shows_the_values() {
         let s = secrets(&["hunter2", "s3cr3t"]);
         let debug = format!("{s:?}");
+        // The messages never print `debug`: where the first fails, it holds
+        // a secret.
         assert!(
             !debug.contains("hunter2") && !debug.contains("s3cr3t"),
-            "{debug}"
+            "`Debug` shows a secret's value"
         );
-        assert!(debug.contains("values hidden"), "{debug}");
+        assert!(
+            debug.contains("values hidden"),
+            "`Debug` does not say that the values are hidden"
+        );
     }
 
     /// The reference model for [`Secrets::redact`]: mark every byte that
