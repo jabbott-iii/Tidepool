@@ -88,7 +88,7 @@ pub const MAX_TEXT_BYTES: usize = 64;
 
 /// The limits [`Theme::tidepool_dark`] parses with, which suit any theme
 /// file: 1 MiB of input, 8 levels, strings of 4 KiB, numbers of 64 bytes
-/// and 1,024 entries in a table or array. The bundled file is about 7 KiB,
+/// and 1,024 entries in a table or array. The bundled file is about 7.5 KiB,
 /// and 4 levels deep at `contrast.use[i].on[j]`.
 pub const LIMITS: Limits = Limits {
     max_input_bytes: 1024 * 1024,
@@ -148,6 +148,16 @@ pub enum Token {
     Rust,
     /// `violet`: attributes, properties.
     Violet,
+    /// `bronze`: the backdrop's circuits (ADR-0057).
+    Bronze,
+    /// `bronze-hi`: the highlight of `bronze`, the circuits' sparks
+    /// (ADR-0057).
+    BronzeHi,
+    /// `purple`: the backdrop's synapses (ADR-0057).
+    Purple,
+    /// `purple-hi`: the highlight of `purple`, the synapses' sparks
+    /// (ADR-0057).
+    PurpleHi,
     /// `error`: errors, git deleted.
     Error,
     /// `editor-bg`: the editor and code blocks.
@@ -198,7 +208,7 @@ pub enum Token {
 
 impl Token {
     /// How many tokens there are.
-    pub const COUNT: usize = 39;
+    pub const COUNT: usize = 43;
 
     /// Every token, in the order the spec lists them.
     pub const ALL: [Self; Self::COUNT] = [
@@ -222,6 +232,10 @@ impl Token {
         Self::Green,
         Self::Rust,
         Self::Violet,
+        Self::Bronze,
+        Self::BronzeHi,
+        Self::Purple,
+        Self::PurpleHi,
         Self::Error,
         Self::EditorBg,
         Self::Bar,
@@ -266,6 +280,10 @@ impl Token {
             Self::Green => "green",
             Self::Rust => "rust",
             Self::Violet => "violet",
+            Self::Bronze => "bronze",
+            Self::BronzeHi => "bronze-hi",
+            Self::Purple => "purple",
+            Self::PurpleHi => "purple-hi",
             Self::Error => "error",
             Self::EditorBg => "editor-bg",
             Self::Bar => "bar",

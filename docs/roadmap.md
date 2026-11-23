@@ -1455,6 +1455,18 @@ our own rasterizer.
     write outside the clip or unbounded allocation. The 94 Mermaid blocks
     of the four changed diagram files parse and render with Mermaid
     11.4.1.
+  - Note (2026-11-22): ADR-0057 changed the backdrop after jabbott.dev's
+    of 2026-11-23 (UTC): the purple and bronze glows in place of the teal
+    and gold ones, no planet, and the site's bronze circuits and purple
+    nerve cells, drawn still, from its `_includes/backdrop.html`, under
+    limits on what a drawing may cost (`MAX_SHAPES` and the rest,
+    `docs/subsystems/rendering.md`). The theme gained `bronze`,
+    `bronze-hi`, `purple`, and `purple-hi`. `Backdrop::ensure` took 173
+    and 177 ms at 1920×1080, scale 1, in a release build, against 193 and
+    179 ms with the planet, alternating on a loaded machine. Two reviews
+    found 5 Low issues, all fixed, and `gfx_backdrop` and
+    `gfx_backdrop_scale_2` were blessed again once the owner had seen
+    them.
 
 - [x] **M2.4 — codec: QOI; xtask: golden harness; gfx goldens**
   - Depends: M2.3, M0.3, M1.6

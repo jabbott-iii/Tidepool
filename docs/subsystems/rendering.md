@@ -16,7 +16,7 @@ The rustdoc of each module is authoritative; this table summarizes it.
 | `clip` | `ClipStack`, rect intersection, and `SPACE`, the device space a framebuffer may cover |
 | `image` | Copy, blit, and scaled blit with nearest and bilinear filtering in fixed-point integers |
 | `glyph` | `Mask`, an 8-bit coverage view with regions (from `font`'s atlas, M2.5), and its blit with a color |
-| `backdrop` | `BackdropStyle`, jabbott.dev's `.space` layers as data (radial glows, the planet, two star tiles, the masked grid, the blur radius), and `Backdrop`, which renders them and a box-blurred copy for translucent panels, and rebuilds only when the size, scale or style changes |
+| `backdrop` | `BackdropStyle`, jabbott.dev's `.space` layers as data (radial glows, two star tiles, the masked grid, the two SVG drawings, each a `Drawing` of shapes in one color, with the window width under which they are dimmed, and the blur radius), and `Backdrop`, which renders them and a box-blurred copy for translucent panels, and rebuilds only when the size, scale or style changes. The drawings are drawn still: their sparks are motion (ADR-0057) |
 | `damage` | `Damage`, at most `MAX_RECTS` (8) merged rects that cover everything added, and `diff`, the rects of 16 px tiles that changed between two frames |
 
 Invariants:
@@ -30,11 +30,26 @@ Invariants:
   a frame touches only pixels inside them.
 - No draw call panics, whatever its geometry (NaN, infinite or huge
   coordinates, empty or inverted rects): what is invalid draws nothing.
-- The backdrop approximates the site's CSS where the browser uses a
-  Gaussian or clips to a rounded box; each approximation is listed in
-  `backdrop`'s module docs. A rebuild is CPU work that grows with the
-  window: about 190 ms for 1920×1080 at scale 1, and more for larger
-  windows, in a release build (M2.3's note in `docs/roadmap.md`). `gui` rebuilds it on the main
+- The backdrop approximates the site's CSS and SVG where a browser blurs
+  with a Gaussian or covers a pixel by a shape's exact area: the
+  drawings' shapes cover pixels by a 1 px ramp of their distance, their
+  curves are flattened into lines, and their corners are joined round;
+  each approximation is listed in `backdrop`'s module docs. A rebuild is
+  CPU work that grows with the window: about 190 ms for 1920×1080 at
+  scale 1, and more for larger windows, in a release build (M2.3's note
+  in `docs/roadmap.md`, which ADR-0057's drawings leave about the same).
+  A drawing is the caller's data, so the work it asks for is bounded
+  (`backdrop`'s module docs, "Limits", give the reasons and the site's
+  numbers): `BackdropStyle::validate`, before anything is allocated,
+  refuses a drawing of more than `MAX_SHAPES` (1,024) shapes, a path of
+  more than `MAX_PATH_COMMANDS` (256) commands or a drawing of more than
+  `MAX_DRAWING_COMMANDS` (4,096), and a stroke wider than the longer side
+  of its view box; and preparing a drawing at a size stops with
+  `GfxError::InvalidStyle`, naming the shape, before any pixel is
+  allocated, once it needs more than `MAX_PIECES` (65,536) pieces or more
+  coverage tests than `MAX_TESTS_PER_PIXEL` (64) a pixel of its box, and
+  at least `MIN_TESTS` (2^20).
+  `gui` rebuilds it on the main
   thread when the window is first exposed and when its size changes, and
   `gfx` and `font` are optimized in the dev profile, so that `cargo tp`
   meets the first frame's budget too (ADR-0045).

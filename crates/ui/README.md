@@ -74,8 +74,11 @@ Built, with the roadmap task that built it:
 - `theme`: `Theme`, read from a theme file by `Theme::parse` within
   `codec`'s `Limits`, and `Theme::tidepool_dark`, the bundled
   `themes/tidepool-dark.toml` compiled in: a value for each color
-  `Token` (26; M3.6 adds eight for the controls, and M3.7 five for the
-  collections, the card's tab and the code block's bar), with the solid
+  `Token` (26; M3.6 adds eight for the controls, M3.7 five for the
+  collections, the card's tab and the code block's bar, and ADR-0057
+  four more of the site's `:root`, `bronze`, `bronze-hi`, `purple` and
+  `purple-hi`, the colors of its backdrop's drawings, which no widget
+  uses yet), with the solid
   color over `bg` and the 256-color index
   where the file gives them, the cut-corner size and the two fonts. A
   key that is missing or unknown, a wrong type, a color that does not

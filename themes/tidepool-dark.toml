@@ -37,6 +37,10 @@ amber-hi = { value = "#ffd84a", ansi = 221 }
 green = { value = "#3ddc97", ansi = 42 }
 rust = { value = "#f09a4a", ansi = 215 }
 violet = { value = "#a58cff", ansi = 141 }
+bronze = { value = "#cd7f32", ansi = 173 }
+bronze-hi = { value = "#ffc98f", ansi = 222 }
+purple = { value = "#9a6bff", ansi = 99 }
+purple-hi = { value = "#e3d6ff", ansi = 189 }
 error = { value = "#ff8a80", ansi = 210 }
 editor-bg = { value = "#0a0f11", ansi = 233 }
 bar = { value = "rgba(30,37,40,0.72)", solid = "#191e20", ansi = 234 }

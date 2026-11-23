@@ -13,7 +13,9 @@
 // limitations under the License.
 
 //! Unit tests of the backdrop: the site's values, validation, exact pixels
-//! where the layers are known, the cache's rebuilds, and the box blur.
+//! where the layers are known, the drawings over them and their dimming in
+//! a narrow window, the cache's rebuilds, and the box blur. The drawings'
+//! own geometry and coverage are tested in `drawing/tests.rs`.
 
 use tidepool_core::color::PremultipliedColor;
 use tidepool_core::geom::{DevicePoint, DeviceRect};
@@ -29,6 +31,10 @@ fn parse(css: &str) -> Color {
     Color::parse(css).expect("valid CSS color")
 }
 
+fn painter(size: DeviceSize, scale: Scale, style: &BackdropStyle) -> Painter {
+    Painter::new(size, scale, style).expect("a small backdrop")
+}
+
 /// The site's background, #0b0c0d, as pixel bytes: blue, green, red, alpha.
 const BG: [u8; 4] = [0x0d, 0x0c, 0x0b, 0xff];
 
@@ -39,21 +45,23 @@ fn the_site_style_is_the_stylesheet() {
     assert_eq!(style.validate(), Ok(()));
     // Every color as `Color::parse` reads the CSS text.
     assert_eq!(style.bg, parse("#0b0c0d"));
+    // `color-mix(in srgb, var(--purple) 10%, transparent)` is `--purple`,
+    // #9a6bff, at 10%, and the bronze one #cd7f32 at 8%.
     let glows: Vec<Color> = style.glows.iter().map(|glow| glow.color).collect();
     assert_eq!(
         glows,
         [
-            parse("rgba(92, 203, 203, 0.12)"),
-            parse("rgba(242, 194, 0, 0.05)"),
+            parse("rgba(154, 107, 255, 0.1)"),
+            parse("rgba(205, 127, 50, 0.08)"),
             parse("rgba(38, 70, 82, 0.4)"),
         ]
     );
-    let planet = &style.planet;
-    assert_eq!(planet.core_color, parse("#182a30"));
-    assert_eq!(planet.mid_color, parse("#0d1214"));
-    assert_eq!(planet.ring_color, parse("rgba(143, 229, 229, 0.18)"));
-    assert_eq!(planet.glow.color, parse("rgba(92, 203, 203, 0.18)"));
-    assert_eq!(planet.inner_glow.color, parse("rgba(92, 203, 203, 0.12)"));
+    assert_eq!(style.circuits.color, parse("#cd7f32"));
+    assert_eq!(style.synapses.color, parse("#9a6bff"));
+    assert_eq!(style.circuits.side, Side::Left);
+    assert_eq!(style.synapses.side, Side::Right);
+    assert_eq!(style.synapses.view_box.x, 160.0);
+    assert_eq!((style.narrow_width, style.narrow_opacity), (640.0, 0.7));
     let stars: Vec<Color> = style.stars.iter().map(|star| star.color).collect();
     assert_eq!(
         stars,
@@ -82,12 +90,55 @@ fn validation_names_the_field() {
     assert_eq!(style.validate(), invalid("glows.fade_stop", Some(2)));
 
     let mut style = BackdropStyle::jabbott_dev();
-    style.planet.glow.blur = -1.0;
-    assert_eq!(style.validate(), invalid("planet.glow.blur", None));
+    style.circuits.shapes[3].geometry = Geometry::Path(vec![PathCommand::Line {
+        x: 1.0,
+        y: f32::NAN,
+    }]);
+    assert_eq!(
+        style.validate(),
+        invalid("circuits.shapes.geometry", Some(3))
+    );
 
     let mut style = BackdropStyle::jabbott_dev();
-    style.planet.opacity = 1.5;
-    assert_eq!(style.validate(), invalid("planet.opacity", None));
+    style.circuits.shapes[30].geometry = Geometry::Circle {
+        cx: 1.0,
+        cy: 1.0,
+        r: -1.0,
+    };
+    assert_eq!(
+        style.validate(),
+        invalid("circuits.shapes.geometry", Some(30))
+    );
+
+    let mut style = BackdropStyle::jabbott_dev();
+    style.synapses.shapes[0].stroke = Some(Stroke {
+        width: -1.0,
+        opacity: 0.5,
+        cap: Cap::Butt,
+    });
+    assert_eq!(
+        style.validate(),
+        invalid("synapses.shapes.stroke.width", Some(0))
+    );
+
+    let mut style = BackdropStyle::jabbott_dev();
+    style.synapses.shapes[105].fill = Fill::Radial {
+        opacity: 0.5,
+        center: 1.5,
+    };
+    assert_eq!(style.validate(), invalid("synapses.shapes.fill", Some(105)));
+
+    let mut style = BackdropStyle::jabbott_dev();
+    style.synapses.view_box.width = -400.0;
+    assert_eq!(style.validate(), invalid("synapses.view_box.width", None));
+
+    let mut style = BackdropStyle::jabbott_dev();
+    style.circuits.mask_solid = 1.5;
+    assert_eq!(style.validate(), invalid("circuits.mask_solid", None));
+
+    let mut style = BackdropStyle::jabbott_dev();
+    style.narrow_opacity = 2.0;
+    assert_eq!(style.validate(), invalid("narrow_opacity", None));
 
     let mut style = BackdropStyle::jabbott_dev();
     style.stars[3].x = f32::INFINITY;
@@ -105,13 +156,15 @@ fn validation_names_the_field() {
     style.blur_radius = f32::NEG_INFINITY;
     assert_eq!(style.validate(), invalid("blur_radius", None));
 
-    // Positions and offsets may be negative, as the site's are.
+    // Positions and coordinates may be negative, as the site's are.
     let mut style = BackdropStyle::jabbott_dev();
-    style.planet.inner_glow.offset_x = -5.0;
+    style.synapses.view_box.x = -5.0;
     style.grid.mask_center_y = -1.0;
     assert_eq!(style.validate(), Ok(()));
     // Zero is allowed everywhere.
-    style.planet.diameter = 0.0;
+    style.circuits.view_box.height = 0.0;
+    style.synapses.max_width = 0.0;
+    style.narrow_width = 0.0;
     style.near_stars.width = 0.0;
     style.grid.cell = 0.0;
     style.blur_radius = 0.0;
@@ -121,60 +174,131 @@ fn validation_names_the_field() {
 #[test]
 fn a_pixel_far_from_every_layer_is_the_background_exactly() {
     // At 2000 by 1200 CSS px, the pixel (1000, 400) is outside the three
-    // glows: (1000.5 − 1700) / 1100 and (400.5 + 120) / 620 give
-    // t = 1.05 > 0.62 for the first; (1000.5 + 160) / 900 = 1.29 > 0.60
-    // for the second; (1500 − 400.5) / 900 = 1.22 > 0.62 for the third.
-    // It is 1298 px from the planet's centre (1720, −680), past its glow,
-    // which ends 900 + 140 + 40 px out. In the near tiles it is at
-    // (60.5, 140.5), and in the far ones at (120.5, 150.5), over 14 px
-    // from every dot. And 1000 and 400 are not multiples of 64, so no grid
-    // line crosses it.
+    // glows: (2080 − 1000.5) / 800 = 1.35 > 0.62 for the first, centred
+    // on (2080, 420); (1000.5 + 80) / 800 = 1.35 > 0.62 for the second, on
+    // (−80, 720); (1500 − 400.5) / 900 = 1.22 > 0.62 for the third. The
+    // drawings' boxes are 480 px wide, at the sides, away from it. In the
+    // near tiles it is at (60.5, 140.5), and in the far ones at
+    // (120.5, 150.5), over 14 px from every dot. And 1000 and 400 are not
+    // multiples of 64, so no grid line crosses it.
     let style = BackdropStyle::jabbott_dev();
-    let painter = Painter::new(DeviceSize::new(2000, 1200), scale(1.0), &style);
+    let painter = painter(DeviceSize::new(2000, 1200), scale(1.0), &style);
+    assert_eq!(painter.drawings[0].window.right, 480);
+    assert_eq!(painter.drawings[1].window.left, 1520);
     assert_eq!(painter.pixel(1000, 400), BG);
     // At scale 2 the same CSS point is the same color.
-    let painter = Painter::new(DeviceSize::new(4000, 2400), scale(2.0), &style);
+    let painter = self::painter(DeviceSize::new(4000, 2400), scale(2.0), &style);
     assert_eq!(painter.pixel(2000, 800), BG);
     assert_eq!(painter.pixel(2001, 801), BG);
 }
 
+/// The pixel (`x`, `y`) of `painter` as red, green and blue.
+fn rgb(painter: &Painter, x: i64, y: i64) -> (i32, i32, i32) {
+    let [b, g, r, a] = painter.pixel(x, y);
+    assert_eq!(a, 255, "the backdrop is opaque");
+    (i32::from(r), i32::from(g), i32::from(b))
+}
+
+fn brightness((r, g, b): (i32, i32, i32)) -> i32 {
+    r + g + b
+}
+
 #[test]
 fn the_layers_look_like_the_site() {
-    // These check the shape of the look, not exact values.
-    let style = BackdropStyle::jabbott_dev();
-    let painter = Painter::new(DeviceSize::new(1600, 900), scale(1.0), &style);
-    let rgb = |x, y| {
-        let [b, g, r, a] = painter.pixel(x, y);
-        assert_eq!(a, 255, "the backdrop is opaque");
-        (i32::from(r), i32::from(g), i32::from(b))
-    };
-    let brightness = |(r, g, b): (i32, i32, i32)| r + g + b;
+    // These check the shape of the look, not exact values: first without
+    // the drawings, then with them.
+    let mut plain = BackdropStyle::jabbott_dev();
+    plain.circuits.shapes.clear();
+    plain.synapses.shapes.clear();
+    let size = DeviceSize::new(1600, 900);
+    let painter = painter(size, scale(1.0), &plain);
+    let plain_rgb = |x, y| rgb(&painter, x, y);
     let bg = (0x0b, 0x0c, 0x0d);
 
-    // The planet's bottom, inside its circle near (1320, 219): its fill's
-    // teal-grey core, under the inner glow, brighter than the background.
-    let planet = rgb(1320, 210);
-    assert!(planet.1 > planet.0 && planet.2 > planet.0, "{planet:?}");
-    assert!(brightness(planet) > brightness(bg) + 60, "{planet:?}");
-    // Just below it, the ring and the outer glow: teal-tinted too.
-    let glow = rgb(1320, 240);
-    assert!(
-        glow.1 > glow.0 && glow.2 > glow.0 && brightness(glow) > brightness(bg),
-        "{glow:?}"
-    );
-    // Far below-left of the planet, the glows fade: darker than the glow.
-    assert!(brightness(rgb(400, 450)) < brightness(glow));
+    // At the right, a third of the way down, the purple glow: more blue
+    // and red than green, and brighter than the background.
+    let purple = plain_rgb(1590, 315);
+    assert!(purple.2 > purple.1 && purple.0 > purple.1, "{purple:?}");
+    assert!(brightness(purple) > brightness(bg) + 15, "{purple:?}");
+    // At the left, past the middle, the bronze one: red over green over
+    // blue.
+    let bronze = plain_rgb(10, 540);
+    assert!(bronze.0 > bronze.1 && bronze.1 > bronze.2, "{bronze:?}");
+    assert!(brightness(bronze) > brightness(bg) + 10, "{bronze:?}");
+    // The top centre, between them, which no glow reaches, is darker.
+    assert!(brightness(plain_rgb(800, 100)) < brightness(purple));
     // A grid line near the top centre, under the mask, is lighter than the
     // pixels beside it.
-    let line = rgb(832, 2);
-    let beside = rgb(833, 2);
+    let line = plain_rgb(832, 2);
+    let beside = plain_rgb(833, 2);
     assert!(brightness(line) > brightness(beside), "{line:?} {beside:?}");
     // The bottom centre is lit by the third glow, slate blue.
-    let bottom = rgb(800, 899);
+    let bottom = plain_rgb(800, 899);
     assert!(
         bottom.2 > bottom.0 && brightness(bottom) > brightness(bg) + 30,
         "{bottom:?}"
     );
+
+    // The drawings, at 0.9 px a unit. The ring of the pad at (300, 159) in
+    // user units, 4.5 out to the right, (274.05, 143.1), is bronze over the
+    // glows; the body of the cell at (470, 90), 90 units from the right
+    // edge, (1519, 81), is purple.
+    let style = BackdropStyle::jabbott_dev();
+    let drawn = self::painter(size, scale(1.0), &style);
+    let pad = rgb(&drawn, 274, 143);
+    let under = rgb(&painter, 274, 143);
+    assert!(
+        pad.0 > under.0 + 20 && pad.0 > pad.1 && pad.1 > pad.2,
+        "{pad:?}"
+    );
+    let cell = rgb(&drawn, 1519, 81);
+    let under = rgb(&painter, 1519, 81);
+    assert!(cell.2 > under.2 + 30 && cell.2 > cell.1, "{cell:?}");
+    // Away from both boxes nothing changes.
+    assert_eq!(drawn.pixel(800, 450), painter.pixel(800, 450));
+}
+
+#[test]
+fn the_drawings_are_dimmed_in_a_narrow_window() {
+    // `max-width: 640px` holds at 640 logical px and not at 641, at any
+    // scale, in logical px as `Scale::to_logical` gives them.
+    let style = BackdropStyle::jabbott_dev();
+    let opacity = |width, factor| {
+        let painter = painter(DeviceSize::new(width, 400), scale(factor), &style);
+        let [circuits, synapses] = painter.drawings.each_ref().map(|drawing| drawing.opacity);
+        assert_eq!(circuits, synapses);
+        circuits
+    };
+    let dimmed = f64::from(0.7_f32);
+    assert_eq!(opacity(640, 1.0), dimmed);
+    assert_eq!(opacity(641, 1.0), 1.0);
+    assert_eq!(opacity(1280, 2.0), dimmed);
+    assert_eq!(opacity(1282, 2.0), 1.0);
+    assert_eq!(opacity(320, 0.5), dimmed);
+    // At fractional scales, 736 / 1.15, 832 / 1.3 and 896 / 1.4 are each a
+    // little over 640 in `f64`, as the scales are `f32`s, but 640 in
+    // logical px.
+    for (width, factor) in [(736, 1.15), (832, 1.3), (896, 1.4), (768, 1.2), (800, 1.25)] {
+        assert_eq!(
+            scale(factor).to_logical(DeviceSize::new(width, 400)).width,
+            640.0
+        );
+        assert_eq!(opacity(width, factor), dimmed, "{width} at {factor}");
+    }
+    for (width, factor) in [(737, 1.15), (833, 1.3), (897, 1.4)] {
+        assert_eq!(opacity(width, factor), 1.0, "{width} at {factor}");
+    }
+    // The drawing's color over the layers below is scaled by it: the pad's
+    // ring at 640 px is drawn at 0.7 of its alpha at 641.
+    let wide = painter(DeviceSize::new(641, 400), scale(1.0), &style);
+    let narrow = painter(DeviceSize::new(640, 400), scale(1.0), &style);
+    let (wide, narrow) = (&wide.drawings[0], &narrow.drawings[0]);
+    // 0.4 px a unit: (300 + 4.5, 159) is at (121.8, 63.6).
+    let (x, y) = (121, 63);
+    let alpha = wide.alpha_at(x, y);
+    assert!(alpha > 0.0);
+    assert_eq!(narrow.alpha_at(x, y), alpha);
+    assert_eq!(narrow.weight(x), wide.weight(x) * dimmed);
 }
 
 #[test]
@@ -188,8 +312,8 @@ fn stars_land_where_the_tiles_put_them() {
     let mut plain = style.clone();
     plain.stars.clear();
     let size = DeviceSize::new(1600, 900);
-    let with = Painter::new(size, scale(1.0), &style);
-    let without = Painter::new(size, scale(1.0), &plain);
+    let with = painter(size, scale(1.0), &style);
+    let without = painter(size, scale(1.0), &plain);
     for (x, y) in [(64, 34), (65, 34), (64, 35), (65, 35)] {
         assert_ne!(with.pixel(x, y), without.pixel(x, y), "({x}, {y})");
     }
@@ -201,13 +325,21 @@ fn stars_land_where_the_tiles_put_them() {
 #[test]
 fn a_rendered_frame_is_its_pixels() {
     // The frame is painted a row at a time, with the terms that depend
-    // only on x or y worked out once; it must give what each pixel alone
-    // gives. These sizes and scales show the planet's edge, the glows,
-    // the grid and stars of both layers.
+    // only on x or y worked out once, and the drawings a band of rows at a
+    // time; it must give what each pixel alone gives. These sizes and
+    // scales show the glows, the grid, stars of both layers, and both
+    // drawings, over several bands, cut at the window's edge, and dimmed
+    // and not.
     let style = BackdropStyle::jabbott_dev();
-    for (width, height, factor) in [(160, 90, 0.1), (300, 120, 0.5), (64, 48, 2.0)] {
+    for (width, height, factor) in [
+        (160, 90, 0.1),
+        (300, 120, 0.5),
+        (64, 48, 2.0),
+        (700, 150, 1.0),
+        (90, 200, 1.0),
+    ] {
         let size = DeviceSize::new(width, height);
-        let painter = Painter::new(size, scale(factor), &style);
+        let painter = painter(size, scale(factor), &style);
         let mut fb = Framebuffer::new(size).expect("small");
         assert_eq!(render(&mut fb, &painter), Ok(()));
         for y in 0..height {
@@ -234,7 +366,7 @@ fn ensure_builds_once_per_size_scale_and_style() {
     assert_eq!(backdrop.base().size(), size);
     assert_eq!(backdrop.blurred().size(), size);
     // The base is what the painter gives, pixel by pixel.
-    let painter = Painter::new(size, scale(1.0), &style);
+    let painter = painter(size, scale(1.0), &style);
     for (x, y) in [(0, 0), (47, 31), (20, 10)] {
         let pixel = backdrop.base().pixel(DevicePoint::new(x, y)).map(bytes_of);
         assert_eq!(pixel, Some(painter.pixel(i64::from(x), i64::from(y))));
@@ -268,12 +400,16 @@ fn ensure_builds_once_per_size_scale_and_style() {
 
     // A failure leaves the cache as it was.
     let mut bad = style.clone();
-    bad.planet.ring_width = f32::NAN;
+    bad.synapses.shapes[0].stroke = Some(Stroke {
+        width: f32::NAN,
+        opacity: 0.38,
+        cap: Cap::Butt,
+    });
     assert_eq!(
         backdrop.ensure(size, scale(3.0), &bad),
         Err(GfxError::InvalidStyle {
-            field: "planet.ring_width",
-            index: None
+            field: "synapses.shapes.stroke.width",
+            index: Some(0)
         })
     );
     assert_eq!(
@@ -296,7 +432,8 @@ fn ensure_builds_once_per_size_scale_and_style() {
 #[test]
 fn degenerate_styles_render_without_panicking() {
     let mut style = BackdropStyle::jabbott_dev();
-    style.planet.diameter = 0.0;
+    style.circuits.view_box.width = 0.0;
+    style.synapses.max_width = 0.0;
     style.near_stars.width = 0.0;
     style.far_stars.height = 0.0;
     style.grid.cell = 0.0;
@@ -311,7 +448,16 @@ fn degenerate_styles_render_without_panicking() {
     assert_eq!(backdrop.blurred(), backdrop.base());
 
     let mut huge = BackdropStyle::jabbott_dev();
-    huge.planet.diameter = f32::MAX;
+    huge.circuits.max_width = f32::MAX;
+    huge.circuits.view_box.width = f32::MAX;
+    huge.circuits.view_box.height = 1e-30;
+    // As wide as a stroke may be: the view box's longer side.
+    huge.synapses.shapes[0].stroke = Some(Stroke {
+        width: 1000.0,
+        opacity: 1.0,
+        cap: Cap::Round,
+    });
+    huge.synapses.view_box.x = f32::MAX;
     huge.glows[1].radius_y = f32::MAX;
     huge.near_stars.width = 1e-30;
     huge.stars[0].radius = f32::MAX;
@@ -471,16 +617,88 @@ fn helpers() {
     assert_eq!(line_coverage(65.0, 64.0, 1.0), 0.0);
     assert_eq!(line_coverage(96.0, 96.0, 1.5), 1.0);
     assert_eq!(line_coverage(97.0, 96.0, 1.5), 0.5);
-    assert_eq!(edge(-100.0, 10.0), 0.0);
-    assert_eq!(edge(100.0, 10.0), 1.0);
-    assert_eq!(edge(0.0, 10.0), 0.5);
-    // One σ inside: 3 × 0.75² − 2 × 0.75³ = 0.84375; the Gaussian's is
-    // 0.8413.
-    assert_eq!(edge(10.0, 10.0), 0.84375);
     assert_eq!(to_bgra([0.2, 0.4, 0.6, 1.0]), [153, 102, 51, 255]);
     assert_eq!(
         to_bgra([0.9, 0.0, 0.0, 0.5]),
         [0, 0, 128, 128],
         "channels never exceed alpha"
     );
+}
+
+/// The site's style with only `shapes` in the circuits, over black: no
+/// glows, stars or grid, and no synapses.
+fn only_circuits(shapes: Vec<Shape>) -> BackdropStyle {
+    let mut style = BackdropStyle::jabbott_dev();
+    style.bg = Color::rgb(0, 0, 0);
+    style.glows.clear();
+    style.stars.clear();
+    style.grid.color = Color::rgba(0, 0, 0, 0);
+    style.synapses.shapes.clear();
+    style.circuits.shapes = shapes;
+    style
+}
+
+#[test]
+fn a_translucent_drawing_composites_each_shape_as_svg_does() {
+    // Two opaque discs in white at alpha 128 over black: SVG paints each
+    // in the translucent color, 1 − (1 − 128/255)² = 0.752 → 192, where
+    // the color's alpha once over both would give 128.
+    let disc = Shape {
+        geometry: Geometry::Circle {
+            cx: 100.0,
+            cy: 500.0,
+            r: 40.0,
+        },
+        fill: Fill::Solid { opacity: 1.0 },
+        stroke: None,
+    };
+    let mut style = only_circuits(vec![disc.clone(), disc]);
+    style.circuits.color = Color::rgba(255, 255, 255, 128);
+    let size = DeviceSize::new(1280, 1000);
+    assert_eq!(
+        painter(size, scale(1.0), &style).pixel(100, 500),
+        [192, 192, 192, 255]
+    );
+    style.circuits.shapes.truncate(1);
+    assert_eq!(
+        painter(size, scale(1.0), &style).pixel(100, 500),
+        [128, 128, 128, 255]
+    );
+}
+
+#[test]
+fn a_drawing_over_its_budget_is_refused_before_anything_is_drawn() {
+    // A zigzag stroke as wide as a stroke may be, 1,000 units, reaches the
+    // whole box with every piece, more than 64 coverage tests a pixel.
+    let mut commands = vec![PathCommand::Move { x: 0.0, y: 0.0 }];
+    commands.extend((1..100).map(|step| PathCommand::Line {
+        x: if step % 2 == 0 { 0.0 } else { 400.0 },
+        y: 10.0 * step as f32,
+    }));
+    let zigzag = Shape {
+        geometry: Geometry::Path(commands),
+        fill: Fill::None,
+        stroke: Some(Stroke {
+            width: 1000.0,
+            opacity: 0.5,
+            cap: Cap::Butt,
+        }),
+    };
+    let style = only_circuits(vec![zigzag]);
+    assert_eq!(style.validate(), Ok(()));
+    let mut backdrop = Backdrop::new();
+    let size = DeviceSize::new(1000, 1000);
+    assert_eq!(
+        backdrop.ensure(size, scale(1.0), &BackdropStyle::jabbott_dev()),
+        Ok(true)
+    );
+    let before = backdrop.base().clone();
+    assert_eq!(
+        backdrop.ensure(size, scale(1.0), &style),
+        Err(GfxError::InvalidStyle {
+            field: "circuits.shapes",
+            index: Some(0)
+        })
+    );
+    assert_eq!(backdrop.base(), &before, "the cache is as it was");
 }

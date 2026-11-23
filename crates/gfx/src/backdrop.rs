@@ -26,22 +26,90 @@
 //! 2. The three `radial-gradient`s of `.space`, the last listed first, since
 //!    CSS paints the first listed on top: each an ellipse whose color fades
 //!    linearly, in premultiplied form, to transparent at its stop.
-//! 3. The planet, `.space__planet`: a circle placed by CSS `right` and
-//!    `top`, filled with its `radial-gradient(circle at 50% 100%, …)`,
-//!    whose size is `farthest-corner`; under it, outside the circle, its
-//!    outer glow (`box-shadow: 0 40px 140px`) and above that its 1 px ring
-//!    (`0 0 0 1px`); over the fill, inside, its inner glow
-//!    (`inset 0 -18px 60px`); the whole at the planet's `opacity`.
-//! 4. The near and then the far star tile (`.space__stars`, and
+//! 3. The near and then the far star tile (`.space__stars`, and
 //!    `.space__stars--far` after it): the same dots in tiles of two sizes,
 //!    whose origin is offset by the layer's `inset`, each at its opacity. A
 //!    dot is a tiny `radial-gradient`; one that falls outside a tile (the
 //!    far tile is smaller) is cut off there, as in CSS.
-//! 5. The grid, `.space__grid`: 1 px lines every 64 px, horizontal ones
+//! 4. The grid, `.space__grid`: 1 px lines every 64 px, horizontal ones
 //!    over vertical ones, under its elliptical `mask-image`.
+//! 5. The two drawings (`svg.space__art`, each a [`Drawing`]): the
+//!    circuits, bronze traces, pads and a chip at the left edge, and then
+//!    the synapses, a purple network of nerve cells at the right edge, each
+//!    in its own box under a mask that fades it toward the middle
+//!    ([below](#the-drawings)).
 //!
-//! There is no drift: the stars' animation is ambient motion, which is
-//! opt-in and off (`docs/subsystems/ui-and-theme.md`).
+//! Nothing moves: the stars' drift and the drawings' sparks (each
+//! drawing's `space__pulses`: sparks along a trace or an axon, the flash of
+//! its line and a burst where it lands) are ambient motion, which is opt-in
+//! and off (`docs/subsystems/ui-and-theme.md`), so the drift is not
+//! applied and the sparks are not drawn (ADR-0057).
+//!
+//! # The drawings
+//!
+//! Each [`Drawing`] is an SVG drawing that the site places with CSS
+//! (`.space__art` and its two variants):
+//!
+//! - **Its box** is as tall as the window and as wide as its view box's
+//!   shape makes it ([`ViewBox`], 400 × 1000 user units for both of the
+//!   site's, whose `aspect-ratio: 2 / 5` is that shape), but at most
+//!   [`Drawing::max_width`] of the window's width (`height: 100%;
+//!   max-width: 40vw`): for the site's drawings, 0.4 times the smaller of
+//!   the window's height and width. It stands against the window's left or
+//!   right edge ([`Side`]).
+//! - **Its user units**, the coordinates of its shapes, are scaled to
+//!   cover the box (`preserveAspectRatio="… slice"`): by the larger of the
+//!   box's width and height over the view box's, which is the height's,
+//!   since the box is never wider than the view box's shape, so `YMid` has
+//!   nothing to centre. The view box's side is on the box's (`xMin` or
+//!   `xMax`). What falls outside the box is cut off. So a drawing, its
+//!   stroke widths too, scales with the window's height, and a window
+//!   narrower than 2:5 of its height shows less of it.
+//! - **Its shapes** are painted in order, each filled and then stroked in
+//!   the drawing's color at the shape's opacities ([`Shape`]) times the
+//!   color's alpha, each over the ones before it as SVG composites them.
+//! - **Its mask** keeps it whole from the box's side across
+//!   [`Drawing::mask_solid`] of its width, then fades it linearly to
+//!   transparent at the box's other edge (`linear-gradient(90deg, #000 40%,
+//!   transparent)`, `270deg` for the right side).
+//! - **Its opacity** is [`BackdropStyle::narrow_opacity`] in a window at
+//!   most [`BackdropStyle::narrow_width`] logical px wide (`@media
+//!   (max-width: 640px) { .space__art { opacity: 0.7 } }`), and 1 in a
+//!   wider one.
+//!
+//! # Limits
+//!
+//! A [`Drawing`] is the caller's data, so the work it asks for is bounded
+//! twice:
+//!
+//! - [`BackdropStyle::validate`] refuses a drawing of more than
+//!   [`MAX_SHAPES`] (1,024) shapes, a path of more than
+//!   [`MAX_PATH_COMMANDS`] (256) commands or a drawing of more than
+//!   [`MAX_DRAWING_COMMANDS`] (4,096) in all, and a stroke wider than the
+//!   longer side of its view box. The site's drawings have 62 and 106
+//!   shapes, at most 6 commands a path, 106 and 212 in all, and strokes at
+//!   most 2 user units wide in a view box 1,000 tall: each limit leaves
+//!   them nearly ten times the room or more (1,024 shapes for 106), the
+//!   strokes 500 times. The check reads the style only, before anything is
+//!   allocated.
+//! - Preparing a drawing at a size, which comes before any pixel is
+//!   allocated or drawn, stops with an error once it needs more than
+//!   [`MAX_PIECES`] (65,536) pieces, or more coverage tests (a piece's or
+//!   an element's test of a pixel it may reach) than [`MAX_TESTS_PER_PIXEL`]
+//!   (64) a pixel of the drawing's box, or [`MIN_TESTS`] (2^20) in a small
+//!   box. The site's drawings need at most 12,236 pieces, in a window of
+//!   16,384 px a side, and from 0.9 to 2.8 tests a pixel in windows from
+//!   480 × 300 to 16,384 px a side (up to 13 in a window of 40 × 100, well
+//!   under [`MIN_TESTS`]). So a drawing costs at most about 64 coverage
+//!   tests a pixel of its box, and its pieces at most 7.5 MiB.
+//!
+//! Why these numbers: the limits on the style keep `validate` and the
+//! flattening of curves short (at most 4,096 commands, each at most 512
+//! lines), and refuse a stroke so wide that each of its pieces reaches the
+//! whole box; the budgets bound what is left, the time and memory that
+//! depend on the window's size, with five times the room the site's
+//! drawings need at the largest window (12,236 pieces) and over 20 times
+//! at the others.
 //!
 //! # Approximations
 //!
@@ -49,37 +117,63 @@
 //! CPU, not to match a browser pixel for pixel:
 //!
 //! - **Arithmetic.** Each pixel is computed in `f64` with `+ − × ÷`,
-//!   `sqrt`, `floor`, `min`, `max` and `clamp` only (no `exp`, `erf` or
-//!   other libm functions), as premultiplied color from 0 to 1, and
-//!   rounded to bytes once, as `floor(v × 255 + 0.5)`, rather than after
-//!   each layer as a browser does, which keeps the faint layers from
-//!   banding.
-//! - **Sampling.** Gradients, the planet and the grid's mask are evaluated
-//!   at the pixel's centre; the grid's lines are box-filtered (below); the
-//!   star dots, smaller than a pixel, at a fixed 4 × 4 grid of points in
-//!   the pixel, averaged.
-//! - **Edges.** The planet's circle and ring are anti-aliased with a 1 px
-//!   linear ramp, `clamp(r − d + 0.5, 0, 1)` for a pixel centre `d` from
-//!   the centre; the ring is the ramp of its outer edge minus the planet's.
-//!   Where the planet's edge crosses a pixel, its outside layers and its
-//!   inside layers are mixed by that coverage, standing in for CSS's clip
-//!   of outer shadows to the outside of the box and of the background and
-//!   inset shadow to the inside.
-//! - **Blurred shadows.** A CSS blur radius `b` is a Gaussian of standard
-//!   deviation `σ = b / 2`. The planet is so much larger than its blurs
-//!   that its shadows are treated as blurred straight edges: the Gaussian's
-//!   integral across the edge is replaced by a smoothstep,
-//!   `3t² − 2t³` over `x` from `−2σ` to `2σ` (at least ±0.5 px), which is
-//!   within 0.03 of the true curve and reaches 0 and 1 at `∓2σ`, where
-//!   the true one is within 0.023 of them. The outer glow is
-//!   `smoothstep(R − d′)` for `d′` the distance from the shadow's offset
-//!   centre; the inner glow is `1 − smoothstep(R − d″)`.
+//!   `sqrt`, `abs`, `floor`, `ceil`, `min`, `max` and `clamp` only (no
+//!   `exp`, `erf` or other libm functions, and no `mul_add`), in a fixed
+//!   order, as premultiplied color from 0 to 1, and rounded to bytes once,
+//!   as `floor(v × 255 + 0.5)`, after the drawings are composited over the
+//!   layers below, rather than after each layer as a browser does, which
+//!   keeps the faint layers from banding.
+//! - **Sampling.** Gradients, the grid's mask, the drawings' masks and the
+//!   gradients of their halos are evaluated at the pixel's centre; the
+//!   grid's lines are box-filtered (below); the star dots, smaller than a
+//!   pixel, at a fixed 4 × 4 grid of points in the pixel, averaged.
 //! - **The grid.** Each pixel's coverage is the exact length of its row or
 //!   column that the lines cover (a box filter), so lines stay 1 CSS px
 //!   wide at any scale; the mask is evaluated at the pixel's centre.
+//! - **The drawings' edges.** A shape covers a pixel by a 1 px linear ramp
+//!   of its signed distance `d` (how far the pixel's centre is outside the
+//!   shape's edge, negative inside), `clamp(0.5 − d, 0, 1)`, as
+//!   [`raster::pill`](crate::raster::pill) does, not by its exact area.
+//!   Across a long straight stroke at least 1 px wide that runs along the
+//!   rows or the columns, the two leave the same ink (the sum of the
+//!   coverage). Across a slanted one they leave the same ink on average,
+//!   but a row's ink depends on where the stroke crosses its pixels: for a
+//!   stroke at 45°, from 0.91 to 1.12 times the exact ink at 1 px wide, and
+//!   from 0.975 to 1.02 times at 2 px.
+//! - **Thin strokes.** A stroke narrower than 1 device px is drawn 1 px
+//!   wide at its opacity times its width, where the ramp alone would
+//!   overstate its ink: so it leaves the ink a 1 px stroke does, times its
+//!   width, exact along the rows or the columns and right on average when
+//!   slanted, with the 1 px stroke's spread.
+//! - **Strokes.** A stroke is the union of a rect along each straight
+//!   piece, square at its ends, a disc at each corner (a round join), and
+//!   with round caps a disc at each end of a subpath. Its coverage of a
+//!   pixel is the largest of its parts', so where they overlap, as at every
+//!   corner, it is not counted twice: SVG strokes a path as one shape.
+//!   Corners are always joined round, as the site's traces ask
+//!   (`stroke-linejoin: round`); its other paths have no corners.
+//! - **Curves** are flattened into lines at equal steps of their parameter,
+//!   enough that no point of the curve is more than 1/32 px from them, from
+//!   1 to 512 lines a curve, and stroked as above.
+//! - **Rounded rects** have circular corners of radius `rx`, cut to half the
+//!   shorter side (SVG cuts `rx` and `ry` each to half its own side).
+//! - **Fills.** A path's fill is not drawn: the site's paths enclose
+//!   nothing. A radial gradient fades from the centre of the shape's
+//!   bounding box to its edge, times the shape's coverage.
+//! - **The box** cuts a drawing off at pixel centres. At its inner edge the
+//!   mask has faded to nearly nothing, and its outer edge is the window's.
 //! - **Colors.** The site's colors are 8-bit [`Color`]s, so an alpha such
 //!   as 0.022 is stored as `round(0.022 × 255) = 6`, which is 0.0235, as
-//!   [`Color::parse`] would read the CSS.
+//!   [`Color::parse`] would read the CSS, and `color-mix(in srgb,
+//!   var(--purple) 10%, transparent)` is `--purple` at an alpha of
+//!   `round(0.10 × 255) = 26`. The drawings' opacities stay numbers, as in
+//!   their CSS.
+//!
+//! The drawings are worked out a band of rows at a time, and only near
+//! each shape, but every piece of a shape is evaluated at the pixel's
+//! centre alone, so a pixel's bytes are the same whichever band it falls
+//! in; the tests check that against each pixel worked out on its own, and
+//! against every shape tested at every pixel.
 //!
 //! # The blurred copy
 //!
@@ -100,8 +194,18 @@ use crate::GfxError;
 use crate::clip::Edges;
 use crate::framebuffer::{BYTES_PER_PIXEL, Framebuffer, MAX_DIMENSION, zeroed};
 
+mod drawing;
+mod jabbott_dev;
+
 #[cfg(test)]
 mod tests;
+
+pub use drawing::{
+    Cap, Drawing, Fill, Geometry, MAX_DRAWING_COMMANDS, MAX_PATH_COMMANDS, MAX_PIECES, MAX_SHAPES,
+    MAX_TESTS_PER_PIXEL, MIN_TESTS, PathCommand, Shape, Side, Stroke, ViewBox,
+};
+
+use drawing::{ArtPaint, CIRCUITS, SYNAPSES};
 
 /// A `radial-gradient` of `.space`: an ellipse of color fading linearly to
 /// transparent.
@@ -121,58 +225,6 @@ pub struct Glow {
     /// Where the color has faded to transparent, as a fraction of the
     /// radius (`transparent 62%` is 0.62).
     pub fade_stop: f32,
-}
-
-/// A CSS `box-shadow` of the planet: offset, blur radius and color.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Shadow {
-    /// The horizontal offset, in CSS px.
-    pub offset_x: f32,
-    /// The vertical offset, in CSS px (down is positive).
-    pub offset_y: f32,
-    /// The blur radius, in CSS px: twice the Gaussian's standard
-    /// deviation.
-    pub blur: f32,
-    /// The color.
-    pub color: Color,
-}
-
-/// The planet, `.space__planet`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Planet {
-    /// The width and height of its box, in CSS px; it is a circle
-    /// (`border-radius: 50%`).
-    pub diameter: f32,
-    /// CSS `right`: from the backdrop's right edge in to the box's, in CSS
-    /// px (negative is past it).
-    pub right: f32,
-    /// CSS `top`: from the backdrop's top edge down to the box's, in CSS
-    /// px.
-    pub top: f32,
-    /// The fill gradient's centre x, as a fraction of the box (`50%`).
-    pub fill_center_x: f32,
-    /// The fill gradient's centre y, as a fraction of the box (`100%`).
-    pub fill_center_y: f32,
-    /// The fill's color at its centre (`0%`).
-    pub core_color: Color,
-    /// The fill's color at [`Planet::mid_stop`].
-    pub mid_color: Color,
-    /// Where the fill is [`Planet::mid_color`], as a fraction of its radius
-    /// (the distance to the box's farthest corner).
-    pub mid_stop: f32,
-    /// Where the fill has faded to transparent, as a fraction of its
-    /// radius.
-    pub fade_stop: f32,
-    /// The ring's color (`box-shadow: 0 0 0 1px …`).
-    pub ring_color: Color,
-    /// The ring's width (the shadow's spread), in CSS px.
-    pub ring_width: f32,
-    /// The outer glow, drawn outside the circle.
-    pub glow: Shadow,
-    /// The inner glow (an `inset` shadow), drawn inside the circle.
-    pub inner_glow: Shadow,
-    /// The whole planet's opacity, from 0 to 1.
-    pub opacity: f32,
 }
 
 /// A star dot: a tiny `radial-gradient` in the star tile.
@@ -227,16 +279,15 @@ pub struct Grid {
 /// [`BackdropStyle::jabbott_dev`] gives the site's. The theme
 /// (`tidepool_ui::theme`, M3.2) does not carry a backdrop style, nor do the
 /// controls' component tokens (M3.6, ADR-0049), so `gui` draws
-/// `jabbott_dev()`, whose `bg` a test of `gui` holds to the theme's.
-/// Equality lets the cache see a change of style.
+/// `jabbott_dev()`, whose `bg`, and its drawings' colors, a test of `gui`
+/// holds to the theme's `bg`, `bronze` and `purple` (ADR-0057). Equality
+/// lets the cache see a change of style.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackdropStyle {
     /// The color under everything (`var(--bg)`).
     pub bg: Color,
     /// The radial gradients, in CSS order: the first is painted on top.
     pub glows: Vec<Glow>,
-    /// The planet.
-    pub planet: Planet,
     /// The dots of both star layers.
     pub stars: Vec<Star>,
     /// CSS `inset` of the star layers, in CSS px: the tiles' origin is at
@@ -248,6 +299,16 @@ pub struct BackdropStyle {
     pub far_stars: StarTile,
     /// The grid.
     pub grid: Grid,
+    /// The circuits: the drawing at the left, painted over the grid.
+    pub circuits: Drawing,
+    /// The synapses: the drawing at the right, painted over the circuits.
+    pub synapses: Drawing,
+    /// The widest window, in logical px, in which both drawings are at
+    /// [`BackdropStyle::narrow_opacity`] (`@media (max-width: 640px)`).
+    pub narrow_width: f32,
+    /// The drawings' opacity in a window at most
+    /// [`BackdropStyle::narrow_width`] wide, from 0 to 1.
+    pub narrow_opacity: f32,
     /// The blur of translucent panels' backdrop, in CSS px: the Gaussian's
     /// standard deviation (`backdrop-filter: blur(10px)`).
     pub blur_radius: f32,
@@ -255,46 +316,49 @@ pub struct BackdropStyle {
 
 impl BackdropStyle {
     /// The backdrop of jabbott.dev, from its stylesheet
-    /// (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`; the
-    /// comments give its line numbers). Alphas are `round(A × 255)`, as
-    /// [`Color::parse`] reads `rgba(…)`.
+    /// (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`, at
+    /// commit 849b36e; the comments give its line numbers) and, for the
+    /// drawings' geometry, its `_includes/backdrop.html` at that commit.
+    /// Alphas are `round(A × 255)`, as [`Color::parse`] reads `rgba(…)`.
     pub fn jabbott_dev() -> Self {
-        // `rgba(92, 203, 203, A)`, the teal of the glows.
-        let teal = |a| Color::rgba(92, 203, 203, a);
         let white = |a| Color::rgba(255, 255, 255, a);
         let star = |x, y, radius, color| Star {
             x,
             y,
             radius,
             color,
-            // `transparent 60%` on every dot (lines 124–130).
+            // `transparent 60%` on every dot (lines 115–121).
             fade_stop: 0.6,
         };
         Self {
-            // `--bg: #0b0c0d` (line 5), `.space`'s last layer (line 105).
+            // `--bg: #0b0c0d` (line 5), `.space`'s last layer (line 109).
             bg: Color::rgb(0x0b, 0x0c, 0x0d),
             glows: vec![
-                // Line 102: `radial-gradient(1100px 620px at 85% -10%,
-                // rgba(92, 203, 203, 0.12), transparent 62%)`; 0.12 → 31.
+                // Line 106: `radial-gradient(800px 900px at 104% 35%,
+                // color-mix(in srgb, var(--purple) 10%, transparent),
+                // transparent 62%)`: `--purple`, #9a6bff (line 27), at
+                // 0.10 → 26.
                 Glow {
-                    color: teal(31),
-                    radius_x: 1100.0,
-                    radius_y: 620.0,
-                    center_x: 0.85,
-                    center_y: -0.10,
+                    color: Color::rgba(0x9a, 0x6b, 0xff, 26),
+                    radius_x: 800.0,
+                    radius_y: 900.0,
+                    center_x: 1.04,
+                    center_y: 0.35,
                     fade_stop: 0.62,
                 },
-                // Line 103: `radial-gradient(900px 520px at -8% 22%,
-                // rgba(242, 194, 0, 0.05), transparent 60%)`; 0.05 → 13.
+                // Line 107: `radial-gradient(800px 900px at -4% 60%,
+                // color-mix(in srgb, var(--bronze) 8%, transparent),
+                // transparent 62%)`: `--bronze`, #cd7f32 (line 25), at
+                // 0.08 → 20.
                 Glow {
-                    color: Color::rgba(242, 194, 0, 13),
-                    radius_x: 900.0,
-                    radius_y: 520.0,
-                    center_x: -0.08,
-                    center_y: 0.22,
-                    fade_stop: 0.60,
+                    color: Color::rgba(0xcd, 0x7f, 0x32, 20),
+                    radius_x: 800.0,
+                    radius_y: 900.0,
+                    center_x: -0.04,
+                    center_y: 0.60,
+                    fade_stop: 0.62,
                 },
-                // Line 104: `radial-gradient(1400px 900px at 50% 125%,
+                // Line 108: `radial-gradient(1400px 900px at 50% 125%,
                 // rgba(38, 70, 82, 0.4), transparent 62%)`; 0.4 → 102.
                 Glow {
                     color: Color::rgba(38, 70, 82, 102),
@@ -305,81 +369,47 @@ impl BackdropStyle {
                     fade_stop: 0.62,
                 },
             ],
-            planet: Planet {
-                // Line 110: `width: 1800px; height: 1800px`.
-                diameter: 1800.0,
-                // Line 111: `right: -620px; top: -1580px`.
-                right: -620.0,
-                top: -1580.0,
-                // Line 113: `radial-gradient(circle at 50% 100%, #182a30 0%,
-                // #0d1214 38%, transparent 62%)`.
-                fill_center_x: 0.5,
-                fill_center_y: 1.0,
-                core_color: Color::rgb(0x18, 0x2a, 0x30),
-                mid_color: Color::rgb(0x0d, 0x12, 0x14),
-                mid_stop: 0.38,
-                fade_stop: 0.62,
-                // Line 115: `0 0 0 1px rgba(143, 229, 229, 0.18)`; 0.18 → 46.
-                ring_color: Color::rgba(143, 229, 229, 46),
-                ring_width: 1.0,
-                // Line 116: `0 40px 140px rgba(92, 203, 203, 0.18)`.
-                glow: Shadow {
-                    offset_x: 0.0,
-                    offset_y: 40.0,
-                    blur: 140.0,
-                    color: teal(46),
-                },
-                // Line 117: `inset 0 -18px 60px rgba(92, 203, 203, 0.12)`.
-                inner_glow: Shadow {
-                    offset_x: 0.0,
-                    offset_y: -18.0,
-                    blur: 60.0,
-                    color: teal(31),
-                },
-                // Line 118: `opacity: 0.9`.
-                opacity: 0.9,
-            },
             stars: vec![
-                // Line 124: `1px 1px at 25px 35px, rgba(255,255,255,0.9)`.
+                // Line 115: `1px 1px at 25px 35px, rgba(255,255,255,0.9)`.
                 star(25.0, 35.0, 1.0, white(230)),
-                // Line 125: `1px 1px at 75px 125px, …0.55`.
+                // Line 116: `1px 1px at 75px 125px, …0.55`.
                 star(75.0, 125.0, 1.0, white(140)),
-                // Line 126: `1.6px 1.6px at 162px 62px,
+                // Line 117: `1.6px 1.6px at 162px 62px,
                 // rgba(205, 245, 255, 0.85)`.
                 star(162.0, 62.0, 1.6, Color::rgba(205, 245, 255, 217)),
-                // Line 127: `1px 1px at 214px 192px, …0.5`.
+                // Line 118: `1px 1px at 214px 192px, …0.5`.
                 star(214.0, 192.0, 1.0, white(128)),
-                // Line 128: `1px 1px at 118px 232px, …0.7`.
+                // Line 119: `1px 1px at 118px 232px, …0.7`.
                 star(118.0, 232.0, 1.0, white(179)),
-                // Line 129: `1.2px 1.2px at 272px 22px,
+                // Line 120: `1.2px 1.2px at 272px 22px,
                 // rgba(255, 236, 200, 0.7)`.
                 star(272.0, 22.0, 1.2, Color::rgba(255, 236, 200, 179)),
-                // Line 130: `1px 1px at 286px 148px, …0.45`.
+                // Line 121: `1px 1px at 286px 148px, …0.45`.
                 star(286.0, 148.0, 1.0, white(115)),
             ],
-            // Line 122: `inset: -260px`.
+            // Line 113: `inset: -260px`.
             star_inset: -260.0,
-            // Lines 131–132: `background-size: 300px 260px; opacity: 0.55`.
+            // Lines 122–123: `background-size: 300px 260px; opacity: 0.55`.
             near_stars: StarTile {
                 width: 300.0,
                 height: 260.0,
                 opacity: 0.55,
             },
-            // Lines 137–138: `background-size: 190px 170px; opacity: 0.28`.
+            // Lines 128–129: `background-size: 190px 170px; opacity: 0.28`.
             far_stars: StarTile {
                 width: 190.0,
                 height: 170.0,
                 opacity: 0.28,
             },
             grid: Grid {
-                // Line 147: `background-size: 64px 64px`.
+                // Line 138: `background-size: 64px 64px`.
                 cell: 64.0,
-                // Lines 145–146: `linear-gradient(rgba(255, 255, 255, 0.022)
+                // Lines 136–137: `linear-gradient(rgba(255, 255, 255, 0.022)
                 // 1px, transparent 1px)`, once down and once across;
                 // 0.022 → 6.
                 line_width: 1.0,
                 color: white(6),
-                // Line 149: `radial-gradient(ellipse 80% 60% at 50% 0%,
+                // Line 140: `radial-gradient(ellipse 80% 60% at 50% 0%,
                 // #000 0%, transparent 75%)`.
                 mask_radius_x: 0.8,
                 mask_radius_y: 0.6,
@@ -387,18 +417,37 @@ impl BackdropStyle {
                 mask_center_y: 0.0,
                 mask_fade_stop: 0.75,
             },
-            // Lines 311–312: `.panel { backdrop-filter: blur(10px) }`.
+            // Lines 150–185, and the include's two `<svg>`s.
+            circuits: jabbott_dev::circuits(),
+            synapses: jabbott_dev::synapses(),
+            // Lines 1546 and 1549: `@media (max-width: 640px) {
+            // .space__art { opacity: 0.7 } }`.
+            narrow_width: 640.0,
+            narrow_opacity: 0.7,
+            // Lines 420 and 425: `.panel { backdrop-filter: blur(10px) }`.
             blur_radius: 10.0,
         }
     }
 
     /// Checks every value: all are finite; sizes, radii, widths, blurs and
-    /// stops are not negative; opacities are from 0 to 1. Positions and
-    /// offsets may be negative.
+    /// stops are not negative; opacities, and the fraction of a drawing's
+    /// box its mask keeps whole, are from 0 to 1. Positions, offsets and
+    /// coordinates may be negative.
+    ///
+    /// It also checks the drawings' limits ([below](self#limits)): each has
+    /// at most [`MAX_SHAPES`] shapes, each path at most
+    /// [`MAX_PATH_COMMANDS`] commands, and the drawing at most
+    /// [`MAX_DRAWING_COMMANDS`] in all; and no stroke is wider than the
+    /// longer side of its drawing's view box. It reads the style only, so
+    /// it allocates nothing and takes time in proportion to the style's
+    /// size.
     ///
     /// # Errors
     ///
-    /// [`GfxError::InvalidStyle`] naming the first field that is not.
+    /// [`GfxError::InvalidStyle`] naming the first field that is not, or
+    /// that is over its limit: a drawing's `shapes` with the index
+    /// [`MAX_SHAPES`] for too many shapes, and the shape's `geometry` for a
+    /// path that brings too many commands.
     pub fn validate(&self) -> Result<(), GfxError> {
         use Rule::{Finite, NonNegative, Opacity};
         for (index, glow) in self.glows.iter().enumerate() {
@@ -408,38 +457,6 @@ impl BackdropStyle {
             check(glow.center_x, "glows.center_x", index, Finite)?;
             check(glow.center_y, "glows.center_y", index, Finite)?;
             check(glow.fade_stop, "glows.fade_stop", index, NonNegative)?;
-        }
-        let planet = &self.planet;
-        for (value, field, rule) in [
-            (planet.diameter, "planet.diameter", NonNegative),
-            (planet.right, "planet.right", Finite),
-            (planet.top, "planet.top", Finite),
-            (planet.fill_center_x, "planet.fill_center_x", Finite),
-            (planet.fill_center_y, "planet.fill_center_y", Finite),
-            (planet.mid_stop, "planet.mid_stop", NonNegative),
-            (planet.fade_stop, "planet.fade_stop", NonNegative),
-            (planet.ring_width, "planet.ring_width", NonNegative),
-            (planet.glow.offset_x, "planet.glow.offset_x", Finite),
-            (planet.glow.offset_y, "planet.glow.offset_y", Finite),
-            (planet.glow.blur, "planet.glow.blur", NonNegative),
-            (
-                planet.inner_glow.offset_x,
-                "planet.inner_glow.offset_x",
-                Finite,
-            ),
-            (
-                planet.inner_glow.offset_y,
-                "planet.inner_glow.offset_y",
-                Finite,
-            ),
-            (
-                planet.inner_glow.blur,
-                "planet.inner_glow.blur",
-                NonNegative,
-            ),
-            (planet.opacity, "planet.opacity", Opacity),
-        ] {
-            check(value, field, None, rule)?;
         }
         for (index, star) in self.stars.iter().enumerate() {
             let index = Some(index);
@@ -464,6 +481,14 @@ impl BackdropStyle {
             (grid.mask_center_x, "grid.mask_center_x", Finite),
             (grid.mask_center_y, "grid.mask_center_y", Finite),
             (grid.mask_fade_stop, "grid.mask_fade_stop", NonNegative),
+        ] {
+            check(value, field, None, rule)?;
+        }
+        self.circuits.validate(&CIRCUITS)?;
+        self.synapses.validate(&SYNAPSES)?;
+        for (value, field, rule) in [
+            (self.narrow_width, "narrow_width", NonNegative),
+            (self.narrow_opacity, "narrow_opacity", Opacity),
             (self.blur_radius, "blur_radius", NonNegative),
         ] {
             check(value, field, None, rule)?;
@@ -544,9 +569,14 @@ impl Backdrop {
     /// The cache is unchanged if it fails:
     ///
     /// - [`GfxError::InvalidStyle`] if `style` does not
-    ///   [validate](BackdropStyle::validate).
+    ///   [validate](BackdropStyle::validate), or if a drawing would take
+    ///   more than its budget at this size ([`MAX_PIECES`] pieces, or more
+    ///   coverage tests than [`MAX_TESTS_PER_PIXEL`] a pixel of its box and
+    ///   [`MIN_TESTS`]), naming the drawing's shape at which it ran out;
+    ///   that is found before any pixel is allocated or drawn.
     /// - The errors of [`Framebuffer::new`] for `size`.
-    /// - [`GfxError::OutOfMemory`] for the blurred copy or its buffers.
+    /// - [`GfxError::OutOfMemory`] for the blurred copy, the drawings'
+    ///   shapes or the buffers.
     pub fn ensure(
         &mut self,
         size: DeviceSize,
@@ -561,8 +591,8 @@ impl Backdrop {
             return Ok(false);
         }
         style.validate()?;
+        let painter = Painter::new(size, scale, style)?;
         let mut base = Framebuffer::new(size)?;
-        let painter = Painter::new(size, scale, style);
         render(&mut base, &painter)?;
         let mut blurred = base.try_clone()?;
         let sigma = (f64::from(style.blur_radius) * f64::from(scale.factor())).min(MAX_SIGMA);
@@ -632,11 +662,6 @@ fn plus(a: Rgba, b: Rgba) -> Rgba {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
 }
 
-/// From `a` at 0 to `b` at 1.
-fn lerp(a: Rgba, b: Rgba, t: f64) -> Rgba {
-    plus(times(a, 1.0 - t), times(b, t))
-}
-
 /// As pixel bytes in memory order, `floor(v × 255 + 0.5)` each, with no
 /// color channel above alpha.
 fn to_bgra(color: Rgba) -> [u8; 4] {
@@ -649,21 +674,6 @@ fn to_bgra(color: Rgba) -> [u8; 4] {
         channel(color[0]),
         alpha,
     ]
-}
-
-/// The blurred-edge approximation of the
-/// [module documentation](self#approximations): how much of a shape
-/// blurred with standard deviation `sigma` covers a point `x` inside its
-/// edge (negative outside).
-fn edge(x: f64, sigma: f64) -> f64 {
-    let reach = (2.0 * sigma).max(0.5);
-    let t = ((x + reach) / (2.0 * reach)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-/// A 1 px anti-aliasing ramp for a point `x` inside an edge.
-fn ramp(x: f64) -> f64 {
-    (x + 0.5).clamp(0.0, 1.0)
 }
 
 /// How much of an elliptical gradient's color is left at (`dx`, `dy`) from
@@ -709,164 +719,6 @@ struct GlowPaint {
     stop: f64,
 }
 
-/// The planet in device pixels.
-#[derive(Debug)]
-struct PlanetPaint {
-    /// Beyond this distance from the centre nothing of the planet shows.
-    reach: f64,
-    center_x: f64,
-    center_y: f64,
-    radius: f64,
-    ring_radius: f64,
-    ring: Rgba,
-    fill_x: f64,
-    fill_y: f64,
-    fill_radius: f64,
-    core: Rgba,
-    mid: Rgba,
-    mid_stop: f64,
-    fade_stop: f64,
-    glow: Rgba,
-    glow_x: f64,
-    glow_y: f64,
-    glow_sigma: f64,
-    inner: Rgba,
-    inner_x: f64,
-    inner_y: f64,
-    inner_sigma: f64,
-    opacity: f64,
-}
-
-impl PlanetPaint {
-    fn new(planet: &Planet, width: f64, scale: f64) -> Self {
-        let diameter = f64::from(planet.diameter) * scale;
-        let radius = diameter / 2.0;
-        let left = width - (f64::from(planet.right) + f64::from(planet.diameter)) * scale;
-        let top = f64::from(planet.top) * scale;
-        let (center_x, center_y) = (left + radius, top + radius);
-        let fill_x = left + f64::from(planet.fill_center_x) * diameter;
-        let fill_y = top + f64::from(planet.fill_center_y) * diameter;
-        // `farthest-corner`: the distance to the box's farthest corner.
-        let far_x = (fill_x - left).abs().max((left + diameter - fill_x).abs());
-        let far_y = (fill_y - top).abs().max((top + diameter - fill_y).abs());
-        let fill_radius = (far_x * far_x + far_y * far_y).sqrt();
-        let ring_radius = radius + f64::from(planet.ring_width) * scale;
-        let shadow = |shadow: &Shadow| {
-            (
-                center_x + f64::from(shadow.offset_x) * scale,
-                center_y + f64::from(shadow.offset_y) * scale,
-                f64::from(shadow.blur) / 2.0 * scale,
-            )
-        };
-        let (glow_x, glow_y, glow_sigma) = shadow(&planet.glow);
-        let (inner_x, inner_y, inner_sigma) = shadow(&planet.inner_glow);
-        // The glow shows while `R − d′ > −max(2σ, 0.5)`, and `d′` is at
-        // least `d` less the offset, whose length is at most the sum of its
-        // two sides; the ring and the circle show within half a pixel.
-        let glow_offset = (glow_x - center_x).abs() + (glow_y - center_y).abs();
-        let reach = if diameter > 0.0 {
-            (radius + (2.0 * glow_sigma).max(0.5) + glow_offset).max(ring_radius + 0.5) + 1.0
-        } else {
-            // Nothing shows.
-            0.0
-        };
-        Self {
-            reach,
-            center_x,
-            center_y,
-            radius,
-            ring_radius,
-            ring: premultiply(planet.ring_color),
-            fill_x,
-            fill_y,
-            fill_radius,
-            core: premultiply(planet.core_color),
-            mid: premultiply(planet.mid_color),
-            mid_stop: f64::from(planet.mid_stop),
-            fade_stop: f64::from(planet.fade_stop).max(f64::from(planet.mid_stop)),
-            glow: premultiply(planet.glow.color),
-            glow_x,
-            glow_y,
-            glow_sigma,
-            inner: premultiply(planet.inner_glow.color),
-            inner_x,
-            inner_y,
-            inner_sigma,
-            opacity: f64::from(planet.opacity),
-        }
-    }
-
-    /// The fill gradient at `t` of its radius.
-    fn fill(&self, t: f64) -> Rgba {
-        if t <= 0.0 {
-            self.core
-        } else if t < self.mid_stop {
-            lerp(self.core, self.mid, t / self.mid_stop)
-        } else if t < self.fade_stop {
-            lerp(
-                self.mid,
-                CLEAR,
-                (t - self.mid_stop) / (self.fade_stop - self.mid_stop),
-            )
-        } else {
-            CLEAR
-        }
-    }
-
-    /// The planet at the point (`x`, `y`) over `below`.
-    fn paint(&self, x: f64, y: f64, below: Rgba) -> Rgba {
-        let distance = |cx: f64, cy: f64| {
-            let (dx, dy) = (x - cx, y - cy);
-            (dx * dx + dy * dy).sqrt()
-        };
-        let (dx, dy) = (x - self.center_x, y - self.center_y);
-        let squared = dx * dx + dy * dy;
-        if self.reach <= 0.0
-            || self.opacity <= 0.0
-            || squared.is_nan()
-            || squared >= self.reach * self.reach
-        {
-            return below;
-        }
-        let d = squared.sqrt();
-        let inside = ramp(self.radius - d);
-        // Each side is skipped where it is weighed by exactly 0, which
-        // gives the same result as computing it.
-        let outside = if inside < 1.0 {
-            // Outside the circle: the ring over the outer glow.
-            let glow = times(
-                self.glow,
-                edge(
-                    self.radius - distance(self.glow_x, self.glow_y),
-                    self.glow_sigma,
-                ),
-            );
-            let ring = times(self.ring, ramp(self.ring_radius - d));
-            over(ring, glow)
-        } else {
-            CLEAR
-        };
-        let within = if inside > 0.0 {
-            // Inside: the inner glow over the fill.
-            let t = if self.fill_radius > 0.0 {
-                distance(self.fill_x, self.fill_y) / self.fill_radius
-            } else {
-                0.0
-            };
-            let inner_amount = 1.0
-                - edge(
-                    self.radius - distance(self.inner_x, self.inner_y),
-                    self.inner_sigma,
-                );
-            over(times(self.inner, inner_amount), self.fill(t))
-        } else {
-            CLEAR
-        };
-        let planet = plus(times(outside, 1.0 - inside), times(within, inside));
-        over(times(planet, self.opacity), below)
-    }
-}
-
 /// A star in CSS px, with the distance past which it is clear.
 #[derive(Debug)]
 struct StarPaint {
@@ -906,16 +758,21 @@ struct Painter {
     bg: Rgba,
     /// In painting order: the last listed first.
     glows: Vec<GlowPaint>,
-    planet: PlanetPaint,
     stars: Vec<StarPaint>,
     inset: f64,
     near: TilePaint,
     far: TilePaint,
     grid: GridPaint,
+    /// The circuits and then the synapses, in painting order.
+    drawings: [ArtPaint; 2],
 }
 
 /// The fixed supersampling pattern for stars: 4 × 4 points in a pixel.
 const SAMPLES: usize = 4;
+
+/// How many rows [`render`] works the drawings out for at a time: at most
+/// 32 × 16,384 `f64`s, 4 MiB, a buffer.
+const BAND: i64 = 32;
 
 /// What a row of pixels shares: which layers can reach it, and the terms
 /// of its gradients that depend only on y.
@@ -927,7 +784,6 @@ struct Row {
     /// Each glow's vertical term, `(y − cy) / ry`, or `None` if the glow
     /// cannot reach the row.
     glows: Vec<Option<f64>>,
-    planet: bool,
     near: bool,
     far: bool,
     /// How much of the row the grid's horizontal lines cover.
@@ -945,7 +801,7 @@ struct Columns {
 }
 
 impl Painter {
-    fn new(size: DeviceSize, scale: Scale, style: &BackdropStyle) -> Self {
+    fn new(size: DeviceSize, scale: Scale, style: &BackdropStyle) -> Result<Self, GfxError> {
         let s = f64::from(scale.factor());
         let (width, height) = (f64::from(size.width.max(0)), f64::from(size.height.max(0)));
         let glows = style
@@ -983,11 +839,17 @@ impl Painter {
         };
         let grid = &style.grid;
         let period = f64::from(grid.cell) * s;
-        Self {
+        // `max-width: 640px` holds for a window at most that wide, in
+        // logical px as the rest of Tidepool converts them.
+        let opacity = if scale.to_logical(size).width <= style.narrow_width {
+            f64::from(style.narrow_opacity)
+        } else {
+            1.0
+        };
+        Ok(Self {
             scale: s,
             bg: premultiply(style.bg),
             glows,
-            planet: PlanetPaint::new(&style.planet, width, s),
             stars,
             inset: f64::from(style.star_inset),
             near: tile(&style.near_stars),
@@ -1002,7 +864,11 @@ impl Painter {
                 mask_radius_y: f64::from(grid.mask_radius_y) * height,
                 mask_stop: f64::from(grid.mask_fade_stop),
             },
-        }
+            drawings: [
+                ArtPaint::new(&style.circuits, &CIRCUITS, size, opacity)?,
+                ArtPaint::new(&style.synapses, &SYNAPSES, size, opacity)?,
+            ],
+        })
     }
 
     /// The pixel at column `x` and row `y`, as bytes in memory order: what
@@ -1013,7 +879,11 @@ impl Painter {
         let mut columns = Columns::default();
         self.fill_row(&mut row, y).expect("a few values");
         self.fill_columns(&mut columns, x, 1).expect("one column");
-        self.shade(&row, &columns, x)
+        let alphas = self
+            .drawings
+            .each_ref()
+            .map(|drawing| drawing.alpha_at(x, y));
+        self.finish(x, self.shade(&row, &columns, x), alphas)
     }
 
     /// Sets `row` up for row `y`.
@@ -1032,10 +902,6 @@ impl Painter {
             let visible = glow.radius_x > 0.0 && glow.radius_y > 0.0 && glow.stop > 0.0;
             (visible && v.abs() < glow.stop).then_some(v)
         }));
-        let planet = &self.planet;
-        row.planet = planet.reach > 0.0
-            && planet.opacity > 0.0
-            && (centre - planet.center_y).abs() < planet.reach;
         row.near = self.stars_may_reach(y, &self.near);
         row.far = self.stars_may_reach(y, &self.far);
         row.down = self.grid.coverage(y);
@@ -1077,8 +943,9 @@ impl Painter {
         Ok(())
     }
 
-    /// The pixel at column `x` of `row`, whose column terms `columns` holds.
-    fn shade(&self, row: &Row, columns: &Columns, x: i64) -> [u8; 4] {
+    /// The layers under the drawings at column `x` of `row`, whose column
+    /// terms `columns` holds.
+    fn shade(&self, row: &Row, columns: &Columns, x: i64) -> Rgba {
         let index = usize::try_from(x - columns.first).unwrap_or(usize::MAX);
         let mut color = self.bg;
         for (number, (glow, v)) in self.glows.iter().zip(&row.glows).enumerate() {
@@ -1098,9 +965,6 @@ impl Painter {
             }
         }
         let centre_x = x as f64 + 0.5;
-        if row.planet {
-            color = self.planet.paint(centre_x, row.centre, color);
-        }
         if row.near {
             color = self.stars(x, row.y, &self.near, color);
         }
@@ -1110,6 +974,19 @@ impl Painter {
         let across = columns.grid.get(index).copied().unwrap_or(0.0);
         if across > 0.0 || row.down > 0.0 {
             color = self.grid(centre_x, row.centre, across, row.down, color);
+        }
+        color
+    }
+
+    /// The pixel at column `x`, as bytes in memory order: the drawings,
+    /// whose alphas there are `alphas` (before their masks and opacity),
+    /// over `below`.
+    fn finish(&self, x: i64, below: Rgba, alphas: [f64; 2]) -> [u8; 4] {
+        let mut color = below;
+        for (drawing, alpha) in self.drawings.iter().zip(alphas) {
+            if alpha > 0.0 {
+                color = over(times(drawing.color, alpha * drawing.weight(x)), color);
+            }
         }
         to_bgra(color)
     }
@@ -1220,23 +1097,68 @@ fn near_in_tile(local: f64, star: f64, size: f64, reach: f64) -> bool {
     gap < reach
 }
 
-/// Fills `fb` with the backdrop, row by row.
+/// Fills `fb` with the backdrop, a band of [`BAND`] rows at a time: the
+/// drawings' alphas for the band, then each row.
 fn render(fb: &mut Framebuffer, painter: &Painter) -> Result<(), GfxError> {
     let bounds = fb.bounds();
     let edges = Edges::of(bounds);
     let mut columns = Columns::default();
     painter.fill_columns(&mut columns, 0, usize::try_from(edges.width()).unwrap_or(0))?;
     let mut row = Row::default();
-    for y in edges.top..edges.bottom {
-        painter.fill_row(&mut row, y - edges.top)?;
-        let Some((first, span)) = fb.span_mut(bounds, y, edges.left, edges.right) else {
-            continue;
-        };
-        for (x, pixel) in
-            (first - edges.left..).zip(span.as_chunks_mut::<BYTES_PER_PIXEL>().0.iter_mut())
-        {
-            pixel.copy_from_slice(&painter.shade(&row, &columns, x));
+    // The drawings' alphas for a band, each across its own box's columns,
+    // and room for them to work in.
+    let widths = painter
+        .drawings
+        .each_ref()
+        .map(|drawing| usize::try_from(drawing.window.width()).unwrap_or(0));
+    let band_len = |width: usize| width.saturating_mul(BAND as usize);
+    let mut alphas = [
+        zeroed::<f64>(band_len(widths[0]))?,
+        zeroed::<f64>(band_len(widths[1]))?,
+    ];
+    let mut scratch = zeroed::<f64>(band_len(widths[0].max(widths[1])))?;
+    let height = edges.height();
+    let mut band_top = 0;
+    while band_top < height {
+        let band_bottom = (band_top + BAND).min(height);
+        for (drawing, alpha) in painter.drawings.iter().zip(&mut alphas) {
+            let window = Edges {
+                top: band_top,
+                bottom: band_bottom,
+                ..drawing.window
+            };
+            drawing.fill_window(window, alpha, &mut scratch);
         }
+        for y in band_top..band_bottom {
+            painter.fill_row(&mut row, y)?;
+            let Some((first, span)) = fb.span_mut(bounds, edges.top + y, edges.left, edges.right)
+            else {
+                continue;
+            };
+            // Each drawing's alphas for this row.
+            let offset = usize::try_from(y - band_top).unwrap_or(0);
+            let rows = [0, 1].map(|index| {
+                let start = offset.saturating_mul(widths[index]);
+                alphas[index]
+                    .get(start..start.saturating_add(widths[index]))
+                    .unwrap_or(&[])
+            });
+            for (x, pixel) in
+                (first - edges.left..).zip(span.as_chunks_mut::<BYTES_PER_PIXEL>().0.iter_mut())
+            {
+                let drawn = [0, 1].map(|index| {
+                    let window = painter.drawings[index].window;
+                    if x < window.left || x >= window.right {
+                        return 0.0;
+                    }
+                    let column = usize::try_from(x - window.left).unwrap_or(usize::MAX);
+                    rows[index].get(column).copied().unwrap_or(0.0)
+                });
+                let below = painter.shade(&row, &columns, x);
+                pixel.copy_from_slice(&painter.finish(x, below, drawn));
+            }
+        }
+        band_top = band_bottom;
     }
     Ok(())
 }

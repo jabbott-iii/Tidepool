@@ -79,12 +79,14 @@ pub enum GfxError {
     },
     /// A value of a [`BackdropStyle`](crate::backdrop::BackdropStyle) is
     /// not finite, or is negative where it cannot be, or is an opacity
-    /// above 1.
+    /// above 1, or is over one of the drawings' limits
+    /// ([`backdrop`](crate::backdrop#limits)).
     InvalidStyle {
-        /// The field, as a path from the style: `planet.glow.blur`.
+        /// The field, as a path from the style: `grid.cell`, or
+        /// `circuits.shapes.stroke.width`.
         field: &'static str,
         /// The index in the list, for a field of an element of one
-        /// (`glows`, `stars`).
+        /// (`glows`, `stars`, or a drawing's `shapes`).
         index: Option<usize>,
     },
 }
@@ -130,11 +132,29 @@ impl fmt::Display for GfxError {
             }
             Self::InvalidStyle { field, index } => {
                 f.write_str("the backdrop style's ")?;
-                match (field.split_once('.'), index) {
-                    (Some((list, rest)), Some(index)) => write!(f, "{list}[{index}].{rest}")?,
+                // The index is the element's in the list the field is in:
+                // a drawing's `shapes`, or else the path's first part.
+                let list_end = if field.ends_with(".shapes") {
+                    Some(field.len())
+                } else {
+                    field
+                        .find(".shapes.")
+                        .map(|at| at + ".shapes".len())
+                        .or_else(|| field.find('.'))
+                };
+                match (list_end, index) {
+                    (Some(end), Some(index)) => {
+                        let (list, rest) = (
+                            field.get(..end).unwrap_or(field),
+                            field.get(end..).unwrap_or_default(),
+                        );
+                        write!(f, "{list}[{index}]{rest}")?;
+                    }
                     _ => f.write_str(field)?,
                 }
-                f.write_str(" is not finite, is negative, or is an opacity above 1")
+                f.write_str(
+                    " is not finite, is negative, is an opacity above 1, or is over its limit",
+                )
             }
         }
     }
@@ -186,15 +206,31 @@ mod tests {
                     index: Some(2),
                 },
                 "the backdrop style's glows[2].radius_x is not finite, is negative, \
-                 or is an opacity above 1",
+                 is an opacity above 1, or is over its limit",
             ),
             (
                 GfxError::InvalidStyle {
-                    field: "planet.glow.blur",
+                    field: "circuits.shapes.stroke.width",
+                    index: Some(4),
+                },
+                "the backdrop style's circuits.shapes[4].stroke.width is not finite, is \
+                 negative, is an opacity above 1, or is over its limit",
+            ),
+            (
+                GfxError::InvalidStyle {
+                    field: "synapses.shapes",
+                    index: Some(1024),
+                },
+                "the backdrop style's synapses.shapes[1024] is not finite, is negative, \
+                 is an opacity above 1, or is over its limit",
+            ),
+            (
+                GfxError::InvalidStyle {
+                    field: "grid.cell",
                     index: None,
                 },
-                "the backdrop style's planet.glow.blur is not finite, is negative, \
-                 or is an opacity above 1",
+                "the backdrop style's grid.cell is not finite, is negative, is an \
+                 opacity above 1, or is over its limit",
             ),
         ];
         for (error, message) in cases {

@@ -3798,3 +3798,68 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** users report lost clicks after dialogs open or
   close; or a platform reports pointer positions coarser or finer than
   device pixels.
+
+## ADR-0057 — The IDE's backdrop follows jabbott.dev's circuits and synapses, drawn still; the theme gains bronze and purple
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - On 2026-11-23 (UTC), jabbott.dev changed its backdrop (`.space`, in
+    the commit "feat(layout): replace the backdrop planet with circuits
+    and synapses" of `jabbott-iii/jabbott-iii.github.io`):
+    - The planet is gone.
+    - Of the three radial gradients, the teal one at the top right
+      became purple at the right (800 × 900 px at 104% 35%, `--purple`
+      at 10%), and the gold one at the left became bronze (800 × 900 px
+      at −4% 60%, `--bronze` at 8%). The third, the stars, and the grid
+      are as they were.
+    - Two inline SVG drawings, 400 × 1000 units each, are new: bronze
+      circuit traces, pads, and a chip on the left, and a purple network
+      of nerve cells on the right, its axons, dendrites, and cells with
+      their halos. Each is as tall as the window and 2:5 wide, at most
+      40% of its width, and fades toward the middle under a linear mask.
+      The stroke widths and opacities keep `text-2` body text at 4.5:1
+      over them, and they are at 70% opacity on screens at most 640 px
+      wide.
+    - Sparks run along a trace or from cell to cell every 8 to 11
+      seconds; reduced motion hides them.
+    - Four tokens are new: `--bronze` `#cd7f32`, `--bronze-hi` `#ffc98f`,
+      `--purple` `#9a6bff`, and `--purple-hi` `#e3d6ff`.
+  - `tidepool-gfx`'s backdrop (M2.3, ADR-0011) draws the site's old
+    `.space`, planet included, behind the first frame and the empty editor
+    area. The theme mirrors the site's tokens, `green`, `rust`, and
+    `violet` among them (ADR-0047). Ambient motion is off by default and
+    has no task yet. The first frame must come within 300 ms of a cold
+    start (`docs/00-overview.md`), and the backdrop is drawn before it.
+  - The user chose the recommended option of each on 2026-11-22: "Follow
+    it, drawn still" and "Add all four".
+- **Decision:**
+  - **The backdrop follows the site's new `.space`, drawn still.**
+    `BackdropStyle::jabbott_dev` takes the two recolored gradients, drops
+    the planet, and draws both drawings with the site's geometry
+    (`_includes/backdrop.html`), stroke widths, opacities, sizes, and
+    masks, dimmed to 70% in a window at most 640 logical px wide. The
+    sparks are not drawn: they are motion, which waits for ambient motion.
+  - **The theme gains `bronze`, `bronze-hi`, `purple`, and `purple-hi`**,
+    with the site's values. No widget uses them yet. The backdrop keeps its
+    own colors in `BackdropStyle`, as `gfx` sits below `ui`.
+  - **The budget holds.** The backdrop and its blurred copy stay within the
+    first frame's 300 ms, measured as M2.6 measured them.
+- **Consequences:**
+  - The backdrop's golden scenes, and any scene drawn over it, change, and
+    are blessed again once the user has looked at them.
+  - The backdrop draws strokes and curves, which it did not before, with
+    the same rule of identical bytes on every CPU.
+  - `gfx`'s public `Planet` type goes, a break in `gfx`'s API, which only
+    `gui` and the tests use.
+  - The theme format stays version 1, as ADR-0049 kept it for its tokens,
+    since Tidepool loads no user theme yet: a theme file without the four
+    new tokens is refused, naming the first one missing.
+- **Alternatives considered:**
+  - The sparks too, while ambient motion is on: they need the app's
+    timers (M3.4) and a redraw of part of the cached backdrop every frame.
+  - Keeping the planet: the IDE would no longer look like the site.
+  - The tokens only once a widget needs them: the theme would stop
+    mirroring the site's tokens.
+- **Revisit when:** ambient motion gets a task (the sparks); the site's
+  backdrop changes again; or the first frame misses its budget.

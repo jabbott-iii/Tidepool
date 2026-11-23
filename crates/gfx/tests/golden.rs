@@ -741,8 +741,8 @@ fn backdrop_scene(width: i32, height: i32, scale: f32) -> Framebuffer {
         opaque(TEAL),
     );
     clips.pop();
-    // The blurred copy alone, in a band at the bottom left, where the
-    // planet's rim crosses at scale 1.
+    // The blurred copy alone, in a band at the bottom left, over the
+    // edge of the circuits.
     let band = DeviceRect::new(width / 16, height * 5 / 8, width * 3 / 8, height / 4);
     clips.push(band);
     image::copy(

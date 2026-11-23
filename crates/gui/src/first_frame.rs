@@ -387,7 +387,12 @@ mod tests {
         // draws `gfx`'s jabbott.dev style: its `bg` must stay the token
         // that `cargo xtask theme` measures text against.
         let theme = Theme::tidepool_dark();
-        assert_eq!(BackdropStyle::jabbott_dev().bg, theme.color(Token::Bg));
+        let style = BackdropStyle::jabbott_dev();
+        assert_eq!(style.bg, theme.color(Token::Bg));
+        // Its drawings keep their own colors too, which are the theme's
+        // `bronze` and `purple` (ADR-0057).
+        assert_eq!(style.circuits.color, theme.color(Token::Bronze));
+        assert_eq!(style.synapses.color, theme.color(Token::Purple));
     }
 
     #[test]

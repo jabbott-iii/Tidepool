@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050 and M3.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7 and ADR-0057. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -3121,9 +3121,18 @@ classDiagram
 ### 25.2 The backdrop and its style
 
 `BackdropStyle` holds jabbott.dev's `.space` layers as data, and
-`BackdropStyle::jabbott_dev()` the site's values. `Backdrop` is the cache:
-`ensure` renders the backdrop and its box-blurred copy when the size, the
-scale or the style differs from its `Key`, and says whether it did.
+`BackdropStyle::jabbott_dev()` the site's values (ADR-0057). Over the
+background, its radial gradients, its two star tiles, and its grid, the
+backdrop paints two still drawings, each a `Drawing`: the circuits
+(bronze traces, pads, and a chip, at the left) and the synapses (a purple
+network of nerve cells, at the right). A drawing is shapes in one color,
+in a box as tall as the window against one of its sides, faded toward the
+middle by a mask; each `Shape` is a path, a circle, or a rounded rect,
+filled and then stroked as SVG paints it. In a window at most
+`narrow_width` logical px wide both drawings are at `narrow_opacity`.
+`Backdrop` is the cache: `ensure` renders the backdrop and its box-blurred
+copy when the size, the scale or the style differs from its `Key`, and
+says whether it did.
 
 ```mermaid
 classDiagram
@@ -3145,12 +3154,15 @@ classDiagram
     class BackdropStyle["backdrop::BackdropStyle"] {
         +bg: Color
         +glows: Vec~Glow~
-        +planet: Planet
         +stars: Vec~Star~
         +star_inset: f32
         +near_stars: StarTile
         +far_stars: StarTile
         +grid: Grid
+        +circuits: Drawing
+        +synapses: Drawing
+        +narrow_width: f32
+        +narrow_opacity: f32
         +blur_radius: f32
         +jabbott_dev() BackdropStyle
         +validate() Result
@@ -3162,23 +3174,6 @@ classDiagram
         +center_x: f32
         +center_y: f32
         +fade_stop: f32
-    }
-    class Planet["backdrop::Planet"] {
-        +diameter: f32
-        +right: f32
-        +top: f32
-        +core_color: Color
-        +mid_color: Color
-        +ring_color: Color
-        +glow: Shadow
-        +inner_glow: Shadow
-        +opacity: f32
-    }
-    class Shadow["backdrop::Shadow"] {
-        +offset_x: f32
-        +offset_y: f32
-        +blur: f32
-        +color: Color
     }
     class Star["backdrop::Star"] {
         +x: f32
@@ -3198,23 +3193,129 @@ classDiagram
         +color: Color
         +mask_fade_stop: f32
     }
+    class Drawing["backdrop::Drawing"] {
+        +color: Color
+        +side: Side
+        +view_box: ViewBox
+        +max_width: f32
+        +mask_solid: f32
+        +shapes: Vec~Shape~
+    }
+    class Side["backdrop::Side"] {
+        <<enumeration>>
+        Left
+        Right
+    }
+    class ViewBox["backdrop::ViewBox"] {
+        +x: f32
+        +y: f32
+        +width: f32
+        +height: f32
+    }
+    class Shape["backdrop::Shape"] {
+        +geometry: Geometry
+        +fill: Fill
+        +stroke: Option~Stroke~
+    }
+    class Geometry["backdrop::Geometry"] {
+        <<enumeration>>
+        Path
+        Circle
+        Rect
+    }
+    class PathCommand["backdrop::PathCommand"] {
+        <<enumeration>>
+        Move
+        Line
+        Quad
+        Cubic
+    }
+    class Fill["backdrop::Fill"] {
+        <<enumeration>>
+        None
+        Solid
+        Radial
+    }
+    class Stroke["backdrop::Stroke"] {
+        +width: f32
+        +opacity: f32
+        +cap: Cap
+    }
+    class Cap["backdrop::Cap"] {
+        <<enumeration>>
+        Butt
+        Round
+    }
+    class BackdropFns["backdrop"] {
+        <<module>>
+        +MAX_SHAPES: usize
+        +MAX_PATH_COMMANDS: usize
+        +MAX_DRAWING_COMMANDS: usize
+        +MAX_PIECES: usize
+        +MAX_TESTS_PER_PIXEL: u64
+        +MIN_TESTS: u64
+    }
+    class ArtPaint["backdrop::drawing::ArtPaint"] {
+        -color: Rgba
+        -side: Side
+        -opacity: f64
+    }
     class Framebuffer["framebuffer::Framebuffer"]
+    class GfxError["gfx::GfxError"] {
+        <<enumeration>>
+        InvalidStyle
+        OutOfMemory
+    }
 
     Backdrop *-- "0..1" Key
     Backdrop *-- "2" Framebuffer : base, blurred
     Key *-- BackdropStyle
     BackdropStyle *-- "0..*" Glow : glows
-    BackdropStyle *-- Planet
-    Planet *-- "2" Shadow : glow, inner_glow
     BackdropStyle *-- "0..*" Star : stars
     BackdropStyle *-- "2" StarTile : near_stars, far_stars
     BackdropStyle *-- Grid
+    BackdropStyle *-- "2" Drawing : circuits, synapses
+    Drawing *-- Side
+    Drawing *-- ViewBox : view_box
+    Drawing "1" *-- "0..*" Shape : shapes, at most MAX_SHAPES
+    Shape *-- Geometry
+    Shape *-- Fill
+    Shape *-- "0..1" Stroke
+    Geometry "1" *-- "0..*" PathCommand : Path, at most<br/>MAX_PATH_COMMANDS
+    Stroke *-- Cap
+    Backdrop ..> ArtPaint : ensure prepares one<br/>a drawing at the size
+    ArtPaint *-- Side
+    BackdropStyle ..> BackdropFns : validate holds a drawing<br/>to the shape and command limits
+    ArtPaint ..> BackdropFns : preparing stops past<br/>MAX_PIECES or the test budget
+    BackdropStyle ..> GfxError : validate fails with<br/>InvalidStyle
+    ArtPaint ..> GfxError : InvalidStyle naming the shape,<br/>or OutOfMemory
 ```
 
 - The same `stars` are drawn in both tiles, each tile cutting off what
   falls outside it, as the site's two `.space__stars` layers do.
-- `ensure` fails with `GfxError::InvalidStyle`, naming the field, for a
-  value that is not finite or is out of range, and keeps the cache it had.
+- A drawing's box is as tall as the window and as wide as its
+  `view_box`'s shape (400 × 1000 user units for both of the site's), up
+  to `max_width` of the window's width; its user units are scaled to
+  cover the box, so it scales with the window's height. Its mask keeps
+  `mask_solid` of the box whole from its `side` and fades it to
+  transparent at the other edge.
+- A `Geometry::Path` is only stroked, its commands absolute; corners
+  are always joined round. `Fill::Solid` and `Fill::Radial` (a gradient
+  across the shape's bounding box) give opacities of the drawing's
+  color, as `Stroke` does. Nothing in the backdrop moves: the site's
+  sparks are motion, which waits for ambient motion (ADR-0057).
+- A drawing is the caller's data, so its work is bounded twice.
+  `validate` refuses more than `MAX_SHAPES` (1,024) shapes, a path of
+  more than `MAX_PATH_COMMANDS` (256) commands, more than
+  `MAX_DRAWING_COMMANDS` (4,096) in all, and a stroke wider than the
+  longer side of its view box. Preparing it at a size (the private
+  `ArtPaint`) stops with an error past `MAX_PIECES` (65,536) pieces, or
+  past `MAX_TESTS_PER_PIXEL` (64) coverage tests a pixel of its box,
+  with at least `MIN_TESTS` (2^20) allowed in a small box. The site's
+  drawings have 62 and 106 shapes.
+- `ensure` fails with `GfxError::InvalidStyle`, naming the field, and for
+  a drawing's shape its index, for a value that is not finite, is out of
+  range, or is over a limit, and keeps the cache it had.
 
 ## 26. font: TrueType fonts, outlines, faces, layout and the atlas
 
@@ -4037,7 +4138,7 @@ classDiagram
 
 `Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
 within the `Limits` it is given, and reads its tables into a `Theme`: a
-name, a `TokenColor` for each of the 39 `Token`s, in the order of
+name, a `TokenColor` for each of the 43 `Token`s, in the order of
 `Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
 two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
 of `themes/tidepool-dark.toml` compiled in, within `LIMITS`, at each
@@ -4062,7 +4163,7 @@ classDiagram
     }
     class Theme["ui::theme::Theme"] {
         -name: String
-        -colors: 39 TokenColor
+        -colors: 43 TokenColor
         -cut: f32
         -font_ui: String
         -font_mono: String
@@ -4085,12 +4186,14 @@ classDiagram
         Text3
         Teal
         TealGlow
+        Bronze
+        Purple
         EditorBg
         Comment
         TealLine
         GreenHalo
         +COUNT: usize
-        +ALL: 39 Token
+        +ALL: 43 Token
         +name() str
         +from_name(name) Option~Token~
     }
@@ -4132,7 +4235,7 @@ classDiagram
         <<trait>>
     }
 
-    Theme "1" *-- "39" TokenColor : colors, one per Token
+    Theme "1" *-- "43" TokenColor : colors, one per Token
     TokenColor *-- Color : value, solid
     Theme ..> Token : token, color,<br/>solid, ansi take
     Theme ..> Family : font takes
@@ -4147,12 +4250,14 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-- The `Token` box lists 10 of its 39 variants, the rows of the spec's
+- The `Token` box lists 12 of its 43 variants, the rows of the spec's
   token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
   `comment`, eight ADR-0049 added for the controls' component colors,
-  from `ghost` to `error-halo`, such as `teal-line` and `green-halo`, and
+  from `ghost` to `error-halo`, such as `teal-line` and `green-halo`,
   five ADR-0052 added for the collections, the card's tab and the code
-  block's bar, from `table-head` to `code-bar`.
+  block's bar, from `table-head` to `code-bar`, and four ADR-0057 added
+  after `violet` from the site's new tokens: `bronze`, `bronze-hi`,
+  `purple`, and `purple-hi`, which no widget uses yet.
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
 - `UiError`'s box lists only its two theme variants; section 29 has the
@@ -5387,7 +5492,10 @@ The main files these diagrams were drawn from:
   `window.rs`, `xdg.rs`, `xresources.rs`)
 - `crates/gfx/src/lib.rs`, `error.rs`, `framebuffer.rs`, `clip.rs`,
   `blend.rs`, `raster.rs`, `image.rs`, `glyph.rs`, `damage.rs`,
-  `backdrop.rs`
+  `backdrop.rs`, `backdrop/drawing.rs`, `backdrop/jabbott_dev.rs`; and
+  for the drawings' geometry, jabbott.dev's `_includes/backdrop.html` and
+  `assets/css/style.css` at commit 849b36e of
+  `jabbott-iii/jabbott-iii.github.io`
 - `crates/font/src/lib.rs`, `error.rs`, `limits.rs`, `ttf.rs`,
   `ttf/tables.rs`, `outline.rs`, `bundled.rs`, `fallback.rs`, `layout.rs`,
   `atlas.rs`
@@ -5408,7 +5516,7 @@ The main files these diagrams were drawn from:
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
-  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056)
+  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

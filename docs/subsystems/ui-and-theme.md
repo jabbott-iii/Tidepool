@@ -74,7 +74,10 @@ backdrop and for the TUI. `on-amber`, `on-teal` and `comment` are the
 colors the contrast rules below name (ADR-0047). The last 13, from
 `ghost` on, are the colors the site's components use beyond its `:root`,
 which the controls (ADR-0049) and the collections (ADR-0052) take as
-tokens. The file writes each
+tokens. `bronze`, `bronze-hi`, `purple` and `purple-hi` are the colors
+of the site's backdrop drawings (ADR-0057): no widget uses them yet, and
+`gfx`'s backdrop keeps its own copies of them, as `gfx` sits below `ui`;
+a test of `gui` holds the copies to these tokens. The file writes each
 color as `value`, `solid` and `ansi` (the 256-color index), `cut` under
 `[sizes]` and the fonts under `[fonts]`; `ui::theme`'s rustdoc is the
 format's reference.
@@ -101,6 +104,10 @@ format's reference.
 | `green` | `#3ddc97` | — | 42 | Ready / success / git added |
 | `rust` | `#f09a4a` | — | 215 | Numbers in code; Rust-flavored accents |
 | `violet` | `#a58cff` | — | 141 | Attributes, properties |
+| `bronze` | `#cd7f32` | — | 173 | The backdrop's circuits (ADR-0057) |
+| `bronze-hi` | `#ffc98f` | — | 222 | Highlight of `bronze`: the circuits' sparks |
+| `purple` | `#9a6bff` | — | 99 | The backdrop's synapses (ADR-0057) |
+| `purple-hi` | `#e3d6ff` | — | 189 | Highlight of `purple`: the synapses' sparks |
 | `error` | `#ff8a80` | — | 210 | Errors, git deleted |
 | `editor-bg` | `#0a0f11` | — | 233 | Editor and code blocks (site's code-block background) |
 | `bar` | `rgba(30,37,40,0.72)` | `#191e20` | 234 | Status bar, command bar |
@@ -201,7 +208,7 @@ the same ratios and tracking. Users can scale the whole UI.
 | Breadcrumbs | `.breadcrumbs` | Editor breadcrumb: uppercase separators `/` in `teal`, path segments as written |
 | Focus | `:focus-visible` | 2 px `teal` outline, 3 px offset, keyboard focus only; a field shows its `teal` border and 3 px `teal-ring` instead, whenever it has focus; a collection and a column header draw it inside their bounds instead, as they fill a panel or the window, which would cut an outline outside them off |
 | Selection | `::selection` | `teal-glow` (35%); on `editor-bg` that is `#275152`; text stays `text` (7.81:1) |
-| Backdrop | `.space` (radial gradients, planet, stars, grid) | Welcome screen and empty editor area only. Rendered once per size into the backdrop cache; the star drift animation is off unless `ui.ambient_motion = true` |
+| Backdrop | `.space` (radial gradients, stars, grid) and its two `svg.space__art` drawings | Welcome screen and empty editor area only. Rendered once per size into the backdrop cache: the purple, bronze and slate gradients, the stars, the grid, and the two drawings, drawn still (ADR-0057): the bronze circuits at the left edge and the purple synapses at the right, each as tall as the window, 2:5 wide and at most 40% of its width, fading toward the middle, at 70% opacity in a window at most 640 px wide. The star drift and the drawings' sparks are motion, off unless `ui.ambient_motion = true`; neither is drawn yet |
 
 The site has no pressed, disabled, plain text input, scrollbar, list,
 tree view, tab strip, splitter, modal, tooltip, toast or palette style, and paints glows with blurred `box-shadow`s; the

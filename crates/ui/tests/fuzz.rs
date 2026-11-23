@@ -52,8 +52,8 @@ const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 /// The limits the target reads with: 8 KiB of input, 8 levels, strings of
 /// 128 bytes, numbers of 32 and 64 entries a table or array, so that a
 /// mutated file is either over a limit or reads in microseconds. Every
-/// seed is at or under each, the bundled theme at 7.2 KiB, 4 levels, 23
-/// bytes, 3 bytes and 39 entries, and the `edge-*` seeds exactly at one.
+/// seed is at or under each, the bundled theme at 7.5 KiB, 4 levels, 23
+/// bytes, 3 bytes and 43 entries, and the `edge-*` seeds exactly at one.
 /// Built from the defaults, so that a field added later keeps its default.
 const LIMITS: Limits = {
     let mut limits = Limits::DEFAULT;

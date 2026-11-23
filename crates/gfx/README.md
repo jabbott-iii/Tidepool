@@ -40,10 +40,21 @@ Built, with the roadmap task that built it:
   M2.3.
 - `damage`: at most eight merged damage rects, and the damage between two
   frames, by 16 px tiles — M2.3.
-- `backdrop`: jabbott.dev's `.space` backdrop (its glows, planet, stars
-  and grid, with the stylesheet's values), cached per size, scale and
-  style, with a box-blurred copy for translucent panels. Its
-  approximations are listed in the module's documentation — M2.3.
+- `backdrop`: jabbott.dev's `.space` backdrop, cached per size, scale and
+  style, with a box-blurred copy for translucent panels — M2.3. It
+  follows the site's backdrop of 2026-11-23, drawn still (ADR-0057): its
+  purple, bronze and slate glows, its stars and its grid, and its two SVG
+  drawings as `Drawing`s of shapes with the geometry of the site's
+  `_includes/backdrop.html`, the bronze circuits at the left edge and the
+  purple synapses at the right. Each is in a box as tall as the window,
+  2:5 wide and at most 40% of its width, faded toward the middle by a
+  mask, and dimmed to 70% in a window at most 640 logical px wide. Their
+  sparks are motion and are not drawn. A drawing is bounded: at most
+  1,024 shapes (`MAX_SHAPES`), 256 commands a path and 4,096 in all, no
+  stroke wider than its view box, and a budget of pieces and coverage
+  tests at each size, past which `Backdrop::ensure` refuses it. The
+  approximations and the limits are listed in the module's
+  documentation.
 
 - golden frames: 14 scenes in `tests/golden.rs`, one for each primitive,
   clipping, a layer, images, glyph masks, and the backdrop at scale 1 and
@@ -124,7 +135,8 @@ fn main() -> Result<(), GfxError> {
 - Design: [`docs/subsystems/rendering.md`](../../docs/subsystems/rendering.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0011 (CPU
   rendering); ADR-0004 (the jabbott.dev look); ADR-0044 (the golden
-  scenes).
+  scenes); ADR-0057 (the backdrop's circuits and synapses, drawn
+  still).
 - API reference: `cargo doc -p tidepool-gfx --open`
 
 ## Rules
