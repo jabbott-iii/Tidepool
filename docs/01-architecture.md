@@ -200,6 +200,18 @@ Rules:
 - **Shutdown** asks child processes to exit (LSP `shutdown`/`exit`, agent
   `shutdown`), waits up to 2 s on a worker, then kills them. No orphans.
 
+What is built (M3.8, ADR-0012, ADR-0059): `app`'s loop waits on the GUI's
+window until the earliest deadline, hands each input event to the `ui`
+tree before anything else, stops at a close request, and renders, which
+presents only what changed. The only deadline so far is `gui`'s: the
+first present waits at most 250 ms for the backdrop
+(`gui::FIRST_FRAME_WAIT`). The backdrop is built off the main thread, and
+the window shows the flat `bg` until it arrives. The channel of messages
+from workers, and its cap per turn, come with the first worker that
+reports to the main thread (M4.3); the loop's own timers, a tooltip's
+delay and a toast's timeout, with the shell (M3.4), which also loads the
+settings; and `--tui`, with M7.1.
+
 ## Data flow
 
 ```
@@ -228,6 +240,7 @@ OS input ─► platform::Event ─► ui (focus, routing) ─► editor (keymap
 | One reader per child pipe | Framing and parsing for LSP, DAP, TAP, git, tool output | Parsed messages to main |
 | PTY readers (one per terminal) | VT parsing into the terminal grid | Damage notifications to main |
 | File watcher (one) | inotify / FSEvents / ReadDirectoryChangesW | Changed paths to main, debounced |
+| Backdrop builders (`gui`, at most 2 at once, one per build; M3.8, ADR-0059) | One build of jabbott.dev's backdrop at a window's size and scale | The built backdrop to main over a channel, with a wake |
 
 - Only main touches the UI tree or editor state.
 - Buffers are shared with other threads only as immutable rope snapshots.

@@ -14,12 +14,20 @@
 
 //! The Tidepool binary: main loop, wiring, startup and crash handling.
 //!
-//! Specification: `docs/01-architecture.md`.
+//! Specification: `docs/01-architecture.md` → "The main loop".
 //!
-//! Today it opens the GUI's window and shows the first frame (M2.6) until
-//! the window is closed. `--print-startup-time` prints, on standard output,
-//! the time from the start of `main` to the return of the first present
-//! (ADR-0045). The main loop and the shell come with M3.4.
+//! It opens the GUI's window and runs the event-driven main loop (M3.8,
+//! ADR-0012, ADR-0059) until the window is closed. Each turn waits on the
+//! window until something happens or the earliest deadline passes (only
+//! `gui`'s for now: the most the first present waits for the backdrop),
+//! hands every input event to the `ui` tree before anything else, stops at
+//! a close request, and then renders, which presents only what changed. So
+//! an idle Tidepool waits and draws nothing. The tree shows the first
+//! frame's lines (`tidepool_gui::first_frame`) until the shell replaces
+//! them (M3.4).
+//!
+//! `--print-startup-time` prints, on standard output, the time from the
+//! start of `main` to the return of the first present (ADR-0045).
 
 use std::fmt;
 use std::io::{self, Write};
@@ -27,8 +35,10 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use tidepool_core::cli::Args;
-use tidepool_gui::{Gui, GuiError};
+use tidepool_gui::{Gui, GuiError, first_frame};
+use tidepool_platform::events::Event;
 use tidepool_platform::window::WindowConfig;
+use tidepool_ui::Tree;
 
 /// The exit code for a command line that was not understood.
 const EXIT_USAGE: u8 = 2;
@@ -108,14 +118,23 @@ impl std::error::Error for Error {
     }
 }
 
-/// Opens the window and answers it until it is asked to close, writing
-/// the startup time to `out` after the first present if `options` asks.
+/// Opens the window and runs the main loop until the window is asked to
+/// close, writing the startup time to `out` after the first present if
+/// `options` asks.
 fn run(options: &Options, start: Instant, out: &mut dyn Write) -> Result<(), Error> {
     let mut gui = Gui::open(&WindowConfig::default()).map_err(Error::Gui)?;
+    let mut tree = first_frame::tree();
+    let mut events = Vec::with_capacity(64);
     let mut first = true;
     loop {
-        let turn = gui.turn(None).map_err(Error::Gui)?;
-        if turn.presented && first {
+        events.clear();
+        gui.wait_events(gui.next_deadline(), &mut events)
+            .map_err(Error::Gui)?;
+        if handle(&mut tree, &events) == Flow::Quit {
+            return Ok(());
+        }
+        let presented = gui.render(&mut tree).map_err(Error::Gui)?;
+        if presented && first {
             first = false;
             if options.print_startup_time {
                 // If standard output is closed, there is nobody to tell,
@@ -125,10 +144,37 @@ fn run(options: &Options, start: Instant, out: &mut dyn Write) -> Result<(), Err
                     .and_then(|()| out.flush());
             }
         }
-        if turn.close_requested {
-            return Ok(());
+    }
+}
+
+/// Whether the loop goes on after a turn's events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    /// Wait for the next events.
+    Continue,
+    /// The user asked to close the window.
+    Quit,
+}
+
+/// Answers a turn's `events` in order: each input event goes to `tree`,
+/// which routes it to the focused node or the one under the pointer
+/// (`Tree::handle`), and a close request ends the loop, leaving the events
+/// after it unanswered. The rest are `gui`'s, which took them as it waited.
+///
+/// No widget of the first frame emits actions, and the window has no
+/// shortcuts yet, so what comes back from the tree is not used until the
+/// shell (M3.4).
+fn handle(tree: &mut Tree, events: &[Event]) -> Flow {
+    for event in events {
+        match event {
+            Event::Input(input) => {
+                let _response = tree.handle(input);
+            }
+            Event::CloseRequested => return Flow::Quit,
+            Event::Resized(_) | Event::Exposed(_) | Event::Woken | Event::Pasted { .. } => {}
         }
     }
+    Flow::Continue
 }
 
 /// The line `--print-startup-time` prints: the time to the first frame, in
@@ -170,7 +216,67 @@ fn is_escaped(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use tidepool_core::geom::{DeviceRect, DeviceSize, Size};
+    use tidepool_core::input::{InputEvent, Key, Modifiers};
+    use tidepool_ui::metrics::FixedMetrics;
+    use tidepool_ui::widgets::{Button, ButtonKind, Control};
+
     use super::*;
+
+    /// A tree of two buttons, laid out, and their ids.
+    fn buttons() -> (Tree, [tidepool_ui::NodeId; 2]) {
+        let mut tree = Tree::new();
+        let root = tree.root();
+        let ids = ["OPEN", "CLOSE"].map(|label| {
+            tree.insert(root, Button::new(label, ButtonKind::Ghost).node())
+                .expect("a node")
+        });
+        let _ = tree.frame(Size::new(320.0, 200.0), &FixedMetrics::DEFAULT);
+        (tree, ids)
+    }
+
+    fn tab() -> Event {
+        Event::Input(InputEvent::KeyDown {
+            key: Key::Tab,
+            modifiers: Modifiers::NONE,
+            repeat: false,
+        })
+    }
+
+    fn focused(tree: &Tree, id: tidepool_ui::NodeId) -> bool {
+        tree.state(id).expect("in the tree").focused
+    }
+
+    #[test]
+    fn input_goes_to_the_tree_in_order() {
+        let (mut tree, [open, close]) = buttons();
+        assert_eq!(handle(&mut tree, &[tab()]), Flow::Continue);
+        assert!(focused(&tree, open) && !focused(&tree, close));
+        assert_eq!(
+            handle(
+                &mut tree,
+                &[
+                    Event::Exposed(DeviceRect::new(0, 0, 8, 8)),
+                    Event::Resized(DeviceSize::new(640, 400)),
+                    Event::Woken,
+                    tab(),
+                ]
+            ),
+            Flow::Continue,
+            "the events gui takes are passed over"
+        );
+        assert!(focused(&tree, close) && !focused(&tree, open));
+    }
+
+    #[test]
+    fn a_close_request_ends_the_loop_before_the_events_after_it() {
+        let (mut tree, [open, _]) = buttons();
+        assert_eq!(
+            handle(&mut tree, &[Event::CloseRequested, tab()]),
+            Flow::Quit
+        );
+        assert!(!focused(&tree, open), "the Tab after it went nowhere");
+    }
 
     fn parse(args: &[&str]) -> Result<Options, String> {
         Options::parse(Args::new(args.iter().copied()).expect("within the limits"))

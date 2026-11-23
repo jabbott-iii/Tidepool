@@ -1,9 +1,10 @@
 # Tidepool — zero-dependency IDE (Rust; Linux, macOS, Windows)
 
 **Status:** in development, at version 0.1: `cargo tp` opens a window on
-Linux and shows its first frame, jabbott.dev's backdrop and a line in each
-bundled face, and does nothing else yet (M2.6). `docs/roadmap.md` ticks
-each task once it is done and verified.
+Linux and runs the event-driven main loop, showing its first frame,
+jabbott.dev's backdrop and a line in each bundled face, and does nothing
+else yet (M2.6, M3.8). `docs/roadmap.md` ticks each task once it is done
+and verified.
 
 - **Built:** the guarded workspace and its checks (M0.1–M0.4,
   M0.9–M0.11), with doc tests that forbid `unsafe` outside `sys` and
@@ -89,8 +90,16 @@ each task once it is done and verified.
   it closes, with the modal dialog, the tooltip, the toast, and the
   command palette, which shows the items its owner ranks, 8 golden
   scenes of them in each state, and a `tidepool-bench` suite repainting
-  the palette (M3.3, ADR-0052 to ADR-0056). The window still shows the
-  first frame until the shell (M3.4).
+  the palette (M3.3, ADR-0052 to ADR-0056); and the event-driven main
+  loop of ADR-0012, in `tidepool-gui` and the binary: it waits on the
+  window until the earliest deadline, hands each input event to the `ui`
+  tree first, and presents only what changed, so an idle Tidepool uses
+  no processor; `gui` paints `ui`'s frames in the window, the first
+  frame's lines now a `ui` tree, over jabbott.dev's backdrop, which it
+  builds on threads of its own, showing the theme's flat `bg` until the
+  backdrop arrives, and the first present waits for it up to 250 ms
+  (M3.8, ADR-0059). The window shows the first frame's lines until the
+  shell (M3.4).
 - **Not built:** everything else. 14 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, ADR-0057 and ADR-0058. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, ADR-0057, ADR-0058 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -3644,46 +3644,91 @@ classDiagram
   that fails is remembered with its error until `clear`. `FontError` gains
   `Faces` and `Atlas` (section 29).
 
-## 27. gui: the first frame and the painter
+## 27. gui: the window, the first frame and the painter
 
-`tidepool-gui` (M2.6, ADR-0045) opens a `platform` window and draws the
-first frame into it. A `Gui` owns the window, the `FirstFrame` that draws,
-the frame last drawn with the scale it was drawn at, and the damage the
-window's exposes asked for. Each `turn` waits for the window's events and
-returns a `Turn`. `FirstFrame::draw` makes a new `gfx::Framebuffer` of the
-window's size: the `Backdrop`'s base, then a line in each bundled face,
-set with `font::layout` and blended from the `Atlas` with
-`gfx::glyph::draw`, the labels in `text-3` and the samples in `text`,
-which `FirstFrame::new` takes from `ui`'s bundled `Theme::tidepool_dark`
-(M3.2, ADR-0047). The frame reaches `present` as a
-`platform::surface::Pixels` view of its bytes (ADR-0040).
+`tidepool-gui` (M2.6, ADR-0045) opens a `platform` window, and since M3.8
+(ADR-0059) shows `ui` frames in it for the main loop. A `Gui` owns the
+window, a `Screen`, the part that needs no window, and the backdrop's
+`Builds`. Each turn the loop calls `wait_events`, which notes the
+window's exposes and resizes and takes the builds that finished, then
+`render`, in which the `Screen` lays the tree out at the frame's size
+over the scale, paints its damage with its `Painter` over the `Base` (the
+flat `bg`, then the `Backdrop` once it arrives) into its framebuffer, and
+hands what changed to `present`, as a `platform::surface::Pixels` view of
+its bytes (ADR-0040). `Builds` starts each build through a `Builder`:
+`Threads`, one thread per build, at most two at once, each sending its
+`Backdrop` back over a channel and waking the window. `first_frame::tree`
+gives the `ui` tree of the first frame's lines, a line in each bundled
+face, the labels in `text-3` and the samples in `text` from the tree's
+theme (M3.2, ADR-0047).
 
 ```mermaid
 classDiagram
     direction LR
     class Gui["gui::Gui"] {
         -window: Window
-        -first_frame: FirstFrame
-        -frame: Option of Framebuffer and Scale
-        -damage: Damage
-        -events: Vec~Event~
+        -screen: Screen
+        -builds: Builds of Threads
         +open(config) Result~Gui~
         +size() DeviceSize
-        +turn(deadline) Result~Turn~
+        +scale() Scale
+        +next_deadline() Option~Instant~
+        +wait_events(deadline, events) Result
+        +render(tree) Result~bool~
+        +backdrop_ready() bool
     }
-    class Turn["gui::Turn"] {
-        +presented: bool
-        +close_requested: bool
+    class Screen["gui::screen::Screen"] {
+        -painter: Painter
+        -size: DeviceSize
+        -scale: Scale
+        -target: Option~Framebuffer~
+        -base: Base
+        -base_changed: bool
+        -exposes: Damage
+        -wait_until: Option~Instant~
+        resize(size) bool
+        expose(rect)
+        set_backdrop(backdrop)
+        render(tree, now, present) Result~bool~
     }
-    class FirstFrame["gui::first_frame::FirstFrame"] {
-        -faces: Faces
-        -atlas: Atlas
-        -backdrop: Backdrop
-        -style: BackdropStyle
-        -text: Color
-        -muted: Color
-        +new() Result~FirstFrame~
-        +draw(size, scale) Result~Framebuffer~
+    class Base["gui::screen::Base"] {
+        <<enumeration>>
+        None
+        Flat
+        Backdrop
+    }
+    class Builds["gui::builds::Builds"] {
+        -builder: B
+        -current: Option~Want~
+        -running: Vec~Want~
+        -waiting: Option~Want~
+        request(want)
+        poll() Option~Built~
+    }
+    class Builder["gui::builds::Builder"] {
+        <<interface>>
+        start(want) io Result
+        take() Option of Want and Result
+    }
+    class Threads["gui::builds::Threads"] {
+        -style: Arc~BackdropStyle~
+        -wake: Wake
+        -sender: Sender~Done~
+        -receiver: Receiver~Done~
+    }
+    class Want["gui::builds::Want"] {
+        size: DeviceSize
+        scale: Scale
+    }
+    class Failure["gui::builds::Failure"] {
+        <<enumeration>>
+        Gfx
+        Spawn
+        Lost
+    }
+    class FirstFrameFns["gui::first_frame"] {
+        <<module>>
+        +tree() Tree
     }
     class GuiError["gui::GuiError"] {
         <<enumeration>>
@@ -3700,34 +3745,41 @@ classDiagram
     class Damage["gfx::damage::Damage"]
     class Backdrop["gfx::backdrop::Backdrop"]
     class BackdropStyle["gfx::backdrop::BackdropStyle"]
-    class Faces["font::fallback::Faces"]
-    class Atlas["font::atlas::Atlas"]
-    class Theme["ui::theme::Theme"]
-    class Color["core::color::Color"]
+    class Painter["gui::Painter"]
+    class Tree["ui::Tree"]
 
     Gui "1" *-- "1" Window
-    Gui "1" *-- "1" FirstFrame
-    Gui "1" *-- "0..1" Framebuffer : the frame drawn
-    Gui *-- Damage
-    Gui "1" *-- "0..*" Event : a turn's events
+    Gui "1" *-- "1" Screen
+    Gui "1" *-- "1" Builds
+    Gui ..> Event : wait_events appends,<br/>notes exposes, resizes
     Gui ..> Pixels : presents
-    Gui ..> Turn : turn returns
+    Gui ..> Tree : render lays out, paints
     Gui ..> GuiError
-    FirstFrame *-- Faces
-    FirstFrame *-- Atlas
-    FirstFrame *-- Backdrop
-    FirstFrame *-- BackdropStyle
-    FirstFrame *-- Color : text, muted
-    FirstFrame ..> Theme : new reads tidepool_dark,<br/>keeps text and text-3
-    FirstFrame ..> Framebuffer : draw makes
+    Screen *-- Painter
+    Screen "1" *-- "0..1" Framebuffer : the target
+    Screen *-- Base
+    Screen *-- Damage : exposes
+    Base "1" *-- "0..1" Framebuffer : flat bg
+    Base "1" *-- "0..1" Backdrop
+    Builds "1" *-- "1" Threads : B
+    Builds "1" *-- "0..2" Want : running
+    Threads ..|> Builder
+    Threads *-- BackdropStyle
+    Threads ..> Backdrop : each thread builds
+    Threads ..> Failure
+    FirstFrameFns ..> Tree : tree makes
 ```
 
 - `Gui` and `Window` are neither `Send` nor `Sync`: the window stays on
-  the thread that opened it. `Turn` is `Copy`. `GuiError` wraps the
-  error of the crate that failed (section 29).
+  the thread that opened it. Each build's thread holds only what it is
+  sent: the `Want`, the style and the channel's sender, and the window's
+  `Waker` in `Wake`, a function its `Report` calls after sending, even as
+  a panic unwinds it. `Want` is `Copy`. `GuiError` wraps the error of the
+  crate that failed (section 29); a build that fails is a `Failure` that
+  is logged, not an error.
 
 The painter (M3.5, ADR-0048) paints `ui`'s frames, which the window shows
-from the shell on (M3.4). A `Painter` owns the bundled faces, an `Atlas`,
+(M3.8). A `Painter` owns the bundled faces, an `Atlas`,
 and the `Icon`s and images (premultiplied `gfx` framebuffers) registered
 for `ui`'s `IconId`s and `ImageId`s. `paint` takes a target framebuffer,
 a base view, a `ui::draw::Frame` and the scale, paints the frame's damage
@@ -3798,8 +3850,8 @@ classDiagram
     Icon ..> IconError : new refuses with
 ```
 
-- A `Painter` holds no window: the shell (M3.4) gives it the window's
-  framebuffer and the backdrop. `FontMetrics` borrows the painter's
+- A `Painter` holds no window: `gui`'s `Screen` gives it the window's
+  framebuffer and the base, the flat `bg` or the backdrop (M3.8). `FontMetrics` borrows the painter's
   faces, so `Tree::frame` measures with the faces the painter draws.
 
 ## 28. ui: the tree, layout, events, frames, the accessibility tree, the theme, the controls, the collections, and the overlays
@@ -5493,7 +5545,8 @@ is described in words here.
 - `tidepool-gui` and `tidepool-tui`: the `Frontend` trait in
   `docs/subsystems/frontends.md` (`wait_events`, `waker`, `metrics`,
   `present`, `clipboard`). No task names the trait itself; the GUI's
-  first frame and draw-list painter are built (section 27), and the
+  window, which shows `ui` frames for the main loop (M3.8), and its
+  draw-list painter are built (section 27), and the
   TUI's renderer and input decoder are planned (M7.1).
 - `tidepool-toolchain`: the registry's tool states `Missing`, `Found`,
   `Outdated`, `Installing` and `Broken`, planned (M5.1); the `Spawn`

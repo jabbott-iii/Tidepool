@@ -6,13 +6,14 @@ license.workspace = true
 publish = false
 
 # Its row of the dependency matrix (docs/01-architecture.md) allows every
-# crate above it. The first frame (M2.6) uses `core` to read the command
-# line, `platform` for the window's configuration, and `gui` to open the
-# window and draw.
+# crate above it. The main loop (M3.8) uses `core` to read the command line,
+# `platform` for the window's configuration and its events, `gui` to open
+# the window and draw, and `ui` for the tree that input is routed to.
 [dependencies]
 tidepool-core = { path = "../core" }
 tidepool-platform = { path = "../platform" }
 tidepool-gui = { path = "../gui" }
+tidepool-ui = { path = "../ui" }
 
 [lints]
 workspace = true

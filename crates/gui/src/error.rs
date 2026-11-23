@@ -34,8 +34,9 @@ use crate::icon::IconError;
 pub enum GuiError {
     /// The window could not be opened, waited on or presented to.
     Platform(tidepool_platform::Error),
-    /// A framebuffer, the backdrop, a glyph's mask or a layer could not be
-    /// made.
+    /// A framebuffer, a glyph's mask, a tile or a layer could not be made.
+    /// A backdrop that cannot be built is not an error: the window keeps
+    /// its flat `bg`, and a warning is logged (M3.8, ADR-0059).
     Gfx(GfxError),
     /// The bundled faces, the glyph atlas or a line of text failed.
     Font(FontError),

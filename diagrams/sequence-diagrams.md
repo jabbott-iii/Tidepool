@@ -4,14 +4,14 @@ These diagrams follow Tidepool's flows through time: who calls whom, in
 what order, and what comes back. Sections 1 to 7 are read from the code:
 `cargo xtask ci` and its `golden` step, `cargo xtask fuzz-smoke` and its
 engine, and loading,
-saving, editing and undoing text in `tidepool-text`, and so is 8.3, the
-first frame. The rest of sections 8 to 13 are the flows the specs plan,
-from startup to signing an Android package, and section 14 a tooltip's
-delay, whose `ui` side is built and whose owner, the main loop, is
-planned; most of their code does not exist yet, and what does is marked
-(built).
+saving, editing and undoing text in `tidepool-text`, and so are 8.2 and
+8.3, the main loop to the first frame. The rest of sections 8 to 13 are
+the flows the specs plan, from startup to signing an Android package, and
+section 14 a tooltip's delay, whose `ui` side is built, and whose owner,
+the main loop, is built without the shell's timers; most of their code
+does not exist yet, and what does is marked (built).
 
-Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050 and M3.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -511,130 +511,126 @@ sequenceDiagram
 
 ## 8. Startup to the first frame
 
-From `cargo tp` to the first frame. 8.1 and 8.2 draw it as
+From `cargo tp` to the first frame. 8.1 draws the part still planned, as
 `docs/01-architecture.md` → "The main loop" and
-`docs/subsystems/frontends.md` plan it: M3.4 adds the loop and the shell,
-on ADR-0012, which is Proposed until then, and the GUI frontend the app
-drives (M3.4), whose painter is built (M3.5, ADR-0048). 8.3 draws what
-the binary does today: it opens the
-GUI's window and shows the first frame, the backdrop and a line in each
-bundled face (M2.6, ADR-0045), its text in `text` and `text-3` from
-`ui`'s bundled theme (M3.2, ADR-0047). `platform`'s window and events are built
-(M2.2), and so are `gfx` (the framebuffer and the backdrop, M2.3) and
-`font` (the bundled faces, layout and the atlas, M2.5). The frontend
-draws with `gfx` and `font`, libraries it calls: drawn as the frontend's
-own steps in 8.1, and as one participant in 8.2 and 8.3.
+`docs/subsystems/frontends.md` plan it: the settings and the choice of a
+frontend come with the shell (M3.4) and the terminal UI (M7.1). 8.2 and
+8.3 draw what the binary does today, read from the code: the event-driven
+main loop (M3.8, ADR-0012, ADR-0059), which opens the GUI's window, builds
+jabbott.dev's backdrop on threads of its own, and shows the first frame's
+lines, a line in each bundled face (M2.6, ADR-0045), as a `ui` tree that
+`gui`'s painter paints (M3.5, ADR-0048), its text in `text` and `text-3`
+from `ui`'s bundled theme (M3.2, ADR-0047). `platform`'s window and events
+are built (M2.2), and so are `gfx` (the framebuffer and the backdrop,
+M2.3) and `font` (the bundled faces, layout and the atlas, M2.5), which
+the painter calls: drawn as one participant.
 
-### 8.1 Opening the frontend (planned)
+### 8.1 Settings and the frontend's choice (planned)
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant Cli as tidepool main<br/>(M3.4)
-    participant Cfg as Config load<br/>(M3.4, M4.7)
-    participant Fe as gui frontend (M3.4),<br/>its painter (built)
-    participant Plat as platform window<br/>and events (built)
-    participant Disp as X server,<br/>through XWayland
+    participant Cli as tidepool main<br/>(built, M3.8)
+    participant Cfg as settings load<br/>(M3.4, M4.7)
+    participant Fe as gui Gui (built, M3.8),<br/>tui Terminal (M7.1)
 
-    Note over User,Disp: planned M3.4.<br/>Built: core's Args and InputEvent (M0.2),<br/>sys's Xlib declarations (M2.1),<br/>platform's window and events (M2.2),<br/>gfx's Framebuffer and Backdrop (M2.3),<br/>font's bundled faces and atlas (M2.5),<br/>gui's first frame (M2.6, in 8.3) and<br/>its painter (M3.5).
+    Note over User,Fe: planned M3.4 and M7.1.<br/>Built: core's Args (M0.2), and the loop<br/>and Gui::open of 8.2 (M3.8).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
-    Cli->>Cfg: Config::load(args)
+    Cli->>Cfg: load the settings
     Cfg-->>Cli: settings.toml, a bad<br/>value replaced by its<br/>default, with a warning,<br/>read-only until M4.7
     alt --tui, or no display
-        Cli->>Cli: Frontend::open gives a<br/>tui Terminal (M7.1),<br/>first frame within 150 ms
+        Cli->>Fe: open a tui Terminal (M7.1),<br/>first frame within 150 ms
     else the GUI, by default
-        Cli->>Fe: Frontend::open(config, mode)
-        Fe->>Plat: Window::open(config)
-        Plat->>Disp: libX11.so.6 through<br/>dlopen and sys's Xlib<br/>table, one Display<br/>over unix/:N only<br/>(ADR-0039, ADR-0050),<br/>XCreateWindow
-        Plat->>Plat: the scale<br/>from Xft.dpi
-        Fe->>Fe: font (built): bundled::load<br/>parses Saira and JetBrains<br/>Mono, compiled in
-        Fe->>Fe: font (built): Atlas::new,<br/>and an empty gfx Backdrop<br/>cache, the backdrop and<br/>Framebuffer built on the<br/>first expose (8.3)
+        Cli->>Fe: Gui::open, as in 8.2 (built)
     end
 ```
 
-### 8.2 The main loop, to the first frame (planned)
+### 8.2 Opening the window and building the backdrop (M3.8)
 
-```mermaid
-sequenceDiagram
-    participant Shell as App, the shell<br/>(M3.4)
-    participant Cli as tidepool main<br/>(M3.4)
-    participant Fe as gui frontend (M3.4),<br/>its painter (built)
-    participant Gfx as gfx and<br/>font (built)
-    participant Plat as platform window<br/>and events (built)
-    participant Disp as X server,<br/>through XWayland
-
-    Note over Shell,Disp: planned M3.4.<br/>core's InputEvent (M0.2), platform's<br/>window and events (M2.2), gfx (M2.3),<br/>font (M2.5), gui's first frame<br/>(M2.6, in 8.3) and its painter<br/>(M3.5) are built.
-    Cli->>Cli: an mpsc channel for<br/>workers, child readers<br/>and timers
-    Cli->>Shell: App::new(config, tx,<br/>frontend.waker())
-    loop every turn of the main loop
-        Cli->>Fe: wait_events(deadline,<br/>events)
-        Fe->>Plat: poll on the X connection<br/>and the Waker's self-pipe
-        Plat-->>Fe: input, resize, focus, a<br/>wake, or the deadline
-        Fe-->>Cli: InputEvent values,<br/>core input (built)
-        Cli->>Shell: handle_input for each,<br/>then at most<br/>MAX_MSGS_PER_TURN<br/>messages, then fire_timers
-        Cli->>Shell: build_frame(metrics)
-        Shell-->>Cli: a Frame, its draw list<br/>and damage, or None<br/>when nothing is damaged
-        opt a Frame
-            Cli->>Fe: present(frame)
-            Fe->>Gfx: Painter::paint: the<br/>damaged parts (built)
-            Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
-            Plat->>Disp: XPutImage of<br/>the damaged rects
-        end
-    end
-    Note over Shell,Disp: Cold start to first frame within 300 ms for the GUI,<br/>checked with cargo tp -- --print-startup-time (M2.6).<br/>Idle: no redraw.
-```
-
-### 8.3 The first frame today (M2.6)
-
-Read from the code: `crates/app/src/main.rs`, `tidepool-gui`'s
-`frontend.rs` and `first_frame.rs` (ADR-0045), and `tidepool-ui`'s
-`theme.rs` (ADR-0047). There is no settings file, shell or worker yet, and
-no theme file is read from disk: the theme is compiled into `ui`. `main`
-turns the GUI until its window is asked to close.
+Read from the code: `crates/app/src/main.rs` and `tidepool-gui`'s
+`frontend.rs` (ADR-0059). The backdrop is built off the main thread, at
+most two builds at once; until the one of the window's size arrives the
+base is the flat `bg`, and the first present waits for it, at most 250 ms
+after the window opened.
 
 ```mermaid
 sequenceDiagram
     actor User
     participant Main as tidepool main
     participant Gui as gui Gui
-    participant First as gui FirstFrame
-    participant Theme as ui theme
-    participant Draw as gfx and font
     participant Plat as platform window<br/>and events
     participant Disp as X server,<br/>through XWayland
+    participant Build as backdrop builder<br/>threads, at most 2
+    participant Draw as gfx and font
 
     User->>Main: cargo tp -- --print-startup-time
     Main->>Main: Instant::now, then<br/>Args::from_env, the flag,<br/>finish: any other<br/>argument exits 2
     Main->>Gui: Gui::open(WindowConfig::default())
     Gui->>Plat: Window::open: Tidepool,<br/>1280 x 800 logical px
     Plat->>Disp: one Display over unix/:N,<br/>XCreateWindow, mapped
-    Gui->>First: FirstFrame::new
-    First->>Theme: Theme::tidepool_dark()
-    Theme->>Theme: parse TIDEPOOL_DARK_TOML,<br/>compiled in, with codec<br/>toml within LIMITS
-    Theme-->>First: the Theme: its text<br/>and text-3 kept
-    First->>Draw: bundled::load,<br/>Atlas::new(1024, 1024)
+    Plat->>Plat: the scale<br/>from Xft.dpi
+    Gui->>Draw: Painter::new: the bundled<br/>faces and an atlas
+    Gui->>Build: a build for the window's<br/>size and scale, on a<br/>thread of its own
+    Build->>Draw: Backdrop::new,<br/>ensure(size, scale,<br/>jabbott_dev style)
+    Gui-->>Main: the Gui, the window<br/>opened at t0
+    Main->>Main: first_frame::tree(): the<br/>seven lines, a ui Tree
+    Note over Build,Draw: 100 to 250 ms a build in a release build<br/>on the reference machine (ADR-0045)
+    Draw-->>Build: the Backdrop
+    Build-->>Gui: size, scale and Backdrop<br/>over a channel
+    Build->>Plat: Waker::wake
+    Note over Main,Draw: A resize asks for another build at once, as COSMIC's 1 ms<br/>after the first expose does: both run at once, and the<br/>stale one's result is dropped when it lands.
+```
+
+### 8.3 The main loop (M3.8)
+
+Read from the code: `crates/app/src/main.rs` and `tidepool-gui`'s
+`frontend.rs` (ADR-0012, ADR-0059). There is no settings file, shell or
+worker of the app's yet, and no theme file is read from disk: the theme is
+compiled into `ui`. `main` turns the loop until the window is asked to
+close.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Main as tidepool main
+    participant Tree as ui Tree
+    participant Gui as gui Gui
+    participant Draw as gui Painter,<br/>gfx and font
+    participant Plat as platform window<br/>and events
+    participant Disp as X server,<br/>through XWayland
+
     loop until the window is asked to close
-        Main->>Gui: turn(None)
-        Gui->>Plat: wait_events(None)
-        Plat-->>Gui: exposes, a resize,<br/>a close request, input
-        opt an expose, and no frame of the window's size and scale
-            Gui->>First: draw(size, scale)
-            First->>Draw: Backdrop::ensure,<br/>Framebuffer::new, image::copy
-            First->>Draw: layout::line of each label and<br/>sample, Atlas::glyph, glyph::draw
-            Draw-->>First: the frame
+        Main->>Gui: next_deadline(): t0 + 250 ms<br/>until the first present or<br/>the backdrop, then None
+        Main->>Gui: wait_events(deadline, events)
+        Gui->>Plat: wait_events: poll on the<br/>X connection and the<br/>Waker's self-pipe
+        Plat-->>Gui: input, exposes, a resize,<br/>a close request, a wake,<br/>or the deadline
+        Gui->>Gui: keeps the exposes, and for<br/>a resize asks for a backdrop<br/>and goes back to the flat bg,<br/>then takes finished builds,<br/>dropping stale ones
+        Gui-->>Main: every event
+        Main->>Tree: handle(input), for each<br/>input event, in order
+        opt a close request
+            Main-->>User: exit status 0, the<br/>events after it unanswered
         end
-        opt damage left inside the frame
-            Gui->>Plat: present(Pixels view, damage rects)
+        Main->>Gui: render(tree)
+        opt nothing presented yet, no backdrop, and before t0 + 250 ms
+            Gui-->>Main: false: nothing presented
+        end
+        Gui->>Tree: invalidate_all, for a new<br/>framebuffer or base
+        Gui->>Tree: frame(logical size,<br/>FontMetrics at the scale)
+        Tree-->>Gui: a Frame, its draw list<br/>and damage, or None<br/>when nothing changed
+        opt a Frame
+            Gui->>Draw: paint(framebuffer, base,<br/>frame, scale): the damage<br/>over the backdrop or flat bg
+        end
+        opt painted rects or exposes
+            Gui->>Plat: present(Pixels view, rects)
             Plat->>Disp: XPutImage of each rect
         end
-        Gui-->>Main: Turn: presented, close_requested
+        Gui-->>Main: whether it presented
         opt the first present, with --print-startup-time
             Main-->>User: first frame: 131.5 ms, on stdout
         end
     end
-    Main-->>User: exit status 0
-    Note over Main,Disp: On COSMIC the window is resized to 1232 x 662 about 1 ms after its<br/>first expose, while the first frame is drawn, so the next turn draws it again.<br/>Idle, wait_events sleeps in poll and the process uses no CPU.
+    Note over Main,Disp: Idle, wait_events sleeps in poll with no deadline, the tree<br/>gives no frame, and the process uses no CPU.
 ```
 
 ## 9. A keystroke to pixels, on the main thread (planned)
@@ -644,12 +640,13 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-whole flow is planned in M3.4, M4.1, M4.2, M4.3 and M4.6;
-`Transaction` and `History` are built (M1.2), and so are core's
-`InputEvent` (M0.2), `platform`'s events (M2.2), `gui`'s first frame
-(M2.6, 8.3), which uses no input yet, `ui`'s routing of an event and
-its frames with their damage (M3.1, ADR-0046), and `gui`'s painter of
-those frames (M3.5, ADR-0048).
+flow is planned in M4.1, M4.2, M4.3 and M4.6; `Transaction` and `History`
+are built (M1.2), and so are core's `InputEvent` (M0.2), `platform`'s
+events (M2.2), `ui`'s routing of an event and its frames with their damage
+(M3.1, ADR-0046), `gui`'s painter of those frames (M3.5, ADR-0048), and
+the main loop that waits on the window, hands the tree its input and
+renders (M3.8, ADR-0059, 8.3), whose first frame has nothing that takes
+input yet.
 
 ### 9.1 The key, to the focused editor
 
@@ -658,17 +655,17 @@ sequenceDiagram
     actor User
     participant Disp as X server
     participant Plat as platform events<br/>(built)
-    participant Fe as gui frontend<br/>(M3.4)
-    participant ML as app main loop<br/>(M3.4)
+    participant Fe as gui Gui<br/>(built, M3.8)
+    participant ML as app main loop<br/>(built, M3.8)
     participant Ui as ui Tree: input<br/>and focus (built)
 
-    Note over User,Ui: planned M3.4.<br/>core's InputEvent (M0.2), platform's<br/>events (M2.2) and ui's routing (M3.1) are built.
+    Note over User,Ui: planned M4.1, the editor view.<br/>core's InputEvent (M0.2), platform's events (M2.2),<br/>ui's routing (M3.1) and the loop (M3.8) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
     Disp->>Plat: a key event on<br/>the X connection
     Plat-->>Fe: Event::Input: the Key from<br/>the key code, then the text<br/>from Xutf8LookupString
-    Fe-->>ML: an InputEvent,<br/>core input (built)
+    Fe-->>ML: Event::Input with an<br/>InputEvent, core input (built)
     ML->>Ui: Tree::handle(event)
     Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1), then up<br/>through its ancestors until one handles it
     Ui-->>ML: a Response: the actions widgets<br/>emitted, and whether it was handled
@@ -678,13 +675,13 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant ML as app main loop<br/>(M3.4)
+    participant ML as app main loop<br/>(built, M3.8)
     participant Keys as editor keymap<br/>engine (M4.6)
     participant Cmd as editor command and<br/>buffer (M4.2, M4.3)
     participant Txt as text Transaction<br/>and History (built)
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M3.4, M4.2, M4.3, M4.6.<br/>Transaction and History are built (M1.2).
+    Note over ML,Bg: planned M4.2, M4.3, M4.6.<br/>Transaction and History are built (M1.2),<br/>and so is the loop (M3.8).
     ML->>Keys: the key, in the current<br/>mode: the default keymap<br/>has one, vim mode adds<br/>the rest (M7.2)
     Keys->>Cmd: a named command, such<br/>as typing a character
     Cmd->>Txt: Transaction::change_each(text,<br/>selection, an edit per cursor)
@@ -700,23 +697,23 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant ML as app main loop<br/>(M3.4)
+    participant ML as app main loop<br/>(built, M3.8)
     participant View as editor view (M4.1)<br/>and ui Tree::frame (built)
-    participant Fe as gui frontend: present<br/>(M3.4), the painter (built)
+    participant Fe as gui Gui: render<br/>(built, M3.8)
     participant Plat as platform events<br/>(built)
     participant Disp as X server
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M3.4, M4.1.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3), font (M2.5)<br/>and gui's painter (M3.5) are built.
-    ML->>View: build_frame(metrics):<br/>Tree::frame(size, metrics)
-    View-->>ML: a Frame: the draw<br/>list in logical units,<br/>and its damage, or None<br/>when nothing is damaged
-    ML->>Fe: present(frame)
+    Note over ML,Bg: planned M4.1, M4.3.<br/>ui's Tree::frame (M3.1), platform's present<br/>and Waker (M2.2), gfx (M2.3), font (M2.5),<br/>gui's painter (M3.5) and render (M3.8) are built.
+    ML->>Fe: render(tree)
+    Fe->>View: Tree::frame(logical size,<br/>FontMetrics at the scale)
+    View-->>Fe: a Frame: the draw<br/>list in logical units,<br/>and its damage, or None<br/>when nothing is damaged
     Fe->>Fe: Painter::paint: only<br/>the damaged rects, with<br/>gfx and font (M3.5)
     Fe->>Plat: present(the framebuffer's<br/>Pixels view, damage rects)
     Plat->>Disp: XPutImage
     Note over ML,Disp: Keystroke to pixels: p99 within 16 ms<br/>at 1920x1080 on the reference machine
-    Bg-)ML: a Msg with the version it was made for, through mpsc,<br/>and the Waker ends wait_events
-    ML->>ML: handle_message on a<br/>later turn: a result for<br/>an older version is dropped
+    Bg-)ML: a Msg with the version it was made for, through mpsc (M4.3),<br/>and the Waker ends wait_events
+    ML->>ML: handle_message on a<br/>later turn (M4.3): a result<br/>for an older version is dropped
 ```
 
 ## 10. An LSP request and a stale result (planned)
@@ -724,8 +721,8 @@ sequenceDiagram
 A completion request to rust-analyzer while the user goes on typing. Every
 request carries the buffer version it was made for, and the loop drops a
 result for an older version (`docs/01-architecture.md` → "The main loop",
-`docs/subsystems/languages.md`). The flow is planned in M3.4, M5.2, M6.1,
-M6.3 and M6.7. Earlier, the session started rust-analyzer as a child of
+`docs/subsystems/languages.md`). The flow is planned in M4.3, M5.2, M6.1,
+M6.3 and M6.7, on the loop of M3.8. Earlier, the session started rust-analyzer as a child of
 `toolchain`'s sessions (M5.2) and sent `initialize` with
 `positionEncoding`, `utf-8` preferred and `utf-16` by default.
 
@@ -763,11 +760,11 @@ sequenceDiagram
 sequenceDiagram
     actor User
     participant Ed as editor and completion<br/>popup (M6.3)
-    participant ML as app main loop<br/>(M3.4)
+    participant ML as app main loop<br/>(built, M3.8), its<br/>messages (M4.3)
     participant Rd as reader of the server's<br/>stdout (M6.1)
     participant Ra as rust-analyzer, a child of<br/>toolchain sessions (M5.2)
 
-    Note over User,Ra: planned M3.4, M5.2, M6.1, M6.3.<br/>codec json is built (M1.4).
+    Note over User,Ra: planned M4.3, M5.2, M6.1, M6.3.<br/>codec json (M1.4) and the loop (M3.8) are built.
     Ra-->>Rd: the answer to A, or<br/>its cancellation error
     Rd->>Rd: framing, and parsing<br/>with codec json and<br/>its limits (built)
     Rd-)ML: a Msg: the result<br/>of A, for version 8
@@ -1007,17 +1004,17 @@ owner's timer, one of the deadlines of the main loop's `next_deadline`
 handles and each frame it draws, the owner asks `Tree::tooltip_target`
 which node's tooltip should show now, and compares it with the target it
 saw last. `ui`'s side is built (M3.3), as `Tooltip`'s rustdoc describes
-it; its owner, the app's main loop, is planned (M3.4), so the flow is
-drawn as it is to run there.
+it; its owner, the app's main loop, is built (M3.8), but its timers come
+with the shell (M3.4), so the flow is drawn as it is to run there.
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant ML as app main loop<br/>(M3.4)
+    participant ML as app main loop<br/>(built, M3.8), its<br/>timers (M3.4)
     participant Ui as ui Tree<br/>(built)
     participant Tip as ui Tooltip<br/>(built)
 
-    Note over User,Tip: planned M3.4.<br/>ui's tooltip_target, Tooltip::open and<br/>the layer of overlays are built (M3.3).
+    Note over User,Tip: planned M3.4.<br/>ui's tooltip_target, Tooltip::open and<br/>the layer of overlays (M3.3) and the loop (M3.8) are built.
     User->>ML: the pointer comes to rest<br/>on a button with a tooltip
     ML->>Ui: handle(MouseMove)
     Ui-->>ML: a Response

@@ -23,10 +23,17 @@ Built, with the roadmap task that built it:
   and with `--print-startup-time` prints the time from the start of
   `main` to that frame; it refuses any other argument, exiting 2 (a
   `--` only ends the options) — M2.6 (ADR-0045).
+- the event-driven main loop: it waits on the window until something
+  happens or the earliest deadline passes, hands each input event to the
+  `ui` tree first, stops at a close request, and presents only what
+  changed, so an idle Tidepool uses no processor; the first frame's lines
+  are a `ui` tree that `tidepool-gui` paints, and the backdrop is built
+  off the main thread — M3.8 (ADR-0012, ADR-0059).
 
 Not yet, with the roadmap task that adds it:
 
-- the main loop and the shell — M3.4.
+- the shell, and loading the settings — M3.4.
+- the channel of messages from workers to the loop — M4.3.
 - crash reports and buffer recovery — M4.9.
 - `--tui` — M7.1, M7.5.
 - `--smoke-test` — M14.4.
@@ -55,8 +62,9 @@ starts the terminal UI from M7.1.
   main loop")
 - Release: [`docs/05-release.md`](../../docs/05-release.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0012 (the
-  main loop, Proposed); ADR-0045 (the first frame, its budget and
-  `--print-startup-time`).
+  event-driven main loop on plain threads, no async runtime); ADR-0045
+  (the first frame, its budget and `--print-startup-time`); ADR-0059 (the
+  loop, built in M3.8, and the backdrop built off the main thread).
 - API reference: `cargo doc -p tidepool --open`
 
 ## Rules
@@ -71,14 +79,20 @@ starts the terminal UI from M7.1.
 
 ```bash
 cargo test -p tidepool
+TIDEPOOL_IT_X11=1 xvfb-run -a cargo test -p tidepool
 cargo tp -- --print-startup-time
 ```
 
-The tests check the command line and the startup line, and run the
-binary with arguments it refuses, which opens no window. The second
-command opens the window on your display: its line must stay within the
-budget, and the window must close with its close button. `cargo xtask ci`
-runs the whole gate.
+The tests check the command line, the startup line, and that the loop
+hands input to the tree in order and stops at a close request; they run
+the binary with arguments it refuses, which opens no window. The second
+command also runs the window test, under Xvfb (ADR-0041): the binary
+reaches its first frame, then uses no processor time over an idle second,
+read from `/proc`; without `TIDEPOOL_IT_X11=1` it prints `SKIPPED:`. The
+third opens the window on your display: its line must stay within the
+budget, a resize must repaint at once with the backdrop following, and
+the window must close with its close button. `cargo xtask ci` runs the
+whole gate.
 
 ## License
 

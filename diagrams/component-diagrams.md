@@ -9,7 +9,7 @@ uses it to the circle. The groups are the subsystems of `docs/subsystems/`,
 and every arrow between two crates is an edge that the dependency matrix in
 `docs/01-architecture.md` allows.
 
-Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6 and M3.7. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.8 (2026-11-22, version 0.1), after M2.4, M2.7, M2.8, M2.5, M2.6, M3.1, M3.2, M3.5, M3.6, M3.7 and M3.3. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -49,19 +49,20 @@ agents, languages and toolchains offer one another, and 1.3 what all of
 them stand on. Only formats and text (`codec` and `text`), `xtask`,
 `sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
 (M2.2, M2.7), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
-(M2.5), `gui`'s first frame (M2.6) and painter (M3.5) and `ui`'s tree,
+(M2.5), `gui`'s first frame (M2.6), painter (M3.5) and rendering of `ui`
+frames in its window (M3.8), and `ui`'s tree,
 layout, input routing, draw lists and accessibility tree (M3.1), its
-theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3) have code behind their interfaces; the app opens that frame's window (M2.6). Each arrow names the crate in
+theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3) have code behind their interfaces; the app's main loop opens that window and hands the tree its input (M3.8). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
 
 ```mermaid
 flowchart TB
-    c_app["App: tidepool, the binary<br/>the first frame, M2.6<br/>main loop planned M3.4"]
+    c_app["App: tidepool, the binary<br/>the main loop, M3.8<br/>the shell planned M3.4"]
 
-    i_gui(("Gui, Turn (M2.6)"))
-    i_front(("Frontend<br/>planned M3.4, M7.1"))
+    i_gui(("Gui (M2.6),<br/>render (M3.8)"))
+    i_front(("Frontend<br/>planned M7.1"))
     i_editor(("editor views<br/>and commands<br/>planned M4.1, M4.6"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
@@ -80,8 +81,9 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
 
-    c_app -->|"app (M2.6)"| i_gui
-    c_app -.->|"app:<br/>planned M3.4, M7.1"| i_front
+    c_app -->|"app (M2.6, M3.8)"| i_gui
+    c_app -->|"app: Tree::handle (M3.8)"| i_draw
+    c_app -.->|"app:<br/>planned M7.1"| i_front
     c_app -.->|"app:<br/>planned M4.1"| i_editor
     i_gui --- c_front
     i_front -.- c_front
@@ -421,7 +423,8 @@ window, events and present (M2.2), so both are drawn solid with their
 planned modules in their labels. `gfx` has its rasterizer and the
 backdrop (M2.3), and `font` its TrueType parser and glyph rasterizer
 (M2.8) and its atlas, layout and fallback (M2.5), so both are drawn solid
-too, as is `gui`, which draws the first frame with them (M2.6). `ui` has
+too, as is `gui`, which drew the first frame with them (M2.6) and paints
+`ui`'s frames with them (M3.5, M3.8). `ui` has
 its tree, layout, focus, input routing, text metrics, draw lists and
 accessibility tree (M3.1), its theme (M3.2), its controls (M3.6) and
 its collections, tab strip, splitter, card and code block (M3.7), and
@@ -437,7 +440,7 @@ will use and the declarations under it, and 3.2 the rest of `platform`.
 
 ```mermaid
 flowchart TB
-    c_gui["tidepool-gui<br/>the first frame, M2.6"]
+    c_gui["tidepool-gui<br/>the window, M2.6, M3.8"]
     c_tui["tidepool-tui<br/>planned M7.1"]
 
     i_window(("window: Window::open,<br/>WindowConfig, CursorShape<br/>(M2.2)"))
@@ -452,7 +455,7 @@ flowchart TB
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
     c_gui -->|"M2.6"| i_window
-    c_gui -->|"M2.6"| i_events
+    c_gui -->|"M2.6, Waker M3.8"| i_events
     c_gui -->|"M2.6"| i_surface
     c_gui -.->|"planned M4.2"| i_clip
     c_tui -.->|"planned M7.1"| i_terminal

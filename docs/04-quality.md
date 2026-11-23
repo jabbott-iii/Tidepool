@@ -1527,9 +1527,9 @@ network through its tool.
   --secs 30` (30 s per target; it runs only if the gate passed), all
   three with workflow commands paused (below). macOS and Windows build
   none of `platform`'s window tests yet (they are in its Linux backend),
-  so their gate neither runs nor skips them; `gui`'s, which every system
-  builds, prints `SKIPPED:` there, since nothing sets `TIDEPOOL_IT_X11`
-  (M2.6).
+  so their gate neither runs nor skips them; `gui`'s (M2.6) and the
+  binary's (M3.8), which every system builds, print `SKIPPED:` there,
+  since nothing sets `TIDEPOOL_IT_X11`.
 - **Workflow commands are paused** (M0.11) in the toolchain step, whose
   rustup reads `rust-toolchain.toml` and can quote it, and in the gate's
   and the fuzz-smoke steps, which run the repository's code; and so in

@@ -9,6 +9,7 @@ dependencies = [
  "tidepool-core",
  "tidepool-gui",
  "tidepool-platform",
+ "tidepool-ui",
 ]
 
 [[package]]

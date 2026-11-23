@@ -128,7 +128,7 @@ Nothing else is downloaded: the workspace has no third-party crates, and
 
 | System | You need |
 | :- | :- |
-| Linux (x86_64) | An X11 session, or Wayland with XWayland, to run the GUI (`cargo tp`, from M2.6), and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests, which run with `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform -p tidepool-gui` (ADR-0039). Tidepool loads `libX11` at run time, so no development packages are needed |
+| Linux (x86_64) | An X11 session, or Wayland with XWayland, to run the GUI (`cargo tp`, from M2.6), and `xvfb-run` (the `xvfb` package on Ubuntu) for the window tests, which run with `TIDEPOOL_IT_X11=1 xvfb-run cargo test -p tidepool-platform -p tidepool-gui -p tidepool` (ADR-0039). Tidepool loads `libX11` at run time, so no development packages are needed |
 | macOS 13+ | The Xcode command-line tools (`xcode-select --install`), for the linker |
 | Windows 10 1809+ (x86_64) | The MSVC build tools and the Windows SDK (Visual Studio Build Tools) |
 

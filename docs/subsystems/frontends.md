@@ -45,17 +45,36 @@ automatically when no display is available, with a message).
   `TextMetrics` with `font::layout`, in logical units at the scale it is
   made for, as the painter draws: a style takes the bundled face CSS's
   font matching would (italic before weight; no synthesized slant).
-- **The window** still shows the first frame (M2.6, ADR-0045) until the
-  shell paints `ui`'s frames in it (M3.4): `Gui::turn` waits for the
-  window's events and presents what an expose asks for, from a frame that
-  `first_frame::FirstFrame` draws anew, on the calling thread, whenever
-  the window's size or scale has changed: jabbott.dev's backdrop
-  (`gfx::backdrop`) and a line in each bundled face, its name in `text-3`
-  and a sample in `text`, from the typography table
-  (`docs/subsystems/ui-and-theme.md`), the two text colors from `ui`'s
-  bundled `tidepool-dark` theme (M3.2, ADR-0047); the backdrop's are
-  `gfx`'s `BackdropStyle::jabbott_dev()`, whose `bg` a test holds to the
-  theme's.
+- **The window** (M3.8, ADR-0059) shows `ui`'s frames for the main
+  loop of `docs/01-architecture.md` (ADR-0012). `Gui::wait_events` waits
+  on the window until the loop's deadline, notes the exposes and resizes
+  among its events, takes the backdrop's finished builds without
+  waiting, and leaves every event for the loop, which routes the input to
+  the tree and stops on a close request. `Gui::render` lays the tree out
+  at the window's size in logical units (its device size, at most
+  16,384 px a side, over its scale), with the painter's `FontMetrics` at
+  that scale, paints the frame's damage over the base, and presents that
+  with the window's exposes; a resize or a new base repaints the whole
+  window through `Tree::invalidate_all`, and an idle tree presents
+  nothing.
+- **The base** is jabbott.dev's backdrop (`gfx::backdrop`, in
+  `BackdropStyle::jabbott_dev()`, whose `bg` a test holds to the
+  theme's), built on threads of its own, never on the loop's: asked for
+  when the window opens and on each resize, at most two at once, a
+  waiting request replaced by a newer one, and a result for a size or
+  scale the window no longer has dropped; each finished build wakes the
+  window through its `Waker`. Until the backdrop of the window's size
+  arrives, the base is the tree's theme's flat `bg`; a build that fails,
+  or a thread that cannot start, leaves it there and logs a warning. The
+  first present waits for the first backdrop, up to `FIRST_FRAME_WAIT`
+  (250 ms) after the window opened, whichever comes first, and
+  `Gui::next_deadline` gives the loop that deadline.
+- **The first frame** (M2.6, ADR-0045) is what the window shows until the
+  shell replaces it (M3.4): `first_frame::tree()`, a `ui` tree whose one
+  node paints a line in each bundled face, its name in `text-3` and a
+  sample in `text`, from the typography table
+  (`docs/subsystems/ui-and-theme.md`), in the tree's theme's colors
+  (M3.2, ADR-0047). It is idle after its first frame.
 - Draws the jabbott.dev look in full (`docs/subsystems/ui-and-theme.md`).
 - HiDPI: logical units × scale factor; integer and fractional scales.
 - Clipboard: the window's, from `platform::clipboard`. A paste is asked
@@ -98,10 +117,16 @@ automatically when no display is available, with a message).
   (M3.4); property tests
   that a painted frame changes only pixels inside its damage, and that
   painting the damage gives what painting the whole frame gives, idle
-  frames included (`crates/gui/tests/paint.rs`, M3.5); an Xvfb smoke test,
-  `crates/gui/tests/window.rs`, that opens the window, sees the first
-  frame presented and an idle turn present nothing, gated by
-  `TIDEPOOL_IT_X11` and run by Linux CI's gate (M2.6, ADR-0041).
+  frames included (`crates/gui/tests/paint.rs`, M3.5); unit tests,
+  without a window or threads, of the backdrop's builds (at most two at
+  once, a waiting request replaced, a stale result dropped, a failure
+  logged) and of the screen at scales 1, 1.5 and 2 (laid out in logical
+  units and painted in device pixels, a resize or a new base repainting
+  the whole window, an idle tree presenting nothing, the first present's
+  wait) (M3.8); and an Xvfb smoke test, `crates/gui/tests/window.rs`,
+  that opens the window, sees the first frame presented and the backdrop
+  arrive from its thread, and an idle window present nothing, gated by
+  `TIDEPOOL_IT_X11` and run by Linux CI's gate (M2.6, M3.8, ADR-0041).
 - TUI: cell-grid snapshots (`tests/golden/tui/`) for the shell, vim mode
   chips, popups and resize; input decoder tables for xterm, kitty, tmux and
   the Linux console sequences; a pseudo-terminal integration test runs

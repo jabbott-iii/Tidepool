@@ -19,13 +19,12 @@ roadmap needs.
 
 Built, with the roadmap task that built it:
 
-- the first frame: `Gui` (`open`, `size` and `turn`, with its `Turn`),
-  which opens a window through `tidepool-platform` and presents what each
-  expose asks for, drawing anew on the calling thread when the window's
-  size or scale changed; `first_frame::FirstFrame`, which draws
-  jabbott.dev's backdrop and a line in each of the seven bundled faces,
-  its name in `text-3` and a sample in `text`; and `GuiError` — M2.6
-  (ADR-0045).
+- the first frame: `Gui::open` and `Gui::size`, which open a window
+  through `tidepool-platform`; the first frame's content, jabbott.dev's
+  backdrop and over it a line in each of the seven bundled faces, its
+  name in `text-3` and a sample in `text`; and `GuiError` — M2.6
+  (ADR-0045). M3.8 made the lines a `ui` tree and removed `Gui::turn`,
+  `Turn` and `first_frame::FirstFrame` (ADR-0059).
 - the first frame's two colors from `tidepool-ui`'s bundled
   `tidepool-dark` theme, in place of M2.6's stand-ins — M3.2 (ADR-0047).
 - the draw-list painter: `paint::Painter` paints `ui`'s frames into a
@@ -57,11 +56,28 @@ Built, with the roadmap task that built it:
   (`tests/overlays/mod.rs`, a module of the `golden` target); their
   references are blessed once the owner has looked at them — M3.3
   (ADR-0052).
+- the GUI's half of the event-driven main loop (ADR-0012):
+  `Gui::wait_events` waits on the window, notes what it asks for (exposes
+  and resizes), takes the backdrop's finished builds, and leaves every
+  event for the caller; `Gui::render` lays a `ui` tree out at the
+  window's size in logical units (its device size over its scale, read
+  from `Xft.dpi` on Linux, fractional scales included), paints the frame's damage with
+  `Painter` over the base, and presents that with the window's exposes, a
+  resize or a new base repainting the whole window, and an idle tree
+  nothing. The backdrop is built on threads of its own
+  (`tidepool-backdrop`), never on the caller's: asked for when the window
+  opens and on each resize, at most two at once, a waiting request
+  replaced by a newer one, a stale result dropped, and a failed build or
+  a thread that cannot start logged as a warning; until it arrives, the
+  base is the tree's theme's flat `bg`. The first present waits for it,
+  up to `FIRST_FRAME_WAIT` (250 ms) after the window opened, and
+  `Gui::next_deadline` gives the loop that deadline. `Gui::scale`,
+  `Gui::backdrop_ready`, and `first_frame::tree`, the first frame's lines
+  as a `ui` tree, idle after its first frame — M3.8 (ADR-0059).
 
 Not yet, with the roadmap task that adds it:
 
-- painting `ui`'s frames in the window, with the shell, and the
-  backdrop's rebuild off the main thread — M3.4.
+- the shell, which replaces the first frame's lines in the window — M3.4.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
@@ -74,21 +90,34 @@ A workspace crate whose row of the matrix allows it depends on it by path:
 tidepool-gui = { path = "../gui" }
 ```
 
-Open the window and answer it until it is asked to close, as the
-`tidepool` binary does (this needs a display, so the example is only
+Open the window and show the first frame until the window is asked to
+close, in an event-driven loop like the `tidepool` binary's: wait until
+the window has events or `Gui::next_deadline` passes, route the input to
+the tree, then render (this needs a display, so the example is only
 compiled):
 
 ```rust,no_run
-use tidepool_gui::{Gui, GuiError};
+use tidepool_gui::{Gui, GuiError, first_frame};
+use tidepool_platform::events::Event;
 use tidepool_platform::window::WindowConfig;
 
 fn main() -> Result<(), GuiError> {
     let mut gui = Gui::open(&WindowConfig::default())?;
+    let mut tree = first_frame::tree();
+    let mut events = Vec::new();
     loop {
-        let turn = gui.turn(None)?;
-        if turn.close_requested {
-            return Ok(());
+        events.clear();
+        gui.wait_events(gui.next_deadline(), &mut events)?;
+        for event in &events {
+            match event {
+                Event::Input(input) => {
+                    tree.handle(input);
+                }
+                Event::CloseRequested => return Ok(()),
+                _ => {}
+            }
         }
+        gui.render(&mut tree)?;
     }
 }
 ```
@@ -134,19 +163,31 @@ assert_eq!(target.pixel(DevicePoint::new(19, 19)), Some(teal.premultiply()));
 assert!(tree.frame(window, &painter.metrics(scale)).is_none());
 ```
 
-Draw the first frame without a window, for a size and scale of your
-choosing; the backdrop is most of its cost, about 100 ms for 1280 × 800 in
-a release build:
+Paint the first frame's lines without a window, at scale 1.5 over the
+theme's flat `bg`, as the window shows them until the backdrop arrives;
+the tree is idle after its first frame:
 
 ```rust
 use tidepool_core::geom::{DevicePoint, DeviceSize, Scale};
-use tidepool_gui::first_frame::FirstFrame;
+use tidepool_gfx::framebuffer::Framebuffer;
+use tidepool_gui::{Painter, first_frame};
+use tidepool_ui::theme::Token;
 
-let mut first = FirstFrame::new().expect("the bundled faces load");
-let frame = first.draw(DeviceSize::new(320, 120), Scale::ONE).expect("a frame");
-assert_eq!(frame.size(), DeviceSize::new(320, 120));
-// The backdrop is opaque, so every pixel is.
-assert!(frame.pixel(DevicePoint::new(300, 100)).is_some_and(|pixel| pixel.a == 255));
+let mut tree = first_frame::tree();
+let mut painter = Painter::new().expect("the bundled faces load");
+let (size, scale) = (DeviceSize::new(480, 300), Scale::new(1.5).expect("a scale"));
+let window = scale.to_logical(size);
+let frame = tree.frame(window, &painter.metrics(scale)).expect("the first frame");
+
+let bg = tree.theme().color(Token::Bg).premultiply();
+let mut base = Framebuffer::new(size).expect("a base");
+base.clear(bg);
+let mut target = Framebuffer::new(size).expect("a target");
+painter.paint(&mut target, &base.view(), &frame, scale).expect("painted");
+// The lines ink the frame; above the first, it is the flat `bg`.
+assert_ne!(target.bytes(), base.bytes());
+assert_eq!(target.pixel(DevicePoint::new(479, 0)), Some(bg));
+assert!(tree.frame(window, &painter.metrics(scale)).is_none());
 ```
 
 ## Documentation
@@ -159,7 +200,10 @@ assert!(frame.pixel(DevicePoint::new(300, 100)).is_some_and(|pixel| pixel.a == 2
   the token stand-ins, a line in each face); ADR-0047 (the theme's
   colors in their place); ADR-0048 (the painter: the damage only, its
   rounding, layers, tiles, icons as outlines, images, the metrics and
-  the golden scenes).
+  the golden scenes); ADR-0012 (the event-driven main loop, on plain
+  threads); ADR-0059 (`gui` presents `ui` frames, the backdrop built on
+  threads of its own over the flat `bg` meanwhile, and the first
+  present's wait of up to 250 ms).
 - API reference: `cargo doc -p tidepool-gui --open`
 
 ## Rules
@@ -167,10 +211,13 @@ assert!(frame.pixel(DevicePoint::new(300, 100)).is_some_and(|pixel| pixel.a == 2
 - `unsafe` is denied by the workspace lint, and in doc tests by the crate
   root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
   `cargo xtask unsafe-audit` checks both.
-- No literal colors outside tests: the text colors come from
-  `tidepool-ui`'s theme (ADR-0047), and the backdrop's from `gfx`'s
-  `BackdropStyle::jabbott_dev`, whose `bg` a test holds to the theme's.
-  The painter draws the colors a draw list carries.
+- No literal colors outside tests: the text colors and the flat base's
+  `bg` come from `tidepool-ui`'s theme (ADR-0047), and the backdrop's
+  from `gfx`'s `BackdropStyle::jabbott_dev`, whose `bg` a test holds to
+  the theme's. The painter draws the colors a draw list carries.
+- The thread that calls `Gui` never builds a backdrop and never waits on
+  a build: builds run on threads of their own, and their results are
+  taken without waiting (ADR-0012, ADR-0059).
 - Painting the damage must give what painting the whole frame gives:
   a command never inks past its bounds, cut to its clips, and nothing it
   draws may depend on where a damage rect's edges fall (ADR-0048). The
@@ -188,11 +235,27 @@ cargo xtask golden
 TIDEPOOL_IT_X11=1 xvfb-run -a cargo test -p tidepool-gui
 ```
 
-The unit tests draw the first frame without a window: every face has a
-line, the text lands where the lines go in the tokens' colors, at scale 1
-and 2, on its quarter pixel, the same bytes twice, and small and empty
-windows; and they check a turn's handling of events and the frame's
-limit of 16,384 px a side. The painter's check each command against what
+The unit tests run without a window. The first frame's: every face has a
+line, in order, chrome in uppercase; its node fills the window; the
+labels and samples go in their two columns on baselines 32 apart, and
+their ink lands where the lines go at scale 1 and 2, in the tokens'
+colors, the same bytes twice; and it is idle after its first frame. The
+screen's, the part of `Gui` that needs no window, at scales 1, 1.5 and
+2: the tree is laid out at the device size over the scale and painted
+at the device size; a new size, and a new base (the backdrop arriving),
+repaint the whole window though the tree did not change; an idle tree
+paints and presents nothing; exposes are kept until a present shows
+them, before the first paint too; the first present waits for the
+backdrop until its deadline; a failed present is presented again; the
+flat base is the theme's `bg`, which is the backdrop's; and small, empty
+and impossible sizes. The builds': at most two run, a newer request
+replaces the waiting one, a stale result is dropped and the waiting
+request then starts, a request already current or being built starts
+nothing, and a failed build or a thread that cannot start logs a
+warning, all with a stand-in builder and no threads; and, on real
+threads, a build sends its backdrop and then wakes, and a build `gfx`
+refuses or that panics is reported. The frame's limit is 16,384 px a
+side. The painter's check each command against what
 `gfx` draws for it, the rounding at fractional scales, neighbours `ui`
 lays out sharing their edges, clips, layers and their growth, text
 against `font`'s own glyphs, icons, images, the tiles, and geometry that
@@ -205,9 +268,11 @@ the 23 `ui_*` scenes, and its modules `controls`, `components`, and
 `overlays` the controls' 16, M3.7's components' 14, and the overlays'
 8, which `cargo xtask golden` compares exactly with
 `tests/golden/` (ADR-0044, ADR-0048). The window test,
-`tests/window.rs`, opens the window and sees its first frame presented and
-an idle turn present nothing; it runs only with `TIDEPOOL_IT_X11=1`, as
-`platform`'s do, and prints `SKIPPED:` otherwise (ADR-0039). `cargo xtask
+`tests/window.rs`, opens the window, renders the first frame's tree until
+it is presented and then until the backdrop arrives from its thread, and
+sees an idle wait run out its deadline and a render present nothing; it
+runs only with `TIDEPOOL_IT_X11=1`, as `platform`'s do, and prints
+`SKIPPED:` otherwise (ADR-0039). `cargo xtask
 ci` runs the whole gate, and Linux CI's runs the window test too
 (ADR-0041).
 

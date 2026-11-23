@@ -21,23 +21,31 @@
 //!   ([`Icon`]) and images registered with it, clips and layers; and
 //!   [`FontMetrics`] measures text for `ui` as the painter draws it (M3.5,
 //!   ADR-0048).
-//! - [`Gui`] opens a window through `tidepool-platform` and presents, each
-//!   time the window is exposed, the first frame (M2.6, ADR-0045): what
-//!   [`first_frame::FirstFrame`] draws with `gfx` and `font`, jabbott.dev's
-//!   backdrop and a line in each of the seven bundled faces. Painting
-//!   `ui`'s frames in the window comes with the shell (M3.4).
+//! - [`Gui`] opens a window through `tidepool-platform` and shows `ui`'s
+//!   frames in it, for the `tidepool` binary's event-driven main loop
+//!   (M3.8, ADR-0012, ADR-0059): [`Gui::wait_events`] waits on the window,
+//!   and [`Gui::render`] lays a tree out at the window's size and scale and
+//!   paints its damage with the [`Painter`] over jabbott.dev's backdrop,
+//!   which is built on threads of its own, over the theme's flat `bg`
+//!   until it arrives. The first present waits for the backdrop, up to
+//!   [`FIRST_FRAME_WAIT`].
+//! - [`first_frame::tree`] is what the window shows until the shell
+//!   (M3.4): a line in each of the seven bundled faces (M2.6, ADR-0045),
+//!   as a `ui` tree.
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
 // `cargo xtask unsafe-audit` enforces that this line is here.
 #![doc(test(attr(forbid(unsafe_code))))]
 
+mod builds;
 mod error;
 pub mod first_frame;
 mod frontend;
 pub mod icon;
 pub mod metrics;
 pub mod paint;
+mod screen;
 
 // The README's examples are compiled as doc tests too.
 #[cfg(doctest)]
@@ -45,7 +53,7 @@ pub mod paint;
 struct ReadmeDoctests;
 
 pub use error::GuiError;
-pub use frontend::{Gui, Turn};
+pub use frontend::{FIRST_FRAME_WAIT, Gui};
 pub use icon::Icon;
 pub use metrics::FontMetrics;
 pub use paint::Painter;

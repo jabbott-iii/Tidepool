@@ -241,10 +241,12 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0012 — Event-driven main loop on plain threads; no async runtime
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** Tidepool waits on input, child-process pipes, file events
-  and timers, and must never block typing.
+  and timers, and must never block typing. The user accepted this ADR as
+  written on 2026-11-22, answering M3.4's `Decide first` line; M3.8
+  builds the loop (ADR-0059).
 - **Decision:** the loop in `docs/01-architecture.md`: block on frontend
   events with a deadline, wake from other threads through a `Waker`, handle
   input first, bounded message handling, render only on damage.
@@ -3937,3 +3939,121 @@ decides; the roadmap task that first depends on one asks for the decision.
     `gui` would all change for one subtle effect.
 - **Revisit when:** a button needs an icon (the hexagon); a widget needs
   the green or violet accent; or the draw list gains gradients.
+
+## ADR-0059 — M3.4 splits: M3.8 builds the event-driven loop in `gui` and `app`, M3.4 the shell; the backdrop is built on worker threads, and the window shows the flat `bg` until it arrives
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - M3.4 asks for the main loop of `docs/01-architecture.md` (ADR-0012),
+    `gui` painting `ui`'s frames in the window, and the shell: the title
+    strip, activity bar, side panel, editor area, bottom panel, status
+    bar and command palette, with settings loading and shell goldens.
+    That is four crates: `app` for the loop, `gui` for painting, the
+    shell's views (`editor`, where `docs/subsystems/editor.md` puts every
+    panel, or `app`), and `xtask`, whose golden harness needs a row for a
+    new drawing crate. `CLAUDE.md` asks that a task spreading past three
+    crates be raised as probably mis-scoped.
+  - Since M2.6, `gui` rebuilds jabbott.dev's backdrop on the main thread
+    when the window's size changes: 99 to 147 ms at 1280 × 800 and
+    189 ms at 1920 × 1080 in a release build on the reference machine
+    (ADR-0045), against the loop's rule that a handler taking more than
+    about 1 ms moves its work to a worker. `gfx` has no threads, and
+    `Backdrop::ensure` cannot be stopped part-way.
+  - COSMIC, through XWayland, resizes a new 1280 × 800 window to
+    1232 × 662 about 1 ms after its first expose (ADR-0045), so the first
+    backdrop asked for is usually not the one the first frame needs.
+  - The first frame's budget is 300 ms from the start of `main` on the
+    reference machine (`docs/00-overview.md`); `Window::open` takes 8 to
+    20 ms of it.
+  - On 2026-11-22 the user chose the recommended option of each of three
+    questions: accept ADR-0012 as written; "Split: M3.8 loop first"; and
+    "Worker, flat bg meanwhile".
+- **Decision:**
+  - **The split** (ADR-0024). A new task, M3.8 (`gui, app: the
+    event-driven main loop`), builds the loop and `gui`'s painting of
+    `ui` frames in the window, and depends on M2.6, M2.7 and M3.5. M3.4
+    keeps the shell, its settings and its goldens, the part that
+    finishes what it promised, and depends on M3.8 too. Its `Decide
+    first` line now asks where the shell lives, how the activity bar
+    shows its views, which settings it reads before M4.7, and which
+    commands the palette lists.
+  - **`gui` presents `ui` frames.** `Gui` keeps a framebuffer of the
+    window's size (at most `gfx`'s 16,384 px a side) and a `Painter`.
+    `Gui::render` lays a `ui` tree out at the framebuffer's size in
+    logical units, with the `Painter`'s `FontMetrics` at the window's
+    scale, paints the frame's damage over the base image, and presents
+    what it painted with what the window asked to have shown again. A
+    new framebuffer (a resize) or a new base repaints the whole window,
+    through `Tree::invalidate_all`. The first frame's content, a line in
+    each bundled face over the backdrop, becomes a `ui` tree that `gui`'s
+    `first_frame` module builds, which the window shows until M3.4's
+    shell replaces it. `Gui::turn` and `Turn` go, and `FirstFrame`'s
+    drawing with it: `gui` is version 0.1, and nothing outside the
+    workspace uses it.
+  - **The backdrop is built on worker threads.** `Gui` asks for the
+    backdrop of the framebuffer's size and the window's scale as soon as
+    the window is open, and again on each resize. Each build runs on a
+    thread of its own, at most two at once; a request made while two
+    run waits, replacing any request already waiting. A finished build
+    comes back over a channel and wakes the window through its `Waker`.
+    A result for a size or scale the window no longer has is dropped. A
+    build that fails, or a thread that cannot start, leaves the flat
+    base and logs a warning; the next resize asks again.
+  - **The flat `bg` meanwhile.** Until the backdrop for the window's
+    size arrives, the base is a framebuffer cleared to the tree's theme's
+    `bg`. When it arrives, the whole window is painted again over it.
+  - **The first present waits, up to 250 ms.** Until the first backdrop
+    arrives, or 250 ms after the window opened (`FIRST_FRAME_WAIT`),
+    whichever comes first, `render` presents nothing.
+    `Gui::next_deadline` gives the loop that deadline. The main thread
+    goes on answering events meanwhile.
+  - **The loop** (ADR-0012), in `app`: it waits on the window's events
+    until the earliest deadline (`gui`'s, for now), routes each input
+    event to the tree with `Tree::handle` before anything else, stops on
+    a close request, then renders. Input comes before rendering, and
+    nothing on the main thread builds a backdrop. The channel of
+    messages from workers, and its cap per turn, come with the first
+    worker that reports to the main thread (M4.3's buffer loads); the
+    loop's own timers, the tooltip's delay and the toast's timeout, come
+    with the shell (M3.4).
+- **Consequences:**
+  - Two changes to review in place of one, and the shell's questions are
+    asked when M3.4 starts, with the loop already in place.
+  - A resize shows the flat `bg` under the content for one build's time,
+    50 to 250 ms, then the backdrop: the window's content follows the
+    drag at once, and the backdrop pops in after it.
+  - On COSMIC the first frame no longer waits for the wrong-sized
+    backdrop to finish before the right one starts: both builds run at
+    once, so the first frame shows the backdrop of the window's real
+    size.
+  - A window whose backdrop takes more than 250 ms to build (2560 × 1440
+    or larger, ADR-0045) shows the flat `bg` first, within the budget,
+    and the backdrop after.
+  - During a resize, up to two backdrops being built (each a base and a
+    blurred copy, about 33 MB for the two at 1920 × 1080) are in memory
+    beside the window's framebuffer and the flat base, about 8 MB each.
+  - A build cannot be stopped, so a stale one runs to the end on its
+    thread and its result is dropped; one still running when the window
+    closes ends with the process.
+  - `docs/01-architecture.md`'s threading model gains the backdrop's
+    builders.
+- **Alternatives considered:**
+  - All of M3.4 in one change: one large review across four crates.
+  - The old backdrop kept under the content until the new one arrives:
+    less of a flash, but its drawings, sized to the window's height,
+    sit in the wrong place until it is replaced.
+  - Building the backdrop on several threads inside `gfx` (ADR-0045's
+    alternative): the same bytes 4 to 6 times faster, still 25 to
+    50 ms at 1920 × 1080 on the main thread, past the 1 ms rule, with
+    `gfx` spawning threads.
+  - One builder thread working through requests in turn: on COSMIC the
+    right-sized build would start only after the first one ends, past
+    the 250 ms wait.
+  - Presenting the flat `bg` at once at startup (ADR-0045's rejected
+    alternative): a first frame in about 15 ms, but the backdrop would
+    pop in on every start.
+- **Revisit when:** a resize's flat `bg` is reported as a distraction;
+  the backdrop gains motion (`ui.ambient_motion`); the worker pool of
+  `docs/01-architecture.md` lands, which could take the builds; or the
+  first frame takes more than 250 ms on the reference machine.

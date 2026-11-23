@@ -1312,6 +1312,10 @@ our own rasterizer.
     summary reads `ci: ok` with no `SKIPPED` count), while the macOS and
     Windows jobs build only `gui`'s, which prints `SKIPPED:` there
     (M2.6).
+  - Note (2026-11-22): M3.8 adds the binary's window test,
+    `crates/app/tests/window.rs`, which every system builds as it builds
+    `gui`'s: the Linux job runs 30, and the macOS and Windows jobs print
+    `SKIPPED:` for both of theirs.
 
 - [x] **M2.7 — platform: clipboard and paths (Linux)**
   - Depends: M2.2, M1.8
@@ -2283,13 +2287,105 @@ JetBrains Mono text over the jabbott.dev backdrop.
     - Nothing was built for macOS or Windows: `ui` and `gui` have no OS
       code, and CI compares the scenes there.
 
-- [ ] **M3.4 — app: event-driven main loop and shell**
-  - Depends: M3.3, M2.6, M2.7
-  - Decide first: accept ADR-0012 (event-driven main loop on plain
-    threads), which is `Proposed`.
-  - Do: the loop in `docs/01-architecture.md`; title strip, activity bar,
-    side panel, editor area, bottom panel, status bar, command palette;
-    settings loading (read-only until M4.7).
+- [x] **M3.8 — gui, app: the event-driven main loop**
+  - Depends: M2.6, M2.7, M3.5
+  - Do: per ADR-0012 and ADR-0059:
+    - `gui`: `Gui` keeps a framebuffer of the window's size and a
+      `Painter`; `Gui::render` lays a `ui` tree out at the window's
+      logical size with the painter's `FontMetrics` at the window's
+      scale, paints the frame's damage over the base and presents it
+      with the window's exposes; a resize or a new base repaints the
+      whole window. The backdrop is built on threads of its own, at
+      most two at once, a waiting request replaced by a newer one and a
+      stale result dropped, with the flat `bg` as the base until it
+      arrives; the first present waits for it, at most
+      `FIRST_FRAME_WAIT` (250 ms) after the window opened, and
+      `Gui::next_deadline` gives the loop that deadline. `first_frame`
+      builds the first frame's lines as a `ui` tree; `Gui::turn` and
+      `Turn` go.
+    - `app`: the loop of `docs/01-architecture.md`: wait on the window
+      until the earliest deadline, input routed to the tree with
+      `Tree::handle` first, a close request ends it, then render;
+      `--print-startup-time` after the first present.
+    - The docs that describe the first frame and the loop:
+      `docs/01-architecture.md` (the loop and the threading model),
+      `docs/subsystems/frontends.md`, the READMEs of `tidepool-gui` and
+      `tidepool`, `AGENTS.md`, `README.md`, `diagrams/`,
+      `docs/features.jsonc`.
+  - Accept:
+    - `cargo tp` shows the first frame's lines over the backdrop,
+      painted by `Painter` from a `ui` tree; `--print-startup-time`
+      stays within the 300 ms budget on the reference machine.
+    - Nothing on the main thread builds a backdrop: a resize repaints
+      the whole window over the flat `bg` at once, and over the
+      backdrop when its build arrives; a stale build is dropped; at
+      most two builds run at once; a failed build, or a thread that
+      cannot start, leaves the flat `bg` and logs a warning (unit tests
+      of the builder and the screen, headless).
+    - HiDPI: at scales 1, 1.5 and 2 the tree is laid out at the window's
+      logical size and painted at its device size (headless tests).
+    - An idle window presents nothing, and the idle binary uses no CPU
+      over a second (window tests under Xvfb).
+    - A resize on the reference machine's desktop follows the drag,
+      with the backdrop arriving after (human).
+  - Verify: `cargo test -p tidepool-gui -p tidepool`; `TIDEPOOL_IT_X11=1
+    xvfb-run -a cargo test -p tidepool-gui -p tidepool`; `cargo xtask
+    ci`; `cargo tp -- --print-startup-time`
+  - Note (2026-11-22): split from M3.4 (ADR-0059), which keeps the
+    shell. The user accepted ADR-0012 that day, and chose the backdrop's
+    builders on worker threads with the flat `bg` meanwhile.
+  - Note (2026-11-22): built. `gui`'s `Gui` has `wait_events`, `render`,
+    `next_deadline`, `scale` and `backdrop_ready`, over a private
+    `Screen` (the framebuffer, the base, the `Painter` and the exposes,
+    tested without a window) and `Builds` (the backdrop's scheduler,
+    tested with a stand-in builder and no threads; `Threads` runs each
+    build on a `tidepool-backdrop` thread, which reports through a drop
+    guard, so a build that panics is logged and frees its place).
+    `first_frame::tree` gives the seven lines as a `ui` tree; `Gui::turn`,
+    `Turn` and `FirstFrame` are gone. The wait of the first present ends
+    for good at the first render past it, so the loop never spins on a
+    deadline that has passed. `app`'s loop routes input to the tree
+    before rendering and stops at a close request. `cargo test -p
+    tidepool-gui -p tidepool`: `gui`'s 71 unit, 61 golden, 2 paint, 1
+    window and 6 doc tests, and `tidepool`'s 6 unit, 2 command-line and 1
+    window test, the two window tests printing `SKIPPED:`; under
+    `TIDEPOOL_IT_X11=1 xvfb-run -a`, the same, with both window tests run.
+    Under Xvfb the idle binary used 0 ticks of processor time over a
+    second, after about 30 at startup. The 132 Mermaid blocks of
+    `diagrams/` parse and render with Mermaid 11.17.2 in the app's
+    browser, which rejected a planted broken one and caught a `;` in a
+    message of a new sequence diagram, since fixed.
+  - Note (2026-11-22): `--print-startup-time` under Xvfb, five runs
+    each: 292 to 327 ms in a dev build, 286 to 317 ms in a release
+    build, at a load average of 41 on the reference machine's 16 threads
+    from other programs (a planner at about 870% and a JVM at about 320%
+    of a core). At that load the backdrop missed the 250 ms wait, so these
+    times are the wait's, not the backdrop's. Ten minutes later, at a load
+    average of 15 to 17, three runs each: 147 to 171 ms in a release build
+    and 149 to 158 ms in a dev build, the backdrop in the first frame.
+    `cargo xtask ci`, under `TIDEPOOL_IT_X11=1 xvfb-run -a`: 13 of 13
+    steps, 2,414 tests passed, none skipped. `RUSTDOCFLAGS='-D warnings'
+    cargo doc -p tidepool-gui -p tidepool --no-deps` is clean.
+  - Note (2026-11-22): the user ran `cargo tp -- --print-startup-time`
+    on the reference machine's desktop, resized the window, and reported
+    that it looks right, which meets the two criteria left for a person;
+    the time it printed there was not reported back.
+
+- [ ] **M3.4 — app: the shell**
+  - Depends: M3.3, M3.8, M2.6, M2.7
+  - Decide first (ADR-0059):
+    - where the shell's views live: `editor`, where
+      `docs/subsystems/editor.md` puts every panel, with its goldens
+      drawn in `tidepool`'s `tests/golden.rs` (a new row of `xtask
+      golden`'s `SCENES`), or `app`;
+    - how the activity bar shows its views: icons drawn as outlines,
+      Tidepool's first, or labels;
+    - which settings the read-only loader reads before M4.7, and where
+      it lives;
+    - which commands the palette lists, and how they are ranked.
+  - Do: title strip, activity bar, side panel, editor area, bottom
+    panel, status bar, command palette; settings loading (read-only
+    until M4.7).
   - Accept: shell golden at 1280×800 and 1920×1080; resize and HiDPI work;
     no redraw when idle.
   - Verify: `cargo xtask golden`; `xvfb-run cargo test -p tidepool`
@@ -2298,6 +2394,12 @@ JetBrains Mono text over the jabbott.dev backdrop.
     machine's sizes (ADR-0045), against the loop's rule of about 1 ms a
     handler; this task moves that work off the main thread or makes it
     fast enough.
+  - Note (2026-11-22): ADR-0059 split this task, which was `app:
+    event-driven main loop and shell`: M3.8 builds the loop and `gui`'s
+    painting of `ui` frames, and builds the backdrop off the main thread,
+    which answers the note above; this task keeps the shell. The user
+    accepted ADR-0012 that day, which answers the `Decide first` line
+    this task had; the line now holds the shell's questions.
   - Note (2026-11-22): M3.3 built what the shell's palette and popups
     need from `ui`. `widgets::Palette` shows the items its owner ranks,
     so the shell ranks its commands itself (ADR-0052). A tooltip's delay
