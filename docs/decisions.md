@@ -3220,7 +3220,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0049 — M3.6's controls: the tree holds the theme; the site's component colors become tokens; `ui` gains `text` for grapheme editing; pressed and disabled looks, and no blurred glows
 
-- **Status:** Accepted
+- **Status:** Accepted; its buttons' look is superseded by ADR-0058 (each kind a tile of jabbott.dev's header, at 30 and 24 px high)
 - **Date:** 2026-11-18
 - **Context:**
   - M3.6 builds `tidepool-ui`'s controls from the spec's Components
@@ -3863,3 +3863,77 @@ decides; the roadmap task that first depends on one asks for the decision.
     mirroring the site's tokens.
 - **Revisit when:** ambient motion gets a task (the sparks); the site's
   backdrop changes again; or the first frame misses its budget.
+
+## ADR-0058 — Buttons take the look of jabbott.dev's header tiles, keeping their four kinds and sizes
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Context:**
+  - On 2026-11-23 (UTC), jabbott.dev gave its header links the look of its
+    home page's destination tiles (`.nav-tile`, in the commit "feat(layout):
+    restyle header links as small destination tiles"), and kept the old
+    `.btn` look for its other buttons:
+    - a tile 40 px high, its label Saira 13 px 600, 0.10em, uppercase, in
+      `text`, on `panel` with a radial glow of its accent at 16% in its
+      top-right corner, inside a 1 px `line-2` border;
+    - 1 px brackets in its accent at the top-left and bottom-right corners,
+      16 px arms drawn at half their length at rest;
+    - a hexagon frame for its icon, filled on the current page;
+    - on hover and keyboard focus, the brackets at full length, the border
+      and the label tinted toward the accent (55%), the tile lifted 2 px
+      over a blurred shadow, and, for focus, a 2 px outline in the accent;
+    - accents: neutral (`text-2`), teal, amber, green, and violet.
+  - Tidepool's `widgets::Button` copies the old `.btn` look (ADR-0049):
+    ghost, teal, amber with cut corners, and slate, 30 or 24 px high, with
+    labels only. The draw list has no gradient, and ADR-0049 drew no
+    blurred glow, standing solid, translucent shapes in for some.
+  - The user chose the recommended option of each question on 2026-11-22:
+    "The IDE's buttons", "Keep four kinds", "Keep 30 and 24", and "Not
+    until buttons get icons".
+- **Decision:**
+  - **Every button is a tile.** Ghost is the neutral tile (`text-2`
+    accent), teal the teal tile, amber the amber tile, which is still the
+    primary but trades its cut corners for brackets, and slate the quiet
+    tile: neutral, with no glow. `ButtonKind` and `ButtonSize` are
+    unchanged.
+  - **The sizes stay** 30 and 24 px high. The tile's parts scale to them
+    from the site's 40: the brackets, the padding, and the lift.
+  - **No hexagon** until a button gets an icon; a label-only tile pads both
+    sides evenly.
+  - **States**, from the site where it has them: at rest, the tile and
+    half-length brackets; hovered, full brackets, the border and label
+    tinted toward the accent, and the lift; focused, the same without the
+    lift but with a 2 px outline in the accent, 3 px out; pressed, the
+    hovered look without the lift; disabled, the rest look at 40%
+    (ADR-0049). Unlike the site, keyboard focus does not lift the tile:
+    the pointer can be anywhere then, and a tile lifted over the button
+    above it would show where a click reaches that button (M3.6's review
+    of 2026-11-22). The corner glow is
+    stood in for by solid, translucent shapes, and the blurred shadow is
+    left out, as ADR-0049 did for glows. Colors the theme lacks, such as
+    the tinted labels, become tokens, checked by `cargo xtask theme`.
+- **Consequences:**
+  - The controls' golden scenes, and every scene that shows a button (the
+    dialog, the toast, the card, the tooltip's, and the palette's, where a
+    button sits in the dimmed window), change, and are blessed again once
+    the user has looked at them.
+  - The amber primary is a dark tile, less loud than the filled amber
+    button it replaces; the site's header makes the same trade.
+  - Buttons now differ from the site's other buttons, which keep `.btn`.
+  - The theme gains eight tokens for the tiles' labels, lines, and glows.
+    Its format stays version 1, as ADR-0049 and ADR-0057 kept it, since
+    Tidepool reads no user theme yet: a theme file without them is
+    refused. The bundled theme grew past 8 KiB, so the theme fuzz
+    harness's cap on generated inputs rose from 8 to 16 KiB, keeping it
+    as a seed; the theme's own limit, 1 MiB, is unchanged.
+  - `on-amber`, `amber-hi`, and the `cut` size no longer serve a widget.
+    They stay, with their contrast pairs, for the widgets to come.
+- **Alternatives considered:**
+  - Green and violet kinds too: `ButtonKind` would grow for accents no
+    owner asks for yet.
+  - The site's 40 px: every dialog, toast, and card would grow.
+  - Icons with the hexagon now: an icon API no owner needs yet.
+  - A gradient command in the draw list for the glow: `ui`, `gfx`, and
+    `gui` would all change for one subtle effect.
+- **Revisit when:** a button needs an icon (the hexagon); a widget needs
+  the green or violet accent; or the draw list gains gradients.

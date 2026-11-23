@@ -75,10 +75,11 @@ Built, with the roadmap task that built it:
   `codec`'s `Limits`, and `Theme::tidepool_dark`, the bundled
   `themes/tidepool-dark.toml` compiled in: a value for each color
   `Token` (26; M3.6 adds eight for the controls, M3.7 five for the
-  collections, the card's tab and the code block's bar, and ADR-0057
+  collections, the card's tab and the code block's bar, ADR-0057
   four more of the site's `:root`, `bronze`, `bronze-hi`, `purple` and
   `purple-hi`, the colors of its backdrop's drawings, which no widget
-  uses yet), with the solid
+  uses yet, and ADR-0058 eight for the buttons' tiles: their lit labels
+  and borders and a coat of their corner glow), with the solid
   color over `bg` and the 256-color index
   where the file gives them, the cut-corner size and the two fonts. A
   key that is missing or unknown, a wrong type, a color that does not
@@ -91,7 +92,15 @@ Built, with the roadmap task that built it:
   contrast table from it and fails when a pair the theme uses for text is
   below WCAG AA (ADR-0047) — M3.2.
 - `widgets`: the controls, in jabbott.dev's design language — `Button`
-  (ghost, teal, amber with cut corners, slate; 30 or 24 high), `Chip`,
+  (ghost, teal, amber and slate, 30 or 24 high, each a tile of the
+  site's header in its accent since ADR-0058: `panel` in a `line-2`
+  border, bracket corners half drawn at rest, and a glow of the accent in
+  its top-right corner, translucent pills standing in for the site's
+  gradient, as many as the `-haze` token's alpha needs to make about its
+  16% (nine in the bundled theme); hovered, lit and risen 2 units (1
+  small); showing keyboard focus, lit but not risen, with its focus
+  outline in its accent; pressed, lit but down; the pointer hits it where
+  it was laid out), `Chip`,
   `TextInput` (a text input or the search field: one line of at most
   4,096 bytes, moved in and deleted by grapheme cluster, with selection,
   a caret placed by the pointer, and a secret mode that keeps its text
@@ -309,7 +318,7 @@ Built, with the roadmap task that built it:
     `invoice\u{202E}fdp.exe` cannot pass for a PDF and no two names look
     alike; their matched ranges move with the cleaning, and one at or
     past the label's end marks nothing.
-  - A `Button`'s label is cut to its bounds, and a `TextInput` drops what
+  - A `Button`'s label is cut to its tile, and a `TextInput` drops what
     a dialog's text leaves out from what is typed or pasted — M3.3's
     fourth round, in M3.6's controls.
 
@@ -321,7 +330,9 @@ focusable node has a role and a name over random sequences of changes
 its reader panic (`tests/theme.rs`); and that random edits of a field
 keep its text one line within its limit and its caret and selection on
 grapheme cluster boundaries (`tests/widgets.rs`, which also tests each
-control's role, name, actions and colors); and that random keys,
+control's role, name, actions and colors, and each button's tile in each
+state, what its rise damages, where it is hit, and that focus raises it
+neither over the button above nor out of a scroller's top); and that random keys,
 presses, scrolls, resizes and model changes, at the root or in a
 scroller, keep a collection's selection on a row, its nodes exactly those
 of the rows on screen, every row named by what it shows and each reveal
@@ -537,7 +548,9 @@ fn main() -> Result<(), UiError> {
   its field, the window dimmed); ADR-0055 (a press waits for the pointer
   after a modal becomes active, and only toasts shown after it are live
   above it, kept clear of it); ADR-0056 (that wait ends only past 4
-  device pixels of movement, and holds when a modal closes too).
+  device pixels of movement, and holds when a modal closes too); ADR-0058
+  (buttons take the look of jabbott.dev's header tiles, keeping their
+  four kinds and sizes).
 - API reference: `cargo doc -p tidepool-ui --open`
 
 ## Rules

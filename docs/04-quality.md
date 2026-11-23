@@ -146,7 +146,7 @@ The design is ADR-0027's; the engine's rustdoc
   1 KiB, numbers of 64 bytes, 256 entries, images of 64 px a side and
   4 KiB of pixels; for `ttf`, 4 KiB of file, 256 points a glyph, 4 levels
   and 64 components of composites, 8 kerning subtables, bitmaps of 64 px
-  a side, and 4,096 steps of work to rasterize a glyph; for `theme`, 8 KiB
+  a side, and 4,096 steps of work to rasterize a glyph; for `theme`, 16 KiB
   of input, depth 8, strings of 128 bytes, numbers of 32 and 64
   entries), and
   their corpora hold `edge-*` seeds that sit exactly at each limit, so

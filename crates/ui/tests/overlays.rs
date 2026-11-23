@@ -1059,6 +1059,12 @@ fn discard_dialog(tree: &mut Tree) -> (NodeId, NodeId, NodeId) {
 
 /// Whether `commands` hold the focus outline around `rect`.
 fn outlined(commands: &[Command], rect: Rect) -> bool {
+    outlined_in(commands, rect, Token::Teal)
+}
+
+/// Whether `commands` hold the focus outline around `rect` in `token`, as
+/// a button paints it in its accent (ADR-0058).
+fn outlined_in(commands: &[Command], rect: Rect, token: Token) -> bool {
     let outline = Rect::new(
         rect.x - 5.0,
         rect.y - 5.0,
@@ -1070,7 +1076,7 @@ fn outlined(commands: &[Command], rect: Rect) -> bool {
             == Command::Border {
                 rect: outline,
                 width: 2.0,
-                color: color(Token::Teal),
+                color: color(token),
             }
     })
 }
@@ -1181,11 +1187,13 @@ fn the_modal_dialog_shows_its_focus_outline_only_after_a_key() {
     let commands = modal_commands(&mut tree, WINDOW);
     let placed = bounds(&tree, dialog);
     assert!(outlined(&commands, placed));
-    // Tab moves focus, and the outline, to its first control.
+    // Tab moves focus, and the outline, to its first control: an amber
+    // button, outlined in amber around its tile, which focus does not
+    // raise (ADR-0058).
     tree.handle(&key(Key::Tab));
     let commands = modal_commands(&mut tree, WINDOW);
     assert!(!outlined(&commands, placed));
-    assert!(outlined(&commands, bounds(&tree, discard)));
+    assert!(outlined_in(&commands, bounds(&tree, discard), Token::Amber));
 
     // Opened after a click: focus is on it, and does not show.
     let Shell { mut tree, a, .. } = shell();

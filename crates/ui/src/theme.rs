@@ -88,7 +88,7 @@ pub const MAX_TEXT_BYTES: usize = 64;
 
 /// The limits [`Theme::tidepool_dark`] parses with, which suit any theme
 /// file: 1 MiB of input, 8 levels, strings of 4 KiB, numbers of 64 bytes
-/// and 1,024 entries in a table or array. The bundled file is about 7.5 KiB,
+/// and 1,024 entries in a table or array. The bundled file is about 8.8 KiB,
 /// and 4 levels deep at `contrast.use[i].on[j]`.
 pub const LIMITS: Limits = Limits {
     max_input_bytes: 1024 * 1024,
@@ -116,7 +116,7 @@ pub enum Token {
     Panel,
     /// `panel-solid`: menus, tooltips.
     PanelSolid,
-    /// `slate`: inputs, chips, slate buttons.
+    /// `slate`: inputs, chips.
     Slate,
     /// `slate-2`: media wells, the image viewer.
     Slate2,
@@ -134,13 +134,14 @@ pub enum Token {
     Teal,
     /// `teal-hi`: hover and active text.
     TealHi,
-    /// `teal-wash`, translucent: the teal button's fill, hover wash.
+    /// `teal-wash`, translucent: a hover wash.
     TealWash,
     /// `teal-glow`, translucent: glows, the selection.
     TealGlow,
     /// `amber`: the primary action, warnings.
     Amber,
-    /// `amber-hi`: the primary action's hover.
+    /// `amber-hi`: the site's primary action's hover, which no widget
+    /// paints since buttons became tiles (ADR-0058).
     AmberHi,
     /// `green`: ready, success, git added.
     Green,
@@ -164,21 +165,22 @@ pub enum Token {
     EditorBg,
     /// `bar`, translucent: the status bar, the command bar.
     Bar,
-    /// `on-amber`: text on `amber`, as a primary button's label.
+    /// `on-amber`: text on `amber`.
     OnAmber,
     /// `on-teal`: text on `teal`, as an active chip's label.
     OnTeal,
     /// `comment`: comments in code, only on `editor-bg`.
     Comment,
-    /// `ghost`, translucent: the ghost button's fill (ADR-0049).
-    Ghost,
-    /// `teal-line`, translucent: the teal button's border; a hovered
-    /// chip's or field's border (ADR-0049).
-    TealLine,
-    /// `teal-fill`, translucent: the teal button's hover fill (ADR-0049).
-    TealFill,
-    /// `slate-hi`: the slate button's hover fill; a pressed chip's fill
+    /// `ghost`, translucent: the site's ghost button's fill, and a card's
     /// (ADR-0049).
+    Ghost,
+    /// `teal-line`, translucent: a lit teal tile's border (ADR-0058); a
+    /// hovered chip's, field's or card's border (ADR-0049).
+    TealLine,
+    /// `teal-fill`, translucent: the site's teal button's hover fill; a
+    /// hovered card's ring, a pressed close control or COPY (ADR-0049).
+    TealFill,
+    /// `slate-hi`: a pressed chip's fill (ADR-0049).
     SlateHi,
     /// `teal-ring`, translucent: a focused field's ring (ADR-0049).
     TealRing,
@@ -204,11 +206,37 @@ pub enum Token {
     /// `code-bar`, translucent: a code block's bar, `slate` at 45%
     /// (`.code-bar`, ADR-0052).
     CodeBar,
+    /// `neutral-label`: the label of a lit neutral tile, a ghost or slate
+    /// button hovered, pressed or focused: `text-2` mixed 55% with white
+    /// (`.nav-tile`, ADR-0058).
+    NeutralLabel,
+    /// `teal-label`: the label of a lit teal tile, `teal` mixed 55% with
+    /// white (ADR-0058).
+    TealLabel,
+    /// `amber-label`: the label of a lit amber tile, `amber` mixed 55%
+    /// with white (ADR-0058).
+    AmberLabel,
+    /// `neutral-line`, translucent: the border of a lit neutral tile,
+    /// `text-2` at 55% (ADR-0058).
+    NeutralLine,
+    /// `amber-line`, translucent: the border of a lit amber tile, `amber`
+    /// at 55% (ADR-0058).
+    AmberLine,
+    /// `neutral-haze`, translucent: one coat of a ghost button's corner
+    /// glow, `text-2` at 5/255 (2%); nine coats make the site's 16%
+    /// (ADR-0058).
+    NeutralHaze,
+    /// `teal-haze`, translucent: one coat of a teal tile's corner glow,
+    /// `teal` at 5/255 (ADR-0058).
+    TealHaze,
+    /// `amber-haze`, translucent: one coat of an amber tile's corner glow,
+    /// `amber` at 5/255 (ADR-0058).
+    AmberHaze,
 }
 
 impl Token {
     /// How many tokens there are.
-    pub const COUNT: usize = 43;
+    pub const COUNT: usize = 51;
 
     /// Every token, in the order the spec lists them.
     pub const ALL: [Self; Self::COUNT] = [
@@ -255,6 +283,14 @@ impl Token {
         Self::CardTab,
         Self::OnCardTab,
         Self::CodeBar,
+        Self::NeutralLabel,
+        Self::TealLabel,
+        Self::AmberLabel,
+        Self::NeutralLine,
+        Self::AmberLine,
+        Self::NeutralHaze,
+        Self::TealHaze,
+        Self::AmberHaze,
     ];
 
     /// The token's name in the spec and in theme files: `bg-raise`.
@@ -303,6 +339,14 @@ impl Token {
             Self::CardTab => "card-tab",
             Self::OnCardTab => "on-card-tab",
             Self::CodeBar => "code-bar",
+            Self::NeutralLabel => "neutral-label",
+            Self::TealLabel => "teal-label",
+            Self::AmberLabel => "amber-label",
+            Self::NeutralLine => "neutral-line",
+            Self::AmberLine => "amber-line",
+            Self::NeutralHaze => "neutral-haze",
+            Self::TealHaze => "teal-haze",
+            Self::AmberHaze => "amber-haze",
         }
     }
 
@@ -411,7 +455,8 @@ impl Theme {
         self.token(token).ansi
     }
 
-    /// The cut-corner size of primary buttons, in logical units.
+    /// The cut-corner size, in logical units: the site's `--cut`, which no
+    /// widget paints with since buttons became tiles (ADR-0058).
     pub fn cut(&self) -> f32 {
         self.cut
     }

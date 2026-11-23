@@ -44,20 +44,20 @@ use tidepool_codec::{CodecError, Limits};
 use tidepool_core::testing::fuzz::{Outcome, Target};
 use tidepool_ui::UiError;
 use tidepool_ui::metrics::Family;
-use tidepool_ui::theme::{MAX_CUT, MAX_TEXT_BYTES, Theme, Token};
+use tidepool_ui::theme::{MAX_CUT, MAX_TEXT_BYTES, TIDEPOOL_DARK_TOML, Theme, Token};
 
 /// The repository root, where `fuzz/` and `themes/` are.
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
-/// The limits the target reads with: 8 KiB of input, 8 levels, strings of
+/// The limits the target reads with: 16 KiB of input, 8 levels, strings of
 /// 128 bytes, numbers of 32 and 64 entries a table or array, so that a
 /// mutated file is either over a limit or reads in microseconds. Every
-/// seed is at or under each, the bundled theme at 7.5 KiB, 4 levels, 23
-/// bytes, 3 bytes and 43 entries, and the `edge-*` seeds exactly at one.
+/// seed is at or under each, the bundled theme at 8.8 KiB, 4 levels, 23
+/// bytes, 3 bytes and 51 entries, and the `edge-*` seeds exactly at one.
 /// Built from the defaults, so that a field added later keeps its default.
 const LIMITS: Limits = {
     let mut limits = Limits::DEFAULT;
-    limits.max_input_bytes = 8 * 1024;
+    limits.max_input_bytes = 16 * 1024;
     limits.max_depth = 8;
     limits.max_string_bytes = 128;
     limits.max_number_bytes = 32;
@@ -201,6 +201,32 @@ fn theme() {
         .memory_cap(MEMORY_CAP)
         .run();
     report(&outcome);
+}
+
+/// Every theme in `themes/`, which the target reads in place as seeds, and
+/// the bundled one, reads as a theme within [`LIMITS`]: a seed over a
+/// limit would be refused as `UiError::ThemeSyntax` and never reach the
+/// theme reader, and the fuzzer would mutate a file it cannot read.
+#[test]
+fn every_theme_seed_reads_within_the_limits() {
+    let parsed = Theme::parse(TIDEPOOL_DARK_TOML, LIMITS);
+    assert!(parsed.is_ok(), "the bundled theme: {parsed:?}");
+    let dir = format!("{ROOT}/themes");
+    let mut read = 0;
+    for entry in std::fs::read_dir(&dir).unwrap_or_else(|error| panic!("{dir}: {error}")) {
+        let path = entry
+            .unwrap_or_else(|error| panic!("{dir}: {error}"))
+            .path();
+        if path.extension().is_none_or(|extension| extension != "toml") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let parsed = Theme::parse(&text, LIMITS);
+        assert!(parsed.is_ok(), "{}: {parsed:?}", path.display());
+        read += 1;
+    }
+    assert!(read > 0, "no theme in {dir}");
 }
 
 /// The `edge-*` seeds sit exactly at each limit: each reads as a theme with

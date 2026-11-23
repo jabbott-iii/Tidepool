@@ -65,6 +65,17 @@ row-hover = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
 card-tab = { value = "#e8f3f3", ansi = 255 }
 on-card-tab = { value = "#0b1416", ansi = 233 }
 code-bar = { value = "rgba(41,53,58,0.45)", solid = "#181e21", ansi = 234 }
+# The tiles' colors (ADR-0058): a lit tile's label, its accent mixed 55%
+# with white; its border, the accent at 55%; and a coat of its corner
+# glow, nine of which make the site's 16%.
+neutral-label = { value = "#d5dbdd", ansi = 253 }
+teal-label = { value = "#a5e2e2", ansi = 152 }
+amber-label = { value = "#f8dd73", ansi = 221 }
+neutral-line = { value = "rgba(179,189,193,0.55)", solid = "#676d70", ansi = 242 }
+amber-line = { value = "rgba(242,194,0,0.55)", solid = "#8a7006", ansi = 94 }
+neutral-haze = { value = "rgba(179,189,193,0.02)" }
+teal-haze = { value = "rgba(92,203,203,0.02)" }
+amber-haze = { value = "rgba(242,194,0,0.02)" }
 
 # Lengths in logical units.
 [sizes]
@@ -131,7 +142,7 @@ text = "comment"
 on = ["editor-bg"]
 size = "normal"
 
-# A primary (amber) button's label.
+# Text on `amber`.
 [[contrast.use]]
 text = "on-amber"
 on = ["amber"]
@@ -143,20 +154,19 @@ text = "on-teal"
 on = ["teal"]
 size = "normal"
 
-# The controls' pairs (ADR-0049). A ghost button's label at rest.
+# The controls' pairs (ADR-0049). A card's title at rest.
 [[contrast.use]]
 text = "text"
 on = ["ghost"]
 size = "normal"
 
-# Hover and pressed labels: ghost, teal and slate buttons, and a hovered
-# link (a breadcrumb).
+# Hover and pressed labels, such as a hovered link's (a breadcrumb).
 [[contrast.use]]
 text = "teal-hi"
 on = ["bg", "editor-bg", "panel", "ghost", "teal-wash", "teal-fill", "teal-glow", "slate-hi"]
 size = "normal"
 
-# A primary (amber) button's label on its hover fill.
+# Text on `amber-hi`.
 [[contrast.use]]
 text = "on-amber"
 on = ["amber-hi"]
@@ -253,4 +263,32 @@ size = "normal"
 [[contrast.use]]
 text = "text"
 on = ["panel-solid"]
+size = "normal"
+
+# A tile's label (ADR-0058), at rest and lit, on `panel` and its glow,
+# its accent at about 16% (16.3%) where strongest: `line-2`, `teal-fill`
+# and `amber-halo` over `panel-solid`, which is lighter than `panel`, are
+# lighter still, as a test of `ui`'s button checks.
+[[contrast.use]]
+text = "text"
+on = ["panel", "line-2", "teal-fill", "amber-halo"]
+over = "panel-solid"
+size = "normal"
+
+[[contrast.use]]
+text = "neutral-label"
+on = ["panel", "line-2"]
+over = "panel-solid"
+size = "normal"
+
+[[contrast.use]]
+text = "teal-label"
+on = ["panel", "teal-fill"]
+over = "panel-solid"
+size = "normal"
+
+[[contrast.use]]
+text = "amber-label"
+on = ["panel", "amber-halo"]
+over = "panel-solid"
 size = "normal"

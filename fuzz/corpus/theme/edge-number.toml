@@ -46,6 +46,14 @@ row-hover = { value = "rgba(255,255,255,0.025)", solid = "#111213", ansi = 233 }
 card-tab = { value = "#e8f3f3", ansi = 255 }
 on-card-tab = { value = "#0b1416", ansi = 233 }
 code-bar = { value = "rgba(41,53,58,0.45)", solid = "#181e21", ansi = 234 }
+neutral-label = { value = "#d5dbdd", ansi = 253 }
+teal-label = { value = "#a5e2e2", ansi = 152 }
+amber-label = { value = "#f8dd73", ansi = 221 }
+neutral-line = { value = "rgba(179,189,193,0.55)", solid = "#676d70", ansi = 242 }
+amber-line = { value = "rgba(242,194,0,0.55)", solid = "#8a7006", ansi = 94 }
+neutral-haze = { value = "rgba(179,189,193,0.02)" }
+teal-haze = { value = "rgba(92,203,203,0.02)" }
+amber-haze = { value = "rgba(242,194,0,0.02)" }
 
 [sizes]
 cut = 1.000000000000000000000000000000

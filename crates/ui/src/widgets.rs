@@ -13,10 +13,11 @@
 // limitations under the License.
 
 //! The controls of the spec's Components table, in jabbott.dev's design
-//! language: [`Button`]s (ghost, teal, amber with cut corners, slate),
-//! [`Chip`]s, the [`TextInput`] and search field, the [`ScrollBar`], the
-//! [focus outline](focus_outline), the [`StatusDot`], the
-//! [`SectionTitle`], [`Eyebrow`] and [`Kicker`], and [`Breadcrumbs`]; and
+//! language: [`Button`]s (ghost, teal, amber and slate, each a tile of the
+//! site's header, ADR-0058), [`Chip`]s, the [`TextInput`] and search
+//! field, the [`ScrollBar`], the [focus outline](focus_outline), the
+//! [`StatusDot`], the [`SectionTitle`], [`Eyebrow`] and [`Kicker`], and
+//! [`Breadcrumbs`]; and
 //! the collections, a [`Collection`]: the list, the tree view and the
 //! table, which keep nodes only for the rows on screen over a model of
 //! [`Rows`] their owner provides; and the [`TabStrip`], the [`Splitter`],
@@ -26,7 +27,8 @@
 //!
 //! New in Tidepool; not ported. The looks follow jabbott.dev's stylesheet
 //! (`assets/css/style.css`) at the IDE's denser scale, and ADR-0049 and
-//! ADR-0052 where the site has none.
+//! ADR-0052 where the site has none; the buttons follow its header tiles
+//! (`.nav-tile`, ADR-0058).
 //!
 //! # Controls
 //!
@@ -72,8 +74,9 @@
 //! Every color is a token of the tree's theme, which
 //! [`PaintContext::theme`] gives a control as it paints (ADR-0049); no
 //! control holds a theme or a literal color. Sizes are the constants of
-//! this module, from the spec's Typography and Components tables, and the
-//! amber button's cut is the theme's [`cut`](crate::theme::Theme::cut).
+//! this module, from the spec's Typography and Components tables; a
+//! button's are the site's header tile's, scaled from its 40 px to the
+//! button's height (ADR-0058).
 //! Labels are painted uppercase, as chrome is; what a user wrote (a
 //! field's text, a breadcrumb's path segment) is painted as written, and
 //! every accessible name is as written.
@@ -83,13 +86,16 @@
 //! A control paints from its node's [`NodeState`]: *hover* is the site's
 //! `:hover`; *pressed* (the spec's "active") is the hover look with the
 //! fill one step stronger, or a rim where the palette has no stronger
-//! fill; *focus* shows the [focus outline](focus_outline) when focus is
-//! visible, and a field its ring whenever it has focus; *disabled* is the
-//! rest look in a layer at [`DISABLED_OPACITY`], with no hover or pressed
-//! look. No control blinks or animates: an idle tree damages nothing.
+//! fill, and a button's is its hover look without the rise; *focus* shows
+//! the [focus outline](focus_outline) when focus is visible, and a field
+//! its ring whenever it has focus, and a button is also lit as when
+//! hovered, without rising; *disabled* is the rest look in a layer at
+//! [`DISABLED_OPACITY`], with no hover or pressed look. No control blinks
+//! or animates: an idle tree damages nothing.
 //!
 //! [`NodeState`]: crate::tree::NodeState
 
+use tidepool_core::color::Color;
 use tidepool_core::geom::Rect;
 
 use crate::a11y::Semantics;
@@ -144,20 +150,47 @@ pub const FOCUS_WIDTH: f32 = 2.0;
 /// How far outside a control's bounds the focus outline starts.
 pub const FOCUS_OFFSET: f32 = 3.0;
 
-/// The height of a regular button (`.btn`, at the IDE's scale).
+/// The height of a regular button: a header tile (`.nav-tile`, 40 px) at
+/// the IDE's scale, three quarters of the site's (ADR-0058).
 pub const BUTTON_HEIGHT: f32 = 30.0;
 
-/// The height of a small button (`.btn--sm`).
+/// The height of a small button: the tile at 0.6 of the site's.
 pub const BUTTON_HEIGHT_SMALL: f32 = 24.0;
 
-/// The space either side of a regular button's label.
-pub const BUTTON_PADDING: f32 = 14.0;
+/// The space either side of a regular button's label: the tile's 16 px
+/// right of its label at 0.75. A tile with no icon pads both sides
+/// evenly, as no button has one yet (ADR-0058).
+pub const BUTTON_PADDING: f32 = 12.0;
 
-/// The space either side of a small button's label.
+/// The space either side of a small button's label: the tile's 16 px at
+/// 0.6, 9.6, rounded to whole units.
 pub const BUTTON_PADDING_SMALL: f32 = 10.0;
 
+/// How far each arm of a regular button's bracket corners reaches when it
+/// is lit (hovered, pressed or showing focus): the tile's 16 px `--arm`
+/// at 0.75. At rest it reaches [`BUTTON_REACH_AT_REST`] of that.
+pub const BUTTON_ARM: f32 = 12.0;
+
+/// How far each arm of a small button's bracket corners reaches when it is
+/// lit: the tile's 16 px at 0.6, 9.6, rounded to whole units.
+pub const BUTTON_ARM_SMALL: f32 = 10.0;
+
+/// How much of its arm a button's bracket corner draws at rest: the
+/// tile's `--reach` of 0.5.
+pub const BUTTON_REACH_AT_REST: f32 = 0.5;
+
+/// How far a regular button rises while it is hovered: the tile's 2 px
+/// `translateY(-2px)` at 0.75, 1.5, rounded half up to whole units, so
+/// that its edges stay on device pixels at every whole scale. Unlike the
+/// site's tile, it does not rise for keyboard focus (ADR-0058).
+pub const BUTTON_LIFT: f32 = 2.0;
+
+/// How far a small button rises: the tile's 2 px at 0.6, 1.2, rounded to
+/// whole units.
+pub const BUTTON_LIFT_SMALL: f32 = 1.0;
+
 /// The width of the rim a pressed control shows where the palette has no
-/// stronger fill: an amber button, a selected chip (ADR-0049).
+/// stronger fill: a selected chip (ADR-0049).
 pub const PRESSED_RIM: f32 = 2.0;
 
 /// The height of a chip.
@@ -341,11 +374,13 @@ pub const MAX_COLUMNS: usize = 64;
 
 /// How far each arm of a panel's bracket corner reaches along its edge
 /// (`.panel--brackets`' 16 px): the focused panel's, the command
-/// palette's and a modal dialog's.
+/// palette's and a modal dialog's. A button's are [`BUTTON_ARM`] and
+/// [`BUTTON_ARM_SMALL`].
 pub const BRACKET_ARM: f32 = 16.0;
 
 /// How thick a bracket corner's arms are (`.panel--brackets`' 1 px
-/// border), drawn over the panel's border.
+/// border, and a header tile's 1 px lines), drawn over the panel's or the
+/// button's border.
 pub const BRACKET_THICKNESS: f32 = 1.0;
 
 /// The width of a modal dialog (the site's popup panel, `.deploy__panel`,
@@ -430,6 +465,9 @@ pub const PALETTE_ROWS: usize = 10;
 pub const MAX_MATCHES: usize = 64;
 
 /// The label of a button: Saira 12 px, 600, tracked 0.10em, uppercase.
+/// The site sets a header tile's label, as its `.btn`'s, in 13 px at 40
+/// high; the IDE's denser type scale sets both in 12 px (ADR-0049,
+/// ADR-0058).
 pub const BUTTON_LABEL: TextStyle = TextStyle::new(Family::Ui, 12.0)
     .weight(Weight::SemiBold)
     .letter_spacing(0.10);
@@ -597,13 +635,17 @@ pub fn update<W: Control, R>(
 
 /// Paints the focus outline: a `teal` border [`FOCUS_WIDTH`] wide,
 /// [`FOCUS_OFFSET`] outside `bounds` (`:focus-visible`). Controls paint it
-/// when their node's focus is visible; fields show their ring instead.
+/// when their node's focus is visible; fields show their ring instead, and
+/// a [`Button`] paints the same outline in its accent, around its tile,
+/// which rises only while hovered (ADR-0058).
 pub fn focus_outline(list: &mut DrawList, bounds: Rect, theme: &Theme) {
-    list.border(
-        grow(bounds, FOCUS_OFFSET + FOCUS_WIDTH),
-        FOCUS_WIDTH,
-        theme.color(Token::Teal),
-    );
+    outline(list, bounds, theme.color(Token::Teal));
+}
+
+/// Paints the focus outline's border, [`FOCUS_WIDTH`] wide and
+/// [`FOCUS_OFFSET`] outside `bounds`, in `color`.
+pub(crate) fn outline(list: &mut DrawList, bounds: Rect, color: Color) {
+    list.border(grow(bounds, FOCUS_OFFSET + FOCUS_WIDTH), FOCUS_WIDTH, color);
 }
 
 /// Whether `widget` keeps other nodes in step with it, so that the tree

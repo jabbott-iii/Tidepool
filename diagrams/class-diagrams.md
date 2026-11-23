@@ -11,7 +11,7 @@ how the crates' types connect comes first, then one or more diagrams per
 area, then a list in prose of the types the specs name for crates that are
 still empty.
 
-Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7 and ADR-0057. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
+Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1), after M2.5, M2.8, M2.4, M2.7, ADR-0043, M2.6, M3.1, M3.2, M3.5, M3.6, ADR-0050, M3.7, ADR-0057 and ADR-0058. What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
 ## Legend
 
@@ -4138,7 +4138,7 @@ classDiagram
 
 `Theme::parse` (M3.2, ADR-0047) parses a theme file with `codec::toml`
 within the `Limits` it is given, and reads its tables into a `Theme`: a
-name, a `TokenColor` for each of the 43 `Token`s, in the order of
+name, a `TokenColor` for each of the 51 `Token`s, in the order of
 `Token::ALL`, the cut-corner size and the fonts of `metrics::Family`'s
 two families. `Theme::tidepool_dark` parses `TIDEPOOL_DARK_TOML`, the text
 of `themes/tidepool-dark.toml` compiled in, within `LIMITS`, at each
@@ -4163,7 +4163,7 @@ classDiagram
     }
     class Theme["ui::theme::Theme"] {
         -name: String
-        -colors: 43 TokenColor
+        -colors: 51 TokenColor
         -cut: f32
         -font_ui: String
         -font_mono: String
@@ -4192,8 +4192,10 @@ classDiagram
         Comment
         TealLine
         GreenHalo
+        TealLabel
+        AmberHaze
         +COUNT: usize
-        +ALL: 43 Token
+        +ALL: 51 Token
         +name() str
         +from_name(name) Option~Token~
     }
@@ -4235,7 +4237,7 @@ classDiagram
         <<trait>>
     }
 
-    Theme "1" *-- "43" TokenColor : colors, one per Token
+    Theme "1" *-- "51" TokenColor : colors, one per Token
     TokenColor *-- Color : value, solid
     Theme ..> Token : token, color,<br/>solid, ansi take
     Theme ..> Family : font takes
@@ -4250,14 +4252,19 @@ classDiagram
     Display <|.. ThemeError
 ```
 
-- The `Token` box lists 12 of its 43 variants, the rows of the spec's
+- The `Token` box lists 14 of its 51 variants, the rows of the spec's
   token table, three of which ADR-0047 added: `on-amber`, `on-teal` and
   `comment`, eight ADR-0049 added for the controls' component colors,
   from `ghost` to `error-halo`, such as `teal-line` and `green-halo`,
   five ADR-0052 added for the collections, the card's tab and the code
   block's bar, from `table-head` to `code-bar`, and four ADR-0057 added
   after `violet` from the site's new tokens: `bronze`, `bronze-hi`,
-  `purple`, and `purple-hi`, which no widget uses yet.
+  `purple`, and `purple-hi`, which no widget uses yet. ADR-0058 added
+  eight after `code-bar` for the buttons' tiles, their lit labels, lit
+  borders, and corner glows: `neutral-label`, `teal-label`,
+  `amber-label`, `neutral-line`, `amber-line`, `neutral-haze`,
+  `teal-haze`, and `amber-haze` (a teal tile's lit border is the
+  existing `teal-line`).
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
 - `UiError`'s box lists only its two theme variants; section 29 has the
@@ -4296,6 +4303,14 @@ classDiagram
     class WidgetsFns["ui::widgets"] {
         <<module>>
         +BUTTON_HEIGHT: f32
+        +BUTTON_HEIGHT_SMALL: f32
+        +BUTTON_PADDING: f32
+        +BUTTON_PADDING_SMALL: f32
+        +BUTTON_ARM: f32
+        +BUTTON_ARM_SMALL: f32
+        +BUTTON_REACH_AT_REST: f32
+        +BUTTON_LIFT: f32
+        +BUTTON_LIFT_SMALL: f32
         +CHIP_HEIGHT: f32
         +FIELD_HEIGHT: f32
         +FOCUS_WIDTH: f32
@@ -4316,12 +4331,16 @@ classDiagram
     }
     class Button["ui::widgets::Button"] {
         -label: String
+        -shown: String
         -kind: ButtonKind
         -size: ButtonSize
         +new(label, kind) Button
         +size(size) Button
+        +label() str
         +set_label(label)
+        +kind() ButtonKind
         +set_kind(kind)
+        +button_size() ButtonSize
     }
     class ButtonKind["ui::widgets::ButtonKind"] {
         <<enumeration>>
@@ -4446,6 +4465,8 @@ classDiagram
     WidgetsFns ..> Tree : update changes<br/>a control in
     WidgetsFns ..> UiError : update fails with<br/>WrongWidget
     WidgetsFns ..> Theme : focus_outline<br/>takes teal from
+    Button ..> Theme : its accent's tokens,<br/>and panel, line-2
+    Button ..> WidgetsFns : its tile's arms, lift<br/>and padding by size
 ```
 
 - `Control` is `Widget + Sized`, so each control implements both; only
@@ -4456,10 +4477,32 @@ classDiagram
   `SectionTitle`, `Eyebrow` and `Kicker` each wrap a private `Line`,
   which paints its text uppercase, as chrome is; a field's text and a
   crumb are painted as written, and every accessible name is as written.
-  A button's label is cut to its bounds, so a label wider than the space
-  it is given paints nothing outside it, and a `TextInput` drops the
-  characters the overlays' cleaner leaves out from what is typed or
-  pasted (M3.3, 28.7).
+  A `TextInput` drops the characters the overlays' cleaner leaves out
+  from what is typed or pasted (M3.3, 28.7).
+- Every `Button` is a tile of jabbott.dev's header (`.nav-tile`,
+  ADR-0058), in the accent of its `ButtonKind`: `panel` inside a 1 unit
+  `line-2` border, bracket corners in its accent at the top-left and
+  bottom-right, and a glow of its accent in the top-right corner, stood
+  in for by pills of its `-haze` token, as many as the token's alpha
+  needs to reach about 16% (nine of the bundled theme's 2%), as the draw
+  list has no gradient; the slate kind, the quiet one, has no glow. Ghost's accent
+  is `text-2`, teal's `teal`, and amber's `amber`; the amber kind is
+  still the primary, but no longer cuts its corners. At rest the
+  brackets reach `BUTTON_REACH_AT_REST` (0.5) of `BUTTON_ARM` (12;
+  `BUTTON_ARM_SMALL`, 10). Lit, while hovered, pressed, or showing focus,
+  they reach their whole length, and the border and label take the
+  accent's `-line` and `-label` tokens; hovered, the tile also rises
+  `BUTTON_LIFT` (2; `BUTTON_LIFT_SMALL`, 1), while its node's bounds,
+  where the pointer hits it, stay. Keyboard focus does not raise it, so
+  it never covers a neighbor where a click reaches that neighbor
+  (ADR-0058). Showing focus, it
+  paints the focus outline in its accent. Its label is cut to its tile,
+  so a label wider than the space it is given paints nothing outside
+  it. The sizes stay `BUTTON_HEIGHT` (30) and `BUTTON_HEIGHT_SMALL`
+  (24), with `BUTTON_PADDING` (12) and `BUTTON_PADDING_SMALL` (10) either
+  side of the label. A private `Activator` takes its clicks, Enter, and
+  Space, as it does a chip's, a crumb's, a column header's, COPY's, and
+  a toast's close control's.
 - A secret `TextInput` paints a bullet a cluster, never gives its text as
   its node's value, and its `Debug`, as every field's, shows its text's
   length only (ADR-0043). The separators between crumbs are a private
@@ -5516,7 +5559,7 @@ The main files these diagrams were drawn from:
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
-  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057)
+  ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`

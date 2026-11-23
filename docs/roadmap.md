@@ -2074,6 +2074,19 @@ JetBrains Mono text over the jabbott.dev backdrop.
     the 14 SVGs of `site/index.html` parse as XML. `ui` has no OS code,
     so nothing was built for macOS or Windows: that the scenes give the
     same bytes there is checked by CI's gate on the next push (M0.4's ⏳).
+  - Note (2026-11-22): ADR-0058 changed the buttons' look after
+    jabbott.dev's header of 2026-11-23 (UTC): every kind is a tile with
+    bracket corners in its accent (ghost and slate neutral, teal, amber),
+    which lights when hovered, pressed, or focused, and rises only when
+    hovered, and the amber primary
+    no longer cuts its corners. The sizes stay 30 and 24. The theme gained
+    eight tokens for the tiles' labels, lines, and glows. Two reviews found
+    7 Low issues, all fixed; the main one, a button lifted by keyboard
+    focus covering the one above where a click reached that one, made the
+    lift hover's alone. The 12 scenes that show a button (`ui_buttons`,
+    `ui_card`, `ui_modal`, `ui_palette`, `ui_toast`, `ui_tooltip`, and
+    their `_scale_2`) were blessed again at the owner's word, once the
+    fixes had landed.
 
 - [x] **M3.7 — ui: collections**
   - Depends: M3.6

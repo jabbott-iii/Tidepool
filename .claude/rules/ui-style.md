@@ -28,7 +28,8 @@ stylesheet (`jabbott-iii/jabbott-iii.github.io`, `assets/css/style.css`).
 - **Motion is opt-in.** No animation unless `ui.ambient_motion` is on;
   never animate while the window is unfocused; idle emits no damage.
 - **Accessibility:** every interactive widget has a role and name in the
-  `a11y` tree; keyboard focus shows the `teal` focus outline.
+  `a11y` tree; keyboard focus shows the focus outline: `teal`, or a
+  button's own accent (ADR-0058).
 - **Frontend-agnostic:** features live in `editor` and render through `ui`
   draw lists. `gui` and `tui` contain no feature logic.
 - **TUI:** use the theme's solid and 256-color values; box-drawing for

@@ -240,7 +240,7 @@ OS input ─► platform::Event ─► ui (focus, routing) ─► editor (keymap
 | :- | :- | :- |
 | Output | CPU raster into a framebuffer, damage rectangles, platform blit | Cell grid diff, truecolor escape sequences (256-color fallback) |
 | Type | Bundled Saira (UI chrome) and JetBrains Mono (code) | The terminal's font |
-| jabbott.dev look | Full: translucent panels, cut corners, bracket corners, glow | Colors, uppercase labels, box-drawing borders; no translucency or fonts |
+| jabbott.dev look | Full: translucent panels, bracket corners, glow | Colors, uppercase labels, box-drawing borders; no translucency or fonts |
 | Input | Keyboard, mouse, scroll, IME basics, clipboard | Keys (CSI/SS3, kitty keyboard protocol when offered), SGR mouse, bracketed paste, OSC 52 clipboard |
 | Vim mode | `editor.keymap = "vim"`, off by default | Same setting; the first TUI launch asks whether to turn it on |
 

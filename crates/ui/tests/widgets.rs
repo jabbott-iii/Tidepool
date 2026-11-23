@@ -16,7 +16,9 @@
 //! in the accessibility tree, what activates or changes it, the colors it
 //! paints in each state, fields edited by grapheme cluster, the scrollbar
 //! dragged and paged, breadcrumbs rebuilt, `widgets::update`, and the
-//! tree's theme (ADR-0049). A property test edits fields at random.
+//! tree's theme (ADR-0049); and the buttons' tiles, where they rise, what
+//! that damages and where they are hit (ADR-0058). A property test edits
+//! fields at random.
 
 use std::sync::Arc;
 
@@ -26,9 +28,9 @@ use tidepool_core::input::{InputEvent, Key, Modifiers, MouseButton};
 use tidepool_core::rng::Pcg32;
 use tidepool_core::testing::check_sized;
 use tidepool_text::pos::grapheme;
-use tidepool_ui::draw::{Command, DrawList, PaintContext};
+use tidepool_ui::draw::{Command, Corners, DrawList, PaintContext};
 use tidepool_ui::input::{Action, ActionKind, Response};
-use tidepool_ui::layout::{Axis, Length, Style};
+use tidepool_ui::layout::{Axis, Insets, Length, Style};
 use tidepool_ui::metrics::FixedMetrics;
 use tidepool_ui::theme::{LIMITS, TIDEPOOL_DARK_TOML, Theme, Token};
 use tidepool_ui::widgets::{
@@ -110,6 +112,15 @@ fn single(node: Node) -> (Tree, NodeId) {
     let id = tree.insert(tree.root(), node).expect("a node");
     tree.layout(WINDOW, &METRICS);
     (tree, id)
+}
+
+/// The kinds of the actions in `actions` of `id`.
+fn kinds_of(actions: &[Action], id: NodeId) -> Vec<ActionKind> {
+    actions
+        .iter()
+        .filter(|action| action.node == id)
+        .map(|action| action.kind)
+        .collect()
 }
 
 /// The kinds of the actions `response` holds of `id`.
@@ -255,96 +266,524 @@ fn a_button_activates_on_a_click_on_it_on_enter_and_on_space_coming_up() {
     assert!(tree.handle(&up(inside)).actions.is_empty());
 }
 
-#[test]
-fn buttons_paint_each_state_in_the_theme_s_tokens() {
-    let ghost = |look: &str| {
-        let (mut tree, id) = single(Button::new("Run", ButtonKind::Ghost).node());
-        let at = Point::new(5.0, 5.0);
-        match look {
-            "hover" => {
-                tree.handle(&hover(at));
-            }
-            "pressed" => {
-                tree.handle(&down(at));
-            }
-            "focus" => tree.set_focus(id, true).expect("focus"),
-            "disabled" => tree.set_enabled(id, false).expect("disabled"),
-            _ => {}
-        }
-        let bounds = tree.bounds(id).expect("bounds");
-        (painted(&mut tree), bounds)
-    };
-    let (rest, bounds) = ghost("rest");
-    assert_eq!(
-        colors(&rest),
-        [color(Token::Ghost), color(Token::Line2), color(Token::Text)]
-    );
-    assert!(!has_focus_outline(&rest, bounds));
-    let (hovered, _) = ghost("hover");
-    assert_eq!(
-        colors(&hovered),
-        [
-            color(Token::Ghost),
-            color(Token::Teal),
-            color(Token::TealHi)
-        ]
-    );
-    let (pressed, _) = ghost("pressed");
-    assert_eq!(
-        colors(&pressed),
-        [
-            color(Token::TealWash),
-            color(Token::Teal),
-            color(Token::TealHi)
-        ]
-    );
-    let (focused, bounds) = ghost("focus");
-    assert!(has_focus_outline(&focused, bounds));
-    let (disabled, _) = ghost("disabled");
-    assert_eq!(
-        disabled.first(),
-        Some(&Command::PushLayer {
-            opacity: DISABLED_OPACITY
-        })
-    );
-    assert_eq!(disabled.last(), Some(&Command::PopLayer));
-    assert_eq!(
-        colors(&disabled),
-        colors(&rest),
-        "disabled is the rest look, dimmed"
-    );
+/// `rect` grown by `by` on every side.
+fn grown(rect: Rect, by: f32) -> Rect {
+    Rect::new(
+        rect.x - by,
+        rect.y - by,
+        rect.width + 2.0 * by,
+        rect.height + 2.0 * by,
+    )
+}
 
-    // The amber button is cut by the theme's `cut`, top-right and
-    // bottom-left, and its label is uppercase in `on-amber`.
-    let (mut tree, _) = single(
+/// `rect` moved up by `by`.
+fn raised(rect: Rect, by: f32) -> Rect {
+    Rect::new(rect.x, rect.y - by, rect.width, rect.height)
+}
+
+/// Whether `outer` holds the whole of `inner`.
+fn holds(outer: Rect, inner: Rect) -> bool {
+    outer.x <= inner.x
+        && outer.y <= inner.y
+        && inner.x + inner.width <= outer.x + outer.width
+        && inner.y + inner.height <= outer.y + outer.height
+}
+
+/// What a button painted, read from its commands.
+#[derive(Debug, PartialEq)]
+struct Tile {
+    /// The colors it filled and stroked, in order, but its focus
+    /// outline's.
+    colors: Vec<Color>,
+    /// Its tile: the rect of its `panel`.
+    rect: Rect,
+    /// How far its bracket corners' arms reach.
+    arm: f32,
+    /// Its focus outline's rect and color, the last command, if it painted
+    /// one.
+    outline: Option<(Rect, Color)>,
+    /// Whether it painted in a layer at [`DISABLED_OPACITY`].
+    dimmed: bool,
+}
+
+/// What a button of `kind` and `size` paints in `state`, alone in a tree,
+/// and its bounds.
+fn tile(kind: ButtonKind, size: ButtonSize, state: In) -> (Tile, Rect) {
+    let (mut tree, id) = single(Button::new("Go", kind).size(size).node());
+    let bounds = tree.bounds(id).expect("bounds");
+    let centre = Point::new(
+        bounds.x + bounds.width / 2.0,
+        bounds.y + bounds.height / 2.0,
+    );
+    match state {
+        In::Rest => {}
+        In::Hover => {
+            tree.handle(&hover(centre));
+        }
+        In::Pressed => {
+            tree.handle(&down(centre));
+        }
+        In::Focus => tree.set_focus(id, true).expect("focus"),
+        In::Disabled => {
+            tree.set_enabled(id, false).expect("disabled");
+            tree.handle(&hover(centre));
+            tree.handle(&down(centre));
+        }
+    }
+    let commands = painted(&mut tree);
+    let rect = commands
+        .iter()
+        .find_map(|command| match *command {
+            Command::Rect { rect, .. } => Some(rect),
+            _ => None,
+        })
+        .expect("its panel");
+    let arm = commands
+        .iter()
+        .find_map(|command| match *command {
+            Command::Brackets { arm, .. } => Some(arm),
+            _ => None,
+        })
+        .expect("its bracket corners");
+    let outline = match commands.last() {
+        Some(&Command::Border { rect, width, color }) if width == widgets::FOCUS_WIDTH => {
+            Some((rect, color))
+        }
+        _ => None,
+    };
+    let mut colors = colors(&commands);
+    if outline.is_some() {
+        colors.pop();
+    }
+    let dimmed = commands.first()
+        == Some(&Command::PushLayer {
+            opacity: DISABLED_OPACITY,
+        });
+    let tile = Tile {
+        colors,
+        rect,
+        arm,
+        outline,
+        dimmed,
+    };
+    (tile, bounds)
+}
+
+#[test]
+fn each_button_paints_each_state_as_a_tile_in_its_accent() {
+    use Token::*;
+    // Each kind's accent, the coat of its glow, and its lit border and
+    // label (ADR-0058).
+    let kinds = [
+        (
+            ButtonKind::Ghost,
+            Text2,
+            Some(NeutralHaze),
+            NeutralLine,
+            NeutralLabel,
+        ),
+        (ButtonKind::Teal, Teal, Some(TealHaze), TealLine, TealLabel),
+        (
+            ButtonKind::Amber,
+            Amber,
+            Some(AmberHaze),
+            AmberLine,
+            AmberLabel,
+        ),
+        (ButtonKind::Slate, Text2, None, NeutralLine, NeutralLabel),
+    ];
+    let sizes = [
+        (
+            ButtonSize::Regular,
+            widgets::BUTTON_ARM,
+            widgets::BUTTON_LIFT,
+        ),
+        (
+            ButtonSize::Small,
+            widgets::BUTTON_ARM_SMALL,
+            widgets::BUTTON_LIFT_SMALL,
+        ),
+    ];
+    let states = [In::Rest, In::Hover, In::Pressed, In::Focus, In::Disabled];
+    for (size, arm, lift) in sizes {
+        for (kind, accent, haze, line, label) in kinds {
+            for state in states {
+                let (painted, bounds) = tile(kind, size, state);
+                // Hovered, pressed and focused light it; only hovering
+                // raises it (ADR-0058); a disabled one is the rest look,
+                // dimmed, whatever the pointer does.
+                let lit = matches!(state, In::Hover | In::Pressed | In::Focus);
+                let risen = state == In::Hover;
+                let mut colors = vec![color(Panel)];
+                if let Some(haze) = haze {
+                    colors.extend([color(haze); 9]);
+                }
+                let (border, text) = if lit { (line, label) } else { (Line2, Text) };
+                colors.extend([color(border), color(accent), color(text)]);
+                let rect = if risen { raised(bounds, lift) } else { bounds };
+                let expected = Tile {
+                    colors,
+                    rect,
+                    arm: if lit { arm } else { arm / 2.0 },
+                    outline: (state == In::Focus).then(|| (grown(rect, 5.0), color(accent))),
+                    dimmed: state == In::Disabled,
+                };
+                assert_eq!(painted, expected, "{kind:?} {size:?} {state:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_button_s_glow_brackets_and_label_sit_on_its_tile() {
+    let (mut tree, id) = single(
         Button::new("Build", ButtonKind::Amber)
             .size(ButtonSize::Small)
             .node(),
     );
+    let bounds = tree.bounds(id).expect("bounds");
     let commands = painted(&mut tree);
-    let Command::CutCornerRect {
-        rect,
-        cut,
-        corners,
-        color: fill,
-    } = &commands[0]
-    else {
-        panic!("{commands:?}");
-    };
-    assert_eq!(
-        (rect.height, *cut),
-        (widgets::BUTTON_HEIGHT_SMALL, Theme::bundled().cut())
+    // The amber tile has no cut corners now.
+    assert!(
+        !commands
+            .iter()
+            .any(|command| matches!(command, Command::CutCornerRect { .. })),
+        "{commands:?}"
     );
     assert_eq!(
-        *corners,
-        tidepool_ui::draw::Corners::TOP_RIGHT_AND_BOTTOM_LEFT
+        commands[0],
+        Command::Rect {
+            rect: bounds,
+            color: color(Token::Panel)
+        }
     );
-    assert_eq!(*fill, color(Token::Amber));
-    // Its label, cut to the button.
-    assert_eq!(commands[1], Command::PushClip { rect: *rect });
-    assert!(matches!(&commands[2], Command::Text { text, color, .. }
-        if text == "BUILD" && *color == self::color(Token::OnAmber)));
-    assert_eq!(commands[3], Command::PopClip);
+    // The glow: nine coats cut to the tile, each centered on its top-right
+    // corner and smaller than the last, the first reaching 0.9 × 0.657 of
+    // its width across and 1.6 × 0.657 of its height down.
+    assert_eq!(commands[1], Command::PushClip { rect: bounds });
+    let corner = Point::new(bounds.x + bounds.width, bounds.y);
+    let mut across = Vec::new();
+    for command in &commands[2..11] {
+        let Command::Pill { rect, color: coat } = *command else {
+            panic!("{command:?}");
+        };
+        assert_eq!(coat, color(Token::AmberHaze));
+        assert!(
+            (rect.x + rect.width / 2.0 - corner.x).abs() < 1e-3
+                && (rect.y + rect.height / 2.0 - corner.y).abs() < 1e-3,
+            "{rect:?} is not centered on {corner:?}"
+        );
+        across.push((rect.width / 2.0, rect.height / 2.0));
+    }
+    assert!((across[0].0 / (0.9 * bounds.width) - 0.657).abs() < 1e-3);
+    assert!((across[0].1 / (1.6 * bounds.height) - 0.657).abs() < 1e-3);
+    assert!(
+        across
+            .windows(2)
+            .all(|pair| pair[1].0 < pair[0].0 && pair[1].1 < pair[0].1)
+    );
+    assert_eq!(commands[11], Command::PopClip);
+    // Its border, then the bracket corners over it, half drawn at rest.
+    assert_eq!(
+        commands[12],
+        Command::Border {
+            rect: bounds,
+            width: 1.0,
+            color: color(Token::Line2)
+        }
+    );
+    assert_eq!(
+        commands[13],
+        Command::Brackets {
+            rect: bounds,
+            arm: widgets::BUTTON_ARM_SMALL / 2.0,
+            thickness: widgets::BRACKET_THICKNESS,
+            corners: Corners::TOP_LEFT_AND_BOTTOM_RIGHT,
+            color: color(Token::Amber)
+        }
+    );
+    // Its label, uppercase, in `text`, cut to the tile.
+    assert_eq!(commands[14], Command::PushClip { rect: bounds });
+    assert!(matches!(&commands[15], Command::Text { text, color, .. }
+        if text == "BUILD" && *color == self::color(Token::Text)));
+    assert_eq!(commands[16], Command::PopClip);
+    assert_eq!(commands.len(), 17, "{commands:?}");
+
+    // The quiet tile has no glow, and no clip for one.
+    let (mut tree, _) = single(Button::new("Close", ButtonKind::Slate).node());
+    let commands = painted(&mut tree);
+    assert!(
+        !commands
+            .iter()
+            .any(|command| matches!(command, Command::Pill { .. })),
+        "{commands:?}"
+    );
+    assert_eq!(commands.len(), 6, "{commands:?}");
+}
+
+#[test]
+fn a_hovered_button_rises_inside_its_damage_and_is_hit_where_it_was_laid_out() {
+    let mut tree = Tree::new();
+    let root = tree.root();
+    tree.set_style(root, Style::stack().padding(Insets::all(20.0)))
+        .expect("a style");
+    let id = tree
+        .insert(root, Button::new("Save", ButtonKind::Teal).node())
+        .expect("a button");
+    tree.frame(WINDOW, &METRICS).expect("the first frame");
+    let bounds = tree.bounds(id).expect("bounds");
+    let risen = raised(bounds, widgets::BUTTON_LIFT);
+    // The strip along its bottom, which it rises out of, and the strip
+    // above it, which it rises into.
+    let below = Point::new(bounds.x + 10.0, bounds.y + bounds.height - 1.0);
+    let above = Point::new(bounds.x + 10.0, bounds.y - 1.0);
+
+    // Hovered from the bottom strip: the frame damages where it was and
+    // where it rose to.
+    tree.handle(&hover(below));
+    assert!(tree.state(id).is_some_and(|state| state.hovered));
+    let frame = tree.frame(WINDOW, &METRICS).expect("a frame");
+    for rect in [bounds, risen] {
+        assert!(
+            frame.damage.iter().any(|damage| holds(*damage, rect)),
+            "{rect:?} is not in {:?}",
+            frame.damage
+        );
+    }
+    // The pointer hits it where it was laid out, so it stays hovered in the
+    // strip it rose out of, with nothing to repaint, and not above it.
+    assert_eq!(tree.hit_test(below), Some(id));
+    assert_ne!(tree.hit_test(above), Some(id));
+    tree.handle(&hover(Point::new(below.x + 2.0, below.y + 0.5)));
+    assert!(tree.state(id).is_some_and(|state| state.hovered));
+    assert_eq!(tree.frame(WINDOW, &METRICS), None);
+
+    // Into the strip above it, which its tile covers: it is not hovered,
+    // and sinks back, damaging both places again.
+    tree.handle(&hover(above));
+    assert!(tree.state(id).is_some_and(|state| !state.hovered));
+    let frame = tree.frame(WINDOW, &METRICS).expect("a frame");
+    for rect in [bounds, risen] {
+        assert!(
+            frame.damage.iter().any(|damage| holds(*damage, rect)),
+            "{rect:?} is not in {:?}",
+            frame.damage
+        );
+    }
+}
+
+#[test]
+fn only_keyboard_focus_lights_a_button_and_its_outline_is_in_its_accent() {
+    // Focused by a click: once the pointer has left, it is at rest, and
+    // shows no outline (`:focus-visible`).
+    let (mut tree, id) = single(Button::new("Build", ButtonKind::Amber).node());
+    let bounds = tree.bounds(id).expect("bounds");
+    let inside = Point::new(bounds.x + 5.0, bounds.y + 5.0);
+    tree.handle(&down(inside));
+    tree.handle(&up(inside));
+    tree.handle(&hover(Point::new(300.0, 200.0)));
+    assert_eq!(tree.focused(), Some(id));
+    let commands = painted(&mut tree);
+    assert_eq!(text_color(&commands), Some(color(Token::Text)));
+    assert!(
+        !commands.iter().any(|command| matches!(command,
+            Command::Border { width, .. } if *width == widgets::FOCUS_WIDTH)),
+        "{commands:?}"
+    );
+
+    // Focused by Tab: lit but not risen, its tile where it was laid out,
+    // and outlined in amber, not teal, 3 units outside it, so the outline
+    // reaches 5 above its bounds and no further (ADR-0058).
+    let (mut tree, id) = single(Button::new("Build", ButtonKind::Amber).node());
+    tree.handle(&key(Key::Tab));
+    assert_eq!(tree.focused(), Some(id));
+    let commands = painted(&mut tree);
+    assert_eq!(text_color(&commands), Some(color(Token::AmberLabel)));
+    assert_eq!(
+        commands.first(),
+        Some(&Command::Rect {
+            rect: bounds,
+            color: color(Token::Panel)
+        })
+    );
+    let outline = grown(bounds, widgets::FOCUS_OFFSET + widgets::FOCUS_WIDTH);
+    assert_eq!(outline.y, bounds.y - 5.0);
+    assert_eq!(
+        commands.last(),
+        Some(&Command::Border {
+            rect: outline,
+            width: widgets::FOCUS_WIDTH,
+            color: color(Token::Amber)
+        })
+    );
+    assert!(!has_focus_outline(&commands, bounds));
+}
+
+#[test]
+fn a_button_hovered_and_focused_rises_and_its_outline_with_it() {
+    // The pointer is on it, so it rises; its outline goes around the tile
+    // where it rose to.
+    let (mut tree, id) = single(Button::new("Open", ButtonKind::Teal).node());
+    tree.handle(&key(Key::Tab));
+    let bounds = tree.bounds(id).expect("bounds");
+    tree.handle(&hover(Point::new(bounds.x + 5.0, bounds.y + 5.0)));
+    let state = tree.state(id).expect("a state");
+    assert!(state.hovered && state.focus_visible);
+    let commands = painted(&mut tree);
+    let risen = raised(bounds, widgets::BUTTON_LIFT);
+    assert_eq!(
+        commands.first(),
+        Some(&Command::Rect {
+            rect: risen,
+            color: color(Token::Panel)
+        })
+    );
+    assert_eq!(
+        commands.last(),
+        Some(&Command::Border {
+            rect: grown(risen, widgets::FOCUS_OFFSET + widgets::FOCUS_WIDTH),
+            width: widgets::FOCUS_WIDTH,
+            color: color(Token::Teal)
+        })
+    );
+}
+
+/// The `panel` rects of `commands`, the buttons' tiles, in paint order.
+fn tiles(commands: &[Command]) -> Vec<Rect> {
+    commands
+        .iter()
+        .filter_map(|command| match *command {
+            Command::Rect { rect, color } if color == self::color(Token::Panel) => Some(rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_focused_button_does_not_rise_over_the_one_above_where_its_clicks_land() {
+    // Two buttons in a column with no gap: Delete above Keep.
+    let mut tree = Tree::new();
+    let root = tree.root();
+    tree.set_style(root, Style::column().padding(Insets::all(20.0)))
+        .expect("a style");
+    let group = tree
+        .insert(root, Node::new(Style::column()))
+        .expect("a column");
+    let delete = tree
+        .insert(group, Button::new("Delete", ButtonKind::Amber).node())
+        .expect("a button");
+    let keep = tree
+        .insert(group, Button::new("Keep", ButtonKind::Ghost).node())
+        .expect("a button");
+    tree.frame(WINDOW, &METRICS).expect("the first frame");
+    // Keep focused from the keyboard, the pointer elsewhere.
+    tree.handle(&key(Key::Tab));
+    tree.handle(&key(Key::Tab));
+    let state = tree.state(keep).expect("a state");
+    assert!(state.focus_visible && !state.hovered);
+    let commands = painted(&mut tree);
+    let (above, below) = (
+        tree.bounds(delete).expect("bounds"),
+        tree.bounds(keep).expect("bounds"),
+    );
+    assert_eq!(above.y + above.height, below.y, "no gap");
+    // Keep's tile is where it was laid out, and the last tile painted at
+    // the strip just above it is Delete's, which is what a click there
+    // reaches: it activates Delete, as the screen shows.
+    assert_eq!(tiles(&commands), [above, below]);
+    let strip = Point::new(below.x + 8.0, below.y - 0.5);
+    let on_top = tiles(&commands)
+        .into_iter()
+        .rfind(|tile| tile.contains(strip));
+    assert_eq!(on_top, Some(above));
+    assert_eq!(tree.hit_test(strip), Some(delete));
+    tree.handle(&hover(strip));
+    tree.handle(&down(strip));
+    let actions = tree.handle(&up(strip)).actions;
+    assert_eq!(kinds_of(&actions, delete), [ActionKind::Activate]);
+    assert!(kinds_of(&actions, keep).is_empty());
+    // Keep's outline reaches 5 above its bounds, over Delete's lower
+    // edge, as any control's does.
+    let outline = commands.iter().find_map(|command| match *command {
+        Command::Border { rect, width, .. } if width == widgets::FOCUS_WIDTH => Some(rect),
+        _ => None,
+    });
+    assert_eq!(outline.map(|rect| rect.y), Some(below.y - 5.0));
+}
+
+#[test]
+fn a_focused_button_at_a_scroller_s_top_keeps_its_tile_inside_it() {
+    let mut tree = Tree::new();
+    let root = tree.root();
+    tree.set_style(root, Style::column().padding(Insets::all(40.0)))
+        .expect("a style");
+    let pane = tree
+        .insert(
+            root,
+            Node::new(Style::column().fixed(200.0, 100.0).scroll(false, true)),
+        )
+        .expect("a scroller");
+    let buttons: Vec<NodeId> = (0..6)
+        .map(|n| {
+            tree.insert(
+                pane,
+                Button::new(format!("Item {n}"), ButtonKind::Teal).node(),
+            )
+            .expect("a button")
+        })
+        .collect();
+    tree.frame(WINDOW, &METRICS).expect("the first frame");
+    // Tab down to the last, which scrolls the pane, then back up until the
+    // focused one is revealed flush with the pane's top.
+    for _ in 0..buttons.len() {
+        tree.handle(&key(Key::Tab));
+        tree.frame(WINDOW, &METRICS);
+    }
+    let top = tree.bounds(pane).expect("bounds");
+    let mut flush = None;
+    for _ in 0..buttons.len() {
+        tree.handle(&key_with(Key::Tab, Modifiers::SHIFT));
+        tree.frame(WINDOW, &METRICS);
+        let focused = tree.focused().expect("focus");
+        if tree.bounds(focused).is_some_and(|bounds| bounds.y == top.y) {
+            flush = Some(focused);
+            break;
+        }
+    }
+    let focused = flush.expect("a button revealed flush with the pane's top");
+    assert!(tree.state(focused).is_some_and(|state| state.focus_visible));
+    let bounds = tree.bounds(focused).expect("bounds");
+    // Its tile is its bounds, inside the scroller, so the scroller's clip
+    // keeps its top edge.
+    let commands = painted(&mut tree);
+    let tiles = tiles(&commands);
+    assert!(tiles.contains(&bounds), "{tiles:?}");
+    assert!(!tiles.contains(&raised(bounds, widgets::BUTTON_LIFT)));
+    assert!(holds(top, bounds));
+}
+
+#[test]
+fn a_haze_of_another_alpha_still_glows_at_about_the_site_s_16_percent() {
+    // A `teal-haze` of about 5% (13/255): three coats, 14.5%, where the
+    // bundled theme's nine would make 37.6%.
+    let from = "teal-haze = { value = \"rgba(92,203,203,0.02)\" }";
+    assert!(TIDEPOOL_DARK_TOML.contains(from));
+    let text =
+        TIDEPOOL_DARK_TOML.replacen(from, "teal-haze = { value = \"rgba(92,203,203,0.05)\" }", 1);
+    let theme = Theme::parse(&text, LIMITS).expect("a theme");
+    let coat = theme.color(Token::TealHaze);
+    assert_eq!(coat.a, 13);
+    let (mut tree, _) = single(Button::new("Open", ButtonKind::Teal).node());
+    tree.set_theme(Arc::new(theme));
+    let commands = painted(&mut tree);
+    let coats = commands
+        .iter()
+        .filter(|command| matches!(command, Command::Pill { color, .. } if *color == coat))
+        .count();
+    let alpha = f64::from(coat.a) / 255.0;
+    let made = (0..coats).fold(0.0, |below, _| below + alpha * (1.0 - below));
+    assert_eq!(coats, 3, "{made}");
+    assert!((made - 0.16).abs() <= alpha / 2.0, "{made}");
 }
 
 #[test]
@@ -437,115 +876,8 @@ fn each_control_paints_each_state_in_the_tokens_adr_0049_gives() {
         colors
     };
     // Each control's colors in order: fills and borders, then its text.
+    // Buttons are tiles now (ADR-0058), and have their own test above.
     let cases: Vec<Case> = vec![
-        (
-            "ghost",
-            || Button::new("Go", ButtonKind::Ghost).node(),
-            In::Rest,
-            c(&[Ghost, Line2, Text]),
-        ),
-        (
-            "ghost",
-            || Button::new("Go", ButtonKind::Ghost).node(),
-            In::Hover,
-            c(&[Ghost, Teal, TealHi]),
-        ),
-        (
-            "ghost",
-            || Button::new("Go", ButtonKind::Ghost).node(),
-            In::Pressed,
-            c(&[TealWash, Teal, TealHi]),
-        ),
-        (
-            "ghost",
-            || Button::new("Go", ButtonKind::Ghost).node(),
-            In::Focus,
-            outlined(&[Ghost, Line2, Text]),
-        ),
-        (
-            "ghost",
-            || Button::new("Go", ButtonKind::Ghost).node(),
-            In::Disabled,
-            c(&[Ghost, Line2, Text]),
-        ),
-        (
-            "teal",
-            || Button::new("Go", ButtonKind::Teal).node(),
-            In::Rest,
-            c(&[TealWash, TealLine, TealHi]),
-        ),
-        (
-            "teal",
-            || Button::new("Go", ButtonKind::Teal).node(),
-            In::Hover,
-            c(&[TealFill, Teal, TealHi]),
-        ),
-        (
-            "teal",
-            || Button::new("Go", ButtonKind::Teal).node(),
-            In::Pressed,
-            c(&[TealGlow, Teal, TealHi]),
-        ),
-        (
-            "teal",
-            || Button::new("Go", ButtonKind::Teal).node(),
-            In::Disabled,
-            c(&[TealWash, TealLine, TealHi]),
-        ),
-        (
-            "amber",
-            || Button::new("Go", ButtonKind::Amber).node(),
-            In::Rest,
-            c(&[Amber, OnAmber]),
-        ),
-        (
-            "amber",
-            || Button::new("Go", ButtonKind::Amber).node(),
-            In::Hover,
-            c(&[AmberHi, OnAmber]),
-        ),
-        (
-            "amber",
-            || Button::new("Go", ButtonKind::Amber).node(),
-            In::Pressed,
-            c(&[AmberHi, Amber, OnAmber]),
-        ),
-        (
-            "amber",
-            || Button::new("Go", ButtonKind::Amber).node(),
-            In::Focus,
-            outlined(&[Amber, OnAmber]),
-        ),
-        (
-            "amber",
-            || Button::new("Go", ButtonKind::Amber).node(),
-            In::Disabled,
-            c(&[Amber, OnAmber]),
-        ),
-        (
-            "slate",
-            || Button::new("Go", ButtonKind::Slate).node(),
-            In::Rest,
-            c(&[Slate, Text]),
-        ),
-        (
-            "slate",
-            || Button::new("Go", ButtonKind::Slate).node(),
-            In::Hover,
-            c(&[SlateHi, TealHi]),
-        ),
-        (
-            "slate",
-            || Button::new("Go", ButtonKind::Slate).node(),
-            In::Pressed,
-            c(&[SlateHi, TealLine, TealHi]),
-        ),
-        (
-            "slate",
-            || Button::new("Go", ButtonKind::Slate).node(),
-            In::Disabled,
-            c(&[Slate, Text]),
-        ),
         (
             "chip",
             || Chip::new("Rust").node(),

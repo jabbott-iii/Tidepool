@@ -70,7 +70,8 @@ each task once it is done and verified.
   `font::layout`; and 23 golden scenes of `ui` trees it paints, compared
   exactly, with property tests that a frame changes only its damage
   (M3.5, ADR-0048); and in `tidepool-ui` the controls, `widgets`: buttons
-  (ghost, teal, amber with cut corners, slate), chips, the text input and
+  (ghost, teal, amber, slate: jabbott.dev's header tiles since ADR-0058),
+  chips, the text input and
   search field, edited by grapheme cluster with `tidepool-text`, the
   scrollbar, the focus outline, the status dot, the section title,
   eyebrow, kicker and breadcrumbs, the controls giving their nodes

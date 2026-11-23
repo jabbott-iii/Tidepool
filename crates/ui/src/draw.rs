@@ -121,7 +121,8 @@ impl Corners {
     };
 
     /// Top-left and bottom-right: the bracket corners of a focused panel
-    /// (`.panel--brackets`).
+    /// (`.panel--brackets`) and of a button's tile (`.nav-tile`,
+    /// ADR-0058).
     pub const TOP_LEFT_AND_BOTTOM_RIGHT: Self = Self {
         top_left: true,
         top_right: false,
@@ -129,8 +130,9 @@ impl Corners {
         bottom_left: false,
     };
 
-    /// Top-right and bottom-left: the cut corners of the amber primary
-    /// button (`.btn--amber`).
+    /// Top-right and bottom-left: the cut corners of the site's amber
+    /// primary button (`.btn--amber`), which Tidepool's buttons no longer
+    /// cut (ADR-0058).
     pub const TOP_RIGHT_AND_BOTTOM_LEFT: Self = Self {
         top_left: false,
         top_right: true,
