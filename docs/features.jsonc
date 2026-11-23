@@ -11,7 +11,7 @@
 //
 // - `name`: a few words.
 // - `area`: Quality, Core, Text, Formats, Platform, Rendering, UI, Editor,
-//   Languages, Toolchains, Terminal, Git, AI, Mobile or Release.
+//   Languages, Toolchains, Terminal, Git, AI, Plugins, Mobile or Release.
 // - `summary`: what it does, for a reader who has not seen the code, in a
 //   sentence or three. What the ticked tasks built is in the present tense,
 //   and what is still to come in the future tense, so a planned feature's
@@ -255,6 +255,12 @@
       "area": "Editor",
       "summary": "PNG files will open in an image viewer and binary files in a hex view, and a broken PNG will show an error.",
       "tasks": ["M13.4"]
+    },
+    {
+      "name": "Lua plugins",
+      "area": "Plugins",
+      "summary": "Users will extend Tidepool with plugins written in Lua 5.5, run by an interpreter of Tidepool's own that gives a plugin no file, socket, or program of its own: only commands, key bindings, buffers, events, and its own settings, through an API that never makes typing wait. Each plugin will stay off until the user enables it, a workspace's plugins will run only once the workspace is trusted, and plugin authors will get Lua highlighting, lua-language-server, and definitions of the API.",
+      "tasks": ["M15.1", "M15.2", "M15.3", "M15.4", "M15.5", "M15.6", "M15.7", "M15.8"]
     },
     {
       "name": "Screen readers",

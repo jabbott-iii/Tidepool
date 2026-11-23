@@ -136,11 +136,14 @@ or file is there.
   `.app`/`.xcarchive`/`.ipa` (iOS on macOS or a remote Mac).
 - **AI:** language agents over the Tidepool Agent Protocol, plus offline
   predictive text.
+- **Plugins:** Lua 5.5 scripts, run by Tidepool's own interpreter, that
+  reach only what the plugin API gives them (ADR-0061, M15, planned
+  before the release in M14).
 - **Targets:** Linux x86_64 (X11/XWayland), macOS 13+ (universal), Windows
   10 1809+ x86_64. Development order Linux → macOS → Windows.
 - **Built from the ground up:** zero third-party crates. We write our own OS
   bindings, rasterizer, font renderer, UI toolkit, text engine, parsers,
-  protocols and terminal emulator.
+  protocols, terminal emulator, and Lua interpreter.
 
 ## Read before working
 

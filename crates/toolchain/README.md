@@ -30,6 +30,7 @@ Not yet, with the roadmap task that adds it:
 - the JDK, the Android SDK and bundletool — M10.1.
 - Xcode — M11.2.
 - Windows install plans — M12.3.
+- lua-language-server — M15.8.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 

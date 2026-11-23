@@ -3097,10 +3097,221 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
 
 ---
 
+## M15 — Lua plugins
+
+**Goal:** users extend Tidepool with plugins written in Lua, a small
+scripting language made to be embedded in other programs, run by
+Tidepool's own interpreter. A plugin reaches only what the plugin API
+gives it: it opens no file, socket, or program of its own, and it never
+makes the main thread wait (ADR-0061).
+
+Added on 2026-11-23 at the owner's request. M15 is the next free
+milestone number. It is listed before M14 so that the first release has
+plugins, and so that M14's fuzz campaign and security review cover them.
+
+- [ ] **M15.1 — lua: lexer, parser, and compiler**
+  - Depends: M0.2, M1.6
+  - Decide first:
+    - Accept ADR-0061 (plugins are Lua 5.5 scripts run by `tidepool-lua`,
+      an interpreter of our own with no way to reach the OS, on a thread
+      apart from the main thread), which is `Proposed`.
+    - Vendoring the official Lua 5.5 test suite as test-only fixtures,
+      once the user confirms its license (MIT, as lua.org/tests said on
+      2026-11-23; `docs/02-dependency-policy.md` → Assets).
+  - Do:
+    - Create `tidepool-lua` (`crates/lua`, layer 1, `core` only) with its
+      README, `LICENSE` and `NOTICE`; its rows in `AGENTS.md`'s workspace
+      map and in `docs/01-architecture.md`'s layers and dependency
+      matrix; the diagrams that draw them (ADR-0029); its path in
+      `.claude/rules/parsers.md`; and its owner among the subagents in
+      `CLAUDE.md`.
+    - The lexer and parser for the whole language of the Lua 5.5
+      reference manual, and the compiler to bytecode (the instructions
+      M15.2's virtual machine runs), with `Limits` for the source's size,
+      its nesting depth, and the manual's limits on a function's locals,
+      upvalues (the outer variables a closure captures), and constants.
+    - The fuzz target `lua-parse`, which parses and compiles.
+  - Accept:
+    - Every rule of the manual's complete syntax of Lua parses, with a
+      test for each rule; a syntax error names its line and the token it
+      found.
+    - Nesting past its limit is an error, never a stack overflow, and no
+      input panics.
+  - Verify: `cargo test -p tidepool-lua`;
+    `cargo xtask fuzz-smoke --target lua-parse --secs 60`
+  - Note (2026-11-23): the user accepted ADR-0061 as written, which
+    answers the first question of the `Decide first` line. The second,
+    vendoring the official Lua 5.5 test suite, is still open.
+
+- [ ] **M15.2 — lua: virtual machine, garbage collector, and coroutines**
+  - Depends: M15.1, M1.9
+  - Do:
+    - Per the manual: the values, tables with an array part and a hash
+      part, metatables and metamethods, closures and their upvalues,
+      integer and float arithmetic, `error`, `pcall` and `xpcall` with
+      tracebacks, coroutines, and to-be-closed variables.
+    - Calls from Lua to Lua that do not recurse on Rust's own stack, so
+      deep recursion in a script cannot overflow it.
+    - The garbage collector, in safe Rust (ADR-0061): objects live in an
+      arena (a table of slots addressed by index), and an incremental
+      mark-and-sweep collector frees, in bounded steps, every object that
+      nothing reachable refers to, cycles included; weak tables and
+      `__gc` finalizers.
+    - The limits that stop any call cleanly: fuel (how many instructions
+      a call may run before it is stopped), a memory cap per state, a
+      call depth, and an interrupt that another thread can raise. A
+      limit's error ends the whole call: `pcall` cannot catch it.
+    - The fuzz target `lua-run`, which runs mutated programs under small
+      limits, and a `tidepool-bench` suite (calls, table inserts, string
+      building, and a full collection) with its baseline.
+  - Accept:
+    - The conformance scripts in `crates/lua/tests/` pass, each with its
+      expected output recorded from the reference `lua` 5.5 interpreter,
+      whose version the fixture names.
+    - `while true do end` stops at its fuel limit, a script that
+      allocates without end stops at its memory cap, and endless
+      recursion stops at the call depth, each with the error the host
+      sees.
+    - A cycle of tables is collected: memory returns to its level before
+      the cycle was made (property test).
+  - Verify: `cargo test -p tidepool-lua`;
+    `cargo xtask fuzz-smoke --target lua-run --secs 60`;
+    `cargo xtask bench lua`
+
+- [ ] **M15.3 — lua: the sandboxed standard library**
+  - Depends: M15.2
+  - Decide first: `os.clock` measures processor time and `os.date` local
+    time, but `lua` may use only `core`, which reads neither. Decide
+    whether `clock` counts the time since the state was made and `date`
+    gives UTC only, or whether the host passes both in.
+  - Do: the standard library ADR-0061 keeps: the basic functions without
+    `dofile` and `loadfile`, and `load` for source text only; `string`,
+    with Lua's patterns, and without `dump`; `table`, `math`, `utf8`, and
+    `coroutine`; and of `os`, only `time`, `difftime`, `clock`, and
+    `date`. There is no `io`, no `debug`, and no `package` loader:
+    `require` is the plugin host's (M15.5). Pattern matching, which
+    backtracks, charges fuel as it goes.
+  - Accept:
+    - Conformance scripts for each library pass, with their output
+      recorded as in M15.2.
+    - If M15.1 vendored the official suite: its files that need only the
+      language and the kept library pass, and each file skipped is
+      listed with its reason.
+    - A test lists the globals of a new state and fails on any name
+      outside ADR-0061's list.
+    - A pattern crafted to backtrack stops at its fuel limit.
+  - Verify: `cargo test -p tidepool-lua`;
+    `cargo xtask fuzz-smoke --target lua-run --secs 60`
+
+- [ ] **M15.4 — plugins: spec review**
+  - Depends: M15.3, M4.3, M4.6
+  - Decide first:
+    - Which grants the first API has beyond ADR-0061's minimum, such as
+      reading workspace files that are not open, and whether any grant
+      reaches the files that the agents' deny-list keeps from them
+      (`docs/subsystems/agents.md`).
+    - The limits' values: fuel per call, memory per plugin, and call
+      depth.
+    - Whether a save waits for a plugin that asks to change the buffer
+      first (trimming whitespace on save, say), and for how long.
+  - Do: write `docs/subsystems/plugins.md` with the user: the plugin
+    folder (`plugin.toml` and `init.lua`), where plugins load from and
+    when they may run, enabling and the grants shown, the `tidepool`
+    API's modules and events, errors and limits, and the plugin thread;
+    add it to `AGENTS.md` → "Read before working".
+  - Accept: the user accepts the spec, recorded in a task note, with an
+    ADR for each decision it adds to ADR-0061.
+  - Verify: doc review (human)
+
+- [ ] **M15.5 — editor: plugin host**
+  - Depends: M15.4, M4.7
+  - Do:
+    - `editor::plugins` per `docs/subsystems/plugins.md`, with `editor`'s
+      edge to `lua` in the dependency matrix: manifests read with
+      `codec::toml`; plugins found in the user config folder's `plugins/`
+      and, in a trusted workspace only, in `.tidepool/plugins/`; each
+      plugin off until the user enables it, asked once with its grants
+      listed, and the choice kept in `settings.toml`.
+    - The plugin thread, with its row in `docs/01-architecture.md` →
+      "Threading model": it owns one Lua state per plugin and runs one
+      call at a time. Plugin files are read on workers, and `require`
+      loads only from the plugin's own folder.
+    - A plugin that fails is reported in a toast and the log, and is
+      turned off after the spec's number of failures.
+    - A `security-reviewer` review of the sandbox, and the plugin host
+      added to its mandatory areas (`CLAUDE.md`,
+      `.claude/agents/security-reviewer.md`).
+  - Accept:
+    - A plugin in an untrusted workspace never runs, and no plugin runs
+      before it is enabled.
+    - A plugin stuck in `while true do end` is stopped at its fuel
+      limit, and meanwhile no keystroke takes longer than one 16 ms frame
+      (a `tidepool-bench` suite).
+    - One plugin's error leaves the other plugins and Tidepool running.
+  - Verify: `cargo test -p tidepool-editor plugins`;
+    `cargo xtask bench plugins`
+
+- [ ] **M15.6 — editor: the plugin API**
+  - Depends: M15.5, M7.1
+  - Do: the `tidepool` modules of `docs/subsystems/plugins.md`:
+    - commands, with palette entries, and key bindings in a mode (M4.6);
+    - buffers, read from snapshots and edited through transactions, each
+      call's edits one undo step (ADR-0020), at byte offsets (ADR-0019);
+      an edit made from an older version of the buffer is dropped, and
+      the plugin is told;
+    - events: a buffer opened, changed, or saved, and the mode changed;
+    - toasts, status bar items, and palette pickers;
+    - the plugin's own settings, and the log, redacted like every log;
+    - two sample plugins: a word count in the status bar, and trimming
+      trailing whitespace on save.
+  - Accept:
+    - A test plugin for each module passes.
+    - An edit from Lua undoes as one step.
+    - A call on a closed buffer is an error in Lua, never a panic.
+    - The samples work in the GUI and the TUI (golden scenes and TUI
+      snapshots).
+  - Verify: `cargo test -p tidepool-editor plugins`; `cargo xtask golden`
+
+- [ ] **M15.7 — editor: Plugins view**
+  - Depends: M15.6
+  - Do: a Plugins view in the activity bar, added to
+    `docs/subsystems/editor.md`: each plugin with where it came from (the
+    user's folder or the workspace's), its grants, its state, and its
+    errors; enable, disable, and reload; and its log. No marketplace
+    (`docs/00-overview.md` → Non-goals).
+  - Accept: golden scenes of each state; reloading picks up an edited
+    `init.lua` without a restart; disabling a plugin removes its commands
+    and key bindings.
+  - Verify: `cargo xtask golden`; `cargo test -p tidepool-editor plugins`
+
+- [ ] **M15.8 — syntax/toolchain: Lua highlighting, lua-language-server, and the API's definitions**
+  - Depends: M15.6, M13.2, M5.3
+  - Do:
+    - A Lua language pack, its lexer written as M13.2's rules.
+    - lua-language-server as a managed tool, through `/add-managed-tool`,
+      after checking its current docs and release channel.
+    - Definition files for the `tidepool` API, in the annotation format
+      lua-language-server reads, generated from the host's bindings so
+      that they cannot drift from them; the pack points the server at
+      them in a plugin's folder.
+  - Accept: golden token streams for the pack; fake-tool tests for the
+    server; a test generates the definitions again and fails when they
+    differ from the committed ones.
+  - Verify: `cargo test -p tidepool-syntax packs`;
+    `cargo test -p tidepool-toolchain`;
+    `cargo test -p tidepool-editor plugins`
+
+**Exit criteria (M15):** the owner works on Tidepool with a plugin they
+wrote, one that adds the license header (ADR-0021) to each new source
+file in Tidepool's workspace, and the plugin can do nothing that its
+manifest did not declare.
+
+---
+
 ## M14 — Production hardening and release
 
 - [ ] **M14.1 — fuzz campaign**
-  - Depends: M10.2, M9.3
+  - Depends: M10.2, M9.3, M15.3
   - Decide first: register item 30 (coverage-guided fuzzing) in
     `docs/02-dependency-policy.md`.
   - Do: nightly 30-minute fuzz smoke per target; review every `Limits`.
@@ -3119,11 +3330,12 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
   - Verify: `cargo xtask bench`; measurement notes with numbers
 
 - [ ] **M14.7 — security review pass**
-  - Depends: M9.6, M10.6, M11.5, M12.3
+  - Depends: M9.6, M10.6, M11.5, M12.3, M15.7
   - Do: `security-reviewer` reviews the whole tree against its checklist
     and the scope in `SECURITY.md`: workspace trust, installs and
     downloads, child processes, secrets, signing, agent context and
-    consent, every parser's `Limits`, `unsafe`, and the CI workflows. Each
+    consent, the plugin sandbox and its grants (ADR-0061), every parser's
+    `Limits`, `unsafe`, and the CI workflows. Each
     finding is fixed, or recorded with an ADR.
   - Accept: the review and how each finding was resolved are recorded in a
     task note.
@@ -3163,6 +3375,7 @@ the release checklist is complete.
 | `.vimrc` importer for simple `map` lines | Users ask to bring mappings (ADR-0006) |
 | Tidepool as an MCP server for outside agents | A concrete agent integration needs it (ADR-0009) |
 | Agent tools (run tests, search) with per-call approval | TAP v1 proposals prove too limiting |
+| Plugins that run programs, through `toolchain` with consent | A plugin needs what only a program can give, and the API cannot (ADR-0061) |
 | OS sandboxing for agents (seccomp/landlock, macOS sandbox) | Agents from third parties become common |
 | Play Console and App Store Connect uploads | The owner ships an app through Tidepool |
 | Offline toolchain bundle | Users without network on first run (ADR-0002) |

@@ -3,8 +3,9 @@
 A zero-dependency IDE for software developers, written in Rust. It is to
 have a native GUI in the style of [jabbott.dev](https://jabbott.dev), a
 terminal UI with vim-style modal editing, and first-class Rust and Markdown
-support. It will also build and sign Android and iOS apps, and offer AI
-features through plugged-in language agents.
+support. It will also build and sign Android and iOS apps, offer AI
+features through plugged-in language agents, and run plugins written in
+Lua with an interpreter of its own.
 
 **Status:** in development, at version 0.1. The guarded
 workspace and its checks, the contribution workflow, license headers, the
@@ -76,7 +77,7 @@ command, and what to run for each kind of change.
 | `docs/04-quality.md` | Testing strategy, own harnesses, `xtask` checks, CI, FFI review checklist |
 | `docs/05-release.md` | Profiles, packaging, signing Tidepool's releases, crash reports |
 | `docs/subsystems/` | One spec per subsystem, including the jabbott.dev theme, vim mode, managed toolchains, mobile and agents |
-| `docs/roadmap.md` | Milestones M0–M14 plus backlog, with checkbox tasks, acceptance criteria and verification commands |
+| `docs/roadmap.md` | Milestones M0–M15 plus backlog, with checkbox tasks, acceptance criteria and verification commands |
 | `docs/decisions.md` | Architecture decision records (ADRs) |
 | `crates/`, `xtask/`, `bench/` | The workspace; each member has a `README.md`, and copies of `LICENSE` and `NOTICE` |
 | `diagrams/` | C4, UML class, component and sequence, data-flow and state diagrams, in Mermaid |

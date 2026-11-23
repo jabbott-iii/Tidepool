@@ -4156,3 +4156,131 @@ decides; the roadmap task that first depends on one asks for the decision.
 - **Revisit when:** M4.6's command registry or M4.7's settings land; a
   panel needs an icon of its own; the terminal UI shows the shell
   (M7.5); or the shell's goldens outgrow 1 MB each.
+
+## ADR-0061 — Plugins are Lua 5.5 scripts run by `tidepool-lua`, an interpreter of our own in safe Rust; a plugin reaches only the plugin API, runs on a plugin thread, and stays off until the user enables it
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - On 2026-11-23 the owner asked for Lua as the scripting language of
+    Tidepool's plugins, with an interpreter built into the IDE, and chose
+    to plan it before the first release: M15, listed before M14.
+  - Lua is a small language made to be embedded in a host program, and
+    its whole definition is one reference manual. Neovim, among other
+    programs, uses it for plugins. Lua 5.5 is the current release (5.5.1,
+    of 2026-08-03), and Lua 5.4 has had its last release (5.4.9), as
+    https://www.lua.org/versions.html said on 2026-11-23. Lua, its
+    manuals, and its test suite are under the MIT license
+    (https://www.lua.org/license.html, https://www.lua.org/tests/).
+  - A plugin is code that a third party may have written, run inside the
+    IDE while the user's files are open.
+  - The rules it must keep: no third-party crates (ADR-0001); `unsafe` in
+    `sys` and `platform` only; outside programs started only by
+    `toolchain` (ADR-0002); the main thread never waits (ADR-0012); the
+    core binary opens no sockets (ADR-0009, ADR-0039); workspaces are
+    untrusted until the user trusts them (ADR-0014, `Proposed` until
+    M4.7); and every parser takes `Limits` and has a fuzz target
+    (ADR-0027).
+- **Decision:**
+  - **The interpreter is `tidepool-lua`** (`crates/lua`), in layer 1,
+    using `core` only. It implements the language of the Lua 5.5
+    reference manual in safe Rust: a lexer, a parser, a compiler to
+    bytecode, and a virtual machine whose calls from Lua to Lua do not
+    recurse on Rust's stack. Objects live in an arena (a table of slots
+    addressed by index), which an incremental mark-and-sweep garbage
+    collector sweeps, cycles included. It has no C API, so no C modules,
+    and it loads no precompiled (binary) chunks.
+  - **Every call is bounded.** A call into Lua runs on fuel (a count of
+    instructions, which the library's own loops, such as pattern
+    matching, also spend) and stops when the fuel runs out. Each state
+    has a memory cap and a call depth, and the host can interrupt a call
+    from another thread. A limit ends the whole call: `pcall` cannot
+    catch it, so a script cannot catch its own limit and run on. Source
+    text has `Limits`, as every parser's input does. The values are set
+    in `docs/subsystems/plugins.md` (M15.4).
+  - **The standard library keeps only what reaches nothing outside the
+    state:** the basic functions without `dofile` and `loadfile`, and
+    `load` for source text only; `string` without `dump`; `table`;
+    `math`; `utf8`; `coroutine`; and of `os`, only `time`, `difftime`,
+    `clock`, and `date` (M15.3 decides how the last two work from `core`
+    alone). There is no `io`, no `debug`, no other `os` function, and no
+    `package` loader: `require` is the host's, and loads only from the
+    plugin's own folder.
+  - **A plugin reaches only the `tidepool` API:** commands and key
+    bindings; buffers, read from immutable snapshots and edited through
+    transactions, one undo step a call (ADR-0020); events; toasts, status
+    bar items, and palette pickers; its own settings; and the log. It
+    opens no file, socket, or program of its own. A grant beyond these,
+    such as reading workspace files that are not open, is declared in the
+    plugin's manifest and shown to the user before the plugin is enabled;
+    the spec lists them (M15.4). Starting a program is not a grant in v1
+    (Backlog); if one comes, it goes through `toolchain`, with the user's
+    consent.
+  - **Where plugins come from:** a plugin is a folder holding a manifest,
+    `plugin.toml`, and `init.lua`, in the user config folder's `plugins/`
+    or in a workspace's `.tidepool/plugins/`. Every plugin is off until
+    the user enables it, and a workspace's plugins load only once the
+    workspace is trusted (ADR-0014). There is no marketplace
+    (`docs/00-overview.md` → Non-goals).
+  - **Plugins run on a plugin thread,** which owns every plugin's state
+    and runs one call at a time. The main thread sends it events and
+    command calls with buffer snapshots, and never waits for an answer.
+    A plugin's edits come back tagged with the version of the buffer they
+    were made from; an edit made from an older version is dropped and the
+    plugin is told, as with every stale result (`docs/01-architecture.md`
+    → "The main loop").
+  - **The host is `editor::plugins`** (layer 4), since the API is the
+    editor's commands, keymaps, buffers, and views. `editor` gains an
+    edge to `lua` in the dependency matrix (M15.5).
+- **Consequences:**
+  - A plugin cannot stall typing: a runaway one is stopped at its fuel
+    limit, a failing one is reported and turned off, and the collector
+    runs off the main thread.
+  - The sandbox is the interpreter itself. With no `io`, `os`, `debug`,
+    or C modules, the API is a plugin's only way out, so reviewing the API
+    reviews what plugins can do. Since a plugin can neither open a socket
+    nor start a program, what it reads stays inside Tidepool.
+  - Much more code: by the overview's sizes, about XL (over 6k lines) for
+    the interpreter and its library, and M (1–3k) for the host, the API,
+    and the view.
+  - An edit from a plugin lands a frame or more after the event that
+    asked for it. If the user keeps typing in that buffer, the edit is
+    dropped and the plugin must try again: v1 does not rebase edits. A
+    hook that must run before a save needs the spec to say how long the
+    save waits (M15.4).
+  - Lua libraries written in Lua alone run if they use only the kept
+    library; none written in C do, and nor does code in LuaJIT's
+    dialect. Neovim's plugins would not run in any case, since its API
+    differs.
+  - The interpreter runs bytecode only, with no compiling to machine code
+    as a JIT does; its bench suite (M15.2) sets the baseline.
+  - Two fuzz targets, `lua-parse` and `lua-run`. M14's fuzz campaign and
+    security review cover them and the host (M14.1, M14.7).
+- **Alternatives considered:**
+  - Linking the reference C interpreter: a C compiler in the build, or a
+    crate such as `cc`, against ADR-0001; C code that is not memory-safe
+    in the IDE's process, outside `sys` and `platform`; and libraries
+    that reach the OS, which the build would have to strip.
+  - Loading the system's Lua library at run time through `sys`, as Xlib
+    is: not installed by default on macOS or Windows, and the same C code
+    in the process.
+  - A crate, such as `mlua`, which binds the C interpreter: third-party,
+    against ADR-0001 (`docs/02-dependency-policy.md`, register item 32).
+  - Lua 5.1, the dialect that LuaJIT and Neovim use: older, without
+    integers or to-be-closed variables; and Neovim's plugins would not
+    run here anyway.
+  - Plugins as child processes speaking a protocol, as agents do
+    (ADR-0009): each needs a Lua runtime, which Tidepool would have to
+    manage as a tool, since it may not bundle one (ADR-0002), and every
+    API call becomes a round trip between processes.
+  - Plugins on the main thread, with about 1 ms of fuel a call: a simpler
+    API that answers at once, but too little time for work over a large
+    buffer, and collector pauses inside frames.
+  - Another language: JavaScript, or a WebAssembly runtime, is many times
+    larger to build; a language made for Rust hosts, such as Rhai, is
+    less known, and as a crate is third-party.
+- **Revisit when:** a plugin needs to start a program or reach the
+  network; real plugins hit their fuel limits doing ordinary work
+  (measured); or the bench suite shows the interpreter too slow for a
+  plugin that handles every keystroke in a 10,000-line file within the
+  16 ms budget.

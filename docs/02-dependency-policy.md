@@ -182,6 +182,7 @@ trigger** fires. It is not approved.
 | 29 | Fuzzing (stable, CI) | Build | Mutation fuzz smoke in `xtask` | — | — |
 | 30 | Coverage-guided fuzzing (optional, nightly) | **Proposed** | `cargo fuzz` with `libfuzzer-sys` in an excluded `fuzz/` workspace, dev-only | — | User decision in M14 (criterion 3) |
 | 31 | CLI parsing, logging, errors, time | Build | `tidepool-core::{cli, log, error, civil}` | `clap`, `tracing`, `thiserror`, `chrono` | Not expected |
+| 32 | Lua interpreter (plugins) | Build (M15) | `tidepool-lua`: Lua 5.5 in safe Rust, with no way to reach the OS but the plugin API (ADR-0061) | `mlua` (binds the C interpreter) | Not expected |
 
 ## Enforcement
 

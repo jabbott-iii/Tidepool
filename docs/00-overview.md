@@ -28,7 +28,10 @@ until Tidepool's own development uses it.** Dogfooding starts at M4.
    offline predictive text that works with no agent installed.
 6. One visual identity: jabbott.dev's dark "capsuleer" design language
    (ADR-0004, `docs/subsystems/ui-and-theme.md`).
-7. Small enough for one engineer and a coding agent to hold in their heads.
+7. Plugins in Lua 5.5, run by Tidepool's own interpreter, which reach
+   only what the plugin API gives them and never make typing wait
+   (ADR-0061, M15).
+8. Small enough for one engineer and a coding agent to hold in their heads.
    As an estimate, about 60–80k lines of Rust at M14.
 
 ## Non-goals
@@ -39,8 +42,8 @@ until Tidepool's own development uses it.** Dogfooding starts at M4.
 - Running Apple SDKs anywhere but macOS (ADR-0008).
 - Complex text shaping (Arabic, Indic scripts), bidirectional text, color
   emoji and full CJK input in v1. Backlog.
-- An extension marketplace, collaborative editing, remote development
-  servers. Backlog.
+- An extension marketplace (Lua plugins load from local folders,
+  ADR-0061), collaborative editing, remote development servers. Backlog.
 - Agents that run commands or tools inside the IDE. Agents read context and
   propose edits only (ADR-0009).
 - App store upload automation (Play Console, App Store Connect). Tidepool
@@ -108,6 +111,7 @@ S ≈ <1k lines, M ≈ 1–3k, L ≈ 3–6k, XL ≈ 6k+.
 | `vcs`, `term` | M each | git over the CLI; VT parser and PTY terminal |
 | `editor` | XL | Editor view, vim mode, panels: files, search, problems, git, toolchains, devices, chat |
 | `agent` | M | TAP host, context assembly, consent, predictive engine |
+| `lua` + plugin host | XL + M | Lua 5.5 lexer, parser, compiler, virtual machine, garbage collector, and sandboxed standard library; manifests, the plugin thread, the API, and its view (ADR-0061) |
 | `mobile` | L | Android and iOS pipelines, signing orchestration |
 | `gui`, `tui` | M each | Frontends over the same `ui` draw lists |
 | `xtask` + harnesses | M | CI checks, goldens, fuzz smoke, benches |
@@ -128,6 +132,7 @@ itself early (M4), and adds one capability area per milestone.
 | Opening an untrusted project runs its code (build scripts, proc macros, Gradle) | Workspace trust, untrusted by default (ADR-0014) |
 | iOS needs macOS and Xcode | Remote-Mac builds over SSH; clear messages when no Mac is configured (ADR-0008) |
 | Android and Apple tooling changes | Version detection, gated real-tool tests, re-check official docs at the start of M10 and M11 |
+| Plugins run third-party code inside the IDE | Tidepool's own interpreter, with no files, sockets, or programs beyond the plugin API; fuel and memory limits on every call; off until enabled; a workspace's plugins only once it is trusted (ADR-0061, ADR-0014) |
 | AI leaks secrets or applies bad edits | IDE-side context assembly with a deny-list, consent, edits as reviewable proposals (ADR-0009) |
 | Vim mode scope creep | A defined subset with a conformance table; Vimscript is a non-goal (ADR-0006) |
 | One maintainer | Small tasks with acceptance criteria and verification commands; Claude Code agents with narrow briefs |

@@ -24,6 +24,7 @@ Not yet, with the roadmap task that adds it:
 - the Rust, Markdown and TOML lexers and the pack format — M6.2.
 - declarative pack lexers — M13.2.
 - packs for common languages — M13.3.
+- a Lua pack — M15.8.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
