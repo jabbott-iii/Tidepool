@@ -535,13 +535,26 @@ fn palette_rows(tree: &Tree, shell: &Shell) -> usize {
 }
 
 #[test]
-fn the_palette_lists_the_registry_s_fourteen_commands_opening_it_among_them() {
+fn the_palette_lists_the_shell_s_fourteen_commands_opening_it_among_them() {
     let size = Size::new(1280.0, 800.0);
     let (mut tree, mut shell) = shell_in(size, Panels::default());
     let now = Instant::now();
-    assert_eq!(shell.registry().len(), 14);
+    // The registry holds the editing commands too (M4.2), which the
+    // palette lists once the shell has an editor to run them on (M4.3).
+    assert_eq!(shell.registry().len(), 14 + 40);
     send(&mut tree, &mut shell, size, &[ctrl_shift(Key::P)], now);
     assert_eq!(palette_rows(&tree, &shell), Command::ALL.len());
+    let undo: Vec<InputEvent> = "edit undo".chars().map(|c| text(&c.to_string())).collect();
+    send(&mut tree, &mut shell, size, &undo, now);
+    assert_eq!(palette_rows(&tree, &shell), 0, "no editing command yet");
+    send(
+        &mut tree,
+        &mut shell,
+        size,
+        &[key(Key::Escape, Modifiers::NONE)],
+        now,
+    );
+    send(&mut tree, &mut shell, size, &[ctrl_shift(Key::P)], now);
     let events: Vec<InputEvent> = "command palette"
         .chars()
         .map(|c| text(&c.to_string()))

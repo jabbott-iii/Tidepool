@@ -41,6 +41,7 @@ pub(crate) mod tests;
 
 pub use iter::{CharIndices, Chars, Chunks};
 pub(crate) use node::{Hit, MAX_LEAF, Metric, Summary, breaks_before};
+pub(crate) use tree::Edit;
 
 use node::{Child, FILL_LEAF, MIN_LEAF, Node};
 
@@ -412,6 +413,28 @@ impl Rope {
         let _removed = self.split_unchecked(start);
         self.append(text.clone());
         self.append(right);
+    }
+
+    /// Applies `edits` in one walk of the tree, if each stays inside one
+    /// leaf: see `tree::batch_edit`, whose conditions the caller meets
+    /// (sorted, validated, a byte kept between each and the next). Returns
+    /// whether it did; if not, nothing changed. Counted as fast-path edits.
+    pub(crate) fn replace_in_leaves(&mut self, edits: &[tree::Edit<'_>]) -> bool {
+        let done = tree::batch_edit(&mut self.root, &mut self.summary, edits);
+        if done {
+            for _ in edits {
+                count(EditPath::Fast);
+            }
+        }
+        done
+    }
+
+    /// The text of a rope that is one leaf, if it is.
+    pub(crate) fn as_leaf(&self) -> Option<&str> {
+        match &*self.root {
+            Node::Leaf(leaf) => Some(leaf),
+            Node::Internal { .. } => None,
+        }
     }
 
     /// `replace` after validation.

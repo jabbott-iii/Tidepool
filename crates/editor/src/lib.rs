@@ -41,6 +41,7 @@
 struct ReadmeDoctests;
 
 pub mod command;
+pub mod edit;
 mod error;
 pub mod keymap;
 pub mod shell;

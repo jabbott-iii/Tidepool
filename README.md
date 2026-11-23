@@ -31,8 +31,10 @@ tooltips, toasts, and the command palette), the painter
 that draws its frames into pixels, the changed parts only, and the
 editor view, which draws a file's text with line numbers, cursors,
 selections, the current line and soft wrap, laying out only the lines on
-screen, and named commands run by keys through a modal keymap engine,
-from a default keymap and your bindings in `settings.toml`, are built;
+screen, named commands run by keys through a modal keymap engine,
+from a default keymap and your bindings in `settings.toml`, and the
+editing commands, which move, type, delete, indent, undo, copy and paste
+at many cursors at once, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
 which waits until something happens and draws only what changed: it shows

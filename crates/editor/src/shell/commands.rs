@@ -31,6 +31,7 @@ use std::ops::Range;
 use tidepool_ui::draw::IconId;
 
 use crate::command::Registry;
+use crate::edit;
 
 pub use crate::command::{MATCH, MAX_QUERY_CHARS, RUN, WORD_START};
 
@@ -254,17 +255,24 @@ impl Command {
 }
 
 /// A registry of the shell's commands, each with its id and title, in
-/// [`Command::ALL`]'s order: the registry the shell's palette lists, and
-/// which a keymap of the shell's keys is read against.
+/// [`Command::ALL`]'s order, then the editing commands, in
+/// [`edit::Command::ALL`]'s (M4.2, ADR-0065): the registry the default
+/// keymap and the user's bindings are read against. The palette lists the
+/// commands of it that the shell runs.
 ///
 /// ```
+/// use tidepool_editor::edit;
 /// use tidepool_editor::shell::commands::{Command, registry};
 ///
 /// let registry = registry();
-/// assert_eq!(registry.len(), Command::ALL.len());
+/// assert_eq!(registry.len(), Command::ALL.len() + edit::Command::ALL.len());
 /// assert_eq!(
 ///     registry.get("palette.open").map(|entry| entry.title()),
 ///     Some(Command::OpenPalette.title())
+/// );
+/// assert_eq!(
+///     registry.get("editor.undo").map(|entry| entry.title()),
+///     Some("Edit: Undo")
 /// );
 /// ```
 pub fn registry() -> Registry {
@@ -274,6 +282,9 @@ pub fn registry() -> Registry {
             .register(command.id(), command.title())
             .expect("the shell's ids are valid and distinct: its tests check them");
     }
+    edit::Command::register(&mut registry).expect(
+        "the editing ids are valid, distinct and the shell's are not among them: tests check them",
+    );
     registry
 }
 
@@ -490,8 +501,12 @@ mod tests {
     #[test]
     fn the_registry_holds_every_command_in_order_with_its_title() {
         let registry = registry();
-        assert_eq!(registry.len(), 14);
-        for (entry, command) in registry.entries().iter().zip(Command::ALL) {
+        assert_eq!(registry.len(), 14 + 40, "the shell's, then the editor's");
+        let (shell, editing) = registry.entries().split_at(Command::ALL.len());
+        for (entry, command) in shell.iter().zip(Command::ALL) {
+            assert_eq!((entry.id(), entry.title()), (command.id(), command.title()));
+        }
+        for (entry, command) in editing.iter().zip(edit::Command::ALL) {
             assert_eq!((entry.id(), entry.title()), (command.id(), command.title()));
         }
     }

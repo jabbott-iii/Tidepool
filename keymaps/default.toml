@@ -3,6 +3,10 @@
 # `keymap::DEFAULT_TOML`, and its rustdoc (`editor::keymap`) gives the
 # format: keys in `ctrl+shift+p` notation, each naming a command's id.
 #
+# The editing keys are Visual Studio Code's Linux defaults for the commands
+# `editor::edit` has (M4.2, ADR-0065). Typed text is not bound: it comes as
+# text, after the keys.
+#
 # A user's bindings go in `settings.toml`, as `[keymap.<mode>]` tables in
 # the same form, a layer over these; an empty string unbinds keys. Vim mode
 # adds the other modes from M7.2 (docs/subsystems/vim-mode.md).
@@ -15,3 +19,52 @@ start = "insert"
 f1 = "palette.open"
 "ctrl+b" = "view.toggleSidePanel"
 "ctrl+j" = "view.toggleBottomPanel"
+
+# Motions; with Shift, each selects as it moves.
+left = "editor.cursorLeft"
+"shift+left" = "editor.cursorLeftSelect"
+right = "editor.cursorRight"
+"shift+right" = "editor.cursorRightSelect"
+"ctrl+left" = "editor.cursorWordLeft"
+"ctrl+shift+left" = "editor.cursorWordLeftSelect"
+"ctrl+right" = "editor.cursorWordRight"
+"ctrl+shift+right" = "editor.cursorWordRightSelect"
+up = "editor.cursorUp"
+"shift+up" = "editor.cursorUpSelect"
+down = "editor.cursorDown"
+"shift+down" = "editor.cursorDownSelect"
+home = "editor.cursorHome"
+"shift+home" = "editor.cursorHomeSelect"
+end = "editor.cursorEnd"
+"shift+end" = "editor.cursorEndSelect"
+"ctrl+home" = "editor.cursorTop"
+"ctrl+shift+home" = "editor.cursorTopSelect"
+"ctrl+end" = "editor.cursorBottom"
+"ctrl+shift+end" = "editor.cursorBottomSelect"
+pageup = "editor.cursorPageUp"
+"shift+pageup" = "editor.cursorPageUpSelect"
+pagedown = "editor.cursorPageDown"
+"shift+pagedown" = "editor.cursorPageDownSelect"
+
+# Edits.
+backspace = "editor.deleteLeft"
+delete = "editor.deleteRight"
+"ctrl+backspace" = "editor.deleteWordLeft"
+"ctrl+delete" = "editor.deleteWordRight"
+enter = "editor.newLine"
+tab = "editor.indent"
+"shift+tab" = "editor.outdent"
+
+# Undo, redo and the clipboard.
+"ctrl+z" = "editor.undo"
+"ctrl+shift+z" = "editor.redo"
+"ctrl+y" = "editor.redo"
+"ctrl+c" = "editor.copy"
+"ctrl+x" = "editor.cut"
+"ctrl+v" = "editor.paste"
+
+# Cursors.
+"ctrl+a" = "editor.selectAll"
+"shift+alt+up" = "editor.addCursorAbove"
+"shift+alt+down" = "editor.addCursorBelow"
+escape = "editor.cancel"

@@ -64,10 +64,10 @@ flowchart TB
     i_gui(("Gui (M2.6),<br/>render (M3.8)"))
     i_front(("Frontend<br/>planned M7.1"))
     i_shell(("Shell, Panels,<br/>Flow, View (M3.4)"))
-    i_editor(("EditorView (M4.1)<br/>command Registry,<br/>keymap Engine (M4.6)<br/>editing planned M4.2"))
+    i_editor(("EditorView (M4.1)<br/>command Registry,<br/>keymap Engine (M4.6)<br/>Editor, editing (M4.2)"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -138,7 +138,7 @@ flowchart TB
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     i_ws(("folders, trust,<br/>settings, buffers<br/>planned M4.7, M4.3"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -165,7 +165,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -187,7 +187,7 @@ flowchart LR
 
     c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
-    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1);<br/>editor, workspace:<br/>planned M4.2, M4.3"| i_text
+    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1),<br/>edits and undo (M4.2);<br/>workspace:<br/>planned M4.3"| i_text
     c_editor -->|"editor: keymaps (M4.6);<br/>workspace:<br/>planned M4.7"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
     c_editor -.->|"workspace:<br/>planned M4.5"| i_os_watch
@@ -326,15 +326,16 @@ flowchart LR
 `tidepool-text` has every module its spec plans (M1.1, M1.2, M1.3); this
 diagram draws who uses its interfaces, `ui`'s fields (M3.6, ADR-0049),
 the cuts of what its M3.7 components show (ADR-0052), the matches its
-rows draw, widened to whole clusters (M3.3), and the editor view, which
+rows draw, widened to whole clusters (M3.3), the editor view, which
 shows a rope and its selection and cuts long lines at a cluster boundary
-(M4.1), and
+(M4.1), and the editing commands, which move by cluster and edit every
+cursor through `change_each` and `History` (M4.2, ADR-0065), and
 who will, and 2.3 how its modules use one another. Each module box names
 the task that built it.
 
 ```mermaid
 flowchart LR
-    c_editor["tidepool-editor<br/>the editor view (M4.1)<br/>planned M4.2, M4.4"]
+    c_editor["tidepool-editor<br/>the editor view (M4.1),<br/>editing (M4.2)<br/>planned M4.4"]
     c_workspace["tidepool-workspace<br/>planned M4.3, M4.4"]
     c_syntax["tidepool-syntax<br/>planned M6.2, M13.2"]
     c_lang["tidepool-lang<br/>planned M6.7"]
@@ -358,14 +359,14 @@ flowchart LR
 
     c_editor -->|"the view: text<br/>from the rope (M4.1)"| i_rope
     c_agent -.->|"prefix and suffix,<br/>planned M9.3"| i_rope
-    c_editor -.->|"grapheme motions,<br/>planned M4.2"| i_pos
+    c_editor -->|"lines and columns<br/>for motions (M4.2)"| i_pos
     c_lang -.->|"UTF-16 positions,<br/>planned M6.7"| i_pos
-    c_editor -->|"the view: cuts long<br/>lines at a cluster<br/>boundary (M4.1)"| i_graph
+    c_editor -->|"the view: cuts long<br/>lines at a cluster<br/>boundary (M4.1);<br/>motions by cluster,<br/>in a window on<br/>long lines (M4.2)"| i_graph
     c_ui -->|"carets and deletes<br/>by cluster (M3.6),<br/>cuts at a cluster<br/>boundary (M3.7),<br/>widens matches (M3.3)"| i_graph
-    c_editor -.->|"multi-cursor,<br/>planned M4.2"| i_tx
+    c_editor -->|"multi-cursor edits,<br/>change_each (M4.2)"| i_tx
     c_syntax -.->|"re-lex new ranges,<br/>planned M6.2"| i_tx
     c_lang -.->|"didChange,<br/>planned M6.7"| i_tx
-    c_editor -.->|"undo and redo,<br/>planned M4.2"| i_hist
+    c_editor -->|"one step a command,<br/>undo and redo (M4.2)"| i_hist
     c_workspace -.->|"saves,<br/>planned M4.3"| i_hist
     c_workspace -.->|"buffers,<br/>planned M4.3"| i_file
     c_editor -.->|"find and replace,<br/>planned M4.4"| i_regex
@@ -465,7 +466,7 @@ flowchart TB
     c_gui -->|"M2.6"| i_window
     c_gui -->|"M2.6, Waker M3.8"| i_events
     c_gui -->|"M2.6"| i_surface
-    c_gui -.->|"planned M4.2"| i_clip
+    c_gui -.->|"planned M4.3"| i_clip
     c_tui -.->|"planned M7.1"| i_terminal
 
     i_window --- c_platform

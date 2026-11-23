@@ -75,10 +75,24 @@ Built, with the roadmap task that built it:
   machine, unpinned runs back to back differed by more than 10%, and a
   run pinned to one core (`taskset -c 4`) sees one thread, not 16, so
   `--save` refuses the baseline as another machine's — M4.1.
+- `suites::editor`'s keystroke suites, 22 more, each a keystroke as the
+  main loop handles it: the editing command run, or the text given to
+  the editor, then its frames built and painted at 1920 × 1080, from a
+  new editor made outside the timing. `editor/keystroke/10k_carets_100mb_1080p`
+  types an `x` at 10,000 carets of a 100 MB file (the scroll suites' file
+  219 times), over a rope of its own each iteration, so that the
+  keystroke frees the leaves its edit replaced; and `editor/crafted/…`
+  runs a cluster and a word right and left, a deletion, Down and typing on
+  each of M1.1's crafted 100 MB lines (`one_cluster`, `combining_marks`
+  and `regional_indicators`). Each checks, untimed, what one keystroke
+  did: a typed `x` at every caret, or a caret that moved, and a text that
+  shrank, by no more than the window a motion reads. The tests run them
+  on one copy of the file and on lines a thousandth as long, never on
+  100 MB. Not yet recorded in the baseline — M4.2 (ADR-0065).
 
 Not yet, with the roadmap task that adds it:
 
-- suites for editing commands (M4.2), project search (M4.4), predictive
+- suites for project search (M4.4), predictive
   text and its latency (M9.4), the Lua interpreter (M15.2), plugins
   (M15.5), and the performance pass (M14.3).
 

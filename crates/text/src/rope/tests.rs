@@ -800,6 +800,58 @@ fn edits_that_would_split_a_crlf_take_the_general_path() {
     assert_eq!(rope.len_lines(), 2);
 }
 
+#[test]
+fn a_batch_edit_s_debug_shows_sizes_and_never_text() {
+    let edit = super::tree::Edit {
+        start: 2,
+        end: 5,
+        text: "secret",
+    };
+    assert_eq!(
+        format!("{edit:?}"),
+        "Edit { start: 2, end: 5, text_len: 6 }"
+    );
+}
+
+#[test]
+fn in_leaf_edits_count_each_crlf_made_or_split_at_their_ends() {
+    // Each text is one leaf, and so is the result of most edits, which
+    // update the leaf's summary from the bytes they change (ADR-0065).
+    let texts = [
+        "a\r\nb",
+        "\r\n\r\n",
+        "x\ry\nz",
+        "é\r😀\n",
+        "\n\r",
+        "\r\r\n\n",
+    ];
+    let inserts = ["", "\r", "\n", "\r\n", "\n\r", "q", "😀"];
+    let [fast_before, ..] = counters::read();
+    for text in texts {
+        let rope = Rope::from(text);
+        let boundaries: Vec<usize> = (0..=text.len())
+            .filter(|&at| text.is_char_boundary(at))
+            .collect();
+        for &start in &boundaries {
+            for &end in boundaries.iter().filter(|&&end| end >= start) {
+                for insert in inserts {
+                    let mut edited = rope.clone();
+                    edited.replace(start..end, insert).expect("valid");
+                    let mut model = text.to_string();
+                    model.replace_range(start..end, insert);
+                    let what = format!("{text:?}, {start}..{end} → {insert:?}");
+                    holds(&edited, &model, &what).unwrap_or_else(|e| panic!("{e}"));
+                    holds(&rope, text, "the snapshot").unwrap_or_else(|e| panic!("{e}"));
+                }
+            }
+        }
+    }
+    assert!(
+        counters::read()[0] > fast_before + 500,
+        "most of the edits took the fast path"
+    );
+}
+
 /// `start..end` with `start > end`, on purpose.
 fn inverted(start: usize, end: usize) -> std::ops::Range<usize> {
     start..end

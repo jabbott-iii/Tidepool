@@ -537,7 +537,8 @@ fn the_driver_presses_every_default_binding_and_changes_modes() {
     let registry = commands::registry();
     let keymap = Keymap::bundled(&registry, None);
     let bindings = keymap.bindings("insert");
-    assert_eq!(bindings.len(), 4);
+    // The shell's 4, and M4.2's 41 editing bindings.
+    assert_eq!(bindings.len(), 45);
     for (at, binding) in bindings.iter().enumerate() {
         let expected: Vec<InputEvent> = binding
             .keys()

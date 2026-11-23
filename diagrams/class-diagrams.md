@@ -5357,7 +5357,7 @@ classDiagram
   only (ADR-0043). The `Role` and `ActionKind` boxes list the variants
   the overlays use.
 
-## 29. editor: the shell, the editor view, commands and keymaps
+## 29. editor: the shell, the editor view, commands and keymaps, and editing
 
 ### 29.1 The shell
 
@@ -5541,7 +5541,8 @@ and lays out only the lines on screen, each cut at
 `MAX_LINE_BYTES`. `handle` gives an event to the tree and `update`s the
 view with the actions that come back, so a scrollbar's drag or a wheel
 notch scrolls the text. `point_to_byte`, `byte_to_point` and
-`scroll_into_view` are what editing (M4.2) moves carets with.
+`scroll_into_view` are what editing (29.4) places and follows carets
+with.
 
 ```mermaid
 classDiagram
@@ -5789,6 +5790,121 @@ classDiagram
   layer); the binary builds one with `settings.toml`'s `[keymap]` as the
   user's layer over the shell's `registry()`, and passes it to
   `set_keymap` (29.1).
+
+### 29.4 Editing
+
+`edit` (M4.2, ADR-0065) is an `Editor`: an `EditorView` (29.2) over a
+buffer's `text::Rope` and its `text::History`, which every edit goes
+through. `run` runs one of the 40 `Command`s on every cursor at once: a
+`Move` by a `Motion`, with `select` keeping the anchor, or an edit, undo
+and redo, the clipboard, or a change of cursors; it returns an `Outcome`,
+which may hold a `Request` the owner carries out with the clipboard.
+`handle` gives an event to the view's tree and answers typed text and the
+mouse; `paste` takes the clipboard's text that a `Request::Paste` asked
+for. `Command::register` adds the commands to a `Registry` (29.3), as the
+shell's `registry()` does.
+
+```mermaid
+classDiagram
+    direction LR
+    class Editor["editor::edit::Editor"] {
+        -view: EditorView
+        -text: Rope
+        -history: History
+        -line_break: LineBreak
+        -goals: Option of goal columns
+        -drag: Option~usize~
+        -line_copy: Option~Rope~
+        +insert(tree, parent, name, text) Result~Editor~
+        +view() EditorView
+        +text() Rope
+        +history() History
+        +line_break() LineBreak
+        +set_line_break(line_break)
+        +selection(tree) Result~Selection~
+        +set_selection(tree, selection) Result
+        +run(tree, command, now, metrics) Result~Outcome~
+        +handle(tree, event, now, metrics) Result~Response~
+        +type_text(tree, typed, now, metrics) Result~Outcome~
+        +paste(tree, pasted, now, metrics) Result~Outcome~
+    }
+    class Command["editor::edit::Command"] {
+        <<enumeration>>
+        Move: motion, select
+        DeleteLeft
+        DeleteRight
+        DeleteWordLeft
+        DeleteWordRight
+        NewLine
+        Indent
+        Outdent
+        Undo
+        Redo
+        Copy
+        Cut
+        Paste
+        SelectAll
+        AddCursorAbove
+        AddCursorBelow
+        Cancel
+        +ALL: 40 commands
+        +id() str
+        +title() str
+        +from_id(id) Option~Command~
+        +register(registry) Result
+    }
+    class Motion["editor::edit::Motion"] {
+        <<enumeration>>
+        Left
+        Right
+        WordLeft
+        WordRight
+        Up
+        Down
+        Home
+        End
+        Top
+        Bottom
+        PageUp
+        PageDown
+    }
+    class Request["editor::edit::Request"] {
+        <<enumeration>>
+        Copy: Rope
+        Paste
+    }
+    class Outcome["editor::edit::Outcome"] {
+        +changed: bool
+        +request: Option~Request~
+    }
+    class EditFns["editor::edit"] {
+        <<module>>
+        +TYPING_WINDOW: Duration
+        +DOUBLE_CLICK: Duration
+        +INDENT_SPACES: usize
+    }
+    class EditorView["editor::view::EditorView"]
+    class History["text::History"]
+    class Rope["text::Rope"]
+    class Registry["editor::command::Registry"]
+
+    Editor *-- EditorView
+    Editor *-- Rope
+    Editor *-- History
+    Editor ..> Command : run
+    Command --> Motion
+    Editor ..> Outcome : run returns
+    Outcome --> Request
+    Command ..> Registry : register adds to
+    Editor ..> EditFns : coalesces and indents with
+```
+
+- The text changes only through the editor: every command that edits
+  commits a `text::Transaction`, made by `change_each`, to the history,
+  and the view shows the step's text and selection.
+- On a line longer than `view::MAX_LINE_BYTES`, the motions read a
+  window of at most that many bytes either side of the cursor, copied
+  out of the rope; that and the column count are private to `edit`.
 
 ## 30. Error enums across crates
 

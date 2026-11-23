@@ -403,9 +403,14 @@ The design is ADR-0027's; the engine's rustdoc
   × 1080, scrolled a wheel notch an iteration through a generated
   10,000-line Rust-like file with soft wrap off, and on through a
   variant a fifth of whose lines wrap, each notch's frames built and
-  their damage painted with `gui`'s painter (M4.1); and the notch that
-  first lays out a 10,000-byte line (M4.1). The `editor` suites' rustdoc
-  describes the files. Highlighting a 10k-line file, project search, and
+  their damage painted with `gui`'s painter (M4.1); the notch that
+  first lays out a 10,000-byte line (M4.1); and keystrokes as the main
+  loop handles them, each command run and its frames painted: an `x`
+  typed at 10,000 carets of a 100 MB file at 1080p, each iteration over
+  a rope of its own, so that the keystroke frees the leaves it replaced,
+  and seven keystrokes (a cluster and a word either way, a deletion,
+  Down and typing) on each of M1.1's crafted 100 MB lines (M4.2,
+  ADR-0065). The `editor` suites' rustdoc describes the files. Highlighting a 10k-line file, project search, and
   startup come with their tasks, which record them with `--save` on the
   reference machine (ADR-0035).
 - A change that slows a suite by more than 10% against the baseline must

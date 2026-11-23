@@ -82,27 +82,23 @@ impl Summary {
     /// - UTF-16 units: chars plus one for each 4-byte char (lead byte ≥ 0xF0);
     /// - breaks: LFs + CRs − (CRs directly followed by an LF).
     pub(crate) fn of(text: &str) -> Self {
-        let mut chars = 0;
-        let mut astral = 0;
-        let mut lf = 0;
-        let mut cr = 0;
-        let mut crlf = 0;
-        let mut after_cr = false;
-        for &byte in text.as_bytes() {
-            chars += usize::from(byte & 0xC0 != 0x80);
-            astral += usize::from(byte >= 0xF0);
-            let is_lf = byte == b'\n';
-            lf += usize::from(is_lf);
-            crlf += usize::from(is_lf && after_cr);
-            after_cr = byte == b'\r';
-            cr += usize::from(after_cr);
+        let mut counter = Counter::default();
+        counter.feed(text.as_bytes());
+        counter.finish()
+    }
+
+    /// Counts `parts` as one run of bytes, a CR at the end of one part and
+    /// an LF at the start of the next making one CR LF, as
+    /// [`of`](Self::of) counts them. The parts need not be whole chars:
+    /// only the bytes are counted, so two runs that share their first and
+    /// last bytes differ by exactly what lies between (an in-leaf edit's
+    /// update, `tree::edit_path`).
+    pub(crate) fn of_parts(parts: &[&[u8]]) -> Self {
+        let mut counter = Counter::default();
+        for part in parts {
+            counter.feed(part);
         }
-        Self {
-            bytes: text.len(),
-            chars,
-            utf16: chars + astral,
-            breaks: lf + cr - crlf,
-        }
+        counter.finish()
     }
 
     /// The count of `metric`.
@@ -112,6 +108,54 @@ impl Summary {
             Metric::Chars => self.chars,
             Metric::Utf16 => self.utf16,
             Metric::Breaks => self.breaks,
+        }
+    }
+}
+
+/// The counts of [`Summary::of`], kept across the parts of a run of bytes.
+#[derive(Default)]
+struct Counter {
+    bytes: usize,
+    chars: usize,
+    astral: usize,
+    lf: usize,
+    cr: usize,
+    crlf: usize,
+    after_cr: bool,
+}
+
+impl Counter {
+    /// Counts `bytes` after those fed before, in one pass of a plain byte
+    /// loop.
+    #[inline]
+    fn feed(&mut self, bytes: &[u8]) {
+        let (mut chars, mut astral, mut lf, mut cr, mut crlf) = (0, 0, 0, 0, 0);
+        let mut after_cr = self.after_cr;
+        for &byte in bytes {
+            chars += usize::from(byte & 0xC0 != 0x80);
+            astral += usize::from(byte >= 0xF0);
+            let is_lf = byte == b'\n';
+            lf += usize::from(is_lf);
+            crlf += usize::from(is_lf && after_cr);
+            after_cr = byte == b'\r';
+            cr += usize::from(after_cr);
+        }
+        self.bytes += bytes.len();
+        self.chars += chars;
+        self.astral += astral;
+        self.lf += lf;
+        self.cr += cr;
+        self.crlf += crlf;
+        self.after_cr = after_cr;
+    }
+
+    /// The summary of every byte fed.
+    fn finish(self) -> Summary {
+        Summary {
+            bytes: self.bytes,
+            chars: self.chars,
+            utf16: self.chars + self.astral,
+            breaks: self.lf + self.cr - self.crlf,
         }
     }
 }

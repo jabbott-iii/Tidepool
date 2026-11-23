@@ -76,6 +76,9 @@ session, so the GUI runs through XWayland (ADR-0010).
 | Memory | ≤ 200 MB resident with Tidepool's workspace open, excluding external tools |
 | Shipped binary | ≤ 25 MB per platform, including bundled fonts |
 
+One measured exception to the keystroke budget is accepted: typing at
+10,000 carets of a 100 MB file takes about 19 ms (ADR-0066).
+
 ## Assumptions
 
 Revisit these if any turns out to be wrong.

@@ -18,6 +18,7 @@
 use std::ops::Range;
 
 use super::{ChangeSet, Replacement};
+use crate::rope::{Edit, MAX_LEAF};
 use crate::{Rope, RopeBuilder, TextError};
 
 /// The fewest replacements for which `apply` may rebuild the text.
@@ -42,17 +43,92 @@ pub(super) fn apply(changes: &ChangeSet, text: &mut Rope) -> Result<(), TextErro
     changes.check_text(text)?;
     match path(changes) {
         Path::Replace => {
-            for replacement in changes.replacements.iter().rev() {
-                text.replace_with(
-                    replacement.start,
-                    replacement.end,
-                    replacement.text.as_ref(),
-                );
+            if !in_leaves(changes, text) {
+                for replacement in changes.replacements.iter().rev() {
+                    text.replace_with(
+                        replacement.start,
+                        replacement.end,
+                        replacement.text.as_ref(),
+                    );
+                }
             }
         }
         Path::Rebuild => *text = rebuilt(changes, text),
     }
     Ok(())
+}
+
+/// Applies two or more replacements in one walk of the rope, each inside
+/// one leaf (`Rope::replace_in_leaves`), if each new text is one leaf of at
+/// most `MAX_LEAF` bytes and each replacement stays inside one leaf of
+/// `text`. Returns whether it did; if not, nothing changed, and the caller
+/// replaces each range. A change set's replacements are sorted with a byte
+/// kept between each and the next, as the batch needs.
+fn in_leaves(changes: &ChangeSet, text: &mut Rope) -> bool {
+    if changes.replacements.len() < 2 || !batching::enabled() {
+        return false;
+    }
+    let mut edits = Vec::with_capacity(changes.replacements.len());
+    for replacement in changes.replacements.iter() {
+        let new = match &replacement.text {
+            None => "",
+            Some(new) => match new.as_leaf() {
+                Some(leaf) if leaf.len() <= MAX_LEAF => leaf,
+                _ => return false,
+            },
+        };
+        edits.push(Edit {
+            start: replacement.start,
+            end: replacement.end,
+            text: new,
+        });
+    }
+    let done = text.replace_in_leaves(&edits);
+    batching::counted(done);
+    done
+}
+
+/// Whether `apply` may batch replacements, and how often it did: in unit
+/// tests, a switch per thread and a count, so that they can compare a
+/// batched apply with one that replaces each range; always on otherwise.
+#[cfg(test)]
+pub(crate) mod batching {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(true) };
+        static DONE: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// Turns batching on or off on this thread.
+    pub(crate) fn set(on: bool) {
+        ON.with(|cell| cell.set(on));
+    }
+
+    /// How many applies on this thread batched their replacements.
+    pub(crate) fn read() -> u64 {
+        DONE.with(Cell::get)
+    }
+
+    pub(super) fn enabled() -> bool {
+        ON.with(Cell::get)
+    }
+
+    pub(super) fn counted(done: bool) {
+        if done {
+            DONE.with(|cell| cell.set(cell.get() + 1));
+        }
+    }
+}
+
+/// Always on outside unit tests.
+#[cfg(not(test))]
+mod batching {
+    pub(super) const fn enabled() -> bool {
+        true
+    }
+
+    pub(super) const fn counted(_: bool) {}
 }
 
 /// The path for `changes`: rebuild for at least [`REBUILD_MIN`]

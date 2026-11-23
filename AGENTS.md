@@ -127,7 +127,22 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   tables over it, which the binary reads and whose conflicts it logs, and
   the modal engine, a stack of modes whose started sequences wait for
   their next key, which runs the shell's four shortcuts; with the fuzz
-  target `keymap` (M4.6, ADR-0064, ADR-0006).
+  target `keymap` (M4.6, ADR-0064, ADR-0006); and in `tidepool-editor`
+  editing, `editor::edit`: an `Editor` over an editor view, a rope and
+  its `History`, running 40 editing commands on every cursor at once
+  (motions by grapheme cluster, word, line to a goal column, page and
+  the ends, each with a select twin; typing, deletions, new lines with
+  the indentation, indent and outdent; one undo step a command, typing
+  coalesced a word at a time; copy, cut and paste as requests its owner
+  carries out; cursors added above and below; and the mouse), bound in
+  the default keymap with Visual Studio Code's Linux keys, reading a line
+  past 10,000 bytes in a window either side of each cursor; in
+  `tidepool-text` an in-leaf edit counted from the bytes it changes and
+  a change set of in-leaf edits applied in one walk of the tree; and
+  `tidepool-bench` suites of a keystroke at 10,000 carets of 100 MB,
+  about 19 ms, an accepted exception to the keystroke budget, and of
+  keystrokes on M1.1's crafted 100 MB lines, each well within a frame;
+  the binary shows an editor from M4.3 (M4.2, ADR-0065, ADR-0066).
 - **Not built:** everything else. 13 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

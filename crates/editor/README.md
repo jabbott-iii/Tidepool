@@ -32,6 +32,9 @@ Built, with the roadmap task that built it:
   From M4.6 the palette lists the shell's 14 commands from its command
   registry, `palette.open` among them, and its four keys are the default
   keymap's, which the shell's owner can replace (`Shell::set_keymap`).
+  From M4.2 the registry also holds the 40 editing commands, which the
+  default keymap binds; the palette lists the commands the shell runs,
+  so it lists them once M4.3 gives the shell an editor.
 - the editor view, `view::EditorView`: a `text` rope's text in a `ui`
   tree, with a gutter of line numbers, the selection's ranges and a
   steady cursor bar at each head while it has focus, the focus outline
@@ -39,9 +42,9 @@ Built, with the roadmap task that built it:
   wash, tab stops, a marker for each hidden character, soft wrap (off at
   first), and scrolling by the wheel and two `ui` scrollbars; it lays out
   only the lines on screen and cuts a line past 10,000 bytes
-  (`view::MAX_LINE_BYTES`), and maps points to byte offsets and back for
-  M4.2. Its errors are `EditorError`s. The binary does not show it until
-  M4.3 opens a file — M4.1 (ADR-0063).
+  (`view::MAX_LINE_BYTES`), and maps points to byte offsets and back,
+  which editing places carets with. Its errors are `EditorError`s. The
+  binary does not show it until M4.3 opens a file — M4.1 (ADR-0063).
 - named commands, `command::Registry`: each an id, such as
   `view.toggleSidePanel` (dotted segments of ASCII letters and digits,
   each starting with a lowercase letter, at most 128 bytes), and its
@@ -60,10 +63,26 @@ Built, with the roadmap task that built it:
   `mode.leave`, and saying whether a key was an auto-repeat — M4.6
   (ADR-0064, ADR-0006). Nothing shows a pending sequence or the problems
   on screen yet: no task builds the keymap viewer.
-
+- editing, `edit::Editor`: an editor view over a buffer's rope and its
+  `text::History`, running 40 editing commands (`edit::Command`, ids such
+  as `editor.cursorWordLeftSelect` and `editor.undo`) on every cursor at
+  once: motions by grapheme cluster, word, line (to a goal column), the
+  line's ends, the text's ends and a page, each with a `…Select` twin;
+  typing, deleting a cluster or a word, a new line with the line's
+  indentation, indenting with 4 spaces and outdenting; one undo step a
+  command, typing coalesced a word at a time; the clipboard as requests
+  its owner carries out (`edit::Request`), whole lines when only carets
+  copy, and a paste spread over the cursors when it has a line for each;
+  adding cursors above and below, and back to one; and the mouse:
+  click, Shift, Alt, drag and double click. On a line past 10,000 bytes
+  a motion reads at most that far either side of the cursor. Tab and
+  Shift+Tab stay with a focused editor. The default keymap binds the
+  commands as Visual Studio Code does on Linux. The binary shows no
+  editor, and does not route the window's clipboard to one, until M4.3 —
+  M4.2 (ADR-0065; a keystroke at 10,000 carets of 100 MB takes about
+  19 ms, ADR-0066).
 Not yet, with the roadmap task that adds it:
 
-- editing commands, multi-cursor, undo and clipboard — M4.2.
 - explorer, tabs, splits, the trust prompt — M4.3.
 - search — M4.4.
 - the terminal panel — M5.4.
@@ -208,6 +227,41 @@ assert_eq!(engine.handle(&down(Key::S, Modifiers::CTRL)), Resolution::Unbound);
 # Ok::<(), tidepool_editor::EditorError>(())
 ```
 
+Run editing commands on an editor, and carry out its clipboard
+requests; the owner resolves keys with its keymap engine and runs the
+command an id names:
+
+```rust
+use std::time::Instant;
+
+use tidepool_core::geom::Size;
+use tidepool_editor::edit::{Command, Editor, Motion, Request};
+use tidepool_text::Rope;
+use tidepool_ui::Tree;
+use tidepool_ui::metrics::FixedMetrics;
+
+let mut tree = Tree::new();
+let root = tree.root();
+let mut editor = Editor::insert(&mut tree, root, "main.rs", Rope::from("a\nb\n"))?;
+let (size, metrics) = (Size::new(640.0, 480.0), FixedMetrics::DEFAULT);
+assert!(tree.frame(size, &metrics).is_some());
+let now = Instant::now();
+
+// A second cursor below the first, then typing at both.
+editor.run(&mut tree, Command::AddCursorBelow, now, &metrics)?;
+editor.type_text(&mut tree, "> ", now, &metrics)?;
+assert_eq!(*editor.text(), "> a\n> b\n");
+
+// With only carets, a copy takes their whole lines.
+let copy = editor.run(&mut tree, Command::Copy, now, &metrics)?;
+assert_eq!(copy.request, Some(Request::Copy(Rope::from("> a\n> b\n"))));
+
+// The id the keymap names runs the same command.
+let id = Command::Move { motion: Motion::End, select: false }.id();
+assert_eq!(Command::from_id(id).map(|c| c.title()), Some("Cursor: Move to Line End"));
+# Ok::<(), tidepool_editor::EditorError>(())
+```
+
 ## Documentation
 
 - Design: [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md),
@@ -215,7 +269,9 @@ assert_eq!(engine.handle(&down(Key::S, Modifiers::CTRL)), Resolution::Unbound);
   [`docs/subsystems/ui-and-theme.md`](../../docs/subsystems/ui-and-theme.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0003 (GUI
   first, features in `editor`); ADR-0006 (vim mode as a modal keymap
-  engine in `editor`); ADR-0060
+  engine in `editor`); ADR-0065 (the editing commands in `editor::edit`,
+  Up and Down by line, long lines read in a window, the clipboard as
+  requests, and Visual Studio Code's keys); ADR-0060
   (the shell in `editor::shell`, its icons, settings and palette);
   ADR-0063 (the editor view in `editor::view`, soft wrap off at first,
   hidden characters as markers, and the `current-line` token); ADR-0064
@@ -239,7 +295,25 @@ assert_eq!(engine.handle(&down(Key::S, Modifiers::CTRL)), Resolution::Unbound);
 cargo test -p tidepool-editor
 cargo xtask golden
 cargo xtask fuzz-smoke --target keymap
+cargo xtask bench editor
 ```
+
+The editing tests (`tests/edit.rs`) check every motion, with goal
+columns over short lines and tabs and with clusters of several chars and
+CR LF; typing, deleting a cluster, a word, a CR LF and a selection; new
+lines with the indentation and the text's line break; indenting and
+outdenting; undo steps, typing coalesced a word at a time and split by a
+pause or a move, and the selection each restores; cursors added at their
+goal column, edits at every cursor, 1,000 carets typing together, and
+back to one cursor; the clipboard's requests, whole lines pasted above,
+and spread pastes; the mouse; Tab kept from the tree and typed text only
+with focus; every command at both ends of four small texts; motions on a
+200 KB cluster and 200 KB of regional indicators staying within their
+window; and a property test, which prints its seed when it fails, that
+random commands, typing, pastes and selections keep the selection in the
+text, the view showing the editor's text, and that undo brings the first
+text back. Unit tests check the bounded motions on long lines, words,
+columns and indentation.
 
 The tests build the shell headless: its areas tile the window at
 800 × 600, 1280 × 800 and 1920 × 1080 and stay inside a smaller one;

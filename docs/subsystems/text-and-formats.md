@@ -26,7 +26,10 @@ Positions follow ADR-0019; the Unicode data follows ADR-0018.
   nodes of 8–16 children (the root 2–16), all leaves at one depth. Each
   parent keeps its children's bytes, chars, UTF-16 units and line breaks.
   `Clone` is O(1); an edit copies only the nodes on its path that a
-  snapshot shares. `Rope` is `Send + Sync`.
+  snapshot shares. An edit that stays inside one leaf updates the leaf's
+  counts from the bytes it removes and inserts, one byte kept either side
+  for a CR LF made or split at its ends, rather than counting the leaf
+  again (M4.2, ADR-0065). `Rope` is `Send + Sync`.
 - **Chunks** never split a character or a CR LF pair, so line breaks add
   up per chunk. They may split a grapheme cluster. Chunk sizes are not part
   of the API.
@@ -121,7 +124,15 @@ Edits follow ADR-0020; positions follow ADR-0019.
 - **Applying** checks the length and every replacement's ends before
   changing anything.
   - Fewer than 64 replacements, or more than 4 KiB of old and new text per
-    replacement, go one by one from the last, sharing large texts.
+    replacement, go one by one from the last, sharing large texts. But two
+    or more that each stay inside one leaf, each new text a leaf of at most
+    4 KiB, go in one walk of the tree, which copies each leaf they touch
+    once, with all its edits, and descends only into the subtrees that
+    hold them (M4.2, ADR-0065). With the in-leaf counting above, this
+    cut a 10,000-caret keystroke on 100 MB from about 115 ms to under a
+    fifth of that (roadmap M4.2's note has the measurements); most of what
+    is left is copying the 10,000 leaves the edits touch, which a
+    snapshot of the text before still holds.
   - Otherwise the text is rebuilt in one pass, which shares nothing with
     the old text. The measured break-even is about 6 KB per replacement: a
     10,000-caret keystroke on a 400 KB file takes about 1–1.5 ms instead of
@@ -153,7 +164,8 @@ Edits follow ADR-0020; positions follow ADR-0019.
   `change_each`:
   - validates the selection, then calls a closure once per cursor;
   - checks every edit it returns, including one that does nothing, which
-    then counts as no edit;
+    then counts as no edit; an end that is one of its cursor's own ends,
+    which the selection's check covered, is not looked up again (M4.2);
   - after a stable sort by range, merges overlapping deletions, and an
     edit with the same range and text as the edit kept just before it.
     So identical deletions and replacements always merge, but among pure

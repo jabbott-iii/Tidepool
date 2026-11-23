@@ -55,9 +55,9 @@ behavior; in short:
   horizontal delta, and at most a view's height an event; `ui`'s
   scrollbars count lines down and units across (the widest line laid
   out so far);
-- for M4.2, points map to byte offsets and back, and an offset scrolls
-  into view; a bad position or selection is an `EditorError`, never a
-  panic (ADR-0019).
+- points map to byte offsets and back, and an offset scrolls into view,
+  which editing (M4.2) places and follows carets with; a bad position or
+  selection is an `EditorError`, never a panic (ADR-0019).
 
 ### Commands and keymaps
 
@@ -84,7 +84,8 @@ their rules, names and limits; in short:
   registry's titles with M3.4's subsequence matcher, which moved into
   `editor::command`;
 - the shell registers its 14 commands, `view.showExplorer` to
-  `window.close` and `palette.open` ("Command Palette: Show");
+  `window.close` and `palette.open` ("Command Palette: Show"), and from
+  M4.2 the 40 editing commands after them ("Editing" below);
 - keys are steps separated by one space, each its modifiers (`ctrl`,
   `shift`, `alt`, `super`, each at most once, in any order) and one key,
   joined by `+`: `ctrl+shift+p`, `ctrl+k ctrl+s`. A key is named by its
@@ -96,7 +97,8 @@ their rules, names and limits; in short:
 - a keymap file has `version = 1`, its `start` mode, and `[keymap.<mode>]`
   tables of `"keys" = "command id"`. The default keymap is
   `keymaps/default.toml`, compiled in: `start = "insert"`, and
-  `[keymap.insert]` with the four shortcuts the shell had. The user's
+  `[keymap.insert]` with the four shortcuts the shell had, and from M4.2
+  the editing commands' 41 bindings. The user's
   bindings are `settings.toml`'s `[keymap.<mode>]` tables, a layer over
   it, read once at start by the binary, where an empty string unbinds the
   default's keys;
@@ -126,6 +128,60 @@ their rules, names and limits; in short:
 Nothing shows a pending sequence or the problems on screen yet: no task
 builds the keymap viewer, and the status bar shows a mode from vim mode on
 (M7.2).
+
+### Editing
+
+What is built (M4.2, ADR-0065): `editor::edit::Editor`, an editor view
+over a buffer's rope and its `History`, which runs the editing commands on
+every cursor at once, answers typed text and the mouse, and asks its owner
+for the clipboard. The rustdoc of `editor::edit` is authoritative for its
+rules; in short:
+
+- 40 commands with `editor.` ids (`editor.cursorWordLeftSelect`,
+  `editor.deleteLeft`, `editor.undo`, `editor.copy`…), registered by the
+  shell after its own 14, so that the default keymap binds them. The
+  palette lists the commands the shell runs, so it lists these once M4.3
+  puts an editor in the shell;
+- motions, each with a `…Select` twin: a grapheme cluster (what a reader
+  sees as one character) left or right, a selection collapsing to its
+  start or end; a word, a run of word characters or of Visual Studio
+  Code's separators (`` `~!@#$%^&*()-=+[{]}\|;:'",.<>/? ``), staying on
+  the line; a line up or down to a goal column (a tab to its next stop
+  of 4, any other cluster one), by line also with soft wrap on; Home to
+  the indentation's end or the line's start; End; the text's start and
+  end; and a page, as many lines as rows fit;
+- edits: typed text replacing each selection; deleting each selection or
+  the cluster or word before or after each caret, a CR LF as one; Enter
+  with the line's indentation and the editor's line break (the text's
+  first, or LF); Tab to the next stop with spaces, or 4 spaces at the
+  start of each line a selection spans; Shift+Tab removing a tab or up to
+  4 spaces;
+- one undo step a command, typing coalesced within 1 s
+  (`TYPING_WINDOW`) with the cursors where it left them, a word at a time,
+  and repeated deletions coalesced the same way; undo and redo restore the
+  selection of their step;
+- the clipboard as requests the owner carries out: a copy or a cut hands
+  over a rope; carets copy their whole lines, which paste above the
+  caret's line; several cursors copy their selections joined by the line
+  break, and a paste of as many lines as cursors gives each one line;
+- cursors added a line above or below at the goal column, Alt+click, and
+  Escape back to one; a click places the caret, Shift extends, a drag
+  selects, a double click selects a word;
+- on a line longer than `view::MAX_LINE_BYTES` (10,000 bytes), a motion or
+  a deletion reads at most that many bytes either side of the cursor, so
+  no keystroke reads more than about 20 KB for each cursor; inside a
+  cluster or a word
+  longer than that, it stops at the edge, on a char boundary;
+- Tab and Shift+Tab stay with a focused editor instead of moving focus,
+  for the owner's keymap.
+
+The default keymap binds them as Visual Studio Code does on Linux:
+arrows, Ctrl+arrows, Home and End, Ctrl+Home and Ctrl+End, Page Up and
+Page Down, each with Shift to select; Backspace, Delete, Ctrl+Backspace and
+Ctrl+Delete; Enter, Tab and Shift+Tab; Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y;
+Ctrl+C, Ctrl+X and Ctrl+V; Ctrl+A; Shift+Alt+Up and Shift+Alt+Down; and
+Escape. The binary shows no editor until M4.3, which also routes the
+window's clipboard to it.
 
 ### Shell layout (jabbott.dev look, `docs/subsystems/ui-and-theme.md`)
 
@@ -238,5 +294,21 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
   scrollbars, the long-line cut, a 10,000-line file scrolled to its end in
   bounded frames, points and byte offsets round-tripping (a property
   test), bad selections, the accessibility tree, and idleness.
+- The editing commands, headless (`crates/editor/tests/edit.rs`, M4.2,
+  ADR-0065): every motion, with its goal column and on CR LF and
+  clusters of several chars; typing, deleting, new lines, indenting and
+  outdenting; undo steps, a word of typing at a time, and the selection
+  they restore; 1,000 carets typing together; the clipboard's requests,
+  whole lines and spread pastes; the mouse; Tab kept from the tree;
+  every command at the ends of four small texts; motions bounded on a
+  200 KB cluster and on 200 KB of regional indicators; and a property
+  test, which prints its seed when it fails, that random commands keep
+  the selection in the text and undo brings the first text back. Unit
+  tests check the bounded motions on long lines.
+- The keystroke budgets (M4.2): `tidepool-bench`'s `editor/keystroke`
+  suite types at 10,000 carets of 100 MB at 1920 × 1080, and its
+  `editor/crafted` suites run seven keystrokes on each of M1.1's crafted
+  100 MB lines, each painting its frame (`docs/04-quality.md` →
+  "Benchmarks").
 - Session restore round-trips.
 - Responsiveness suite with slow fakes (`docs/04-quality.md`).

@@ -2570,7 +2570,7 @@ jabbott.dev, reads as the same design (human review).
     `TIDEPOOL_IT_X11` unset). `RUSTDOCFLAGS='-D warnings' cargo doc
     --no-deps -p tidepool-editor -p tidepool` is clean.
 
-- [ ] **M4.2 — editor: editing commands, multi-cursor, undo and clipboard**
+- [x] **M4.2 — editor: editing commands, multi-cursor, undo and clipboard**
   - Depends: M4.6, M1.2, M2.7
   - Do:
     - Motions by grapheme, word and line; the editing commands;
@@ -2587,6 +2587,79 @@ jabbott.dev, reads as the same design (human review).
     thread longer than one 16 ms frame; a 10,000-caret keystroke on 100 MB
     fits in one frame, or an ADR records the measured exception.
   - Verify: `cargo test -p tidepool-editor`; `cargo xtask bench editor`
+  - Note (2026-11-23): ADR-0065 records the design and the options the
+    user chose that day, each the recommended one: the editor asks for
+    the clipboard and its owner carries it out, `gui` and the binary
+    joining in M4.3; Up and Down by line with a goal column, also with
+    soft wrap on; long lines read in a window of `MAX_LINE_BYTES` either
+    side of the cursor, and `text`'s in-leaf edit counted from the bytes
+    it changes; and Visual Studio Code's Linux keys, Tab as 4 spaces. The
+    task touches `editor`, `text`, `tidepool-bench`, and in `tidepool`
+    one test's count of the default bindings.
+  - Note (2026-11-23): built. `editor::edit::Editor` runs 40 commands
+    (`edit::Command`, `editor.` ids) on every cursor through
+    `change_each` and `History`: motions by cluster, word, line (a goal
+    column), the line's and the text's ends and a page, each with a
+    `…Select` twin; typing, deletions, new lines with the indentation,
+    indent and outdent; one undo step a command, typing coalesced within
+    1 s a word at a time; copy, cut and paste as `edit::Request`s, whole
+    lines from carets and spread pastes; cursors added above and below;
+    and the mouse. The shell's registry holds them after its 14, and
+    `keymaps/default.toml` binds them (45 bindings); the palette lists
+    what the shell runs, so its goldens are unchanged. In `text`, an
+    in-leaf edit updates its leaf's summary from the bytes it changes, a
+    change set of two or more in-leaf edits applies in one walk of the
+    tree (`rope::tree::batch_edit`), and `change_each` does not look a
+    cursor's own ends up twice; a test applies 2,000 change sets batched
+    and one by one and compares them, and mutations that skip the CR
+    check at a leaf's end or the summary update fail it. The property
+    test of random editing found a bug before it was fixed: Shift+Tab
+    read 4 bytes into a line that starts with a 3-byte char.
+  - Note (2026-11-23): measured, release, on the reference machine while
+    other programs loaded it (load averages from 4 to 50 on 16 threads;
+    `top` showed Java builds, then niced `rustc` builds and a planner).
+    `text/history/keystroke_10k_carets/100mb`: 114 ms median at a load of
+    4 before the change, 13.4 ms (p95 14.2) after it at a load of 45;
+    `text/rope/insert/400kb`: 9.3 µs in the baseline, 0.59 µs pinned to
+    one core after. Most of what is left is copying the 10,000 leaves the
+    keystroke touches, which the text before still holds: the batched
+    apply took 8.6–10.1 ms where one replace per edit took 10.3–13.8 ms in
+    the same process. `editor/keystroke/10k_carets_100mb_1080p`, the whole
+    keystroke, its frames painted at 1080p and the 10,000 replaced leaves
+    freed: 24.2 ms median (p95 27.0) at a load of 19 to 23, 24.4 ms
+    (p95 47.8) at 45, and at a load of about 4, where the old code gave its
+    baseline's 115 ms, 18.0, 18.7 and 18.8 ms (p95 19.1 to 25.9) in three
+    runs and 18.7 ms (p95 19.5) pinned to one core: about 2 ms over a
+    16.7 ms frame. The 21 `editor/crafted` suites, M1.1's three
+    crafted 100 MB lines with seven keystrokes each, at a load of about
+    20: the slowest, a deletion before the last regional indicator, 1.85
+    ms median and 2.18 ms p95, so no keystroke there comes near a frame.
+    The Verify run of `cargo xtask bench editor`, at a load of about 4:
+    all 25 suites, the scroll suites as M4.1 measured them (2.03 ms a
+    notch with soft wrap off, 4.01 ms on, 5.56 ms for the 10,000-byte
+    line), the 10,000-caret keystroke 19.9 ms (p95 23.5), and the slowest
+    crafted keystroke the same deletion, 631 µs (p95 785 µs). No suite is
+    recorded in the baseline: the machine was never idle.
+  - Note (2026-11-23): the security review found no panic from input and
+    no way to break the rope's invariants, and showed the two skipped
+    checks (`change_each`'s cursor ends, `EditorView::show`'s selection)
+    redundant. Fixed from it, with tests: an edit during a mouse drag left
+    the drag's anchor past the text's end, so the next move returned an
+    error (a step now ends the drag and the double click's first press);
+    the windowed read's bound is per cursor, as the docs now say; and the
+    batch's internal `Edit` showed its text in `Debug` (now its length).
+    Left for M4.3: nothing caps the rope a copy hands its owner, which a
+    64 MiB paste at many cursors can make gigabytes long while sharing
+    its nodes; turning it into the clipboard's text needs a cap there.
+    The 136 Mermaid blocks of `diagrams/` parse and render with Mermaid
+    11.17.2, which rejected a planted broken one. `cargo xtask fuzz-smoke
+    --target keymap --secs 30`: 319,414 inputs, no findings.
+    `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` of `tidepool-editor`,
+    `tidepool-text`, `tidepool-bench` and `tidepool` is clean.
+  - Note (2026-11-23): the 10,000-caret keystroke on 100 MB measures
+    about 19 ms, over one frame. The user chose that day to record it as
+    the measured exception the acceptance allows, rather than optimize
+    first, which ADR-0066 does; so every criterion is met.
 
 - [ ] **M4.7 — workspace: folders, ignore rules, trust, settings**
   - Depends: M1.5, M1.8, M2.7

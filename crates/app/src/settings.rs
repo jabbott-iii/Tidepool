@@ -364,7 +364,8 @@ mod tests {
         let registry = tidepool_editor::shell::commands::registry();
         let none = keymap(&registry, &Settings::default());
         assert_eq!(none.problems(), [], "the default alone");
-        assert_eq!(none.bindings("insert").len(), 4);
+        // The shell's 4, and the editing commands' 41 (M4.2).
+        assert_eq!(none.bindings("insert").len(), 45);
 
         let (got, _) = settings(
             "[keymap.insert]\n\"ctrl+b\" = \"window.close\"\n\"alt+q\" = \"window.quit\"\n\"ctrl+j ctrl+j\" = \"panel.showOutput\"\n",

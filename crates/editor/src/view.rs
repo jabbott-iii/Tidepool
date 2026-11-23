@@ -441,6 +441,24 @@ impl EditorView {
         Ok(())
     }
 
+    /// Shows `text` with `selection`, as [`set_text`](Self::set_text) does,
+    /// for a selection already checked against `text`, as a `History`
+    /// step's is (M4.2), so that a step with many cursors is not checked
+    /// twice.
+    ///
+    /// # Errors
+    ///
+    /// As for [`text`](Self::text).
+    pub(crate) fn show(
+        &self,
+        tree: &mut Tree,
+        text: Rope,
+        selection: Selection,
+    ) -> Result<(), EditorError> {
+        self.area_mut(tree)?.set_text(text, selection);
+        Ok(())
+    }
+
     /// Sets the selection.
     ///
     /// # Errors

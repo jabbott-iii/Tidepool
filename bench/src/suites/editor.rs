@@ -91,6 +91,10 @@ use tidepool_ui::widgets::ScrollBar;
 
 use crate::{BenchError, Bencher, Suite};
 
+use keystroke::{Key, Line};
+
+mod keystroke;
+
 /// The editor suites, in the order a run takes them.
 pub const SUITES: &[Suite] = &[
     Suite {
@@ -104,6 +108,94 @@ pub const SUITES: &[Suite] = &[
     Suite {
         name: "editor/layout/long_line_10kb",
         run: long_line,
+    },
+    Suite {
+        name: "editor/keystroke/10k_carets_100mb_1080p",
+        run: |b| keystroke::ten_thousand_carets(b, keystroke::COPIES),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/right",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::Right, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/left",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::Left, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/word_right",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::WordRight, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/word_left",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::WordLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/delete_left",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::DeleteLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/down",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::Down, 1),
+    },
+    Suite {
+        name: "editor/crafted/one_cluster/type",
+        run: |b| keystroke::crafted_line(b, Line::OneCluster, Key::Type, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/right",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::Right, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/left",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::Left, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/word_right",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::WordRight, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/word_left",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::WordLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/delete_left",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::DeleteLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/down",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::Down, 1),
+    },
+    Suite {
+        name: "editor/crafted/combining_marks/type",
+        run: |b| keystroke::crafted_line(b, Line::CombiningMarks, Key::Type, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/right",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::Right, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/left",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::Left, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/word_right",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::WordRight, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/word_left",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::WordLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/delete_left",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::DeleteLeft, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/down",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::Down, 1),
+    },
+    Suite {
+        name: "editor/crafted/regional_indicators/type",
+        run: |b| keystroke::crafted_line(b, Line::RegionalIndicators, Key::Type, 1),
     },
 ];
 
@@ -804,12 +896,54 @@ mod tests {
         max_samples: 2,
     };
 
+    /// Whether `name` is a suite of 100 MB, which the tests run on smaller
+    /// texts.
+    fn is_big(name: &str) -> bool {
+        name.starts_with("editor/keystroke/") || name.starts_with("editor/crafted/")
+    }
+
     #[test]
     fn each_suite_checks_what_it_measures_and_measures_one_routine() {
-        for suite in SUITES {
+        for suite in SUITES.iter().filter(|suite| !is_big(suite.name)) {
             let summary = run_suite(suite, &QUICK).expect("the suite runs");
             assert_eq!(summary.samples, 2, "{}", suite.name);
         }
+    }
+
+    /// The keystroke suites' routines, on smaller texts: the tests never
+    /// build 100 MB. One copy of the file for the carets, and crafted lines
+    /// a thousandth as long, still ten times the window a motion reads.
+    #[test]
+    fn the_keystroke_routines_check_what_they_measure_on_small_texts() {
+        let suite = Suite {
+            name: "editor/keystroke/test",
+            run: |b| keystroke::ten_thousand_carets(b, 1),
+        };
+        let summary = run_suite(&suite, &QUICK).expect("the suite runs");
+        assert_eq!(summary.samples, 2);
+        let lines = [
+            Line::OneCluster,
+            Line::CombiningMarks,
+            Line::RegionalIndicators,
+        ];
+        let keys = [
+            Key::Right,
+            Key::Left,
+            Key::WordRight,
+            Key::WordLeft,
+            Key::DeleteLeft,
+            Key::Down,
+            Key::Type,
+        ];
+        for line in lines {
+            for key in keys {
+                let mut bencher = crate::Bencher::new(QUICK);
+                keystroke::crafted_line(&mut bencher, line, key, 1_000)
+                    .unwrap_or_else(|e| panic!("{line:?} {key:?}: {e}"));
+            }
+        }
+        let big = SUITES.iter().filter(|suite| is_big(suite.name)).count();
+        assert_eq!(big, 1 + lines.len() * keys.len(), "a suite for each");
     }
 
     #[test]

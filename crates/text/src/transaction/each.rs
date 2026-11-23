@@ -19,9 +19,65 @@
 
 use std::ops::Range;
 
-use super::{Assoc, Builder, Place, Transaction, check_ranges, length_after};
+use super::{Assoc, Builder, Place, Transaction, length_after};
 use crate::selection::{Cursor, Selection};
 use crate::{Rope, TextError};
+
+/// Checks the ranges the cursors asked for, as `check_ranges` checks them,
+/// in cursor order, with the same first error; but an end that is one of
+/// its own cursor's ends, which `Selection::validate` has just checked on
+/// the same text, is not looked up again. Typing replaces each cursor's
+/// own range, so with many cursors this saves a pass over the text
+/// (ADR-0065).
+fn check_asked(
+    text: &Rope,
+    cursors: &[Cursor],
+    asked: &[Option<(Range<usize>, Rope, Place)>],
+) -> Result<(), TextError> {
+    let len = text.len();
+    let mut first_bad = None;
+    for (index, request) in asked.iter().enumerate() {
+        let Some((range, _, _)) = request else {
+            continue;
+        };
+        if range.start > range.end {
+            first_bad = Some((
+                index,
+                TextError::InvertedRange {
+                    start: range.start,
+                    end: range.end,
+                },
+            ));
+            break;
+        }
+        if range.end > len {
+            first_bad = Some((
+                index,
+                TextError::ByteOutOfBounds {
+                    byte: range.end,
+                    len,
+                },
+            ));
+            break;
+        }
+    }
+    let checked = first_bad.as_ref().map_or(usize::MAX, |(index, _)| *index);
+    let unchecked = cursors
+        .iter()
+        .zip(asked)
+        .take(checked)
+        .filter_map(|(cursor, request)| request.as_ref().map(|(range, _, _)| (*cursor, range)))
+        .flat_map(|(cursor, range)| {
+            [range.start, range.end]
+                .into_iter()
+                .filter(move |&end| end != cursor.start() && end != cursor.end())
+        });
+    text.check_bytes(unchecked)?;
+    match first_bad {
+        Some((_, error)) => Err(error),
+        None => Ok(()),
+    }
+}
 
 /// An edit kept after merging the cursors' edits.
 struct Kept {
@@ -53,13 +109,7 @@ pub(super) fn change_each<T: Into<Rope>>(
         .collect();
     // Every range is checked, an edit that does nothing included, as
     // `ChangeSet::new` checks one before dropping it.
-    check_ranges(
-        text,
-        asked
-            .iter()
-            .flatten()
-            .map(|(range, _, _)| (range.start, range.end)),
-    )?;
+    check_asked(text, cursors, &asked)?;
 
     // The edits that do something, with the cursor that made each, sorted
     // stably by (start, end). An edit that does nothing counts as `None`

@@ -122,7 +122,7 @@ fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 #[test]
-fn the_default_keymap_binds_the_shell_s_four_keys_to_its_commands_with_no_problems() {
+fn the_default_keymap_binds_the_shell_s_keys_and_the_editing_commands_with_no_problems() {
     let registry = commands::registry();
     let keymap = Keymap::bundled(&registry, None);
     assert_eq!(keymap.problems(), [], "the default keymap has no problems");
@@ -137,24 +137,77 @@ fn the_default_keymap_binds_the_shell_s_four_keys_to_its_commands_with_no_proble
         );
         assert_eq!(binding.layer(), Layer::Default);
     }
-    assert_eq!(
-        bindings(&keymap, "insert"),
-        // Sorted by their keys: modifiers first, so F1 alone leads.
-        pairs(&[
-            ("F1", "palette.open"),
-            ("Ctrl+B", "view.toggleSidePanel"),
-            ("Ctrl+J", "view.toggleBottomPanel"),
-            ("Ctrl+Shift+P", "palette.open"),
-        ])
-    );
+    // The shell's four (M4.6), and Visual Studio Code's Linux keys for the
+    // editing commands (M4.2, ADR-0065), in any order.
+    let mut expected = pairs(&[
+        ("F1", "palette.open"),
+        ("Ctrl+B", "view.toggleSidePanel"),
+        ("Ctrl+J", "view.toggleBottomPanel"),
+        ("Ctrl+Shift+P", "palette.open"),
+        ("Left", "editor.cursorLeft"),
+        ("Shift+Left", "editor.cursorLeftSelect"),
+        ("Right", "editor.cursorRight"),
+        ("Shift+Right", "editor.cursorRightSelect"),
+        ("Ctrl+Left", "editor.cursorWordLeft"),
+        ("Ctrl+Shift+Left", "editor.cursorWordLeftSelect"),
+        ("Ctrl+Right", "editor.cursorWordRight"),
+        ("Ctrl+Shift+Right", "editor.cursorWordRightSelect"),
+        ("Up", "editor.cursorUp"),
+        ("Shift+Up", "editor.cursorUpSelect"),
+        ("Down", "editor.cursorDown"),
+        ("Shift+Down", "editor.cursorDownSelect"),
+        ("Home", "editor.cursorHome"),
+        ("Shift+Home", "editor.cursorHomeSelect"),
+        ("End", "editor.cursorEnd"),
+        ("Shift+End", "editor.cursorEndSelect"),
+        ("Ctrl+Home", "editor.cursorTop"),
+        ("Ctrl+Shift+Home", "editor.cursorTopSelect"),
+        ("Ctrl+End", "editor.cursorBottom"),
+        ("Ctrl+Shift+End", "editor.cursorBottomSelect"),
+        ("PageUp", "editor.cursorPageUp"),
+        ("Shift+PageUp", "editor.cursorPageUpSelect"),
+        ("PageDown", "editor.cursorPageDown"),
+        ("Shift+PageDown", "editor.cursorPageDownSelect"),
+        ("Backspace", "editor.deleteLeft"),
+        ("Delete", "editor.deleteRight"),
+        ("Ctrl+Backspace", "editor.deleteWordLeft"),
+        ("Ctrl+Delete", "editor.deleteWordRight"),
+        ("Enter", "editor.newLine"),
+        ("Tab", "editor.indent"),
+        ("Shift+Tab", "editor.outdent"),
+        ("Ctrl+Z", "editor.undo"),
+        ("Ctrl+Shift+Z", "editor.redo"),
+        ("Ctrl+Y", "editor.redo"),
+        ("Ctrl+C", "editor.copy"),
+        ("Ctrl+X", "editor.cut"),
+        ("Ctrl+V", "editor.paste"),
+        ("Ctrl+A", "editor.selectAll"),
+        ("Shift+Alt+Up", "editor.addCursorAbove"),
+        ("Shift+Alt+Down", "editor.addCursorBelow"),
+        ("Escape", "editor.cancel"),
+    ]);
+    let mut bound = bindings(&keymap, "insert");
+    expected.sort();
+    bound.sort();
+    assert_eq!(bound, expected);
+    for command in tidepool_editor::edit::Command::ALL {
+        assert!(
+            keymap
+                .bindings("insert")
+                .iter()
+                .any(|binding| binding.command() == command.id()),
+            "{} is bound",
+            command.id()
+        );
+    }
     // The same text, read again, against the same registry.
     let again = Keymap::read(DEFAULT_TOML, None, &registry, Limits::DEFAULT).expect("reads");
     assert_eq!(again, keymap);
-    // Against a registry without the shell's commands, each binding is an
-    // unknown command, left out.
+    // Against a registry without the commands, each binding is an unknown
+    // command, left out.
     let bare = Keymap::bundled(&Registry::new(), None);
     assert_eq!(bare.bindings("insert"), []);
-    assert_eq!(bare.problems().len(), 4);
+    assert_eq!(bare.problems().len(), 45);
     assert!(
         bare.problems()
             .iter()
@@ -1106,7 +1159,7 @@ fn a_user_table_of_100000_entries_that_are_not_modes_gives_problems_within_the_b
     }
     let keymap = Keymap::bundled(&commands::registry(), Some(&user(&text)));
     assert_eq!(keymap.problems().len(), modes);
-    assert_eq!(keymap.bindings("insert").len(), 4, "the default is kept");
+    assert_eq!(keymap.bindings("insert").len(), 45, "the default is kept");
 }
 
 #[test]

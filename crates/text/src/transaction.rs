@@ -54,6 +54,8 @@ mod compose;
 mod each;
 
 #[cfg(test)]
+pub(crate) use apply::batching;
+#[cfg(test)]
 pub(crate) use apply::paths;
 #[cfg(test)]
 pub(crate) mod tests;

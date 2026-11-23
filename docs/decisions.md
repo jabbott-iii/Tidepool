@@ -4607,3 +4607,264 @@ decides; the roadmap task that first depends on one asks for the decision.
   a table shared by every mode; M7.4's mappings need timeouts; M15.6's
   plugins add a layer of bindings; a task builds the keymap viewer; or a
   user of a non-US layout reports that a binding names the wrong key.
+
+## ADR-0065 — M4.2's editing commands live in `editor::edit`; Up and Down move by line with a goal column; long lines are read in a 10,000-byte window; `text`'s in-leaf edit is counted incrementally; the editor asks its owner for the clipboard; the default keymap follows VS Code's Linux defaults, Tab as 4 spaces
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.2 builds motions by grapheme cluster (what a reader sees as one
+    character), word and line; the editing commands; multi-cursor
+    editing through `Transaction::change_each`; undo and redo through
+    `History`, one command one step and typing coalesced (ADR-0020); and
+    the clipboard through the frontend. It is accepted on command tests,
+    on no keystroke holding the main thread longer than one 16 ms frame
+    on M1.1's crafted 100 MB line, and on a 10,000-caret keystroke on
+    100 MB fitting in one frame, or an ADR recording the measured
+    exception.
+  - M1.1's risk: a grapheme query reads up to the end of the cluster it
+    is in, and steps back over a run of combining marks or regional
+    indicators, so on a crafted 100 MB line one query takes 0.5 to 1 s
+    (`tidepool-bench`'s `text/grapheme/…` suites: 0.96 s inside one
+    cluster, 1.03 s after the marks, 0.52 s between indicators). The
+    step back never crosses a line break, so on a line of n bytes a
+    query reads at most about n bytes.
+  - M1.2's risk: `text/history/keystroke_10k_carets/100mb` takes 115 ms.
+    Each of its 10,000 edits falls in a leaf of its own (4 KiB at most),
+    and `rope::tree::edit_path` counts the leaf's bytes twice, before and
+    after, to update its summary (bytes, chars, UTF-16 units and line
+    breaks): about 11 µs an edit, a single insert's cost in
+    `text/rope/insert/400kb` (9.3 µs) as much as in 100 MB.
+  - The editor view (M4.1, ADR-0063) shows a rope and a selection, maps
+    points to byte offsets and back for the rows on screen, cuts a line
+    past 10,000 bytes (`view::MAX_LINE_BYTES`), and handles only the
+    wheel. The binary shows no view until M4.3 opens a file. `gui` does
+    not expose the window's clipboard (`platform::clipboard`, ADR-0042),
+    where a paste is asked for and answered later by `Event::Pasted`.
+  - The keymap engine (M4.6, ADR-0064) resolves keys going down to
+    command ids, and reads the default keymap against the shell's
+    registry, reporting any binding of an unknown command; typed text
+    comes as `InputEvent::Text`.
+  - On 2026-11-23 the user chose the recommended option of each of four
+    questions: the editor asks for the clipboard and its owner carries
+    it out, `gui` and the binary joining in M4.3; Up and Down move by
+    line with a goal column, also with soft wrap on; long lines are
+    read in a bounded window and `text`'s in-leaf edit becomes
+    incremental; and VS Code's Linux defaults as the default keymap,
+    with Tab as 4 spaces.
+- **Decision:**
+  - **Where:** `editor::edit` holds an `Editor`: an `EditorView` with
+    the buffer's rope, its `History` and what the commands keep between
+    keys (goal columns, a drag, the last whole-line copy). It runs the
+    editing commands by id and answers the events its view's text area
+    gets. M4.3 decides whether the rope and history move into
+    `workspace::buffers` and puts editors in the shell; until then the
+    binary shows none.
+  - **Commands:** 40 commands with `editor.` ids, registered by the
+    shell after its own 14, so the default keymap can bind them and the
+    palette lists 54. Until M4.3 puts an editor in the shell, running
+    one there does nothing.
+    - Motions, each with a `…Select` twin that moves the head and keeps
+      the anchor: `cursorLeft` and `cursorRight` (a cluster),
+      `cursorWordLeft` and `cursorWordRight`, `cursorUp` and
+      `cursorDown`, `cursorHome` and `cursorEnd`, `cursorTop` and
+      `cursorBottom`, `cursorPageUp` and `cursorPageDown`.
+    - Edits: `deleteLeft` and `deleteRight` (a cluster, or the
+      selection), `deleteWordLeft` and `deleteWordRight`, `newLine`,
+      `indent` and `outdent`.
+    - `undo` and `redo`; `copy`, `cut` and `paste`; `selectAll`,
+      `addCursorAbove`, `addCursorBelow`, and `cancel`.
+  - **Motions:**
+    - Left and Right with a selection collapse it to its start or end;
+      every other motion moves each head, and the cursors merge as
+      `Selection` merges them.
+    - A word is a run of word characters, or a run of the separators
+      ``` `~!@#$%^&*()-=+[{]}\|;:'",.<>/? ``` (VS Code's default
+      `editor.wordSeparators`), judged by each cluster's first char;
+      white space separates words. Ctrl+Right skips white space, then
+      one run, and stops at the line's end; at the end it moves past
+      the line break. Ctrl+Left is its mirror.
+    - Up and Down move each cursor one line, to its goal column: the
+      column it had when the vertical moves began, counting a tab to the
+      next stop of 4 and every other cluster as one. Up on the first
+      line goes to its start, and Down on the last to its end. With soft
+      wrap on they still move by line.
+    - Home goes to the line's first character that is not white space,
+      or to its start when the cursor is there already. End goes to the
+      line's end, before its break.
+    - Page Up and Page Down move as many lines as rows fit in the view.
+      Every command that moves the primary cursor scrolls it into view.
+  - **The bound on a long line:** on a line of at most `MAX_LINE_BYTES`
+    (10,000) bytes, a motion or deletion reads the rope's own grapheme
+    boundaries, which stay within the line. On a longer one it reads a
+    window: from the line's start, if that is at most 10,000 bytes
+    back, or else 10,000 bytes back, to 10,000 bytes ahead or the line's
+    end, copied out and read as a text of its own. So no keystroke reads
+    more than about 20 KB for each cursor. Inside a cluster, a word or a run of marks or
+    indicators longer than the window, the motion stops at the window's
+    edge, on a char boundary, which may be inside a cluster; the view
+    shows such a position at the cluster's start (ADR-0063). The goal
+    column counts at most the line's first 10,000 bytes, as the view
+    shows them, and a position past them counts as the cut's column.
+  - **Editing:**
+    - Typed text replaces each cursor's selection and leaves a caret
+      after it.
+    - Backspace and Delete delete each selection, or the cluster before
+      or after a caret; at a line's end Delete deletes its whole break.
+      The word deletions delete to where the word motions go.
+    - Enter inserts the editor's line break (the text's first, LF if it
+      has none, which M4.3 can set from the file) and the line's
+      indentation, up to the cursor.
+    - Tab inserts spaces to the next stop of 4 at each caret, and indents
+      every line a selection spans by 4 spaces when it spans more than
+      one. Shift+Tab removes up to 4 spaces, or one tab, from the start
+      of each line a cursor is on.
+  - **Undo steps:**
+    - Every command commits one revision (`Group::New`).
+    - Typing coalesces (`Group::Coalesce`) when it comes within
+      `TYPING_WINDOW`, 1 s, of the last keystroke, with the cursors
+      where it left them. Text that starts with white space after a
+      character that is not starts a new step, so undo takes back a word
+      at a time. Repeated `deleteLeft`, and repeated `deleteRight`,
+      coalesce the same way, each its own kind.
+    - Undo and redo restore the selection their step names, and scroll
+      the primary cursor into view.
+  - **The clipboard:**
+    - `copy` and `cut` return a request to put a rope on the clipboard,
+      which the owner carries out, and `paste` one to ask for the
+      clipboard's text; the owner gives the answer to `Editor::paste`.
+      M4.3 makes `gui` expose the window's clipboard and has the binary
+      route `Event::Pasted`.
+    - With every cursor a caret, copy and cut take each caret's whole
+      line, its break included. A paste of the text the editor last
+      copied that way inserts it above each caret's line, as VS Code's
+      default does.
+    - Several cursors copy their selections joined by the line break.
+      A paste whose lines, a final break making no extra line, are as
+      many as the cursors gives each cursor one line ("spread", VS
+      Code's `editor.multiCursorPaste` default); any other paste goes
+      whole to every cursor, one rope shared.
+  - **Multi-cursor:** `addCursorAbove` and `addCursorBelow`
+    (Shift+Alt+Up and Down) add a caret a line above the topmost cursor
+    or below the bottommost, at its goal column, and make it primary.
+    Alt+click adds a caret. Escape (`cancel`) leaves only the primary
+    cursor, or, with one cursor, collapses its selection to its head.
+  - **The mouse:** a primary press on the text area places a caret at
+    the nearest boundary (`EditorView::point_to_byte`); Shift extends
+    the selection to it, and Alt adds a cursor there; a drag extends the
+    selection; a second press within 500 ms at the same place selects
+    the word under it.
+  - **The default keymap** (`keymaps/default.toml`, mode `insert`):
+    Left, Right, Up and Down; Ctrl+Left and Ctrl+Right; Home and End;
+    Ctrl+Home and Ctrl+End; Page Up and Page Down; each also with Shift
+    to select. Backspace, Delete, Ctrl+Backspace and Ctrl+Delete; Enter;
+    Tab and Shift+Tab. Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y; Ctrl+C, Ctrl+X
+    and Ctrl+V; Ctrl+A; Shift+Alt+Up and Shift+Alt+Down; Escape.
+  - **`text`'s in-leaf edit:** `edit_path` takes the leaf's old summary
+    from its parent and counts only the bytes the edit removes and
+    inserts, with one byte kept either side, so that a CR LF made or
+    split at the edit's ends counts right. An edit then costs the leaf's
+    copy, when a snapshot still shares it, and not two passes over it.
+    No API changes.
+- **Consequences:**
+  - The task touches `editor`, `text` (the in-leaf edit and the batched
+    apply), and `tidepool-bench` (the keystroke suites), with
+    `keymaps/default.toml`, and in `tidepool` only a test that counts
+    the default keymap's bindings, 45 now.
+  - The registry holds 54 commands, but the palette lists the commands
+    the shell runs, so it still lists 14, and the shell's golden scenes
+    are unchanged, until M4.3 has the shell run the editing commands.
+  - In a pathological cluster or word longer than 10,000 bytes, a motion
+    lands inside it, and repeated presses walk through it 10,000 bytes
+    at a time. A line under 10,000 bytes, and the first 10,000 bytes of
+    a longer one, move exactly by its clusters.
+  - Up and Down move by line in wrapped text, which VS Code moves by
+    row. Moving by row is not part of any task yet.
+  - Copying a large selection hands over a rope in O(log n). The
+    frontend turns it into the clipboard's text, which costs O(n) on the
+    thread that does it (M4.3).
+  - A paste of up to `platform::clipboard::MAX_PASTE_BYTES` (64 MiB)
+    builds its rope on the main thread, in O(n).
+  - Every `Rope` edit that stays in one leaf gets cheaper, and so does
+    everything that commits through `History`.
+- **Alternatives considered:**
+  - `gui`'s clipboard and the binary's wiring in M4.2: five crates, and
+    wiring with no editor to serve until M4.3.
+  - Up and Down by row with soft wrap on, as VS Code does: it lays out
+    each cursor's line with the view's metrics, up to 5.5 ms for a
+    10,000-byte line per cursor, and ties motion to the view.
+  - Motions on a worker thread, applied by buffer version: exact on any
+    line, but cursors lag behind keys, and the machinery is large.
+  - Bounded grapheme queries in `text`'s engine: no copy of the window,
+    but a new public API in layer 1 and a harder engine, when copying at
+    most 20 KB, only on long lines, is cheap.
+  - Recording the 10,000-caret exception without changing `text`: the
+    115 ms is the leaf counting, which can go.
+  - Tab inserting a tab character: Rust's and Markdown's conventions are
+    spaces; the setting comes with M4.7.
+  - Typing coalesced by time alone: one undo step can then take back a
+    paragraph.
+- **Revisit when:** M4.3 puts editors in the shell, or moves the rope
+  and history into `workspace::buffers`; M4.7 adds settings for tabs,
+  word separators or the clipboard; vim mode (M7.2) needs motions by
+  typed character; a user asks for Up and Down by row in wrapped text;
+  or `cargo xtask bench editor` shows a keystroke over 16 ms.
+
+## ADR-0066 — M4.2's keystroke at 10,000 carets of a 100 MB file takes about 19 ms, over one 16.7 ms frame, and is accepted as the measured exception
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.2 is accepted on "a 10,000-caret keystroke on 100 MB fits in one
+    frame, or an ADR records the measured exception". The budget in
+    `docs/00-overview.md` is a keystroke to pixels within 16 ms at p99 at
+    1920 × 1080, and a 60 fps frame is 16.7 ms.
+  - Before M4.2, M1.2's measurement of the commit alone was about 115 ms
+    (`text/history/keystroke_10k_carets/100mb`, baseline 115 ms; 114 ms
+    measured on 2026-11-23 at a load average of 4).
+  - M4.2 made each in-leaf edit count only the bytes it changes, applied
+    a change set of in-leaf edits in one walk of the tree, and stopped
+    `change_each` from checking a cursor's own ends twice (ADR-0065). The
+    commit alone then measured 13.4 ms (p95 14.2) at a load of 45.
+  - `editor/keystroke/10k_carets_100mb_1080p` measures the whole
+    keystroke: an `x` typed at 10,000 carets of a 100,248,344-byte file,
+    the commit, the view's relayout of the lines on screen, its frame
+    painted at 1920 × 1080, and the 10,000 replaced leaves freed. At a
+    load average of about 4 on the reference machine, where the old code
+    reproduced its baseline: 18.0, 18.7, 18.8 and 19.9 ms medians in four
+    runs (p95 19.1 to 25.9 ms), and 18.7 ms (p95 19.5) pinned to one core.
+  - What is left is mostly memory traffic, as each pass touches 10,000
+    places in 100 MB: copying the 10,000 leaves the edits touch (about
+    3 KB each), which the text before still holds for the step's
+    `before`; four checks of 10,000 positions, each about 1.5 ms of cache
+    misses; freeing the old leaves (about 2.5 ms); and the view's relayout
+    and repaint of the text area.
+  - On 2026-11-23 the user chose to record the exception and tick M4.2,
+    rather than optimize first.
+- **Decision:** a keystroke at 10,000 carets of a 100 MB file is an
+  accepted exception to the keystroke budget: about 19 ms on the
+  reference machine, about 2 ms over one frame. Keystrokes at fewer
+  carets, on smaller files, and on M1.1's crafted 100 MB lines stay within
+  the budget (the slowest crafted keystroke measured 631 µs, p95 785 µs).
+- **Consequences:**
+  - M4.2 is ticked with this exception; `docs/00-overview.md` names it
+    beside the budget.
+  - Each keystroke at 10,000 carets of a 100 MB file can miss the 60 fps
+    frame it falls in, showing its edit a frame late.
+  - The suite stays in `tidepool-bench`, so a change that makes it slower
+    shows, and its baseline is recorded once the machine is idle.
+- **Alternatives considered:**
+  - The view keeping the layouts of the lines an edit did not touch,
+    instead of laying out every line on screen after each step: about 1 to
+    2 ms, but a change to M4.1's layout cache and its goldens.
+  - Freeing the old text on another thread: about 2.5 ms, at the cost of a
+    thread for large steps.
+  - Fewer checks of the positions: the remaining checks guard input from
+    callers and the history, and are not provably redundant.
+  - Smaller leaves, so that each copy is smaller: changes the rope's shape
+    and every cost measured on it.
+- **Revisit when:** `editor/keystroke/10k_carets_100mb_1080p` measures more
+  than 25 ms on the reference machine, or under 16.7 ms after a change to
+  the view or the rope; M6.2 or M6.7 hold rope snapshots on workers, which
+  moves the freeing off the main thread; or a user reports dropped frames
+  with many cursors on a large file.

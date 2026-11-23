@@ -352,40 +352,272 @@ pub(crate) fn fast_edit(
             return false;
         }
     }
-    let (old, new) = edit_path(root, end, from, to, text);
-    *summary = *summary + new - old;
+    *summary = edit_path(root, *summary, end, from, to, text);
     true
 }
 
 /// Descends by `end` as `locate` did, making each node on the path unique,
-/// edits the leaf, and fixes the summaries on the way back up. Returns the
-/// leaf's old and new summaries.
+/// edits the leaf, and fixes the summaries on the way back up. `summary`
+/// is the node's summary before the edit; returns its summary after.
+///
+/// The leaf's summary is updated, not recounted: from the summary its
+/// parent holds, less the bytes the edit removes and plus those it inserts,
+/// each counted with the one byte kept either side, so that a CR LF made
+/// or split at the edit's ends counts right (`Summary::of_parts`). So an
+/// edit costs its own bytes, and the leaf's copy when a snapshot still
+/// shares it, rather than two passes over the leaf (ADR-0065). A shared
+/// leaf is copied once, edited as it is copied, into room for a full leaf,
+/// rather than cloned, grown and shifted.
 fn edit_path(
     node: &mut Arc<Node>,
+    summary: Summary,
     end: usize,
     from: usize,
     to: usize,
     text: &str,
-) -> (Summary, Summary) {
-    match Arc::make_mut(node) {
-        Node::Leaf(leaf) => {
-            let old = Summary::of(leaf);
-            let new_len = leaf.len() - (to - from) + text.len();
-            if leaf.capacity() < new_len {
-                leaf.reserve_exact(MAX_LEAF.max(new_len) - leaf.len());
-            }
-            leaf.replace_range(from..to, text);
-            (old, Summary::of(leaf))
+) -> Summary {
+    if let Some(Node::Leaf(leaf)) = Arc::get_mut(node) {
+        let after = edited_summary(leaf, summary, from, to, text);
+        let new_len = leaf.len() - (to - from) + text.len();
+        if leaf.capacity() < new_len {
+            leaf.reserve_exact(MAX_LEAF.max(new_len) - leaf.len());
         }
+        leaf.replace_range(from..to, text);
+        return after;
+    }
+    if let Node::Leaf(leaf) = &**node {
+        let after = edited_summary(leaf, summary, from, to, text);
+        let new_len = leaf.len() - (to - from) + text.len();
+        let mut copy = String::with_capacity(MAX_LEAF.max(new_len));
+        copy.push_str(leaf.get(..from).unwrap_or_default());
+        copy.push_str(text);
+        copy.push_str(leaf.get(to..).unwrap_or_default());
+        *node = Arc::new(Node::Leaf(copy));
+        return after;
+    }
+    match Arc::make_mut(node) {
+        // Edited above, shared or not.
+        Node::Leaf(_) => summary,
         Node::Internal { children, .. } => {
             let mut start = 0;
             let index = child_at(children, end, &mut start);
             let Some(child) = children.get_mut(index) else {
-                return (Summary::default(), Summary::default());
+                return summary;
             };
-            let (old, new) = edit_path(&mut child.node, end - start, from, to, text);
-            child.summary = child.summary + new - old;
-            (old, new)
+            let old = child.summary;
+            let new = edit_path(&mut child.node, old, end - start, from, to, text);
+            child.summary = new;
+            summary + new - old
         }
     }
+}
+
+/// One edit of a batch ([`batch_edit`]): the bytes `start..end` of the
+/// whole text replaced with `text`. `Debug` shows the text's length, never
+/// the text, as a [`Rope`](super::Rope)'s does.
+#[derive(Clone, Copy)]
+pub(crate) struct Edit<'a> {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) text: &'a str,
+}
+
+impl std::fmt::Debug for Edit<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Edit")
+            .field("start", &self.start)
+            .field("end", &self.end)
+            .field("text_len", &self.text.len())
+            .finish()
+    }
+}
+
+/// Applies `edits`, sorted, with at least one byte kept between each and
+/// the next, and validated, in one walk of the tree, if each stays inside
+/// one leaf and keeps every invariant, as [`fast_edit`] would edit it
+/// alone. Returns whether it did; if not, nothing changed.
+///
+/// An edit belongs to the leaf that holds its end, as [`locate`] finds it,
+/// so one at a seam is the leaf's before it. The walk goes down only into
+/// the subtrees that hold edits, copying each node on the way that a
+/// snapshot still shares, and rebuilds each leaf it edits once, with all
+/// of its edits, its summary updated edit by edit (ADR-0065). So many
+/// scattered edits cost one copy of each leaf they touch, rather than a
+/// descent from the root for each.
+pub(crate) fn batch_edit(root: &mut Arc<Node>, summary: &mut Summary, edits: &[Edit<'_>]) -> bool {
+    let apart = edits.windows(2).all(|pair| match pair {
+        [a, b] => a.end < b.start,
+        _ => true,
+    });
+    let is_root = matches!(**root, Node::Leaf(_));
+    if !apart || !batch_fits(root, 0, edits, (false, false), is_root) {
+        return false;
+    }
+    *summary = batch_path(root, *summary, 0, edits);
+    true
+}
+
+/// The edits of `edits` each child of `children`, which starts at `start`,
+/// holds, as [`batch_edit`] assigns them: with the child, its start and
+/// its index. An edit that starts before the child holding its end is
+/// given to it anyway, for [`batch_fits`] to refuse.
+fn split_edits<'e, 'a>(
+    children: &[Child],
+    start: usize,
+    edits: &'e [Edit<'a>],
+) -> Vec<(usize, usize, &'e [Edit<'a>])> {
+    let mut parts = Vec::new();
+    let mut rest = edits;
+    let mut child_start = start;
+    let last = children.len().saturating_sub(1);
+    for (index, child) in children.iter().enumerate() {
+        if rest.is_empty() {
+            break;
+        }
+        let child_end = child_start + child.summary.bytes;
+        let held = if index == last {
+            rest.len()
+        } else {
+            rest.partition_point(|edit| edit.end <= child_end)
+        };
+        let (mine, after) = rest.split_at(held);
+        if !mine.is_empty() {
+            parts.push((index, child_start, mine));
+        }
+        rest = after;
+        child_start = child_end;
+    }
+    parts
+}
+
+/// Whether `edits`, which end in `node` (starting at `start`), each stay
+/// inside one of its leaves and keep every invariant there. `around` says
+/// whether a leaf comes before and after the node.
+fn batch_fits(
+    node: &Node,
+    start: usize,
+    edits: &[Edit<'_>],
+    around: (bool, bool),
+    is_root: bool,
+) -> bool {
+    match node {
+        Node::Leaf(leaf) => leaf_fits(leaf, start, edits, around, is_root),
+        Node::Internal { children, .. } => {
+            let last = children.len().saturating_sub(1);
+            split_edits(children, start, edits)
+                .into_iter()
+                .all(|(index, child_start, mine)| {
+                    let around = (around.0 || index > 0, around.1 || index < last);
+                    children.get(index).is_some_and(|child| {
+                        mine.first().is_some_and(|edit| edit.start >= child_start)
+                            && batch_fits(&child.node, child_start, mine, around, false)
+                    })
+                })
+        }
+    }
+}
+
+/// Whether `edits` keep `leaf`, which starts at `start`, within the leaf
+/// sizes, and split no CR LF with the leaves `around` it, as
+/// [`fast_edit`] checks one edit.
+fn leaf_fits(
+    leaf: &str,
+    start: usize,
+    edits: &[Edit<'_>],
+    around: (bool, bool),
+    is_root: bool,
+) -> bool {
+    let bytes = leaf.as_bytes();
+    let mut new_len = leaf.len();
+    for edit in edits {
+        let (from, to) = (edit.start - start, edit.end - start);
+        if to > leaf.len() {
+            return false;
+        }
+        new_len = new_len - (to - from) + edit.text.len();
+    }
+    let fits = (MIN_LEAF..=MAX_LEAF).contains(&new_len) || (is_root && new_len <= MAX_LEAF);
+    if !fits {
+        return false;
+    }
+    if let Some(first) = edits.first()
+        && first.start == start
+        && around.0
+    {
+        let byte = first
+            .text
+            .as_bytes()
+            .first()
+            .or_else(|| bytes.get(first.end - start));
+        if byte == Some(&b'\n') {
+            return false;
+        }
+    }
+    if let Some(last) = edits.last()
+        && last.end - start == leaf.len()
+        && around.1
+    {
+        let from = last.start - start;
+        let byte = last
+            .text
+            .as_bytes()
+            .last()
+            .or_else(|| bytes.get(..from).and_then(<[u8]>::last));
+        if byte == Some(&b'\r') {
+            return false;
+        }
+    }
+    true
+}
+
+/// Applies `edits`, which [`batch_fits`] passed, to `node`, starting at
+/// `start`, whose summary is `summary`; returns its summary after.
+fn batch_path(node: &mut Arc<Node>, summary: Summary, start: usize, edits: &[Edit<'_>]) -> Summary {
+    if let Node::Leaf(leaf) = &**node {
+        let mut after = summary;
+        let mut new_len = leaf.len();
+        for edit in edits {
+            let (from, to) = (edit.start - start, edit.end - start);
+            // Each edit's window holds only bytes no other edit changes, as
+            // a byte is kept between edits.
+            after = edited_summary(leaf, after, from, to, edit.text);
+            new_len = new_len - (to - from) + edit.text.len();
+        }
+        let mut copy = String::with_capacity(MAX_LEAF.max(new_len));
+        let mut kept = 0;
+        for edit in edits {
+            let (from, to) = (edit.start - start, edit.end - start);
+            copy.push_str(leaf.get(kept..from).unwrap_or_default());
+            copy.push_str(edit.text);
+            kept = to;
+        }
+        copy.push_str(leaf.get(kept..).unwrap_or_default());
+        *node = Arc::new(Node::Leaf(copy));
+        return after;
+    }
+    let Node::Internal { children, .. } = Arc::make_mut(node) else {
+        return summary;
+    };
+    let mut after = summary;
+    for (index, child_start, mine) in split_edits(children, start, edits) {
+        if let Some(child) = children.get_mut(index) {
+            let old = child.summary;
+            let new = batch_path(&mut child.node, old, child_start, mine);
+            child.summary = new;
+            after = after + new - old;
+        }
+    }
+    after
+}
+
+/// The summary of `leaf`, whose summary is `summary`, once bytes
+/// `from..to` are replaced with `text` (see [`edit_path`]).
+fn edited_summary(leaf: &str, summary: Summary, from: usize, to: usize, text: &str) -> Summary {
+    let bytes = leaf.as_bytes();
+    let (first, last) = (from.saturating_sub(1), (to + 1).min(bytes.len()));
+    let part = |range: std::ops::Range<usize>| bytes.get(range).unwrap_or_default();
+    let removed = Summary::of_parts(&[part(first..last)]);
+    let added = Summary::of_parts(&[part(first..from), text.as_bytes(), part(to..last)]);
+    // Added first: each count of `removed` is part of the leaf's.
+    summary + added - removed
 }

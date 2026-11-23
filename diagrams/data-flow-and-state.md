@@ -96,7 +96,9 @@ flowchart TB
 
 The workspace wraps section 1: buffers keyed by canonical path, loaded and
 saved on workers, watched for outside changes, and remembered in the
-session. None of it is built; the text engine it calls is.
+session. None of it is built; the text engine it calls is, and so are the
+editing commands, which commit to a rope's `History` themselves until
+M4.3's buffers hold it (M4.2, ADR-0065).
 
 ```mermaid
 flowchart TB
@@ -104,7 +106,7 @@ flowchart TB
     fsEvents["OS file events<br/>inotify on Linux"]
     disk[("Files on disk")]
     text(["tidepool-text<br/>file::load, History,<br/>file::save, as in<br/>section 1"])
-    cmds(["editor commands<br/>edits as Transactions,<br/>one command one<br/>undo step<br/>planned M4.2"])
+    cmds(["editor commands, editor::edit<br/>edits as Transactions,<br/>one command one<br/>undo step (M4.2)"])
     buffers(["workspace::buffers<br/>keyed by canonical path,<br/>loads and saves on<br/>workers, large-file<br/>mode above 16 MB<br/>planned M4.3"])
     meta(["File metadata<br/>through platform<br/>link count, owner<br/>and group<br/>planned M4.3"])
     watcher(["platform file watching<br/>inotify<br/>planned M4.5"])
@@ -113,8 +115,9 @@ flowchart TB
     sessionStore[("Session state<br/>in the user data<br/>directory<br/>planned M4.3")]
     recovery[("recovery/<br/>unsaved buffers<br/>after a crash<br/>planned M4.9")]
 
-    user -.->|"keys and commands,<br/>planned M4.2"| cmds
-    cmds -.->|"Transactions,<br/>planned M4.2"| buffers
+    user -.->|"keys and commands,<br/>planned M4.3: the binary<br/>shows an editor"| cmds
+    cmds -->|"commit, undo, redo<br/>through History (M4.2)"| text
+    cmds -.->|"Transactions,<br/>planned M4.3"| buffers
     buffers -.->|"load, commit, checkpoint,<br/>save, mark_saved,<br/>planned M4.3"| text
     disk -->|"bytes"| text
     text -->|"the atomic save"| disk
@@ -138,8 +141,8 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class user person
     class fsEvents,disk external
-    class text built
-    class cmds,buffers,meta,watcher,watch,session,sessionStore,recovery planned
+    class text,cmds built
+    class buffers,meta,watcher,watch,session,sessionStore,recovery planned
 ```
 
 - A save renames a new file over the old one, which splits a hard link

@@ -470,7 +470,7 @@ with the cursors unmoved.
 
 ```mermaid
 sequenceDiagram
-    participant Caller as caller: a test today,<br/>editor commands (M4.2)
+    participant Caller as caller: editor::edit's<br/>commands (M4.2), tests
     participant Tx as Transaction
     participant Cs as ChangeSet
     participant Hist as History
@@ -646,10 +646,12 @@ thread, which never waits on I/O, a child, a server or an agent
 (`AGENTS.md` rule 6, `docs/01-architecture.md` → "Data flow"). Work that
 could wait goes to other threads with a rope snapshot and the buffer's
 version, and comes back as a message the loop reads on a later turn. The
-flow is planned in M4.2 and M4.3; `Transaction` and `History`
+flow is planned in M4.3, which puts an editor in the shell and routes
+keys to it; `Transaction` and `History`
 are built (M1.2), and so are the keymap engine, which resolves a key in
-its mode to a named command (M4.6, ADR-0064), the editor view, which takes no keys until
-M4.2 and which the binary shows from M4.3 (M4.1, ADR-0063), core's `InputEvent` (M0.2), `platform`'s
+its mode to a named command (M4.6, ADR-0064), the editing commands, which
+run on every cursor and commit through the history (M4.2, ADR-0065), the
+editor view, which the binary shows from M4.3 (M4.1, ADR-0063), core's `InputEvent` (M0.2), `platform`'s
 events (M2.2), `ui`'s routing of an event and its frames with their damage
 (M3.1, ADR-0046), `gui`'s painter of those frames (M3.5, ADR-0048), and
 the main loop that waits on the window, hands the tree its input and
@@ -667,7 +669,7 @@ sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
     participant Ui as ui Tree: input<br/>and focus (built)
 
-    Note over User,Ui: planned M4.2, M4.3: the view takes keys,<br/>and the binary shows it. core's InputEvent (M0.2),<br/>platform's events (M2.2), ui's routing (M3.1),<br/>the loop (M3.8) and the view (M4.1) are built.
+    Note over User,Ui: planned M4.3: the binary shows an editor<br/>and routes keys to it. core's InputEvent (M0.2),<br/>platform's events (M2.2), ui's routing (M3.1), the loop<br/>(M3.8), the view (M4.1) and editing (M4.2) are built.
     ML->>Fe: wait_events(deadline,<br/>events)
     Fe->>Plat: wait_events: poll on<br/>the X connection<br/>and the self-pipe
     User->>Disp: presses a key
@@ -675,7 +677,7 @@ sequenceDiagram
     Plat-->>Fe: Event::Input: the Key from<br/>the key code, then the text<br/>from Xutf8LookupString
     Fe-->>ML: Event::Input with an<br/>InputEvent, core input (built)
     ML->>Ui: Tree::handle(event)
-    Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1, keys from M4.2),<br/>then up through its ancestors until one handles it
+    Ui->>Ui: to the focused node's Widget::event,<br/>the editor view's (M4.1), which leaves keys<br/>to the keymap (M4.2), then up through<br/>its ancestors until one handles it
     Ui-->>ML: a Response: the actions widgets<br/>emitted, and whether it was handled
 ```
 
@@ -685,11 +687,11 @@ sequenceDiagram
 sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
     participant Keys as editor keymap<br/>engine (built, M4.6)
-    participant Cmd as editor command and<br/>buffer (M4.2, M4.3)
+    participant Cmd as editor command (built, M4.2)<br/>and buffer (M4.3)
     participant Txt as text Transaction<br/>and History (built)
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M4.2, M4.3. Transaction and<br/>History (M1.2), the loop (M3.8) and the<br/>keymap engine (M4.6) are built.
+    Note over ML,Bg: planned M4.3. Transaction and History (M1.2),<br/>the loop (M3.8), the keymap engine (M4.6)<br/>and the editing commands (M4.2) are built.
     ML->>Keys: the key, in the current<br/>mode: the default keymap<br/>has one, vim mode adds<br/>the rest (M7.2)
     Keys->>Cmd: a named command, such<br/>as typing a character
     Cmd->>Txt: Transaction::change_each(text,<br/>selection, an edit per cursor)

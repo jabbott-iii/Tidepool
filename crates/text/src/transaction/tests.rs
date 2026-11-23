@@ -1069,6 +1069,112 @@ fn both_apply_paths_agree() {
     assert_eq!(edge(4 * REBUILD_MIN, REBUILD_MIN - 1), [1, 0]);
 }
 
+/// The kinds of case [`batched_applies_agree_with_one_by_one`] meets.
+const BATCHES: [&str; 3] = [
+    "batched",
+    "replaced one by one",
+    "batched, a CR or LF among the edits",
+];
+
+/// Edits spread over `text`, as many cursors make: at char boundaries at
+/// least `gap` bytes apart, each inserting one byte (a CR or an LF among
+/// them) or deleting one char.
+fn sparse_edits(rng: &mut Pcg32, text: &str, gap: usize) -> Vec<(Range<usize>, String)> {
+    let mut edits = Vec::new();
+    let mut at = rng.range(0..gap as u32) as usize;
+    while at < text.len() {
+        let start = floor_boundary(text, at);
+        let next = text
+            .get(start..)
+            .and_then(|rest| rest.chars().next())
+            .map_or(start, |c| start + c.len_utf8());
+        let edit = match rng.range(0..6u32) {
+            0 => (start..next, String::new()),
+            1 => (start..start, "\r".to_string()),
+            2 => (start..start, "\n".to_string()),
+            _ => (start..start, "x".to_string()),
+        };
+        if edits
+            .last()
+            .is_none_or(|(last, _): &(Range<usize>, String)| last.end < edit.0.start)
+        {
+            edits.push(edit);
+        }
+        at = next.max(start + 1) + gap + rng.range(0..gap as u32) as usize;
+    }
+    edits
+}
+
+/// Batched, an apply of many small edits gives the text, the rope's
+/// invariants and the snapshot that replacing each range gives, on 2,000
+/// change sets over texts of many tiny leaves: those whose edits each stay
+/// inside one leaf take the batch, the rest replace each range, changing
+/// nothing first (ADR-0065).
+#[test]
+fn batched_applies_agree_with_one_by_one() {
+    let tally = Tally::new(BATCHES);
+    check(
+        "batched applies agree with one by one",
+        2_000,
+        |rng| Plan::draw(rng, 100),
+        |plan| {
+            let mut rng = plan.rng();
+            let mut t = String::new();
+            let units = rng.range(20..400u32);
+            push_text(&mut rng, &mut t, units);
+            let edits = if rng.range(0..2u32) == 0 {
+                let count = rng.range(2..40u32) as usize;
+                edits_of(&mut rng, &t, true, count)
+            } else {
+                // Leaves hold 4 to 16 bytes here: an edit every 8 to 40.
+                let gap = rng.range(8..24u32) as usize;
+                sparse_edits(&mut rng, &t, gap)
+            };
+            let rope = Rope::from(t.as_str());
+            let changes = build(&rope, &edits).map_err(|e| format!("ChangeSet::new: {e}"))?;
+            let want = built(&t, &edits).map_err(|e| format!("the model: {e}"))?;
+            let apply = |batch: bool| {
+                super::batching::set(batch);
+                let before = super::batching::read();
+                let mut edited = rope.clone();
+                let result = changes.apply(&mut edited);
+                super::batching::set(true);
+                (result, edited, super::batching::read() - before)
+            };
+            let (one, by_one, none) = apply(false);
+            let (all, batched, done) = apply(true);
+            one.map_err(|e| format!("one by one: {e}"))?;
+            all.map_err(|e| format!("batched: {e}"))?;
+            if none != 0 {
+                return Err("batching was off, and it batched".to_string());
+            }
+            batched
+                .__check_invariants()
+                .map_err(|e| format!("batched: {e}"))?;
+            if batched != want || by_one != want {
+                return Err("an apply gave another text".to_string());
+            }
+            if rope != t.as_str() {
+                return Err("the snapshot changed".to_string());
+            }
+            if done == 1 && changes.changes().len() >= 2 {
+                tally.add(0);
+                if changes.changes().any(|change| {
+                    change
+                        .text
+                        .is_some_and(|new| new.chunks().any(|c| c.contains(['\r', '\n'])))
+                }) {
+                    tally.add(2);
+                }
+            } else {
+                tally.add(1);
+            }
+            Ok(())
+        },
+    );
+    tally.require([200, 200, 100]);
+}
+
 #[test]
 fn inverting_a_whole_deletion_shares_the_text() {
     let rope = Rope::from("0123456789".repeat(40).as_str());

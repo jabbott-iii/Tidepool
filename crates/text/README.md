@@ -11,10 +11,12 @@ for Linux, macOS and Windows, written in Rust with no third-party crates.
 Its library uses no other crate (its tests use `core`'s harness).
 `tidepool-bench` measures it, and saves its baseline with `file::save`;
 `tidepool-ui`'s text input and search field move and delete by its
-grapheme cluster boundaries (`pos::grapheme`, M3.6, ADR-0049); `syntax`,
-`workspace`, `lang`, `vcs`, `agent` and `editor` may build their buffers,
-edits and saves on it, as their rows of the matrix allow, and none does
-yet.
+grapheme cluster boundaries (`pos::grapheme`, M3.6, ADR-0049);
+`tidepool-editor`'s editor view shows its ropes and selections (M4.1),
+and its editing commands edit through `Transaction::change_each` and
+`History` (M4.2, ADR-0065); `syntax`, `workspace`, `lang`, `vcs` and
+`agent` may build their buffers, edits and saves on it, as their rows of
+the matrix allow, and none does yet.
 
 Layer 1, OS behavior, formats and pure engines. It may use `core` (its tests
 use `core`'s property harness), as its row of the dependency matrix in
@@ -29,7 +31,12 @@ Built, with the roadmap task that built it:
 
 - `rope` and `pos`, with grapheme boundaries (UAX #29) from tables that
   `cargo xtask ucd` generates from `ucd/17.0.0/` — M1.1.
-- `selection`, `transaction` and `history` — M1.2.
+- `selection`, `transaction` and `history` — M1.2. From M4.2 an edit
+  inside one leaf counts only the bytes it changes, a change set of two or
+  more edits that each stay inside one leaf applies in one walk of the
+  tree, and `change_each` does not look up a cursor's own ends twice: a
+  10,000-caret keystroke on 100 MB commits in a fraction of the time
+  (ADR-0065).
 - `encoding` (UTF-8 and UTF-16 LE/BE by BOM, decoded losslessly, invalid
   input read-only) and `file` (loading with the 16 MiB large-file
   threshold, and the atomic save, which follows symbolic links) — M1.3.
