@@ -21,7 +21,8 @@
 //! of its code: no tasks, no build scripts or proc macros in
 //! rust-analyzer, no Gradle, no plugins from it, and its own
 //! `.tidepool/settings.toml` is not read ([`settings`](crate::settings)).
-//! One prompt (M4.3) trusts it, and the decision persists.
+//! One prompt (built in M4.13, shown by the binary from M4.3) trusts it,
+//! and the decision persists.
 //!
 //! # Grants
 //!

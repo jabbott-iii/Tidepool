@@ -58,6 +58,13 @@ Built, with the roadmap task that built it:
   yet. On Linux through `std`'s `stat` and `sys`'s
   `geteuid` and `getegid`; elsewhere they fail with
   `Error::Unsupported` — M4.10.
+- the file's identity in `file::Metadata`: `FileId`, its device and
+  inode number and its birth time where the file system reports one, and
+  `file::metadata_of`, the metadata of an open file, so that
+  `workspace::buffers` can tell whether the file a write in place opened
+  is the one it asked about (a file system may give a new file the inode
+  number of one just deleted, as ext4 does, which the birth time tells
+  apart) — M4.12 (ADR-0070).
 
 Not yet, with the roadmap task that adds it:
 

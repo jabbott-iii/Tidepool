@@ -102,7 +102,7 @@
 //!   grapheme cluster boundary at most that far in, then a
 //!   [`CUT_MARKER`] in `text-3` where it is cut, so that no frame lays out
 //!   more of a line than that. A position past the cut shows at the
-//!   marker. Large-file mode is M4.3's.
+//!   marker. Showing a large file read-only is M4.13's (ADR-0068).
 //!
 //! # Soft wrap
 //!

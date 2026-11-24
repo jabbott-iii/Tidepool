@@ -60,6 +60,15 @@ Built, with the roadmap task that built it:
   or group, or it cannot tell, it removes the temporary file and asks:
   write in place, save as a new file, or cancel — M4.11 (ADR-0068,
   ADR-0069).
+- an answer to a save's question is for that question alone: only the
+  question makes one (`SaveQuestion::write_in_place` and
+  `save_as_new_file`), naming its buffer and save; the buffer keeps the
+  question until its next save, which takes it, so an answer is used
+  once, any other runs as a checked save, and another buffer's is
+  refused; "write in place" writes only into the file asked about, by the
+  identity of the file it opened (device, inode number and birth time,
+  `platform::file::FileId`), and "save as a new file" renames only when
+  the question asked again is the one answered — M4.12 (ADR-0070).
 - `files`: a folder's file tree, read a folder at a time by jobs, each
   entry with its kind (a link shown, never followed) and its ignore state
   from the ignore files above it, at most 10,000 entries a folder —
@@ -82,7 +91,9 @@ Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 A buffer opened, edited through its history, and saved. Each job runs on
 a worker in the binary; here they run in place. A real file's save may
 come back as `SaveReport::Asks`, which the caller answers by saving again
-in `SaveMode::InPlace` or `SaveMode::NewFile`.
+with the mode the question makes for the user's answer
+(`SaveQuestion::write_in_place` or `save_as_new_file`), so that it is for
+the file asked about.
 
 ```rust
 use std::time::Instant;
@@ -109,7 +120,12 @@ history.commit(text, typed, &caret, Instant::now(), Group::New)?;
 let job = buffers.save(id, SaveMode::Check)?; // a worker calls `job.run()`
 match buffers.finish_save(job.run()) {
     SaveReport::Saved { .. } => assert_eq!(std::fs::read_to_string(&path)?, "# Notes\nmore\n"),
-    SaveReport::Asks { .. } => {} // on a system whose file metadata `platform` cannot read yet
+    // On a system whose file metadata `platform` cannot read yet: the
+    // user's answer, made from the question.
+    SaveReport::Asks { question, .. } => {
+        let job = buffers.save(id, question.save_as_new_file())?;
+        assert!(matches!(buffers.finish_save(job.run()), SaveReport::Saved { .. }));
+    }
     other => panic!("{other:?}"),
 }
 std::fs::remove_dir_all(&dir)?;

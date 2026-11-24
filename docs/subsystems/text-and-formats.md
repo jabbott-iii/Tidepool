@@ -333,7 +333,10 @@ Saving follows ADR-0025.
   bits, access list and extended attributes. It is not atomic: an error
   at `WriteInPlace`, `SetLength` or `SyncInPlace` says what the file may
   hold, and a crash during the write leaves the new text's start over the
-  old text's end.
+  old text's end. `write_in_place_if` (M4.12, ADR-0070) gives the file it
+  opened to a caller's check before a byte is written, and writes nothing
+  if the check refuses it, so that a caller can tell, from the open file
+  itself, that it is the file it means.
 - **Errors** name the step that failed (`FileStep`) and carry the
   operating system's error as their source. Messages hold no path and no
   text.

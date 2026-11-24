@@ -65,7 +65,9 @@ rustdoc is authoritative for the rules, names and limits; in short:
   a constructor that asks the trust store made it.
 
 The binary reads its panel settings and `[keymap]` through `settings`
-(M4.7). M4.3 opens folders, shows the trust prompt, declares the editor's
+(M4.7). M4.13 builds the trust prompt, which refuses `/` and the home
+folder and warns about a folder others may change (ADR-0070); M4.3 opens
+folders from the command line, shows the prompt, declares the editor's
 settings and gives the keymap a trusted folder's `[keymap]` layer; M4.5
 reloads settings when the file changes.
 
@@ -94,7 +96,14 @@ Also built (M4.11, ADR-0068, ADR-0069): `buffers`, the file tree model of
   removes the temporary file, changes nothing, and returns a
   `SaveQuestion`. The answer is a save in `SaveMode::InPlace`, which
   writes over the file and keeps its identity but is not atomic, or
-  `SaveMode::NewFile`, the atomic save; doing nothing cancels. The
+  `SaveMode::NewFile`, the atomic save; doing nothing cancels. An
+  answer is for its question alone (M4.12, ADR-0070): only the question
+  makes one, naming its buffer and save; the buffer keeps the question
+  until its next save, which takes it, so an answer is used once and any
+  other runs as a checked save; "write in place" writes only into the
+  file asked about, by the identity (device, inode number and birth
+  time) of the file it opened, and "save as a new file" renames only when
+  the question asked again is the one answered. The
   temporary file stays private (0600 on Unix) until the rename, so no one
   reads the new text while the save looks, and a file that appeared at a
   new file's path while the save wrote is asked about, not replaced. Saves
@@ -105,7 +114,8 @@ Also built (M4.11, ADR-0068, ADR-0069): `buffers`, the file tree model of
 - **The file tree reads a folder at a time,** when it is opened, at most
   10,000 entries, folders first, each with its kind and its ignore state
   from the ignore files above it. Ignored entries are kept and marked,
-  for the explorer to show or hide (M4.3). A symbolic link shows as a
+  which the explorer shows dimmed, in every folder (M4.13, ADR-0070).
+  A symbolic link shows as a
   link and is never followed.
 - **A session** is one TOML file a folder in `sessions/` in the user data
   folder, named by the SHA-256 of the folder's canonical path, which it
@@ -238,7 +248,7 @@ rules; in short:
 - 40 commands with `editor.` ids (`editor.cursorWordLeftSelect`,
   `editor.deleteLeft`, `editor.undo`, `editor.copy`…), registered by the
   shell after its own 14, so that the default keymap binds them. The
-  palette lists the commands the shell runs, so it lists these once M4.3
+  palette lists the commands the shell runs, so it lists these once M4.13
   puts an editor in the shell;
 - motions, each with a `…Select` twin: a grapheme cluster (what a reader
   sees as one character) left or right, a selection collapsing to its
@@ -436,7 +446,15 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
   saving without a question where `platform` can tell, serialized saves,
   stale results and failures; a unit test makes the temporary file read
   as another group, as a setgid folder would, and checks that the save
-  asks and each answer works. `files.rs` reads a tree with its ignore
+  asks and each answer works. From M4.12 (ADR-0070), `buffers.rs` also
+  renames other programs' files over the path, twice, deletes the file
+  and makes it again, deletes it for good, and renames an ordinary file
+  over it, while the question waits: no answer writes into the file there
+  now, and the save asks again or saves as a checked save; unit tests
+  compare identities and questions, use an answer twice, after another
+  save and for another buffer, change a group between the question and
+  "save as a new file", and answer a question where nothing can be read,
+  and where a look failed. `files.rs` reads a tree with its ignore
   files, opens and closes folders, drops a stale read, reports a folder
   that cannot be read and an ignore file that cannot be used, refuses
   paths out of the tree, and shows a link without following it.

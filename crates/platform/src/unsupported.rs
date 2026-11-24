@@ -67,6 +67,11 @@ pub(crate) fn new_file_owner(_folder: &Path) -> Result<Owner, Error> {
     Err(unsupported("file metadata"))
 }
 
+/// Fails: this system has no file metadata yet.
+pub(crate) fn open_file_metadata(_file: &std::fs::File) -> Result<Metadata, Error> {
+    Err(unsupported("file metadata"))
+}
+
 /// A window that cannot exist.
 pub(crate) struct Window {
     never: Infallible,
@@ -179,6 +184,13 @@ mod tests {
             "{found:?}"
         );
         let found = new_file_owner(here);
+        assert!(
+            matches!(found, Err(Error::Unsupported { what: "file metadata", os: o }) if o == os),
+            "{found:?}"
+        );
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let opened = std::fs::File::open(manifest).expect("open a file to read");
+        let found = open_file_metadata(&opened);
         assert!(
             matches!(found, Err(Error::Unsupported { what: "file metadata", os: o }) if o == os),
             "{found:?}"

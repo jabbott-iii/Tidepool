@@ -14,7 +14,9 @@
 
 //! Text files: [`load`] with the large-file threshold, the atomic [`save`]
 //! of ADR-0025 and its two steps ([`prepare`], then
-//! [`PreparedSave::commit`]), and [`write_in_place`] (ADR-0069).
+//! [`PreparedSave::commit`]), and [`write_in_place`] (ADR-0069), with
+//! [`write_in_place_if`], which first asks a caller's check about the file
+//! it opened (ADR-0070).
 //!
 //! - **Loading** decodes by BOM ([`encoding`](crate::encoding)) and reports
 //!   the format, the line endings, the trailing break and whether the file
@@ -39,7 +41,9 @@
 //! - **Writing in place** ([`write_in_place`]) keeps the file itself, with
 //!   its links, owner, group, permissions, access list and extended
 //!   attributes, but is not atomic: a crash during it leaves the new text's
-//!   start over the old file's end.
+//!   start over the old file's end. [`write_in_place_if`] gives a caller
+//!   the opened file before a byte is written, so that it can check that
+//!   the file is the one it means (`workspace::buffers`, M4.12).
 //! - **Callers** run loads and saves on workers, never on the main thread,
 //!   and serialize the saves of one file ([`History::checkpoint`]).
 //!
@@ -507,6 +511,41 @@ pub fn write_in_place(
     text: &Rope,
     format: Format,
 ) -> Result<(), TextError> {
+    write_in_place_if(path, text, format, |_| true).map(|_| ())
+}
+
+/// What [`write_in_place_if`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum InPlace {
+    /// The check accepted the file, and the text is written over it.
+    Written,
+    /// The check refused the file: nothing was written, and the file is as
+    /// it was.
+    Refused,
+}
+
+/// [`write_in_place`], after `check` accepts the file it opened.
+///
+/// `check` is called once, with the file opened for writing and before a
+/// byte is written, so a caller can read the opened file's metadata
+/// (`File::metadata`, or `platform::file::metadata_of`) and tell whether
+/// it is the file it means. That is exact where a look at the path is not:
+/// the path can be renamed over between a look and the open, and this
+/// function follows links itself, one at a time, where the kernel's lookup
+/// stops at 40 or reads a link into `/proc` as the open file it names.
+/// `workspace::buffers` checks that an answer to a save's question writes
+/// only the file the question asked about (M4.12, ADR-0070).
+///
+/// # Errors
+///
+/// As [`write_in_place`]'s. A refusal is not an error:
+/// [`InPlace::Refused`].
+pub fn write_in_place_if(
+    path: impl AsRef<Path>,
+    text: &Rope,
+    format: Format,
+    check: impl FnOnce(&File) -> bool,
+) -> Result<InPlace, TextError> {
     let (target, existing) = resolve(path.as_ref())?;
     let Some(metadata) = existing else {
         return Err(io_error(
@@ -522,6 +561,9 @@ pub fn write_in_place(
             .metadata()
             .map_err(|error| io_error(FileStep::Metadata, error))?,
     )?;
+    if !check(&file) {
+        return Ok(InPlace::Refused);
+    }
     let mut out = BufWriter::with_capacity(BLOCK, file);
     encode(text, format, &mut out).map_err(|error| io_error(FileStep::WriteInPlace, error))?;
     let mut file = out
@@ -535,7 +577,8 @@ pub fn write_in_place(
     file.set_len(len)
         .map_err(|error| io_error(FileStep::SetLength, error))?;
     file.sync_all()
-        .map_err(|error| io_error(FileStep::SyncInPlace, error))
+        .map_err(|error| io_error(FileStep::SyncInPlace, error))?;
+    Ok(InPlace::Written)
 }
 
 /// A save in progress: the temporary file beside the target. Dropping it

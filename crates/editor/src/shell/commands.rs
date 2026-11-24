@@ -41,7 +41,7 @@ pub use crate::command::{MATCH, MAX_QUERY_CHARS, RUN, WORD_START};
 /// will show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum View {
-    /// The workspace's files and the open editors (M4.3).
+    /// The workspace's files and the open editors (M4.13).
     Explorer,
     /// Project search (M4.4).
     Search,

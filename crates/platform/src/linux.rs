@@ -55,7 +55,7 @@ mod window;
 mod xdg;
 mod xresources;
 
-pub(crate) use self::file::{file_metadata, new_file_owner};
+pub(crate) use self::file::{file_metadata, new_file_owner, open_file_metadata};
 pub(crate) use self::waker::Waker;
 pub(crate) use self::window::Window;
 pub(crate) use self::xdg::{android_sdk, rustup_home, user_dirs};

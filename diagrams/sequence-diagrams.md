@@ -472,17 +472,19 @@ sequenceDiagram
     end
 ```
 
-### 6.2 A buffer's save, which looks before the rename (M4.11)
+### 6.2 A buffer's save, which looks before the rename (M4.11, M4.12)
 
 The rename puts a new file at the path: it splits a hard link, and the
 new file takes the owner and group the file system gives a file made
 there. So a save in `SaveMode::Check`, the default, reads the target and
 its own temporary file between the two steps, and stops to ask when the
 rename would change the file's links, owner or group, or it cannot tell
-(ADR-0068, ADR-0069). The tests of `tidepool-workspace` own the `Buffers`
+(ADR-0068, ADR-0069). The answer is for the file asked about: before it
+writes, the job compares that file's identity with the one the path
+reaches now (M4.12, ADR-0070). The tests of `tidepool-workspace` own the `Buffers`
 and run each job on a thread of their own; the binary's main loop, its
-workers, the channel back and the dialog that asks the user are planned
-(M4.3).
+workers and the channel back are planned (M4.3), and the dialog that
+asks the user (M4.13).
 
 ```mermaid
 sequenceDiagram
@@ -521,12 +523,36 @@ sequenceDiagram
         Bufs-->>Owner: SaveReport::Saved with the version
     else asks
         Bufs-->>Owner: SaveReport::Asks with<br/>the SaveQuestion
-        Note over Owner,Bufs: The owner asks the user: write in<br/>place, save as a new file, or cancel,<br/>which is doing nothing. The dialog<br/>is planned (M4.3).
+        Note over Owner,Bufs: The owner asks the user: write in<br/>place, save as a new file, or cancel,<br/>which is doing nothing. The dialog<br/>is planned (M4.13).
+        Bufs->>Bufs: the buffer keeps the<br/>question until its next save
         opt the user answers
-            Owner->>Bufs: save(id, SaveMode::InPlace<br/>or SaveMode::NewFile)
+            Owner->>Bufs: save(id, question.write_in_place()<br/>or question.save_as_new_file()),<br/>InPlace or NewFile naming the<br/>buffer and its save (M4.12)
+            Bufs->>Bufs: take the buffer's question: an<br/>answer to it keeps its mode, any<br/>other runs in Check mode; another<br/>buffer's is AnswerToAnotherBuffer
             Bufs-->>Owner: a new SaveJob
             Owner-)Worker: the SaveJob
-            Worker->>TFile: write_in_place(path, text, format)<br/>for InPlace, save for NewFile
+            alt InPlace
+                Worker->>TFile: write_in_place_if(path, text,<br/>format, check)
+                alt no file at the path
+                    TFile-->>Worker: Io NotFound at Metadata,<br/>the check not asked
+                    Worker->>Worker: run as in Check mode,<br/>which makes the file anew
+                else a file opened for writing
+                    TFile->>PFile: check: metadata_of(the opened file)
+                    PFile-->>TFile: its FileId
+                    alt the asked FileId, or nothing<br/>known where nothing can be
+                        TFile-->>Worker: Written
+                    else another file, or a failed look
+                        TFile-->>Worker: Refused, nothing written
+                        Worker->>Worker: run as in Check mode, above:<br/>commit, or ask again about<br/>the file there now
+                    end
+                end
+            else NewFile
+                Worker->>TFile: prepare, then metadata of<br/>target() and temp_path()
+                alt nothing to ask, or the same<br/>question as the one answered
+                    Worker->>TFile: commit()
+                else another question
+                    Worker->>Worker: drop the PreparedSave,<br/>and ask the new question
+                end
+            end
             Worker-)Owner: a SaveDone, which<br/>finish_save takes as above
         end
     else failed
@@ -546,9 +572,17 @@ sequenceDiagram
   (ADR-0069). The temporary file stays private until the commit gives it
   the target's permissions, so its group, which may not be the target's,
   never reads the new text (M4.11's security review).
-- An answer is not yet tied to the file it was asked about: M4.3 adds the
-  device and inode number to the metadata and the question, and compares
-  them before it acts (ADR-0069).
+- An answer is for its question alone (M4.12, ADR-0070): only the
+  question makes the answer's `SaveMode`, which names the buffer and the
+  save that asked, and the buffer's next save takes the question, so an
+  answer is used once. A write in place checks the `FileId` (device,
+  inode number and birth time where the file system reports one) of the
+  file it opened, before a byte is written, so no window is left; a save
+  as a new file looks just before its commit, which still sets the
+  temporary file's permissions and syncs it before the rename. A file
+  another program renamed over the path, or deleted and made again,
+  while the user decided, is not written: the save asks again, or saves
+  as a checked save would.
 - Where `platform` cannot read metadata yet (macOS until M11.8, Windows
   until M12.2), every save over an existing file asks.
 

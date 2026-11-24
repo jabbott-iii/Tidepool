@@ -180,7 +180,16 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   TOML file a folder in the user data folder's `sessions/`, named from
   the folder's canonical path, which it holds and loading checks, read
   within limits, with the fuzz target `session`; and a `tidepool-bench`
-  suite opening a 100 MB file into a buffer (M4.11, ADR-0068).
+  suite opening a 100 MB file into a buffer (M4.11, ADR-0068); and a
+  save's answer bound to its question: in `tidepool-platform` a file's
+  identity, `file::FileId` (device, inode number and birth time), also
+  of an open file (`file::metadata_of`); in `tidepool-text` a write in
+  place that first gives the file it opened to a caller's check
+  (`file::write_in_place_if`); and in `workspace::buffers` answers that
+  only the question makes, naming its buffer and save, used once, a
+  write in place only into the file asked about and a save as a new
+  file only when the question asked again is the one answered (M4.12,
+  ADR-0070).
 - **Not built:** everything else. 12 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

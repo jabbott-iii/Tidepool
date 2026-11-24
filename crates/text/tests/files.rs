@@ -1019,6 +1019,47 @@ fn a_write_in_place_leaves_exactly_the_new_text() {
     assert_eq!(names(&dir), ["notes.txt"]);
 }
 
+/// M4.12: the check sees the file before a byte is written; a refusal
+/// leaves it as it was, and an acceptance writes as `write_in_place` does.
+#[test]
+fn a_write_in_place_asks_its_check_first() {
+    let dir = scratch_dir("in-place-if");
+    let path = dir.join("checked.txt");
+    write(&path, b"old text");
+    let mut calls = 0;
+    let refused = file::write_in_place_if(&path, &Rope::from("new"), Format::UTF8, |opened| {
+        calls += 1;
+        let found = opened.metadata().expect("the opened file's metadata");
+        assert!(found.is_file());
+        assert_eq!(found.len(), 8, "nothing written before the check");
+        false
+    })
+    .expect("no error");
+    assert_eq!(refused, file::InPlace::Refused);
+    assert_eq!(calls, 1);
+    assert_eq!(read(&path), b"old text");
+    assert_eq!(names(&dir), ["checked.txt"]);
+
+    let written = file::write_in_place_if(&path, &Rope::from("new"), Format::UTF8, |_| true)
+        .expect("written");
+    assert_eq!(written, file::InPlace::Written);
+    assert_eq!(read(&path), b"new");
+
+    // A missing file fails before the check is asked.
+    let missing = dir.join("missing.txt");
+    let error = file::write_in_place_if(&missing, &Rope::from("x"), Format::UTF8, |_| {
+        panic!("not asked")
+    })
+    .expect_err("missing");
+    assert!(matches!(
+        error,
+        TextError::Io {
+            step: FileStep::Metadata,
+            ..
+        }
+    ));
+}
+
 /// A write in place never creates a file, and refuses a directory.
 #[test]
 fn a_write_in_place_needs_an_existing_regular_file() {
@@ -1079,6 +1120,28 @@ mod in_place_unix {
     use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 
     use super::*;
+
+    /// M4.12: through a link, the check is given the target itself, the
+    /// file the text is written into.
+    #[test]
+    fn a_write_in_place_s_check_sees_the_target_through_links() {
+        let dir = scratch_dir("in-place-if-unix");
+        let target = dir.join("target.txt");
+        write(&target, b"old\n");
+        fs::hard_link(&target, dir.join("other.txt")).expect("a second name");
+        let link = dir.join("link.txt");
+        symlink("target.txt", &link).expect("link");
+        let inode = fs::metadata(&target).expect("stat").ino();
+        let mut seen = None;
+        let done = file::write_in_place_if(&link, &Rope::from("new\n"), Format::UTF8, |opened| {
+            seen = Some(opened.metadata().expect("fstat").ino());
+            true
+        })
+        .expect("in place");
+        assert_eq!(done, file::InPlace::Written);
+        assert_eq!(seen, Some(inode));
+        assert_eq!(read(&dir.join("other.txt")), b"new\n", "the same file");
+    }
 
     #[test]
     fn a_write_in_place_keeps_the_file_and_its_mode() {

@@ -51,6 +51,11 @@ Built, with the roadmap task that built it:
   so that a caller can compare the two files first, and `write_in_place`, which writes over a file and
   keeps its links, owner, group and attributes but is not atomic — M4.11
   (ADR-0069).
+- In `file`, `write_in_place_if`, a write in place that first gives the
+  file it opened to a caller's check, and writes nothing if the check
+  refuses it (`InPlace::Refused`), so that `workspace::buffers` writes an
+  answer only into the file its question asked about — M4.12
+  (ADR-0070).
 
 All of the crate's planned modules exist.
 

@@ -540,7 +540,7 @@ fn the_palette_lists_the_shell_s_fourteen_commands_opening_it_among_them() {
     let (mut tree, mut shell) = shell_in(size, Panels::default());
     let now = Instant::now();
     // The registry holds the editing commands too (M4.2), which the
-    // palette lists once the shell has an editor to run them on (M4.3).
+    // palette lists once the shell has an editor to run them on (M4.13).
     assert_eq!(shell.registry().len(), 14 + 40);
     send(&mut tree, &mut shell, size, &[ctrl_shift(Key::P)], now);
     assert_eq!(palette_rows(&tree, &shell), Command::ALL.len());

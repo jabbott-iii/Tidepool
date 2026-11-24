@@ -13,9 +13,9 @@
 // limitations under the License.
 
 //! What a save checks about a file before it replaces it: the file's
-//! [`metadata`] (its link count, owner, group and permission bits), and
-//! the owner and group a new file in its folder would get
-//! ([`new_file_owner`]) (M4.10, ADR-0068).
+//! [`metadata`] (its link count, owner, group, permission bits and
+//! identity), and the owner and group a new file in its folder would get
+//! ([`new_file_owner`]) (M4.10, ADR-0068; the identity, M4.12, ADR-0070).
 //!
 //! New in Tidepool.
 //!
@@ -43,6 +43,12 @@
 //! file; [`new_file_owner`] is the rule for it without making one
 //! (ADR-0069).
 //!
+//! When it asks, the user answers later, and by then the path may name
+//! another file: another program renamed its own over it, or deleted it
+//! and made a new one. So `workspace::buffers` keeps the [`FileId`] of the
+//! file it asked about, and before it acts on the answer, reads the file's
+//! identity again and compares (ADR-0070).
+//!
 //! # Systems
 //!
 //! Linux reads them with `stat(2)` through `std`, and the process's
@@ -50,7 +56,9 @@
 //! other system fails with [`Error::Unsupported`] until macOS (M11.8) and
 //! Windows (M12.2) add theirs.
 
+use std::fs::File;
 use std::path::Path;
+use std::time::SystemTime;
 
 use crate::{Error, backend};
 
@@ -72,6 +80,41 @@ pub struct Owner {
     pub group: u32,
 }
 
+/// Which file a name reaches, so that two looks at a name can tell
+/// whether they found the same file (ADR-0070).
+///
+/// A file system numbers its files: the number is the file's *inode*
+/// (index node, the record that holds a file's data and metadata, as
+/// opposed to its names), and the file system itself is told apart by a
+/// device number. Every name of a file, its hard links included, reaches
+/// the same inode, so they share an identity. A rename over the name, or
+/// deleting the file and making another at the name, makes the name reach
+/// another file.
+///
+/// That other file can get the same inode number: a file system may give
+/// a new file the number of one just deleted. On the reference machine's
+/// ext4, a file deleted and made again got the same number in each of
+/// 2,000 tries (2026-11-23). So the identity also holds the file's birth
+/// time, where the file system reports one, which differed in each try:
+/// not because its clock is fine (2,000 files made back to back there had
+/// 48 birth times between them), but because a look at the first file
+/// and its deletion came between the two, as they do between a save's
+/// question and a file made again (ADR-0070).
+/// Where it reports none, [`FileId::born`] is `None` and a file made after
+/// another was deleted can share its identity; where its clock is coarse,
+/// two files made within one tick of it can share a birth time. Equal
+/// identities mean the same file as far as can be known, never more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FileId {
+    /// The file system's device number (`st_dev` on Unix).
+    pub device: u64,
+    /// The file's number in that file system (`st_ino` on Unix).
+    pub inode: u64,
+    /// When the file was made (its birth time, `stx_btime` of statx(2) on
+    /// Linux), or `None` where the file system does not say.
+    pub born: Option<SystemTime>,
+}
+
 /// What a save checks about a file, read by [`metadata`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Metadata {
@@ -89,11 +132,13 @@ pub struct Metadata {
     /// can still make names, but only a name's owner, the folder's owner
     /// and a process with `CAP_FOWNER` (root) may rename or delete it.
     pub permissions: u32,
+    /// Which file this is (M4.12).
+    pub id: FileId,
 }
 
-/// Reads the link count, owner, group and permission bits of the file at
-/// `path`, following symbolic links to the file they name, as `stat(2)`
-/// does (Linux follows at most 40 links in one lookup).
+/// Reads the link count, owner, group, permission bits and identity of the
+/// file at `path`, following symbolic links to the file they name, as
+/// `stat(2)` does (Linux follows at most 40 links in one lookup).
 ///
 /// `text::file::save` follows the links at a path to the file it replaces
 /// too (ADR-0025), but reads each link's text and joins it itself, so for
@@ -113,6 +158,27 @@ pub struct Metadata {
 ///   and Windows (M12.2).
 pub fn metadata(path: &Path) -> Result<Metadata, Error> {
     backend::file_metadata(path)
+}
+
+/// Reads the link count, owner, group, permission bits and identity of
+/// the open `file`, as [`metadata`] does for a path (`fstat(2)` on the
+/// open file, through `std`).
+///
+/// An open file is the file itself, whatever happens to the names that
+/// reached it, so this tells exactly which file a write through `file`
+/// changes (`text::file::write_in_place_if`, M4.12, ADR-0070).
+///
+/// This blocks on the file system, so call it on a worker, never on the
+/// main thread (`AGENTS.md` rule 6).
+///
+/// # Errors
+///
+/// - [`Error::Io`] at `fstat` on Linux when the file's metadata cannot be
+///   read.
+/// - [`Error::Unsupported`] on every other system, until macOS (M11.8)
+///   and Windows (M12.2).
+pub fn metadata_of(file: &File) -> Result<Metadata, Error> {
+    backend::open_file_metadata(file)
 }
 
 /// The owner and group that a file this process makes in `folder` gets,

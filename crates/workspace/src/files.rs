@@ -35,8 +35,8 @@
 //! name, its kind, read without following a symbolic link
 //! ([`EntryKind::Link`]), and whether the folder's ignore files ignore it
 //! ([`Entry::is_ignored`], by the rules of [`crate::folder`]). Ignored
-//! entries are kept, marked, so that the explorer can show them, as M4.3
-//! decides. Folders come first, then everything else, each sorted by
+//! entries are kept, marked, so that the explorer can show them dimmed
+//! (M4.13, ADR-0070). Folders come first, then everything else, each sorted by
 //! name, ignoring ASCII case first and then by bytes.
 //!
 //! The tree reads a folder only when it is reached from the root through

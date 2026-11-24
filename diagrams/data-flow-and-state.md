@@ -114,11 +114,12 @@ at a time, watched for outside changes, and remembered in a session. The
 buffers, the file tree model and the sessions are built (M4.11, ADR-0068,
 ADR-0069), with the text engine they call, `platform`'s file metadata
 (M4.10), the ignore files (M4.7), and the editing commands, which commit
-to a rope's `History` themselves until M4.3 puts them over a buffer
-(M4.2, ADR-0065). Who runs the jobs, the channel that brings their
-results back to the main loop, the views that show buffers and rows, the
-save dialog and restoring a session are M4.3's; watching is M4.5's, and
-recovery M4.9's.
+to a rope's `History` themselves until M4.13 puts them over a buffer
+(M4.2, ADR-0065). The views that show buffers and rows and the save
+dialog are M4.13's, and tying the dialog's answer to its file M4.12's
+(ADR-0070); who runs the jobs, the channel that brings their results
+back to the main loop, and restoring a session are M4.3's; watching is
+M4.5's, and recovery M4.9's.
 
 ```mermaid
 flowchart TB
@@ -129,7 +130,7 @@ flowchart TB
     cmds(["editor commands, editor::edit<br/>edits as Transactions,<br/>one command one<br/>undo step (M4.2)"])
     buffers(["workspace::buffers<br/>Buffers keyed by canonical<br/>path, each a Rope, its<br/>History and a Version;<br/>read-only above<br/>16 MiB (M4.11)"])
     worker(["LoadJob, SaveJob and<br/>ReadDirJob run on a<br/>worker thread (M4.11);<br/>the binary's workers,<br/>planned M4.3"])
-    meta(["platform::file<br/>metadata: link count,<br/>owner and group (M4.10)"])
+    meta(["platform::file<br/>metadata: link count,<br/>owner and group (M4.10),<br/>the FileId (M4.12)"])
     files(["workspace::files<br/>FileTree: a folder at a<br/>time, at most 10,000<br/>entries a folder, each<br/>with its ignore<br/>state (M4.11)"])
     folder(["workspace::folder<br/>the ignore files (M4.7)"])
     watcher(["platform file watching<br/>inotify<br/>planned M4.5"])
@@ -140,7 +141,7 @@ flowchart TB
 
     user -.->|"keys and commands,<br/>planned M4.3: the binary<br/>shows an editor"| cmds
     cmds -->|"commit, undo, redo<br/>through History (M4.2)"| text
-    cmds -.->|"Transactions through<br/>Buffer::edit, planned M4.3"| buffers
+    cmds -.->|"Transactions through<br/>Buffer::edit, planned M4.13"| buffers
     buffers -->|"History::new, checkpoint,<br/>mark_saved, clear_saved<br/>(M4.11)"| text
     buffers -->|"LoadJob: a path;<br/>SaveJob: the Checkpoint's<br/>text, Format, SaveMode<br/>(M4.11)"| worker
     worker -->|"load; prepare, then<br/>commit or drop; save;<br/>write_in_place (M4.11)"| text
@@ -149,13 +150,13 @@ flowchart TB
     disk -->|"link count, owner,<br/>group (M4.10)"| meta
     meta -->|"the target's links, owner<br/>and group, and the temp<br/>file's owner and group,<br/>before the rename (M4.11)"| worker
     worker -->|"LoadDone; SaveDone:<br/>saved, asks with a<br/>SaveQuestion, or failed,<br/>with the buffer's<br/>version (M4.11)"| buffers
-    buffers -.->|"SaveReport::Asks: in place,<br/>a new file or cancel; its<br/>dialog, planned M4.3"| user
+    buffers -.->|"SaveReport::Asks: in place,<br/>a new file or cancel; its<br/>dialog, planned M4.13"| user
     files -->|"ReadDirJob: a folder<br/>of the tree (M4.11)"| worker
     disk -->|"a folder's entries,<br/>links not followed<br/>(M4.11)"| worker
     disk -->|"the ignore files<br/>(M4.7)"| folder
     folder -->|"Ignore: the rules from<br/>the root down to the<br/>folder (M4.11)"| worker
     worker -->|"ReadDirDone: a Listing,<br/>or its error (M4.11)"| files
-    files -.->|"the explorer's rows,<br/>planned M4.3"| user
+    files -.->|"the explorer's rows,<br/>planned M4.13"| user
     buffers -.->|"reload or merge prompts<br/>after an outside change,<br/>planned M4.5"| user
     fsEvents -.->|"changed paths,<br/>planned M4.5"| watcher
     watcher -.->|"file events,<br/>planned M4.5"| watch
@@ -185,8 +186,9 @@ flowchart TB
   and group and the temporary file's owner and group just before the
   rename, and when they would change, or cannot be known, drops the
   prepared save and asks whether to write in place or save as a new file
-  (M4.11, ADR-0068, ADR-0069). `sequence-diagrams.md` section 6.2 draws
-  it.
+  (M4.11, ADR-0068, ADR-0069). The answer is for the file asked about,
+  by its identity, its `FileId` (M4.12, ADR-0070). `sequence-diagrams.md`
+  section 6.2 draws it.
 - Each result carries what it was made for: a save its buffer, version
   and ticket, so a save of a closed buffer is `SaveReport::Stale`; a
   folder's read its request, so `FileTree::finish` drops one that a later
@@ -626,8 +628,9 @@ stateDiagram-v2
     saving --> clean: one name, and the temp<br/>file's owner and group<br/>are the file's, so<br/>commit and mark_saved
     saving --> asked: a second hard link,<br/>another owner or group,<br/>or one not known, so<br/>the temp file is removed
     saving --> dirty: failed, or edited<br/>since the checkpoint
-    asked --> answered: saved again in InPlace<br/>or NewFile mode; the<br/>dialog that asks the<br/>user, planned M4.3
+    asked --> answered: saved again in InPlace<br/>or NewFile mode, which<br/>the question makes; the<br/>dialog that asks the<br/>user, planned M4.13
     asked --> dirty: cancel, nothing<br/>was written
+    answered --> saving: another file than the one<br/>asked about, another question,<br/>or a used answer, so as in<br/>Check mode (M4.12)
     answered --> clean: saved, mark_saved
     answered --> dirty: failed, after a write<br/>in place with<br/>clear_saved
     clean --> changed: the file changed<br/>on disk, planned M4.5
@@ -650,11 +653,13 @@ stateDiagram-v2
 - Saves of one buffer are serialized: a second `Buffers::save` while one
   runs is `WorkspaceError::SaveInFlight`, so the last `mark_saved` matches
   the disk (`History::checkpoint`).
-- A question is what a save reports (`SaveReport::Asks`), not a state the
-  buffer keeps: the prepared save was dropped, and the buffer is free to
-  save again. Its answer is a save in `SaveMode::InPlace` or
-  `SaveMode::NewFile`; doing nothing cancels. A new file, which the
-  rename creates, saves without a question.
+- A question is what a save reports (`SaveReport::Asks`): the prepared
+  save was dropped, and the buffer is free to save again. The buffer
+  keeps the question (`Buffer::asked`) until its next save takes it
+  (M4.12, ADR-0070). Its answer is a save in `SaveMode::InPlace` or
+  `SaveMode::NewFile`, which only the question makes, for that question
+  alone, so it is used once; doing nothing cancels. A new file, which
+  the rename creates, saves without a question.
 - An `Io` error at `FileStep::SyncDirectory` comes after the rename: the
   new text is in place, but the save reports an error. After it, and
   after a write in place that stopped at `WriteInPlace`, `SetLength` or
@@ -667,7 +672,7 @@ A folder opens untrusted until the user trusts it, and the decision is
 stored in user data (ADR-0014, ADR-0067): `workspace::trust`'s
 `TrustStore`, whose grants are in `trust.toml` (M4.7). A grant trusts its
 folder and every folder inside it. The prompt is the editor's trust
-prompt (M4.3).
+prompt (M4.13, ADR-0070), which the binary shows from M4.3.
 
 ```mermaid
 stateDiagram-v2
@@ -676,7 +681,7 @@ stateDiagram-v2
 
     [*] --> untrusted: a folder opens that no grant covers (is_trusted is false)
     [*] --> trusted: a folder opens that is a grant or inside one
-    untrusted --> trusted: trust, a grant saved in trust.toml; the prompt that asks is planned M4.3
+    untrusted --> trusted: trust, a grant saved in trust.toml; the prompt that asks is planned M4.13
     trusted --> untrusted: revoke of the grant, when no other grant covers it
 
     note right of untrusted
@@ -1020,7 +1025,7 @@ The docs and code these diagrams were drawn from:
 - `docs/subsystems/ui-and-theme.md`: the `overlay`, `input` and
   `widgets` rows
 - `docs/04-quality.md`: "Fuzz smoke"
-- `docs/roadmap.md`: M0.2, M4.2, M4.10, M4.11, M4.3, M4.5, M4.6, M4.7,
+- `docs/roadmap.md`: M0.2, M4.2, M4.10, M4.11, M4.12, M4.13, M4.3, M4.5, M4.6, M4.7,
   M4.9, M5.1 to M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to
   M9.5, M10.4, M3.3
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,

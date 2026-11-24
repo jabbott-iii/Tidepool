@@ -589,7 +589,7 @@ overlays, and `gui`'s golden tests paint each in each state.
 
 ```mermaid
 flowchart TB
-    c_editor["tidepool-editor<br/>the shell, M3.4<br/>the editor view, M4.1<br/>planned M4.3"]
+    c_editor["tidepool-editor<br/>the shell, M3.4<br/>the editor view, M4.1<br/>planned M4.13"]
     c_gui["tidepool-gui<br/>the first frame, M2.6<br/>the painter, M3.5<br/>the window, M3.8"]
     c_guigold["tidepool-gui tests<br/>golden.rs with<br/>controls/mod.rs (M3.6),<br/>components/mod.rs (M3.7),<br/>overlays/mod.rs (M3.3)"]
     c_app["tidepool, the app<br/>the main loop, M3.8<br/>the shell's wiring and<br/>golden scenes, M3.4"]
@@ -610,7 +610,7 @@ flowchart TB
     c_editor -->|"the shell (M3.4),<br/>the view (M4.1)"| i_tree
     c_editor -->|"the view paints<br/>its text (M4.1)"| i_drawlist
     c_editor -->|"the view lays out<br/>its text (M4.1)"| i_metrics
-    c_editor -->|"the shell's tab strip<br/>and splitters (M3.4),<br/>planned M4.3: explorer"| i_collections
+    c_editor -->|"the shell's tab strip<br/>and splitters (M3.4),<br/>planned M4.13: explorer"| i_collections
     c_editor -->|"the shell's section title,<br/>kicker, status dots (M3.4);<br/>the view's scrollbars,<br/>is_hidden, flag_at (M4.1)"| i_controls
     c_editor -->|"the shell's palette<br/>and tooltips (M3.4)"| i_overlays
     c_app -->|"its golden scenes<br/>paint the shell (M3.4)<br/>and the view (M4.1)"| i_drawlist

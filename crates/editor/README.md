@@ -34,7 +34,7 @@ Built, with the roadmap task that built it:
   keymap's, which the shell's owner can replace (`Shell::set_keymap`).
   From M4.2 the registry also holds the 40 editing commands, which the
   default keymap binds; the palette lists the commands the shell runs,
-  so it lists them once M4.3 gives the shell an editor.
+  so it lists them once M4.13 gives the shell an editor.
 - the editor view, `view::EditorView`: a `text` rope's text in a `ui`
   tree, with a gutter of line numbers, the selection's ranges and a
   steady cursor bar at each head while it has focus, the focus outline
@@ -83,7 +83,8 @@ Built, with the roadmap task that built it:
   19 ms, ADR-0066).
 Not yet, with the roadmap task that adds it:
 
-- explorer, tabs, splits, the trust prompt — M4.3.
+- the explorer, open editors, tabs, editor groups side by side, the
+  trust prompt and the save's question — M4.13 (ADR-0070).
 - search — M4.4.
 - the terminal panel — M5.4.
 - the Toolchains panel — M5.6.

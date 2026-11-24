@@ -5053,7 +5053,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0068 — M4.3 splits: M4.10 gives `platform` file metadata and the process's user and group, M4.11 builds `workspace`'s buffers, file tree and session, M4.3 keeps the views and the binary; sessions live in the user data folder; a save that would change a file's links, owner or group asks; large files load whole and open read-only
 
-- **Status:** Accepted; ADR-0069 has M4.11's save check its own temporary file just before the rename, in place of M4.10's rule
+- **Status:** Accepted; ADR-0069 has M4.11's save check its own temporary file just before the rename, in place of M4.10's rule; ADR-0070 splits M4.3 again, into M4.12 (a save's answer tied to its file), M4.13 (the editor's views) and M4.3 (the binary)
 - **Date:** 2026-11-23
 - **Context:**
   - M4.3 asks for `workspace`'s `buffers` (keyed by canonical path,
@@ -5318,3 +5318,243 @@ decides; the roadmap task that first depends on one asks for the decision.
   report an owner or group that differs from what a rename gives them;
   the overflow id must be read from `/proc/sys/kernel/overflowuid`; or
   macOS (M11.8) or Windows (M12.2) add file metadata.
+
+## ADR-0070 — M4.3 splits in three: M4.12 ties a save's answer to its file by device and inode, M4.13 builds the editor's views, M4.3 keeps the binary; folders open from the command line; the trust prompt refuses `/` and the home folder and warns about folders others may change; the explorer shows ignored entries dimmed; editor groups sit side by side, at most 4
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - After ADR-0068's split, M4.3 kept the views (explorer, open editors,
+    tabs, splits, the trust prompt and the save's question) and the
+    binary (opening folders, trust, the editor's settings, the keymap's
+    workspace layer, the clipboard, the workers' channel and sessions).
+    M4.11's security review then gave it one more piece (ADR-0069): an
+    answer to a save's question is not tied to the file it was asked
+    about, so M4.3 was to add the device and inode number to
+    `platform::file::Metadata` and to `workspace::buffers::SaveQuestion`.
+  - That reaches five crates: `platform` and `workspace` for the file's
+    identity, `editor` for the views, `gui` for the window's clipboard
+    (`platform`'s `set_selection` and `request_selection`, behind `Gui`)
+    and a waker that worker threads can call, and `tidepool`.
+    `CLAUDE.md` asks that a task spreading past three crates be raised.
+  - M4.3's `Decide first` line asked four questions: how a folder is
+    opened; which folders the trust prompt warns about or refuses (M4.7's
+    review: a grant is a path, so it outlives its folder and trusts what
+    is later made there, and it covers every folder inside it); whether
+    the explorer shows the files that ignore files hide, so that an
+    untrusted repository cannot hide `build.rs`, `.cargo/config.toml` or
+    `.tidepool/settings.toml` from a user deciding whether to trust it;
+    and what shape splits take. M4.11's session file already stores
+    splits both ways, at most 8 deep, 16 panes a split and 64 groups;
+    `ui`'s splitter divides two panes, so N groups side by side nest
+    N − 1 splitters.
+  - A native folder dialog would need the desktop portal over D-Bus, a
+    socket that `AGENTS.md` rule 8 does not allow.
+  - On the reference machine the umask is `0002` and project folders
+    are mode 775, group-owned by the user's private group (Ubuntu's user
+    private groups: a group of the user's own name with only that user
+    in it). So a warning for any folder whose group may write it would
+    show when opening Tidepool's own checkout.
+  - On 2026-11-23 the user chose the recommended option of each
+    question: "Split in three"; folders open from a "Command-line
+    argument"; the trust prompt does "Refuse root/home, warn shared";
+    the explorer does "Show dimmed everywhere"; splits are "Side by side,
+    up to 4". Shown the private-group case, the user then chose "Others
+    or a foreign group", also the recommended option, for the warning's
+    rule. Starting M4.12 the same day, the user also chose, each the
+    recommended option, that an answer can be made only from its
+    question ("Answers made only from a question") and that the identity
+    includes the birth time ("Device, inode and birth time"), both
+    recorded here before this record's first commit, as those options
+    said.
+  - M4.12's security review, the same day, found nothing critical, high
+    or medium. Its low findings: the write in place compared a kernel
+    `stat` of the path with the question, while `text::file` resolves
+    links itself and opens later, so a file renamed over in between, a
+    chain of links past the kernel's 40 or a link into `/proc` could still
+    be written untied; "unknown both times" acted on any failed look, not
+    only where `platform` reads no metadata; `SaveQuestion::of` was
+    public, so a caller could make a question, and so an answer, from
+    metadata of its own; an answer could be used again, given to another
+    buffer of the same file, or act after the file's names, owner or
+    group changed since the question; "one `stat`" understated the
+    window before a rename; and the platform test failed, rather than
+    skipped, where birth times are equal. It measured the birth time's
+    clock on the reference machine as coarse (2,000 files made back to
+    back had 48 distinct birth times); the files a question compares
+    differ because the question's look and the delete come between
+    them. The user chose that day, each the recommended option, "Check
+    the opened handle", which makes `text` a third crate of M4.12, and
+    "One buffer, one question, once"; the other findings are fixed as
+    the review suggested, recorded here before this record's first
+    commit.
+- **Decision:**
+  - **The split** (ADR-0024). Two new tasks, listed before M4.3:
+    - **M4.12** (`platform: a file's device and inode; workspace: a
+      save's answer tied to its file`), in `platform`, `text` and
+      `workspace`.
+      `platform::file::Metadata` gains the file's identity: its device
+      and inode number (`st_dev` and `st_ino`) and its birth time, where
+      the file system reports one (`statx(2)`'s `stx_btime`), through
+      `std`'s `stat` on Linux. The birth time is there because a file
+      system may give a new file the inode number of one just deleted:
+      on the reference machine's ext4, a file deleted and made again got
+      the same inode number in each of 2,000 tries on 2026-11-23, and a
+      different birth time in each. An answer is bound to one question
+      of one buffer, and used once:
+      - `SaveMode::InPlace` and `SaveMode::NewFile` hold a value that
+        only the question makes, naming its buffer and the save that
+        asked, so no save writes in place, or skips the check, without a
+        question behind it. `SaveQuestion` has no public constructor.
+      - A buffer keeps the question its last save asked until its next
+        save starts, which takes it: an answer to it does what it says,
+        any other answer runs as `SaveMode::Check`, and an answer given
+        to another buffer's save is an error.
+      - "Write in place" checks the file it opened: `text::file`'s
+        `write_in_place_if` gives the opened file to a check before a
+        byte is written, which compares its identity
+        (`platform::file::metadata_of`) with the question's. Another
+        file, or none, and the save runs as `SaveMode::Check`, which asks
+        again when the file now there needs it, or makes the file anew.
+      - "Save as a new file" asks the question again after it prepares
+        the temporary file, and renames only when that question is the
+        one answered (the same target, identity, names, owner and new
+        owner) or there is none to ask; otherwise it asks the new one.
+      - Where `platform` reads no metadata (macOS and Windows until
+        M11.8 and M12.2), nothing known when asked and nothing known now
+        counts as the same file, as the save always did there. A look
+        that failed for any other reason never counts: "save as a new
+        file" answers such a question only by asking again, and "write
+        in place", which needs only the file's own identity, writes only
+        when that identity was read and is the opened file's.
+      - Tickets, which name a save and so the question it asks, come from
+        one counter for the process, so an answer made by one `Buffers`
+        answers nothing in another (M4.12's second review).
+    - **M4.13** (`editor: explorer, open editors, tabs, splits, the
+      trust prompt and the save's question`), in `editor` and
+      `workspace`, with golden scenes drawn by the binary's
+      `tests/golden.rs`, as ADR-0060's are: the views, over
+      `workspace`'s `files`, `buffers` and `session`, and in
+      `workspace::trust` the check of a folder before it is trusted
+      (below).
+    - **M4.3** keeps the binary, the part that finishes what it
+      promised ("round-trips in the window"): in `gui`, the window's
+      clipboard and a waker; in `tidepool`, opening a folder, its
+      `TrustStore`, the editor's settings, the keymap's workspace layer,
+      settings resolved again when trust changes, the clipboard routed
+      to the editor, the worker threads and their channel to the loop,
+      and the session restored. It depends on M4.12 and M4.13.
+  - **A folder opens from the command line.** `tidepool [FOLDER]`
+    (`cargo tp -- .`) opens one folder and restores its session. Without
+    the argument the title strip says `NO FOLDER`, as it does now. A
+    command that takes a typed path, and switching folders while one is
+    open, wait in the backlog.
+  - **The trust prompt refuses the widest folders and warns about ones
+    others may change.**
+    - It refuses to trust `/`, the user's home folder, and any folder
+      that contains the home folder, since a grant covers every folder
+      inside it. Such a folder still opens, untrusted. The refusal is
+      enforced in `workspace::trust`, not only in the prompt: the store
+      will not grant such a folder, and a grant of one found in
+      `trust.toml` (written by hand) trusts nothing, with a warning in
+      the log.
+    - It warns, then lets the user trust, when the folder or any folder
+      above it, up to `/`, may be changed by someone else: its write bit
+      for others is set (sticky or not, as on `/tmp`); or its write bit
+      for its group is set and that group is not the process's effective
+      group; or it is owned by a user other than the process's effective
+      user and root. Every level counts, because a grant outlives the
+      folder: once any folder on the path is deleted or renamed, whoever
+      may write the folder above it can make the path name their folder.
+      The user's own private group never warns.
+    - Unknown means warn: a folder on the path whose metadata cannot be
+      read, an owner or group that is the overflow id 65534 (ADR-0069),
+      or a system whose metadata `platform` cannot read yet.
+    - The prompt says that trusting a folder trusts every folder inside
+      it.
+  - **The explorer shows every entry.** Ignored entries show dimmed, in
+    every folder, trusted or not, `.git` and `target/` included and, as
+    every folder, collapsed until opened. Nothing an ignore file names
+    is hidden. A setting to hide them may come later.
+  - **Editor groups sit side by side, at most 4.** Ctrl+\ splits the
+    active editor into a new group to its right, and Ctrl+1 to Ctrl+4
+    focus a group, as Visual Studio Code binds them. A session whose
+    layout has stacked splits, or splits inside splits, is laid out side
+    by side in the order its groups appear; a fifth group and the ones
+    after it give their editors to the fourth.
+- **Consequences:**
+  - Three changes to review, each within three crates: M4.12 in three
+    (`platform`, `text` and `workspace`), M4.13 in two plus a test file
+    of the binary, and M4.3 in two.
+  - M4.12 changes `platform::file::Metadata`, a struct with public
+    fields, so code that builds one by its fields (`workspace`'s unit
+    tests) changes with it; `workspace::buffers::SaveMode`, whose
+    `InPlace` and `NewFile` can no longer be named without a question,
+    so a plain atomic save is `SaveMode::Check`; and
+    `SaveQuestion::of`, which is gone. Both crates are at 0.1 and
+    unpublished; nothing outside `workspace`'s tests used them. `text`
+    and `platform` only gain functions (`write_in_place_if`, `InPlace`,
+    `metadata_of`).
+  - Where the file system reports no birth time, the identity is the
+    device and inode alone, and a file deleted and made again at the path
+    can pass for the one asked about. Where its clock is coarse, two
+    files made within one tick of it can share a birth time; a question
+    always reads the file, and a delete comes before the new file, which
+    on the reference machine moved the clock on in every try.
+  - A save of a file another program replaced by a rename (as many
+    editors save) after the question was asked runs as a checked save:
+    the user's answer was about a file that is no longer there. A write
+    in place of a file deleted meanwhile makes it anew, with a new file's
+    permissions, as a checked save of a deleted file does.
+  - A write in place compares the file it writes into, so no window is
+    left between its check and its write. A save as a new file looks just
+    before its commit, which still gives the temporary file its
+    permissions and syncs it before the rename, so a file renamed over
+    the path during that sync is not seen, as for a checked save
+    (ADR-0069).
+  - The caller has to keep nothing but the question it shows: a stale
+    or repeated answer asks again rather than acting.
+  - Opening Tidepool from a desktop launcher, with no argument, shows
+    `NO FOLDER` and no way to open one until the backlog's command is
+    built.
+  - A hand-written grant of the home folder in `trust.toml` stops
+    working from M4.13, with a warning in the log.
+  - A folder under another user's folder, or inside a group-writable
+    team folder, warns each time it is about to be trusted; the user can
+    still trust it.
+  - On macOS and Windows, until M11.8 and M12.2 read metadata, every
+    trust prompt warns.
+  - A trusted repository's explorer shows `target/` dimmed; reading a
+    folder is still one level at a time, at most 10,000 entries (M4.11),
+    so a large ignored folder costs nothing until it is opened.
+  - At most 4 groups: about 240 logical pixels each at 1280 wide with
+    the side panel shown.
+- **Alternatives considered:**
+  - Splitting in two, with the views and the binary in one task: three
+    crates, but one very large change to review.
+  - Keeping M4.3 whole: five crates in one review.
+  - Opening folders with a typed path too, or only: a path prompt, error
+    toasts and switching folders at run time (saving the old session,
+    asking about unsaved buffers), more work than the acceptance
+    criteria need.
+  - Warning about `/`, the home folder and shared parents but allowing
+    them after a confirmation: one mistaken click trusts everything in
+    the home folder.
+  - Refusing every folder others may change: refuses `/tmp` and shared
+    team folders outright.
+  - Warning when the parent's group may write, whatever the group: shows
+    for nearly every folder under user private groups, so the warning
+    stops meaning anything.
+  - Warning only when others may write: never a false alarm, but misses
+    a team folder such as `/srv/team` (mode 2775).
+  - Hiding ignored entries in trusted folders only, or everywhere but a
+    list of risky files: two behaviors to test, or a list that can miss
+    a file that runs code.
+  - Splits both ways, up to the session's limits: directional focus,
+    nested splitters and rules for merging on close, much more to build
+    and test; or side by side up to 8, about 120 pixels a group at 1280.
+- **Revisit when:** users ask to open a folder from inside Tidepool or
+  to switch folders; a warning shows for a folder that no one else can
+  change, or none shows for one that someone can; users ask to hide
+  ignored files or to split editors downward; or macOS (M11.8) or
+  Windows (M12.2) add file metadata.

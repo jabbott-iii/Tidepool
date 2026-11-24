@@ -83,7 +83,7 @@ crates/sys/src/
 | `process` | Low-level spawn helpers `toolchain` builds on: pipes, process groups, kill-tree |
 | `watch` | Directory watching (inotify / FSEvents / ReadDirectoryChangesW) |
 | `paths` | `user_dirs()`: `UserDirs`, the config, data, cache and log folders per OS |
-| `file` | `metadata(path)`: a file's link count, `Owner` (user and group) and permission bits, links followed; `new_file_owner(folder)`: the owner and group of a file this process makes there (M4.10, ADR-0068) |
+| `file` | `metadata(path)`: a file's link count, `Owner` (user and group), permission bits and identity (`FileId`: device, inode number and birth time, M4.12, ADR-0070), links followed, and `metadata_of(&File)` the same for an open file (M4.12); `new_file_owner(folder)`: the owner and group of a file this process makes there (M4.10, ADR-0068) |
 | `dirs` | Standard tool locations: `android_sdk()`, `rustup_home()` |
 
 ### Invariants
@@ -143,7 +143,13 @@ crates/sys/src/
   followed to their target, missing files, dangling links and loops, a
   file that is not a folder, the setgid rule on its own, and a setgid
   folder given another of the process's groups, which skips with
-  `SKIPPED:` when the process is in no other group. The window tests are
+  `SKIPPED:` when the process is in no other group; and from M4.12, one
+  identity for every name of a file and through a link, another for a
+  copy, a file renamed over the name, and a file deleted and made again
+  at it, which skips with `SKIPPED:` where the file system gives the new
+  file the old one's inode number and birth time; and an open file's
+  metadata, which stays its own when another file is renamed over its
+  name. The window tests are
   `#[cfg(test)]` tests inside
   `platform`'s library, since only its library target may call Xlib,
   and they run only with `TIDEPOOL_IT_X11=1`, printing `SKIPPED:`

@@ -1902,7 +1902,10 @@ syncs the temp file and returns a `PreparedSave`, which names the target
 it resolved and the temp file, so that a caller can look at both; its
 `commit` renames, and dropping it removes the temp file. `save` is
 `prepare` then `commit`. `file::write_in_place` writes over the existing
-file instead, which keeps its links, owner and group but is not atomic.
+file instead, which keeps its links, owner and group but is not atomic;
+`file::write_in_place_if` (M4.12, ADR-0070) first gives the file it opened
+to a caller's check, and writes nothing if the check refuses it
+(`InPlace::Refused`).
 
 ```mermaid
 classDiagram
@@ -1915,6 +1918,12 @@ classDiagram
         +save(path, text, format) Result
         +prepare(path, text, format) Result~PreparedSave~
         +write_in_place(path, text, format) Result
+        +write_in_place_if(path, text, format, check) Result~InPlace~
+    }
+    class InPlace["file::InPlace"] {
+        <<enumeration>>
+        Written
+        Refused
     }
     class PreparedSave {
         -temp: Temp
@@ -1989,6 +1998,7 @@ classDiagram
     FileFns ..> Loaded : load returns
     FileFns ..> Format : save, prepare and<br/>write_in_place take
     FileFns ..> PreparedSave : prepare returns
+    FileFns ..> InPlace : write_in_place_if returns
     FileFns ..> Temp : prepare writes through
     FileFns ..> TextError : fails with
     PreparedSave *-- Temp
@@ -2793,7 +2803,10 @@ finds, and `dirs::android_sdk` and `dirs::rustup_home`, which fail with
 `file::new_file_owner`, the `Owner` of a file made in a folder, which
 fail the same way off Linux. `workspace::buffers` reads the `Metadata`
 of a save's target and of its temporary file just before the rename
-(M4.11, ADR-0069, 30.2); nothing calls `new_file_owner` yet. A `Window` holds its system's backend: X11 on Linux
+(M4.11, ADR-0069, 30.2); nothing calls `new_file_owner` yet. M4.12 adds
+the file's identity, `file::FileId`: its device and inode number, and its
+birth time where the file system reports one, which tells apart a file
+made under the inode number of one just deleted (ADR-0070). A `Window` holds its system's backend: X11 on Linux
 (24.2), and on every other system one whose `open` fails with
 `Error::Unsupported`. A `Window` is neither `Send` nor `Sync`; a `Waker`
 is both. Input events are `core::input::InputEvent`, in logical units.
@@ -2858,16 +2871,23 @@ classDiagram
     class FileMod["file"] {
         <<module>>
         +metadata(path) Result~Metadata~
+        +metadata_of(file) Result~Metadata~
         +new_file_owner(folder) Result~Owner~
     }
     class Metadata["file::Metadata"] {
         +links: u64
         +owner: Owner
         +permissions: u32
+        +id: FileId
     }
     class Owner["file::Owner"] {
         +user: u32
         +group: u32
+    }
+    class FileId["file::FileId"] {
+        +device: u64
+        +inode: u64
+        +born: Option~SystemTime~
     }
     class Waker["events::Waker"] {
         +wake()
@@ -2903,10 +2923,11 @@ classDiagram
     Event *-- Selection : Pasted
     Folders ..> UserDirs : user_dirs finds
     Folders ..> PlatformError : fails with
-    FileMod ..> Metadata : metadata reads
+    FileMod ..> Metadata : metadata and<br/>metadata_of read
     FileMod ..> Owner : new_file_owner gives
     FileMod ..> PlatformError : fails with
     Metadata *-- Owner : owner
+    Metadata *-- FileId : id
     Pixels ..> PixelsError : new fails with
 ```
 
@@ -6167,8 +6188,9 @@ temporary file, and builds a `SaveQuestion` from the two. When the rename
 would split a hard link or change the file's owner or group, or either
 cannot be known, the job drops the prepared save, which removes the
 temporary file, and `finish_save` reports `SaveReport::Asks`; the answer
-is a save in `SaveMode::InPlace` (`text::file::write_in_place`) or
-`SaveMode::NewFile` (`text::file::save`). A file of more than
+is a save in `SaveMode::InPlace` (`text::file::write_in_place_if`) or
+`SaveMode::NewFile` (`prepare`, then `commit`), which only the question
+makes, each for that question alone (M4.12, ADR-0070). A file of more than
 `LARGE_FILE_BYTES` (16 MiB) opens `ReadOnly::Large` until
 `Buffer::make_editable`; one that is not text stays `ReadOnly::NotText`.
 
@@ -6208,6 +6230,7 @@ classDiagram
         -read_only: Option~ReadOnly~
         -version: Version
         -saving: Option of a ticket and its Checkpoint
+        -asked: Option~SaveQuestion~
         +path() Path
         +text() Rope
         +history() History
@@ -6216,6 +6239,7 @@ classDiagram
         +version() Version
         +is_modified() bool
         +is_saving() bool
+        +asked() Option~SaveQuestion~
         +edit() Result of the Rope and History
         +make_editable() Result
     }
@@ -6237,8 +6261,19 @@ classDiagram
     class SaveMode["workspace::buffers::SaveMode"] {
         <<enumeration>>
         Check
-        NewFile
-        InPlace
+        NewFile(Answer)
+        InPlace(Answer)
+    }
+    class Answer["workspace::buffers::Answer"] {
+        -buffer: BufferId
+        -ticket: u64
+        +buffer() BufferId
+    }
+    class Look["workspace::buffers::Look"] {
+        <<enumeration>>
+        Read(Metadata)
+        Unsupported
+        Failed
     }
     class LoadJob["workspace::buffers::LoadJob"] {
         -path: PathBuf
@@ -6286,13 +6321,23 @@ classDiagram
         Stale
     }
     class SaveQuestion["workspace::buffers::SaveQuestion"] {
+        -buffer: BufferId
+        -ticket: u64
         -target: PathBuf
+        -file: Option~FileId~
         -links: Option~u64~
         -owner: Option~Owner~
         -new_owner: Option~Owner~
         -appeared: bool
-        +of(target, file, new) Option~SaveQuestion~
+        -failed: bool
+        -build(buffer, ticket, target, file, new, appeared) Option~SaveQuestion~
+        +buffer() BufferId
         +target() Path
+        +file() Option~FileId~
+        +write_in_place() SaveMode
+        +save_as_new_file() SaveMode
+        -is_file(look) bool
+        -is_answered_by(question) bool
         +links() Option~u64~
         +owner() Option~Owner~
         +new_owner() Option~Owner~
@@ -6306,8 +6351,10 @@ classDiagram
     class Checkpoint["text::Checkpoint"]
     class Loaded["text::file::Loaded"]
     class PreparedSave["text::file::PreparedSave"]
+    class InPlaceFn["text::file::write_in_place_if"]
     class Metadata["platform::file::Metadata"]
     class Owner["platform::file::Owner"]
+    class FileId["platform::file::FileId"]
 
     Buffers *-- "0..*" Buffer
     Buffers ..> LoadJob : open makes
@@ -6328,16 +6375,26 @@ classDiagram
     SaveJob --> BufferId
     SaveJob *-- Version
     SaveJob *-- SaveMode
+    SaveMode *-- "0..1" Answer : NewFile, InPlace
+    Answer --> BufferId : buffer
+    Buffer *-- "0..1" SaveQuestion : asked
+    SaveJob *-- "0..1" SaveQuestion : answered
+    SaveJob ..> Look : reads, through<br/>platform::file
     SaveJob o-- Rope : the checkpoint's text
-    SaveJob ..> PreparedSave : in Check mode, prepare,<br/>then commit or drop
+    SaveJob ..> PreparedSave : prepare, then<br/>commit or drop
+    SaveJob ..> InPlaceFn : InPlace, the opened<br/>file checked first
     SaveJob ..> Metadata : reads the target's<br/>and the temp file's
     SaveJob ..> SaveDone : run returns
     SaveDone *-- Outcome
     Outcome *-- SaveQuestion : Asks
     SaveReport *-- SaveQuestion : Asks
-    SaveQuestion ..> Metadata : of takes
+    SaveQuestion ..> Look : build takes
+    Look *-- "0..1" Metadata : Read
+    SaveQuestion ..> SaveMode : write_in_place and<br/>save_as_new_file make
     SaveQuestion *-- "0..2" Owner
+    SaveQuestion *-- "0..1" FileId : file
     Metadata *-- Owner
+    Metadata *-- FileId : id
 ```
 
 - A `SaveJob`'s `ticket` names the save its buffer waits for, so
@@ -6350,9 +6407,22 @@ classDiagram
   forgets which revision is on disk (`History::clear_saved`), so the
   buffer reads as modified.
 - `SaveQuestion::changes_user` and `changes_group` are `None` when an
-  owner could not be read or is `OVERFLOW_ID` (65534); `SaveQuestion::of`
+  owner could not be read or is `OVERFLOW_ID` (65534); `SaveQuestion::build`
   asks then too. A new file, which the rename creates, has nothing to
   compare, and saves without a question.
+- Only a `SaveQuestion` makes an `Answer`, so `SaveMode::NewFile` and
+  `InPlace` always answer a question, and name its buffer and save
+  (M4.12, ADR-0070). A buffer keeps the question its last save asked
+  (`asked`) until `Buffers::save` takes it: the job gets it as
+  `answered` when the answer is to it, and runs in `Check` mode
+  otherwise; another buffer's answer is
+  `WorkspaceError::AnswerToAnotherBuffer`. In `InPlace` mode,
+  `write_in_place_if` gives the opened file to `is_file`, which compares
+  its `FileId` (`platform::file::metadata_of`); in `NewFile` mode the
+  question built after `prepare` must be `is_answered_by` the answered
+  one. A `Look::Failed` never counts as the same file. Tickets come from
+  one counter for the process, so an `Answer` made by one `Buffers`
+  answers nothing in another.
 - `Debug` of a `Buffer`, a `SaveJob` and a `LoadDone` shows sizes and
   states, never the text.
 

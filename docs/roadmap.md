@@ -2861,8 +2861,120 @@ jabbott.dev, reads as the same design (human review).
     `trust.rs`, `settings.rs`) keep predictable scratch names in the
     system's temporary folder.
 
-- [ ] **M4.3 — editor: explorer, open editors, tabs, splits, trust prompt; app: folders and sessions**
+- [x] **M4.12 — platform: a file's device and inode; workspace: a save's answer tied to its file**
+  - Depends: M4.11, M4.10
+  - Do: per ADR-0070 and ADR-0069:
+    - in `tidepool-platform`, the file's identity in `file::Metadata`:
+      its device and inode number (`st_dev` and `st_ino`) and its birth
+      time where the file system reports one, through `std`'s `stat` on
+      Linux, `Unsupported` elsewhere as now; and `file::metadata_of`, the
+      same for an open file;
+    - in `tidepool-text`, `file::write_in_place_if`, a write in place
+      that gives the file it opened to a caller's check before a byte is
+      written;
+    - in `tidepool-workspace`, answers bound to one question of one
+      buffer and used once: `SaveMode::InPlace` and `SaveMode::NewFile`
+      made only by the question, naming its buffer and save; the buffer
+      keeping its last question until its next save takes it; another
+      answer running as `SaveMode::Check`, and another buffer's an error;
+      "write in place" checking the identity of the file it opened, and
+      "save as a new file" asking the question again after `prepare` and
+      renaming only when it is the one answered, or there is none; a look
+      that failed never counting as knowing the file;
+    - `docs/subsystems/sys-and-platform.md`,
+      `docs/subsystems/text-and-formats.md`, `docs/subsystems/editor.md`,
+      the three crates' READMEs and the diagrams that draw the save.
+  - Accept: two hard links to one file report the same identity, and a
+    copy, or a file deleted and made again at its path, another; an open
+    file's identity stays its own when another file is renamed over its
+    name; an answer to a question about one file, after its path was made
+    to name another (renamed over, or deleted and made again), writes
+    nothing into that other file and saves as a checked save would,
+    asking again when that one needs it; an answer for the same file does
+    what it says; an answer used a second time, or after another save,
+    runs as a checked save, and one given to another buffer is refused; a
+    group changed since the question makes "save as a new file" ask
+    again; where the metadata cannot be read, an answer to a question
+    that could not read it does what it says, and where a look failed,
+    the answer asks again.
+  - Verify: `cargo test -p tidepool-platform -p tidepool-text
+    -p tidepool-workspace`
+  - Note (2026-11-23): ADR-0070 records this task, split from M4.3. On
+    the reference machine's ext4, a file deleted and made again got the
+    same inode number in each of 2,000 tries and another birth time in
+    each, so the user chose that day to put the birth time in the
+    identity, and to let only a question make an answer.
+  - Note (2026-11-24): built. `platform::file::Metadata` has `id:
+    FileId` (`device`, `inode`, `born`), from `std`'s `stat`, and
+    `file::metadata_of` reads an open file (`fstat`); `text::file` has
+    `write_in_place_if` and `InPlace`, its check called with the opened
+    file before a byte is written; `workspace::buffers` has
+    `SaveMode::{NewFile, InPlace}(Answer)`, `Buffer::asked`,
+    `WorkspaceError::AnswerToAnotherBuffer` and tickets from one counter
+    for the process, and `SaveQuestion::of` is gone. `TIDEPOOL_IT_X11=1
+    xvfb-run -a cargo test -p tidepool-platform -p tidepool-text -p
+    tidepool-workspace` passed with no `SKIPPED` (platform 134 unit
+    tests; text 112 unit and 39 `files`; workspace 35 unit and 15
+    `buffers`, with the other suites and doc tests). Mutations were run
+    by hand and restored: a check that accepts any opened file, one that
+    takes any question as the one answered, one that accepts any ticket,
+    and one that compares device and inode without the birth time each
+    made tests fail. Clippy is clean for x86_64 Linux, aarch64 Linux,
+    x86_64 macOS and x86_64 Windows, where the `Unsupported` paths were
+    compiled, not run; an answer where nothing can be read is checked by
+    unit tests with looks that report `Unsupported`.
+  - Note (2026-11-24): two rounds of security review found nothing
+    critical, high or medium. The first round's six low findings were
+    fixed as the user chose (the opened file checked, adding `text`;
+    answers bound to one buffer's question, used once) or as the review
+    suggested (only `Unsupported` counts as not knowing; no public
+    `SaveQuestion::of`; the docs give the window before a rename; the
+    platform test skips rather than fails where birth times tie). The
+    second round's three were fixed: tickets unique in the process, so
+    another `Buffers`' answer answers nothing; the failed-look rule
+    stated for each answer; stale doc text. Left, as before this task: a
+    save as a new file looks before its commit's permission change, sync
+    and rename, so a file renamed over the path during that sync is not
+    seen; and a path swapped for a FIFO before `open` blocks a worker.
+
+- [ ] **M4.13 — editor: explorer, open editors, tabs, splits, the trust prompt and the save's question**
   - Depends: M4.11, M4.7, M4.2
+  - Do: per ADR-0070, ADR-0068 and `docs/subsystems/editor.md`:
+    - in `tidepool-editor`, the explorer over `workspace::files`, every
+      entry shown and ignored ones dimmed, in every folder, folders
+      collapsed until opened; the open editors list; editors over
+      `workspace::buffers`, a large or non-text file's shown read-only;
+      editor groups side by side, at most 4, with `ui` splitters between
+      them and a tab strip each, Ctrl+\ splitting the active editor to
+      the right and Ctrl+1 to Ctrl+4 focusing a group; a session's
+      layout restored into them, side by side in order, a fifth group's
+      editors and later ones given to the fourth; the trust prompt, a
+      modal dialog that says trusting a folder trusts every folder inside
+      it, refuses `/`, the home folder and a folder that contains it, and
+      warns, then allows, as ADR-0070 says; and the save's question as a
+      modal dialog with its three answers (ADR-0068);
+    - in `tidepool-workspace`, `trust`'s check of a folder from the
+      metadata of it and every folder above it, and the store refusing
+      to grant `/`, the home folder or a folder that contains it, a grant
+      of one in `trust.toml` trusting nothing, with a warning;
+    - golden scenes of the shell with the explorer, two groups, the trust
+      prompt and the save's question, drawn by the binary's
+      `tests/golden.rs`;
+    - `docs/subsystems/editor.md`, both crates' READMEs and the diagrams
+      that draw the views.
+  - Accept: headless tests open a folder's entries in the explorer, with
+    ignored ones dimmed and shown in trusted and untrusted folders;
+    tabs open, switch and close; groups split, focus and close, at most
+    4; a session's layout of stacked or more than 4 groups restores side
+    by side; the trust prompt refuses and warns in each case ADR-0070
+    names, and says that subfolders are trusted too; each of the save
+    question's answers is reported to the owner; the golden scenes
+    compare.
+  - Verify: `cargo test -p tidepool-editor -p tidepool-workspace`;
+    `cargo xtask golden`
+
+- [ ] **M4.3 — app: folders, trust, settings, the clipboard and sessions in the window**
+  - Depends: M4.12, M4.13, M4.11, M4.7, M4.2
   - Decide first (ADR-0068):
     - how a folder is opened: a command-line argument, a command that
       takes a typed path, or both (a native file dialog would need the
@@ -2876,20 +2988,22 @@ jabbott.dev, reads as the same design (human review).
       hidden from a user deciding whether to trust it (M4.7's review);
     - what shape splits take (side by side only, or both ways) and how
       many editor groups there may be.
-  - Do: the explorer and open editors over M4.11's `files` and
-    `buffers`; tabs and splits; the trust prompt, which says that
-    trusting a folder trusts every folder inside it; the save warning's
-    dialog (ADR-0068); and in the binary, opening a folder with its
-    `TrustStore` loaded from `trust.toml`, the editor's settings (soft
-    wrap, ADR-0063; Tab's spaces, ADR-0065), the keymap's workspace layer
-    from `Settings::table_layers`, settings resolved again when trust
-    changes, the window's clipboard routed to the editor, the channel of
-    messages from workers to the loop, and the session restored on start.
+  - Do: per ADR-0070: in `tidepool-gui`, the window's clipboard and a
+    waker that worker threads can call; in the binary, `tidepool
+    [FOLDER]` opening one folder, with its `TrustStore` loaded from
+    `trust.toml`, the trust prompt (M4.13) shown for an untrusted one,
+    the editor's settings (soft wrap, ADR-0063; Tab's spaces, ADR-0065),
+    the keymap's workspace layer from `Settings::table_layers`, settings
+    resolved again when trust changes, the window's clipboard routed to
+    the editor, worker threads running `workspace`'s jobs and the
+    channel of their results to the loop, and the session restored when
+    the folder opens; without the argument, `NO FOLDER` as now.
   - Accept: opening, editing and saving files round-trips in the window;
     untrusted state is the default; session restores; a large file opens
     read-only; the save warning shows before a save that would split a
     hard link or change the owner or group.
-  - Verify: `cargo test -p tidepool-editor -p tidepool`;
+  - Verify: `cargo test -p tidepool-gui -p tidepool`;
+    `TIDEPOOL_IT_X11=1 xvfb-run -a cargo test -p tidepool-gui -p tidepool`;
     `cargo xtask golden`
   - Note (2026-11-23): M4.7 leaves this task (ADR-0067): opening a folder
     in the binary, whose title strip says `NO FOLDER` until then, with
@@ -2927,6 +3041,21 @@ jabbott.dev, reads as the same design (human review).
     to M4.11). And a session's editors may name files outside the folder,
     so restoring one opens them as untrusted, as any file of an untrusted
     folder is.
+  - Note (2026-11-23): ADR-0070 answers the `Decide first` line with the
+    options the user chose that day, each the recommended one, and
+    splits this task, which was `editor: explorer, open editors, tabs,
+    splits, trust prompt; app: folders and sessions`, since it reached
+    five crates: M4.12 ties a save's answer to its file by device and
+    inode (`platform`, `workspace`), M4.13 builds the views (`editor`,
+    `workspace`), and this task keeps `gui`'s clipboard and waker and the
+    binary. A folder opens from the command line; the trust prompt
+    refuses `/`, the home folder and a folder that contains it, and
+    warns, then allows, when the folder or one above it may be written
+    by others or by a group other than the process's effective group, or
+    is owned by a user other than it and root; the explorer shows ignored
+    entries dimmed in every folder; editor groups sit side by side, at
+    most 4. The last three answers shape M4.13, and the device and inode
+    of the save's question, from M4.11's review, is M4.12's.
 
 - [ ] **M4.8 — regex: the engine and Unicode classes**
   - Depends: M0.2, M1.6
@@ -3805,3 +3934,4 @@ the release checklist is complete.
 | MIT-SHM present on X11 | Present time shows in profiles |
 | Undo history that survives a restart, and history pruning | Undo must persist, or history memory shows in profiles (ADR-0020) |
 | `codec`: the YAML subset, CSV and INI (`docs/subsystems/text-and-formats.md`) | A viewer, a validator or a language pack needs to parse them, not only highlight them |
+| A command that opens a folder from a typed path, and switching folders while one is open | Users ask to open a folder from inside Tidepool (ADR-0070) |

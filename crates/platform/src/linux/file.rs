@@ -15,11 +15,14 @@
 //! A file's metadata and a new file's owner on Linux, for
 //! [`file`](crate::file) (M4.10, ADR-0068).
 //!
-//! New in Tidepool. `std` reads the metadata (`stat(2)`, following links)
-//! and gives the link count, owner, group and mode through
-//! `std::os::unix::fs::MetadataExt`; `tidepool-sys` gives the process's
-//! effective user and group, which `std` does not. The rule for a new
-//! file's group is [`creator`], tested on its own.
+//! New in Tidepool. `std` reads the metadata (`statx(2)`, or `stat(2)`
+//! where the kernel has no `statx`, following links) and gives the link
+//! count, owner, group, mode, device and inode number through
+//! `std::os::unix::fs::MetadataExt`, and the birth time through
+//! `Metadata::created`, which is an error where `statx` reported none;
+//! `tidepool-sys` gives the process's effective user and group, which
+//! `std` does not. The rule for a new file's group is [`creator`], tested
+//! on its own.
 
 use std::fs;
 use std::io;
@@ -29,7 +32,7 @@ use std::path::Path;
 use tidepool_sys::linux::libc::{ALLPERMS, S_ISGID, getegid, geteuid};
 
 use crate::Error;
-use crate::file::{Metadata, Owner};
+use crate::file::{FileId, Metadata, Owner};
 
 /// Reads `path`'s metadata, following links.
 fn stat(path: &Path) -> Result<fs::Metadata, Error> {
@@ -39,17 +42,38 @@ fn stat(path: &Path) -> Result<fs::Metadata, Error> {
     })
 }
 
-/// The link count, owner, group and permission bits of the file at `path`.
+/// The link count, owner, group, permission bits and identity of the file
+/// at `path`.
 pub(crate) fn file_metadata(path: &Path) -> Result<Metadata, Error> {
-    let found = stat(path)?;
-    Ok(Metadata {
+    Ok(convert(&stat(path)?))
+}
+
+/// The link count, owner, group, permission bits and identity of the open
+/// `file`.
+pub(crate) fn open_file_metadata(file: &fs::File) -> Result<Metadata, Error> {
+    let found = file.metadata().map_err(|source| Error::Io {
+        call: "fstat",
+        source,
+    })?;
+    Ok(convert(&found))
+}
+
+/// The parts of `found` that [`Metadata`] holds.
+fn convert(found: &fs::Metadata) -> Metadata {
+    Metadata {
         links: found.nlink(),
         owner: Owner {
             user: found.uid(),
             group: found.gid(),
         },
         permissions: found.mode() & ALLPERMS,
-    })
+        id: FileId {
+            device: found.dev(),
+            inode: found.ino(),
+            // An error only says that the file system gave no birth time.
+            born: found.created().ok(),
+        },
+    }
 }
 
 /// The owner and group a file this process makes in `folder` gets.
@@ -164,6 +188,76 @@ mod tests {
 
         fs::remove_file(&second).expect("remove the second name");
         assert_eq!(file_metadata(&first).expect("read").links, 1);
+    }
+
+    /// M4.12: every name of a file gives one identity; a copy, a file
+    /// renamed over the name, and a file deleted and made again at it give
+    /// another.
+    #[test]
+    fn two_names_share_an_identity_and_another_file_has_its_own() {
+        let test = "two_names_share_an_identity_and_another_file_has_its_own";
+        let dir = scratch("identity");
+        let first = dir.join("first.txt");
+        write(&first, "text\n");
+        let id = file_metadata(&first).expect("read").id;
+        assert_eq!(file_metadata(&first).expect("read").id, id, "steady");
+
+        let second = dir.join("second.txt");
+        fs::hard_link(&first, &second).expect("make a second name");
+        assert_eq!(file_metadata(&second).expect("read").id, id);
+        let link = dir.join("link.txt");
+        symlink("first.txt", &link).expect("make a link");
+        assert_eq!(file_metadata(&link).expect("read").id, id, "followed");
+
+        let copy = dir.join("copy.txt");
+        fs::copy(&first, &copy).expect("copy");
+        let copied = file_metadata(&copy).expect("read").id;
+        assert_eq!(copied.device, id.device, "one file system");
+        assert_ne!(copied.inode, id.inode);
+
+        // Renamed over: the name reaches the copy now.
+        fs::rename(&copy, &first).expect("rename over");
+        assert_eq!(file_metadata(&first).expect("read").id, copied);
+
+        // Deleted and made again: the inode number may be the old one's,
+        // which the birth time tells apart where the file system has one
+        // and its clock moved on between the two.
+        let lone = dir.join("lone.txt");
+        write(&lone, "one\n");
+        let before = file_metadata(&lone).expect("read").id;
+        fs::remove_file(&lone).expect("delete");
+        write(&lone, "two\n");
+        let after = file_metadata(&lone).expect("read").id;
+        if after == before {
+            let reason = if before.born.is_none() {
+                "this file system reports no birth time and gave the new file the old \
+                 one's inode number, so the two cannot be told apart"
+            } else {
+                "this file system gave the new file the old one's inode number and \
+                 birth time, within one tick of its clock, so the two cannot be told apart"
+            };
+            skipped(test, reason);
+        }
+    }
+
+    /// M4.12: an open file's metadata is its file's, and stays that file's
+    /// when another file is renamed over the name it was opened by.
+    #[test]
+    fn an_open_file_s_metadata_is_its_own_whatever_its_name_reaches() {
+        let dir = scratch("open-file");
+        let path = dir.join("opened.txt");
+        write(&path, "text\n");
+        fs::hard_link(&path, dir.join("second.txt")).expect("make a second name");
+        let opened = File::open(&path).expect("open");
+        let by_path = file_metadata(&path).expect("read the path");
+        assert_eq!(open_file_metadata(&opened).expect("read the file"), by_path);
+
+        let other = dir.join("other.txt");
+        write(&other, "other\n");
+        fs::rename(&other, &path).expect("rename over");
+        let now = open_file_metadata(&opened).expect("read the file");
+        assert_eq!(now.id, by_path.id, "still the file it opened");
+        assert_ne!(file_metadata(&path).expect("read the path").id, now.id);
     }
 
     #[test]

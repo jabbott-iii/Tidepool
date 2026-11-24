@@ -236,6 +236,15 @@ pub enum WorkspaceError {
         /// The buffer's file.
         path: PathBuf,
     },
+    /// An answer to another buffer's save question was given to this
+    /// buffer's save, which would write this buffer's text where the user
+    /// answered for another's ([`crate::buffers::Answer`], ADR-0070).
+    AnswerToAnotherBuffer {
+        /// The file of the buffer saved.
+        path: PathBuf,
+        /// The buffer whose question the answer answers.
+        asked: crate::buffers::BufferId,
+    },
     /// A folder the [file tree](crate::files) does not read: one outside
     /// the root, named with `..`, or reached through a symbolic link or
     /// something that is not a folder, as Git does not follow a link.
@@ -370,6 +379,12 @@ impl fmt::Display for WorkspaceError {
             Self::SaveInFlight { path } => write!(
                 f,
                 "`{}` is being saved already; a save waits for the last one",
+                path::display(path)
+            ),
+            Self::AnswerToAnotherBuffer { path, asked } => write!(
+                f,
+                "the answer is to buffer {}'s question, not to `{}`'s",
+                asked.get(),
                 path::display(path)
             ),
             Self::NotBrowsable { path } => write!(

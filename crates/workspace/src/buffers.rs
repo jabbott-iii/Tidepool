@@ -84,12 +84,57 @@
 //!    ids it does not map, and NFS gives squashed users), counts as not
 //!    knowing, and the save asks.
 //!
-//! The user answers by saving again in [`SaveMode::InPlace`], which writes
-//! over the file and keeps its identity but is not atomic, or
-//! [`SaveMode::NewFile`], the atomic save without the check; or does
-//! nothing, which cancels. A new file is saved without a question, unless
+//! The user answers by saving again with [`SaveQuestion::write_in_place`]
+//! ([`SaveMode::InPlace`]), which writes over the file and keeps its
+//! identity but is not atomic, or [`SaveQuestion::save_as_new_file`]
+//! ([`SaveMode::NewFile`]), the atomic save of what the question showed;
+//! or does nothing, which cancels. A new file is saved without a question, unless
 //! a file appeared at its path while the save was writing
 //! ([`SaveQuestion::appeared`]).
+//!
+//! # An answer is for the question it answers
+//!
+//! The user answers later, and by then much can change: another program
+//! renamed its own file over the path, or deleted the file and made a new
+//! one; the file gained or lost a name, an owner or a group; or the caller
+//! kept the answer to use again. So an answer is bound to one question of
+//! one buffer (M4.12, ADR-0070):
+//!
+//! - **Only the question makes an answer** ([`SaveQuestion::write_in_place`],
+//!   [`SaveQuestion::save_as_new_file`]), and the answer names the buffer
+//!   and the save that asked ([`Answer`]).
+//! - **An answer is used once.** A buffer keeps the question its last save
+//!   asked ([`Buffer::asked`]) until its next save starts. That save takes
+//!   it: an answer to it does what it says; an answer to an earlier
+//!   question, or one used already, runs as [`SaveMode::Check`]; an answer
+//!   given to another buffer's save is
+//!   [`WorkspaceError::AnswerToAnotherBuffer`].
+//! - **"Write in place" writes only into the file asked about.**
+//!   [`tidepool_text::file::write_in_place_if`] gives the file it opened to
+//!   a check, which compares its identity (`platform::file::FileId`: device,
+//!   inode number and birth time) with the question's before a byte is
+//!   written. If the path now reaches another file, or none, the save runs
+//!   as a checked save, which asks again when that file needs it, or makes
+//!   the file anew, as a checked save of a deleted file does.
+//! - **"Save as a new file" renames only what the user was shown.** It
+//!   prepares its temporary file and asks the question again: if it is the
+//!   question answered (the same target, identity, names, owner and new
+//!   owner), it renames; if there is nothing to ask now, it renames as a
+//!   checked save would; otherwise it asks the new question. As for a
+//!   checked save, the look comes before the commit, which still gives the
+//!   temporary file its permissions and syncs it before the rename, so a
+//!   file another program renames over the path during that sync is not
+//!   seen.
+//! - **A look that failed never counts as knowing.** Where `platform`
+//!   reads no metadata on this system, a question knows nothing of the file
+//!   and an answer acts on whatever the path reaches, as the save always
+//!   did there. On a system where it does, a question one of whose looks
+//!   failed (a missing file, a link loop, an error of the file system) is
+//!   answered by "save as a new file" only by asking again. "Write in
+//!   place" needs only the identity of the file itself: it writes when the
+//!   file it opened is the one whose identity the question read, whatever
+//!   the look at the temporary file found, and never when that identity
+//!   could not be read.
 //!
 //! On systems where `platform` cannot read a file's metadata yet (macOS
 //! until M11.8, Windows until M12.2), the check cannot know, so every save
@@ -97,11 +142,14 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs::File;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tidepool_core::path;
-use tidepool_platform::file::{self as platform_file, Metadata};
-use tidepool_text::file::{self as text_file, LineEndings, Loaded};
+use tidepool_platform::file::{self as platform_file, FileId, Metadata};
+use tidepool_text::file::{self as text_file, InPlace, LineEndings, Loaded};
 use tidepool_text::{Checkpoint, FileStep, Format, History, LineBreak, Rope, TextError};
 
 use crate::WorkspaceError;
@@ -162,22 +210,83 @@ impl fmt::Display for ReadOnly {
 }
 
 /// How a save writes the file ([`Buffers::save`]).
+///
+/// Only a [`SaveQuestion`] makes the two answers, each for that question
+/// alone, so no save skips the check without a question behind it (the
+/// [module documentation](self#an-answer-is-for-the-question-it-answers),
+/// ADR-0070).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SaveMode {
     /// The atomic save, which first asks when its rename would split a
     /// hard link or give the file another owner or group (the [module
     /// documentation](self#saving)). What a save does by default.
     Check,
-    /// The atomic save without the check: the answer "save as a new
-    /// file", which splits the link, or gives the file the saver's owner
-    /// and group, as the question said.
-    NewFile,
-    /// Writing over the file without a rename
-    /// ([`tidepool_text::file::write_in_place`]): the answer "write in
-    /// place", which keeps the file's links, owner, group, permissions,
-    /// access list and extended attributes, but leaves it part-written if
-    /// Tidepool or the machine stops during the write.
-    InPlace,
+    /// The answer "save as a new file" ([`SaveQuestion::save_as_new_file`]):
+    /// the atomic save, which splits the link, or gives the file the
+    /// saver's owner and group, as the question said. It renames when the
+    /// question asked again just before is the one answered, or there is
+    /// none; otherwise it asks the new one.
+    NewFile(Answer),
+    /// The answer "write in place" ([`SaveQuestion::write_in_place`]):
+    /// writing over the file without a rename
+    /// ([`tidepool_text::file::write_in_place_if`]), which keeps the file's
+    /// links, owner, group, permissions, access list and extended
+    /// attributes, but leaves it part-written if Tidepool or the machine
+    /// stops during the write. It writes only into the file the question
+    /// asked about; if the path reaches another file, or none, the save
+    /// runs as [`SaveMode::Check`] instead.
+    InPlace(Answer),
+}
+
+/// What an answer answers: the buffer and the save whose
+/// [`SaveQuestion`] it is (ADR-0070).
+///
+/// Only [`SaveQuestion::write_in_place`] and
+/// [`SaveQuestion::save_as_new_file`] make one. It is taken once, by the
+/// next save of its buffer ([`Buffers::save`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Answer {
+    buffer: BufferId,
+    ticket: u64,
+}
+
+impl Answer {
+    /// The buffer whose question this answers.
+    pub fn buffer(&self) -> BufferId {
+        self.buffer
+    }
+}
+
+/// What a look at a file's metadata found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Look {
+    /// The file's metadata.
+    Read(Metadata),
+    /// `platform` reads no metadata on this system (macOS until M11.8,
+    /// Windows until M12.2).
+    Unsupported,
+    /// The look failed: the file is missing or cannot be reached, a link
+    /// leads round in a loop, or the file system erred.
+    Failed,
+}
+
+impl Look {
+    /// What `platform` answered.
+    fn of(found: Result<Metadata, tidepool_platform::Error>) -> Self {
+        match found {
+            Ok(metadata) => Self::Read(metadata),
+            Err(tidepool_platform::Error::Unsupported { .. }) => Self::Unsupported,
+            Err(_) => Self::Failed,
+        }
+    }
+
+    /// The metadata, if it was read.
+    fn metadata(self) -> Option<Metadata> {
+        match self {
+            Self::Read(metadata) => Some(metadata),
+            Self::Unsupported | Self::Failed => None,
+        }
+    }
 }
 
 /// One open file: its text, its history, and what loading found out
@@ -196,6 +305,7 @@ pub struct Buffer {
     read_only: Option<ReadOnly>,
     version: Version,
     saving: Option<Saving>,
+    asked: Option<SaveQuestion>,
 }
 
 /// The save a buffer waits for.
@@ -266,6 +376,12 @@ impl Buffer {
     /// Whether a save is running.
     pub fn is_saving(&self) -> bool {
         self.saving.is_some()
+    }
+
+    /// The question the buffer's last save asked, which an answer may still
+    /// answer: until the buffer's next save starts.
+    pub fn asked(&self) -> Option<&SaveQuestion> {
+        self.asked.as_ref()
     }
 
     /// The text and its history, to edit through the history (ADR-0020).
@@ -339,8 +455,14 @@ pub struct Buffers {
     buffers: BTreeMap<BufferId, Buffer>,
     by_path: BTreeMap<PathBuf, BufferId>,
     next_id: u64,
-    next_ticket: u64,
 }
+
+/// The next save's ticket. One counter for the whole process, so that a
+/// save's ticket, and the [`Answer`] to its question, is never another
+/// [`Buffers`]' too: an answer that one `Buffers` made, given to another's
+/// buffer of the same [`BufferId`], answers no question there (M4.12's
+/// second review).
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(0);
 
 impl Buffers {
     /// No buffers.
@@ -404,6 +526,7 @@ impl Buffers {
                 read_only,
                 version: Version(0),
                 saving: None,
+                asked: None,
             },
         );
         Ok(Opened {
@@ -461,17 +584,36 @@ impl Buffers {
     /// history and returns the job that writes its text, for a worker to
     /// run. [`Buffers::finish_save`] takes what it did.
     ///
+    /// A save that starts takes the buffer's question ([`Buffer::asked`]),
+    /// so an answer is used once: an answer to that question does what it
+    /// says, and any other answer runs as [`SaveMode::Check`], which
+    /// [`SaveJob::mode`] then reports (the [module
+    /// documentation](self#an-answer-is-for-the-question-it-answers)).
+    ///
     /// # Errors
     ///
     /// [`WorkspaceError::NoBuffer`] when `id` is not open;
-    /// [`WorkspaceError::ReadOnlyBuffer`] when the buffer is read-only;
-    /// [`WorkspaceError::SaveInFlight`] when a save of it is running.
+    /// [`WorkspaceError::AnswerToAnotherBuffer`] when `mode` answers
+    /// another buffer's question; [`WorkspaceError::ReadOnlyBuffer`] when
+    /// the buffer is read-only; [`WorkspaceError::SaveInFlight`] when a save
+    /// of it is running. None of them takes the buffer's question.
     pub fn save(&mut self, id: BufferId, mode: SaveMode) -> Result<SaveJob, WorkspaceError> {
-        let ticket = self.next_ticket;
         let buffer = self
             .buffers
             .get_mut(&id)
             .ok_or(WorkspaceError::NoBuffer { id })?;
+        let answer = match mode {
+            SaveMode::Check => None,
+            SaveMode::NewFile(answer) | SaveMode::InPlace(answer) => Some(answer),
+        };
+        if let Some(answer) = answer
+            && answer.buffer != id
+        {
+            return Err(WorkspaceError::AnswerToAnotherBuffer {
+                path: buffer.path.clone(),
+                asked: answer.buffer,
+            });
+        }
         if let Some(why) = buffer.read_only {
             return Err(WorkspaceError::ReadOnlyBuffer {
                 path: buffer.path.clone(),
@@ -489,6 +631,20 @@ impl Buffers {
                 path: buffer.path.clone(),
             });
         }
+        // The question, taken whatever this save is, so that no answer to it
+        // is used twice; it answers only an answer to it.
+        let asked = buffer.asked.take();
+        let answered = match (answer, asked) {
+            (Some(answer), Some(asked)) if asked.ticket == answer.ticket => Some(asked),
+            _ => None,
+        };
+        let mode = if answered.is_some() {
+            mode
+        } else {
+            SaveMode::Check
+        };
+        // Unique, not ordered: no other memory depends on it.
+        let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
         let checkpoint = buffer.history.checkpoint();
         let job = SaveJob {
             id,
@@ -498,9 +654,9 @@ impl Buffers {
             text: checkpoint.text().clone(),
             format,
             mode,
+            answered,
         };
         buffer.saving = Some(Saving { ticket, checkpoint });
-        self.next_ticket = self.next_ticket.saturating_add(1);
         Ok(job)
     }
 
@@ -542,10 +698,13 @@ impl Buffers {
                     version: done.version,
                 }
             }
-            Outcome::Asks(question) => SaveReport::Asks {
-                id: done.id,
-                question,
-            },
+            Outcome::Asks(question) => {
+                buffer.asked = Some(question.clone());
+                SaveReport::Asks {
+                    id: done.id,
+                    question,
+                }
+            }
             Outcome::Failed(error) => {
                 if leaves_file_unknown(&error) {
                     buffer.history.clear_saved();
@@ -639,6 +798,9 @@ pub struct SaveJob {
     text: Rope,
     format: Format,
     mode: SaveMode,
+    /// The question `mode` answers, taken from the buffer: `None` in
+    /// [`SaveMode::Check`].
+    answered: Option<SaveQuestion>,
 }
 
 impl SaveJob {
@@ -657,7 +819,8 @@ impl SaveJob {
         &self.path
     }
 
-    /// How the save writes the file.
+    /// How the save writes the file: [`SaveMode::Check`] for an answer that
+    /// was not to the buffer's question ([`Buffers::save`]).
     pub fn mode(&self) -> SaveMode {
         self.mode
     }
@@ -666,53 +829,24 @@ impl SaveJob {
     /// It blocks on the file system, so run it on a worker, never on the
     /// main thread.
     pub fn run(self) -> SaveDone {
-        self.run_with(|path| platform_file::metadata(path).ok())
+        self.run_with(
+            |path| Look::of(platform_file::metadata(path)),
+            |file| Look::of(platform_file::metadata_of(file)),
+        )
     }
 
     /// [`SaveJob::run`], reading the metadata a check compares with
-    /// `metadata`, which a test replaces to make a file's owner or group
-    /// differ.
-    fn run_with(self, metadata: impl Fn(&Path) -> Option<Metadata>) -> SaveDone {
-        let save_error = |source| {
-            Outcome::Failed(WorkspaceError::Save {
-                path: self.path.clone(),
-                source,
-            })
-        };
-        let outcome = match self.mode {
-            SaveMode::NewFile => match text_file::save(&self.path, &self.text, self.format) {
-                Ok(()) => Outcome::Saved,
-                Err(source) => save_error(source),
-            },
-            SaveMode::InPlace => {
-                match text_file::write_in_place(&self.path, &self.text, self.format) {
-                    Ok(()) => Outcome::Saved,
-                    Err(source) => save_error(source),
-                }
-            }
-            SaveMode::Check => match text_file::prepare(&self.path, &self.text, self.format) {
-                Err(source) => save_error(source),
-                Ok(prepared) => {
-                    let file = metadata(prepared.target());
-                    let new = metadata(prepared.temp_path());
-                    // A file that appeared since `prepare` found none is
-                    // asked about too, rather than renamed over.
-                    let appeared = !prepared.replaces() && file.is_some();
-                    let question = if prepared.replaces() || appeared {
-                        SaveQuestion::build(prepared.target(), file, new, appeared)
-                    } else {
-                        None
-                    };
-                    match question {
-                        // Dropping the prepared save removes its file.
-                        Some(question) => Outcome::Asks(question),
-                        None => match prepared.commit() {
-                            Ok(()) => Outcome::Saved,
-                            Err(source) => save_error(source),
-                        },
-                    }
-                }
-            },
+    /// `at_path` for a path and `of_file` for an open file, which a test
+    /// replaces to make a file's owner, group or identity differ.
+    fn run_with(
+        self,
+        at_path: impl Fn(&Path) -> Look,
+        of_file: impl Fn(&File) -> Look,
+    ) -> SaveDone {
+        let outcome = match (self.mode, &self.answered) {
+            (SaveMode::InPlace(_), Some(question)) => self.in_place(question, &at_path, &of_file),
+            (SaveMode::NewFile(_), Some(question)) => self.check(Some(question), &at_path),
+            _ => self.check(None, &at_path),
         };
         SaveDone {
             id: self.id,
@@ -720,6 +854,87 @@ impl SaveJob {
             version: self.version,
             outcome,
         }
+    }
+
+    /// The answer "write in place" to `question`: writes over the file the
+    /// path reaches if it is the file asked about, else saves as a checked
+    /// save.
+    fn in_place(
+        &self,
+        question: &SaveQuestion,
+        at_path: &impl Fn(&Path) -> Look,
+        of_file: &impl Fn(&File) -> Look,
+    ) -> Outcome {
+        let written = text_file::write_in_place_if(&self.path, &self.text, self.format, |file| {
+            question.is_file(of_file(file))
+        });
+        match written {
+            Ok(InPlace::Written) => Outcome::Saved,
+            // Another file than the one asked about: the answer is not for
+            // it (ADR-0070).
+            Ok(InPlace::Refused) => self.check(None, at_path),
+            // No file there now: a checked save makes it anew.
+            Err(TextError::Io {
+                step: FileStep::Metadata,
+                error,
+            }) if error.kind() == ErrorKind::NotFound => self.check(None, at_path),
+            Err(source) => self.failed(source),
+        }
+    }
+
+    /// A checked save: prepares the temporary file, then
+    /// [`SaveJob::check_prepared`], with the question `answered`, if this
+    /// is the answer "save as a new file" to it.
+    fn check(&self, answered: Option<&SaveQuestion>, at_path: &impl Fn(&Path) -> Look) -> Outcome {
+        match text_file::prepare(&self.path, &self.text, self.format) {
+            Err(source) => self.failed(source),
+            Ok(prepared) => self.check_prepared(prepared, answered, at_path),
+        }
+    }
+
+    /// Reads the file `prepared` would replace and its temporary file, and
+    /// commits when there is nothing to ask, or when the question is the
+    /// one `answered`; otherwise drops the prepared save, which removes its
+    /// file, and asks.
+    fn check_prepared(
+        &self,
+        prepared: text_file::PreparedSave,
+        answered: Option<&SaveQuestion>,
+        at_path: &impl Fn(&Path) -> Look,
+    ) -> Outcome {
+        let file = at_path(prepared.target());
+        let new = at_path(prepared.temp_path());
+        // A file that appeared since `prepare` found none is asked about
+        // too, rather than renamed over.
+        let appeared = !prepared.replaces() && file.metadata().is_some();
+        let question = if prepared.replaces() || appeared {
+            SaveQuestion::build(self.id, self.ticket, prepared.target(), file, new, appeared)
+        } else {
+            None
+        };
+        match question {
+            None => self.commit(prepared),
+            Some(question) if answered.is_some_and(|asked| asked.is_answered_by(&question)) => {
+                self.commit(prepared)
+            }
+            Some(question) => Outcome::Asks(question),
+        }
+    }
+
+    /// Renames the prepared save over its target.
+    fn commit(&self, prepared: text_file::PreparedSave) -> Outcome {
+        match prepared.commit() {
+            Ok(()) => Outcome::Saved,
+            Err(source) => self.failed(source),
+        }
+    }
+
+    /// The outcome of a save that failed with `source`.
+    fn failed(&self, source: TextError) -> Outcome {
+        Outcome::Failed(WorkspaceError::Save {
+            path: self.path.clone(),
+            source,
+        })
     }
 }
 
@@ -774,8 +989,8 @@ pub enum SaveReport {
     },
     /// Nothing was written: the rename would have split a hard link or
     /// given the file another owner or group, or could not tell. The user
-    /// answers by saving in [`SaveMode::InPlace`] or [`SaveMode::NewFile`],
-    /// or cancels by doing nothing.
+    /// answers by saving with [`SaveQuestion::write_in_place`] or
+    /// [`SaveQuestion::save_as_new_file`], or cancels by doing nothing.
     Asks {
         /// The buffer.
         id: BufferId,
@@ -797,37 +1012,53 @@ pub enum SaveReport {
 
 /// Why a save stopped to ask before its rename (ADR-0068, ADR-0069): what
 /// it read of the file it would replace and of the new file it wrote.
+///
+/// Only a save makes one, for its buffer. Its two answers are
+/// [`SaveQuestion::write_in_place`] and [`SaveQuestion::save_as_new_file`],
+/// each for this question alone (the [module
+/// documentation](self#an-answer-is-for-the-question-it-answers),
+/// ADR-0070).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SaveQuestion {
+    buffer: BufferId,
+    ticket: u64,
     target: PathBuf,
+    file: Option<FileId>,
     links: Option<u64>,
     owner: Option<Owner>,
     new_owner: Option<Owner>,
     appeared: bool,
+    /// Whether a look failed, for another reason than that `platform`
+    /// reads no metadata on this system.
+    failed: bool,
 }
 
 impl SaveQuestion {
-    /// The question for a rename over `target`, whose metadata is `file`,
-    /// of a new file whose metadata is `new` (`None` where they could not
-    /// be read), or `None` when the rename changes neither the links nor
-    /// the owner or group, as far as can be known.
-    pub fn of(target: &Path, file: Option<Metadata>, new: Option<Metadata>) -> Option<Self> {
-        Self::build(target, file, new, false)
-    }
-
-    /// [`SaveQuestion::of`], always asking when `appeared`.
+    /// The question that the save `ticket` of `buffer` asks before a
+    /// rename over `target`, whose metadata `file` found, of a new file
+    /// whose metadata `new` found, or `None` when the rename changes neither
+    /// the links nor the owner or group, as far as can be known; always a
+    /// question when a file `appeared`.
     fn build(
+        buffer: BufferId,
+        ticket: u64,
         target: &Path,
-        file: Option<Metadata>,
-        new: Option<Metadata>,
+        file: Look,
+        new: Look,
         appeared: bool,
     ) -> Option<Self> {
+        let failed = file == Look::Failed || new == Look::Failed;
+        let (file, new) = (file.metadata(), new.metadata());
         let question = Self {
+            buffer,
+            ticket,
             target: target.to_path_buf(),
+            file: file.map(|file| file.id),
             links: file.map(|file| file.links),
             owner: file.map(|file| file.owner),
             new_owner: new.map(|new| new.owner),
             appeared,
+            failed,
         };
         let asks = appeared
             || question.splits_link()
@@ -839,6 +1070,68 @@ impl SaveQuestion {
     /// The file the save would replace: the end of its symbolic links.
     pub fn target(&self) -> &Path {
         &self.target
+    }
+
+    /// The identity of the file asked about, if it could be read: the one
+    /// at [`SaveQuestion::target`] as the save looked, or the one that
+    /// appeared there ([`SaveQuestion::appeared`]).
+    pub fn file(&self) -> Option<FileId> {
+        self.file
+    }
+
+    /// The buffer whose save asked.
+    pub fn buffer(&self) -> BufferId {
+        self.buffer
+    }
+
+    /// The answer "write in place", for the next [`Buffers::save`] of
+    /// [`SaveQuestion::buffer`]: writes over the file asked about, keeping
+    /// its identity, or saves as [`SaveMode::Check`] would if the path
+    /// reaches another file by then.
+    pub fn write_in_place(&self) -> SaveMode {
+        SaveMode::InPlace(self.answer())
+    }
+
+    /// The answer "save as a new file", for the next [`Buffers::save`] of
+    /// [`SaveQuestion::buffer`]: the atomic save, if this question is still
+    /// the one to ask, or there is none; otherwise it asks the new one.
+    pub fn save_as_new_file(&self) -> SaveMode {
+        SaveMode::NewFile(self.answer())
+    }
+
+    /// What this question's answers answer.
+    fn answer(&self) -> Answer {
+        Answer {
+            buffer: self.buffer,
+            ticket: self.ticket,
+        }
+    }
+
+    /// Whether `now`, a look at the file a write in place opened, found the
+    /// file asked about: the same identity, or, where `platform` reads no
+    /// metadata, nothing known either time. A look that failed never
+    /// counts.
+    fn is_file(&self, now: Look) -> bool {
+        match (self.file, now) {
+            (Some(asked), Look::Read(found)) => found.id == asked,
+            (None, Look::Unsupported) => !self.failed,
+            _ => false,
+        }
+    }
+
+    /// Whether `now`, the question a save asks again after its answer
+    /// prepared the temporary file, is this one, so that the answer is for
+    /// what the user was shown: the same target, identity, names, owner,
+    /// new owner and appearance, and no look that failed either time.
+    fn is_answered_by(&self, now: &SaveQuestion) -> bool {
+        !self.failed
+            && !now.failed
+            && self.target == now.target
+            && self.file == now.file
+            && self.links == now.links
+            && self.owner == now.owner
+            && self.new_owner == now.new_owner
+            && self.appeared == now.appeared
     }
 
     /// How many names (hard links) the file has, if that could be read.
@@ -895,50 +1188,354 @@ fn compare(old: u32, new: u32) -> Option<bool> {
 mod tests {
     use super::*;
 
-    fn metadata(links: u64, user: u32, group: u32) -> Option<Metadata> {
-        Some(Metadata {
+    /// The identity a test's fake metadata gives every file.
+    const ID: FileId = FileId {
+        device: 1,
+        inode: 1,
+        born: None,
+    };
+
+    /// A look that read a file of `links` names, owned by `user` and
+    /// `group`, of identity [`ID`].
+    fn read(links: u64, user: u32, group: u32) -> Look {
+        Look::Read(Metadata {
             links,
             owner: Owner { user, group },
             permissions: 0o644,
+            id: ID,
         })
+    }
+
+    /// [`read`] with another identity.
+    fn read_id(id: FileId, links: u64) -> Look {
+        match read(links, 1000, 100) {
+            Look::Read(found) => Look::Read(Metadata { id, ..found }),
+            other => other,
+        }
+    }
+
+    /// The question of buffer 1's save 1 about `/w/a.txt`.
+    fn question(file: Look, new: Look) -> Option<SaveQuestion> {
+        SaveQuestion::build(BufferId(1), 1, Path::new("/w/a.txt"), file, new, false)
     }
 
     #[test]
     fn a_question_is_asked_only_when_something_changes_or_is_unknown() {
-        let target = Path::new("/w/a.txt");
-        assert_eq!(
-            SaveQuestion::of(target, metadata(1, 1000, 100), metadata(1, 1000, 100)),
-            None
-        );
+        assert_eq!(question(read(1, 1000, 100), read(1, 1000, 100)), None);
         let cases = [
             // Another name.
-            (metadata(2, 1000, 100), metadata(1, 1000, 100)),
+            (read(2, 1000, 100), read(1, 1000, 100)),
             // Another owner, as when root saves a user's file.
-            (metadata(1, 1000, 100), metadata(1, 0, 0)),
+            (read(1, 1000, 100), read(1, 0, 0)),
             // Another group alone.
-            (metadata(1, 1000, 100), metadata(1, 1000, 101)),
-            // Either side unread.
-            (None, metadata(1, 1000, 100)),
-            (metadata(1, 1000, 100), None),
+            (read(1, 1000, 100), read(1, 1000, 101)),
+            // Either side unread, or unreadable here.
+            (Look::Failed, read(1, 1000, 100)),
+            (read(1, 1000, 100), Look::Failed),
+            (Look::Unsupported, Look::Unsupported),
             // The overflow id on either side.
-            (metadata(1, OVERFLOW_ID, 100), metadata(1, OVERFLOW_ID, 100)),
-            (metadata(1, 1000, OVERFLOW_ID), metadata(1, 1000, 100)),
+            (read(1, OVERFLOW_ID, 100), read(1, OVERFLOW_ID, 100)),
+            (read(1, 1000, OVERFLOW_ID), read(1, 1000, 100)),
         ];
         for (file, new) in cases {
-            let question = SaveQuestion::of(target, file, new);
-            assert!(question.is_some(), "{file:?} {new:?}");
+            assert!(question(file, new).is_some(), "{file:?} {new:?}");
         }
-        let question = SaveQuestion::of(target, metadata(3, 1000, 100), metadata(1, 0, 100))
-            .expect("a question");
-        assert!(question.splits_link());
-        assert_eq!(question.links(), Some(3));
-        assert_eq!(question.changes_user(), Some(true));
-        assert_eq!(question.changes_group(), Some(false));
-        assert_eq!(question.target(), target);
-        let unknown = SaveQuestion::of(target, None, metadata(1, 0, 0)).expect("a question");
+        let asked = question(read(3, 1000, 100), read(1, 0, 100)).expect("a question");
+        assert!(asked.splits_link());
+        assert_eq!(asked.links(), Some(3));
+        assert_eq!(asked.changes_user(), Some(true));
+        assert_eq!(asked.changes_group(), Some(false));
+        assert_eq!(asked.target(), Path::new("/w/a.txt"));
+        assert_eq!(asked.file(), Some(ID));
+        assert_eq!(asked.buffer(), BufferId(1));
+        let unknown = question(Look::Failed, read(1, 0, 0)).expect("a question");
         assert!(!unknown.splits_link());
         assert_eq!(unknown.changes_user(), None);
         assert_eq!(unknown.changes_group(), None);
+        assert_eq!(unknown.file(), None);
+    }
+
+    /// ADR-0070: an answer names its question; a write in place's check
+    /// accepts the file asked about only, and a look that failed never.
+    #[test]
+    fn an_answer_names_its_question_and_its_file() {
+        let asked = question(read(2, 1000, 100), read(1, 1000, 100)).expect("a question");
+        let answer = Answer {
+            buffer: BufferId(1),
+            ticket: 1,
+        };
+        assert_eq!(asked.write_in_place(), SaveMode::InPlace(answer));
+        assert_eq!(asked.save_as_new_file(), SaveMode::NewFile(answer));
+        assert_eq!(answer.buffer(), BufferId(1));
+
+        assert!(asked.is_file(read(1, 0, 0)), "the identity alone counts");
+        assert!(!asked.is_file(read_id(FileId { inode: 2, ..ID }, 2)));
+        assert!(!asked.is_file(read_id(FileId { device: 2, ..ID }, 2)));
+        let born = Some(std::time::UNIX_EPOCH);
+        assert!(!asked.is_file(read_id(FileId { born, ..ID }, 2)));
+        assert!(!asked.is_file(Look::Failed), "known, then failed");
+        assert!(!asked.is_file(Look::Unsupported));
+
+        let blind = question(Look::Unsupported, Look::Unsupported).expect("a question");
+        assert!(
+            blind.is_file(Look::Unsupported),
+            "nothing known either time"
+        );
+        assert!(!blind.is_file(read(2, 1000, 100)));
+        let failed = question(Look::Failed, read(1, 1000, 100)).expect("a question");
+        assert!(
+            !failed.is_file(Look::Unsupported),
+            "a failed look never counts"
+        );
+        assert!(!failed.is_file(Look::Failed));
+        assert!(!failed.is_file(read(2, 1000, 100)));
+        // A write in place needs only the file's own identity: a failed look
+        // at the temporary file does not stop it, but stops "save as a new
+        // file" (`a_question_answers_only_the_same_question`).
+        let temp_failed = question(read(2, 1000, 100), Look::Failed).expect("a question");
+        assert!(temp_failed.is_file(read(2, 1000, 100)));
+        assert!(!temp_failed.is_answered_by(&temp_failed.clone()));
+    }
+
+    /// M4.12's second review: tickets are unique in the process, so an
+    /// answer that one `Buffers` made answers no question of another's,
+    /// even for a buffer of the same id; it runs as a checked save there.
+    #[test]
+    fn an_answer_from_another_buffers_answers_nothing() {
+        let scratch = Scratch::new("two-buffers");
+        let a = scratch.0.join("a.txt");
+        std::fs::write(&a, b"a").expect("write");
+        let b = scratch.0.join("b.txt");
+        std::fs::write(&b, b"b").expect("write");
+        let (mut x, mut y) = (Buffers::new(), Buffers::new());
+        let xa = edited(&mut x, &a);
+        let yb = edited(&mut y, &b);
+        assert_eq!(xa, yb, "each Buffers numbers its own buffers");
+        let linked = |_: &Path| read(2, 1000, 100);
+        let opened = |_: &File| read(2, 1000, 100);
+        let unused = |_: &File| panic!("no file opened");
+        let from_x = asks(save_with(&mut x, xa, SaveMode::Check, linked, unused));
+        let in_y = asks(save_with(&mut y, yb, SaveMode::Check, linked, unused));
+        assert_ne!(from_x.ticket, in_y.ticket);
+
+        let job = y.save(yb, from_x.write_in_place()).expect("a save");
+        assert_eq!(job.mode(), SaveMode::Check);
+        asks(y.finish_save(job.run_with(linked, opened)));
+        assert_eq!(std::fs::read(&b).expect("read"), b"b");
+    }
+
+    /// ADR-0070: "save as a new file" renames only when the question asked
+    /// again is the one answered.
+    #[test]
+    fn a_question_answers_only_the_same_question() {
+        let asked = question(read(2, 1000, 100), read(1, 1000, 100)).expect("a question");
+        assert!(asked.is_answered_by(&asked.clone()));
+        let changed = [
+            question(read(3, 1000, 100), read(1, 1000, 100)),
+            question(read(2, 1000, 101), read(1, 1000, 100)),
+            question(read(2, 1000, 100), read(1, 1000, 101)),
+            question(read_id(FileId { inode: 2, ..ID }, 2), read(1, 1000, 100)),
+            question(read(2, 1000, 100), Look::Failed),
+            SaveQuestion::build(
+                BufferId(1),
+                1,
+                Path::new("/w/b.txt"),
+                read(2, 1000, 100),
+                read(1, 1000, 100),
+                false,
+            ),
+            SaveQuestion::build(
+                BufferId(1),
+                1,
+                Path::new("/w/a.txt"),
+                read(2, 1000, 100),
+                read(1, 1000, 100),
+                true,
+            ),
+        ];
+        for now in changed {
+            let now = now.expect("a question");
+            assert!(!asked.is_answered_by(&now), "{now:?}");
+        }
+        let blind = question(Look::Unsupported, Look::Unsupported).expect("a question");
+        assert!(
+            blind.is_answered_by(&blind.clone()),
+            "nothing known either time"
+        );
+        let failed = question(Look::Failed, read(1, 1000, 100)).expect("a question");
+        assert!(
+            !failed.is_answered_by(&failed.clone()),
+            "a failed look never counts"
+        );
+    }
+
+    /// A buffer of `path` with `!` typed at its end, through its history.
+    fn edited(buffers: &mut Buffers, path: &Path) -> BufferId {
+        let id = buffers
+            .finish_load(buffers.open(path).run())
+            .expect("open")
+            .id;
+        let buffer = buffers.get_mut(id).expect("open");
+        let (text, history) = buffer.edit().expect("editable");
+        let selection = tidepool_text::Selection::caret(text.len());
+        let transaction = tidepool_text::Transaction::change_each(text, &selection, |cursor| {
+            Some((cursor.head..cursor.head, "!", tidepool_text::Place::End))
+        })
+        .expect("a transaction");
+        history
+            .commit(
+                text,
+                transaction,
+                &selection,
+                std::time::Instant::now(),
+                tidepool_text::Group::New,
+            )
+            .expect("commit");
+        id
+    }
+
+    /// Runs `buffers`' save of `id` in `mode` with looks `at_path` and
+    /// `of_file`, and takes its result.
+    fn save_with(
+        buffers: &mut Buffers,
+        id: BufferId,
+        mode: SaveMode,
+        at_path: impl Fn(&Path) -> Look,
+        of_file: impl Fn(&File) -> Look,
+    ) -> SaveReport {
+        let job = buffers.save(id, mode).expect("a save");
+        buffers.finish_save(job.run_with(at_path, of_file))
+    }
+
+    /// The question in `report`, which must ask.
+    fn asks(report: SaveReport) -> SaveQuestion {
+        match report {
+            SaveReport::Asks { question, .. } => question,
+            other => panic!("the save must ask: {other:?}"),
+        }
+    }
+
+    /// ADR-0070, with fake looks: an answer whose file is another by the
+    /// time it runs saves as a checked save, which asks again here; where
+    /// no metadata can be read, both times, the answer does what it says;
+    /// where a look failed, it asks again.
+    #[test]
+    fn an_answer_runs_only_on_the_file_asked_about() {
+        let scratch = Scratch::new("asked");
+        let path = scratch.0.join("linked.txt");
+        std::fs::write(&path, b"old").expect("write");
+        let mut buffers = Buffers::new();
+        let id = edited(&mut buffers, &path);
+        let first = |_: &Path| read(2, 1000, 100);
+        let unused = |_: &File| panic!("no file opened");
+        let question = asks(save_with(&mut buffers, id, SaveMode::Check, first, unused));
+        assert_eq!(buffers.get(id).expect("open").asked(), Some(&question));
+
+        // By the answer, the path reaches another file, with two names too.
+        let other = FileId { inode: 9, ..ID };
+        let replaced = |_: &Path| read_id(other, 2);
+        let opened = |_: &File| read_id(other, 2);
+        let again = asks(save_with(
+            &mut buffers,
+            id,
+            question.write_in_place(),
+            replaced,
+            opened,
+        ));
+        assert_eq!(again.file(), Some(other), "about the file there now");
+        assert_eq!(std::fs::read(&path).expect("read"), b"old");
+        let again = asks(save_with(
+            &mut buffers,
+            id,
+            again.save_as_new_file(),
+            first,
+            unused,
+        ));
+        assert_eq!(again.file(), Some(ID), "the question changed back");
+        assert_eq!(std::fs::read(&path).expect("read"), b"old");
+        assert_eq!(names(&scratch.0), ["linked.txt"]);
+
+        // A look that failed when asked: never answered but by asking again.
+        let failed = |_: &Path| Look::Failed;
+        let question = asks(save_with(&mut buffers, id, SaveMode::Check, failed, unused));
+        let opened_failed = |_: &File| Look::Failed;
+        asks(save_with(
+            &mut buffers,
+            id,
+            question.write_in_place(),
+            failed,
+            opened_failed,
+        ));
+        assert_eq!(std::fs::read(&path).expect("read"), b"old");
+
+        // Nothing readable here, when asked and now: the answer acts.
+        let blind = |_: &Path| Look::Unsupported;
+        let question = asks(save_with(&mut buffers, id, SaveMode::Check, blind, unused));
+        assert_eq!(question.file(), None);
+        let opened_blind = |_: &File| Look::Unsupported;
+        let report = save_with(
+            &mut buffers,
+            id,
+            question.write_in_place(),
+            blind,
+            opened_blind,
+        );
+        assert!(matches!(report, SaveReport::Saved { .. }), "{report:?}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"old!");
+    }
+
+    /// ADR-0070: an answer is taken once, by the buffer's next save; reused,
+    /// or after another save, it runs as a checked save; given to another
+    /// buffer, it is refused.
+    #[test]
+    fn an_answer_is_used_once_and_only_by_its_buffer() {
+        let scratch = Scratch::new("once");
+        let path = scratch.0.join("one.txt");
+        std::fs::write(&path, b"one").expect("write");
+        let other_path = scratch.0.join("two.txt");
+        std::fs::write(&other_path, b"two").expect("write");
+        let mut buffers = Buffers::new();
+        let id = edited(&mut buffers, &path);
+        let other = edited(&mut buffers, &other_path);
+        let linked = |_: &Path| read(2, 1000, 100);
+        let opened = |_: &File| read(2, 1000, 100);
+        let unused = |_: &File| panic!("no file opened");
+        let question = asks(save_with(&mut buffers, id, SaveMode::Check, linked, unused));
+
+        // Another buffer's save refuses it, and leaves the question.
+        let refused = buffers.save(other, question.write_in_place());
+        assert!(
+            matches!(
+                refused,
+                Err(WorkspaceError::AnswerToAnotherBuffer { asked, .. }) if asked == id
+            ),
+            "{refused:?}"
+        );
+        assert!(buffers.get(id).expect("open").asked().is_some());
+
+        // Used once: it writes in place.
+        let job = buffers.save(id, question.write_in_place()).expect("a save");
+        assert_eq!(job.mode(), question.write_in_place());
+        assert!(buffers.get(id).expect("open").asked().is_none(), "taken");
+        let report = buffers.finish_save(job.run_with(linked, opened));
+        assert!(matches!(report, SaveReport::Saved { .. }), "{report:?}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"one!");
+
+        // Used again: a checked save, which asks, as the file has two names.
+        let job = buffers.save(id, question.write_in_place()).expect("a save");
+        assert_eq!(job.mode(), SaveMode::Check);
+        let second = asks(buffers.finish_save(job.run_with(linked, unused)));
+        assert_ne!(second, question, "a question of its own");
+
+        // A question that another save took is answered no more: the
+        // answer runs as a checked save, which asks the newest question.
+        let third = asks(save_with(&mut buffers, id, SaveMode::Check, linked, unused));
+        let job = buffers.save(id, second.write_in_place()).expect("a save");
+        assert_eq!(job.mode(), SaveMode::Check);
+        let fourth = asks(buffers.finish_save(job.run_with(linked, unused)));
+        assert_ne!(fourth, third);
+        assert_eq!(std::fs::read(&path).expect("read"), b"one!");
+        assert_eq!(std::fs::read(&other_path).expect("read"), b"two");
     }
 
     /// M4.11's security review: a file made at the path while a save of a
@@ -954,19 +1551,22 @@ mod tests {
             .expect("open")
             .id;
         std::fs::remove_file(&path).expect("delete it");
-        let job = buffers.save(id, SaveMode::Check).expect("a save");
         // The metadata reader stands for the moment after `prepare`: by
         // then another program made the file again.
         let appeared = |at: &Path| {
             if at == path {
                 std::fs::write(&path, b"someone else's").expect("write");
             }
-            metadata(1, 1000, 100)
+            read(1, 1000, 100)
         };
-        let report = buffers.finish_save(job.run_with(appeared));
-        let SaveReport::Asks { question, .. } = report else {
-            panic!("the save must ask: {report:?}");
-        };
+        let unused = |_: &File| panic!("no file opened");
+        let question = asks(save_with(
+            &mut buffers,
+            id,
+            SaveMode::Check,
+            appeared,
+            unused,
+        ));
         assert!(question.appeared());
         assert_eq!(std::fs::read(&path).expect("read"), b"someone else's");
         assert_eq!(
@@ -1054,38 +1654,23 @@ mod tests {
         let path = scratch.0.join("shared.txt");
         std::fs::write(&path, b"old").expect("write");
         let mut buffers = Buffers::new();
-        let id = buffers
-            .finish_load(buffers.open(&path).run())
-            .expect("open")
-            .id;
         // An edit through the history, so that the text to save is new.
-        let buffer = buffers.get_mut(id).expect("open");
-        let (text, history) = buffer.edit().expect("editable");
-        let selection = tidepool_text::Selection::caret(3);
-        let transaction = tidepool_text::Transaction::change_each(text, &selection, |cursor| {
-            Some((cursor.head..cursor.head, "!", tidepool_text::Place::End))
-        })
-        .expect("a transaction");
-        history
-            .commit(
-                text,
-                transaction,
-                &selection,
-                std::time::Instant::now(),
-                tidepool_text::Group::New,
-            )
-            .expect("commit");
+        let id = edited(&mut buffers, &path);
         assert!(buffers.get(id).expect("open").is_modified());
 
         let other_group = |at: &Path| {
             let group = if at == path { 100 } else { 101 };
-            metadata(1, 1000, group)
+            read(1, 1000, group)
         };
-        let job = buffers.save(id, SaveMode::Check).expect("a save");
-        let SaveReport::Asks { question, .. } = buffers.finish_save(job.run_with(other_group))
-        else {
-            panic!("the save must ask");
-        };
+        let the_file = |_: &File| read(1, 1000, 100);
+        let unused = |_: &File| panic!("no file opened");
+        let question = asks(save_with(
+            &mut buffers,
+            id,
+            SaveMode::Check,
+            other_group,
+            unused,
+        ));
         assert_eq!(question.changes_group(), Some(true));
         assert_eq!(question.changes_user(), Some(false));
         assert!(!question.splits_link());
@@ -1099,20 +1684,60 @@ mod tests {
         assert!(buffer.is_modified() && !buffer.is_saving());
 
         // Writing in place.
-        let job = buffers.save(id, SaveMode::InPlace).expect("a save");
-        assert!(matches!(
-            buffers.finish_save(job.run_with(other_group)),
-            SaveReport::Saved { .. }
-        ));
+        let report = save_with(
+            &mut buffers,
+            id,
+            question.write_in_place(),
+            other_group,
+            the_file,
+        );
+        assert!(matches!(report, SaveReport::Saved { .. }), "{report:?}");
         assert_eq!(std::fs::read(&path).expect("read"), b"old!");
         assert!(!buffers.get(id).expect("open").is_modified());
 
-        // Saving as a new file asks nothing.
-        let job = buffers.save(id, SaveMode::NewFile).expect("a save");
-        assert!(matches!(
-            buffers.finish_save(job.run_with(other_group)),
-            SaveReport::Saved { .. }
+        // Saving as a new file, asked again first: the same question, so
+        // it renames.
+        let question = asks(save_with(
+            &mut buffers,
+            id,
+            SaveMode::Check,
+            other_group,
+            unused,
         ));
+        let report = save_with(
+            &mut buffers,
+            id,
+            question.save_as_new_file(),
+            other_group,
+            unused,
+        );
+        assert!(matches!(report, SaveReport::Saved { .. }), "{report:?}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"old!");
+        assert_eq!(names(&scratch.0), ["shared.txt"]);
+
+        // M4.12's review: a group that changed since the question, so that
+        // the rename would give the file another group than the user was
+        // shown, asks again, writing nothing.
+        let id = edited(&mut buffers, &path);
+        let question = asks(save_with(
+            &mut buffers,
+            id,
+            SaveMode::Check,
+            other_group,
+            unused,
+        ));
+        let yet_another = |at: &Path| {
+            let group = if at == path { 100 } else { 102 };
+            read(1, 1000, group)
+        };
+        let again = asks(save_with(
+            &mut buffers,
+            id,
+            question.save_as_new_file(),
+            yet_another,
+            unused,
+        ));
+        assert_eq!(again.new_owner().map(|owner| owner.group), Some(102));
         assert_eq!(std::fs::read(&path).expect("read"), b"old!");
         assert_eq!(names(&scratch.0), ["shared.txt"]);
     }

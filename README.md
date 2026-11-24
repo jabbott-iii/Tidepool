@@ -41,7 +41,8 @@ at many cursors at once, and workspace folders, whose `.gitignore` and
 untrusted until you trust a folder, layered settings, checked and
 written back with their comments kept, open buffers, loaded and saved on
 worker threads, which ask before a save would split a hard link or change
-a file's owner or group, the file tree, read a folder at a time, and each
+a file's owner or group, and take an answer only for the file and the
+question it was given for, the file tree, read a folder at a time, and each
 folder's session in the user data folder, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
