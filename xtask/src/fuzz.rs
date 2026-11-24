@@ -105,6 +105,14 @@ pub(crate) const TARGETS: &[Target] = &[
         name: "keymap",
         package: "tidepool-editor",
     },
+    Target {
+        name: "ignore",
+        package: "tidepool-workspace",
+    },
+    Target {
+        name: "settings",
+        package: "tidepool-workspace",
+    },
 ];
 
 /// How long each target is fuzzed when `--secs` is not given.

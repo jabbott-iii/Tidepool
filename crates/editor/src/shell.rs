@@ -157,7 +157,7 @@ pub const WELCOME_GAP: f32 = 6.0;
 /// How long the pointer rests on a node before its tooltip shows.
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
 
-/// What the title strip names while no folder is open (M4.7 opens one).
+/// What the title strip names while no folder is open (M4.3 opens one).
 pub const NO_FOLDER: &str = "No folder";
 
 /// The status bar's reminder of the palette's shortcut.

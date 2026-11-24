@@ -330,9 +330,9 @@
 //! - An API for comments, telling 1.1 syntax from 1.0, reformatting, and
 //!   making several edits with one parse.
 //!
-//! What a settings file means (layers, validation, version keys,
-//! migrations) is M4.7's; reading and saving files is `text::file`'s, on a
-//! worker.
+//! What a settings file means (layers, validation, version keys) is
+//! `tidepool-workspace`'s `settings` (M4.7); reading and saving files is
+//! `text::file`'s, on a worker.
 //!
 //! # Limits and errors
 //!

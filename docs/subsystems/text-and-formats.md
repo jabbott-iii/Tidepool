@@ -840,8 +840,9 @@ in memory briefly. A settings file of a few KB takes microseconds.
   underscores, quote style, left-out seconds, `t`, `z`).
 - A comment API, detecting 1.1 syntax, reformatting, and applying several
   edits under one re-parse.
-- Settings semantics (layers, validation, version keys, migrations) belong
-  to M4.7. File I/O belongs to `text::file`, called on workers.
+- Settings semantics (layers, validation, version keys) belong to
+  `workspace::settings` (M4.7, ADR-0067). File I/O belongs to
+  `text::file`, called on workers.
 
 Example (also the crate README's doc test, and the module documentation's):
 

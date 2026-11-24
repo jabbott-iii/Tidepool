@@ -17,6 +17,58 @@ knows which frontend is drawing. `workspace` is the project model under it.
 | `buffers` | Open buffers keyed by canonical path; external-change detection and reload/merge prompts |
 | `session` | Open editors, layout, cursors; restored on start |
 
+What is built (M4.7, ADR-0067): `folder`, `trust` and `settings`. Their
+rustdoc is authoritative for the rules, names and limits; in short:
+
+- **A folder is one root,** opened by its canonical path, so that trust
+  and every comparison of paths see one spelling. Its own files are in
+  `.tidepool/` under it. A workspace of several roots holds one `Folder`
+  for each.
+- **Ignore files follow gitignore(5).** A `.gitignore` or
+  `.tidepoolignore` in any folder applies below it, and the root's
+  `.git/info/exclude` beneath them all. A `.git` is always ignored;
+  nothing inside an ignored folder can be included again; then the
+  `.tidepoolignore` files decide, the deepest first, then the
+  `.gitignore` files, then the exclude file, so a `.tidepoolignore` can
+  include again what a `.gitignore` ignores. Patterns are matched on
+  bytes with case kept, by stepping a set of states through the path
+  rather than by backtracking, so a hostile pattern such as `*a*a*a…b`
+  costs the path's length times its own, not time exponential in its
+  stars. Each file is untrusted input: a regular file in a folder reached
+  from the root, neither through a symbolic link (as Git reads them), of
+  at most 256 KiB, 10,000 patterns and 4,096 bytes a pattern, and all the
+  files one `Ignore` holds at most 1 MiB together, since a lookup costs
+  about the path's length times every pattern on its way. Files above the
+  root, and Git's global excludes file, are not read.
+- **Trust is a list of grants** in `trust.toml` in the user data folder.
+  A folder is trusted when it is a grant or inside one, since trusting a
+  folder already runs the build scripts of the folders in it; declining
+  the prompt stores nothing. A trust file that cannot be used grants
+  nothing and is never overwritten.
+- **Settings are typed and layered.** Each part of Tidepool declares its
+  settings in a `Schema`: a boolean, a whole number in a range, a string
+  from a list of choices, or a table its owner reads (the keymap). A value
+  comes from the defaults, then the user's `settings.toml`, then the
+  folder's `.tidepool/settings.toml`, which is not even read until the
+  folder is trusted, since a project's settings can bind keys and, later,
+  name programs to run. A value that is not valid falls back to the layer
+  below with a warning naming the file and the key; a file that cannot be
+  used (not TOML, larger than 1 MiB, of a `version` other than 1) gives
+  none of its values. A missing `version` means 1.
+- **Writing back** reads the file again, sets one value through
+  `codec::toml`'s document model, which keeps every other byte, comments
+  and unknown keys included, and saves it through `text::file::save`. A
+  file that cannot be used is never replaced, and a workspace's file is
+  read and written only at `.tidepool/settings.toml` itself, never
+  through a symbolic link, so a setting never edits another of the
+  project's files. `Settings::resolve` uses a workspace's file only when
+  a constructor that asks the trust store made it.
+
+The binary reads its panel settings and `[keymap]` through `settings`
+(M4.7). M4.3 opens folders, shows the trust prompt, declares the editor's
+settings and gives the keymap a trusted folder's `[keymap]` layer; M4.5
+reloads settings when the file changes.
+
 ## `tidepool-editor`
 
 ### Editor view
@@ -206,7 +258,7 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
 `editor::shell` is authoritative for its sizes and behavior; in short:
 
 - a title strip 40 high, with the brand, the workspace's line (`NO
-  FOLDER` until M4.7 opens one) and the header's `teal` glow rule; an
+  FOLDER` until M4.3 opens one) and the header's `teal` glow rule; an
   activity bar 48 wide with an outline icon for each view (`gui::icons`)
   and a tooltip naming it; a status bar 24 high on `bar`, with
   rust-analyzer's and git's status dots, off until their tasks, and the
@@ -225,8 +277,8 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
 - a tooltip shows 500 ms after the pointer rests on its node, and at once
   for keyboard focus, through the main loop's deadline;
 - the settings `[ui] side_panel` and `bottom_panel` in `settings.toml`
-  say which panels show at start, read by the binary, read-only until
-  M4.7 moves them into `workspace::settings`.
+  say which panels show at start, read by the binary through
+  `workspace::settings` (M4.7), read-only.
 
 ### Panels
 
@@ -310,5 +362,24 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
   `editor/crafted` suites run seven keystrokes on each of M1.1's crafted
   100 MB lines, each painting its frame (`docs/04-quality.md` →
   "Benchmarks").
+- Folders, trust and settings, headless (`crates/workspace/tests/`,
+  M4.7): `folder.rs` matches 98 cases whose answers Git 2.43.0's `git
+  check-ignore` gave, the precedence of the three kinds of ignore file
+  on a tree, a walker's reading, files past each limit and past the
+  budget of all of them, a linked `.gitignore` and a linked folder left
+  unread, and hostile patterns in linear time;
+  `trust.rs` the untrusted default, grants that persist and cover their
+  subfolders, revoking, another store's grant kept, unusable files never
+  overwritten, the limits, and a link out of a trusted folder; and
+  `settings.rs` the layers, each kind's fallback and its logged warning,
+  unusable files, an untrusted workspace's file never read, writing back
+  with comments and unknown keys kept, writes refused unchanged, a
+  workspace's file or `.tidepool` that is a link (to a file outside the
+  folder, or to its own `Cargo.toml`) neither read nor written, and a
+  workspace's file that no trusted folder gave left unused. The fuzz targets `ignore` and
+  `settings` (`crates/workspace/tests/fuzz.rs`) check the precedence
+  rules and compare the matcher with a port of Git's `wildmatch`, and
+  resolve, edit and read settings and trust files
+  (`docs/04-quality.md` → "Fuzz smoke").
 - Session restore round-trips.
 - Responsiveness suite with slow fakes (`docs/04-quality.md`).

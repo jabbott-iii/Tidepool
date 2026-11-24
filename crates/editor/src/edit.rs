@@ -181,7 +181,7 @@ pub const TYPING_WINDOW: Duration = Duration::from_secs(1);
 pub const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 
 /// How many spaces Tab indents by, and Shift+Tab outdents by at most: a
-/// tab stop's width, until M4.7's settings.
+/// tab stop's width, until M4.3 applies the settings (ADR-0067).
 pub const INDENT_SPACES: usize = TAB_STOP_SPACES;
 
 /// The [`Group::Coalesce`] kinds of typing, which take turns, so that a

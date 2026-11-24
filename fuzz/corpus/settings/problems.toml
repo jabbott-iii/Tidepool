@@ -1,0 +1,7 @@
+ui = 3
+keymap = "vim"
+[editor]
+tab_size = 99
+keymap = "emacs"
+font = 7
+extra = { a = 1 }

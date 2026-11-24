@@ -1,0 +1,18 @@
+# Every kind
+version = 1
+
+[ui]
+side_panel = true # shown
+bottom_panel = false
+theme = "kept"
+
+[editor]
+tab_size = 2
+keymap = "vim"
+font = "Mono \u202e"
+
+[keymap.insert]
+"ctrl+b" = ""
+
+[future]
+x = 1

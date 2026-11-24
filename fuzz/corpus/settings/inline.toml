@@ -1,0 +1,4 @@
+ui = { side_panel = false, bottom_panel = true }
+editor.tab_size = 16
+editor.keymap = 'default'
+keymap = { insert = { "f1" = "palette.open" } }

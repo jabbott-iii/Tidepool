@@ -34,7 +34,10 @@ selections, the current line and soft wrap, laying out only the lines on
 screen, named commands run by keys through a modal keymap engine,
 from a default keymap and your bindings in `settings.toml`, and the
 editing commands, which move, type, delete, indent, undo, copy and paste
-at many cursors at once, are built;
+at many cursors at once, and workspace folders, whose `.gitignore` and
+`.tidepoolignore` files are read as Git reads them, workspace trust,
+untrusted until you trust a folder, and layered settings, checked and
+written back with their comments kept, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
 which waits until something happens and draws only what changed: it shows

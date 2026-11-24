@@ -529,15 +529,15 @@ the painter calls: drawn as one participant.
 sequenceDiagram
     actor User
     participant Cli as tidepool main<br/>(built, M3.8)
-    participant Cfg as app settings (built, M3.4),<br/>workspace settings (M4.7)
+    participant Cfg as app settings (built, M3.4),<br/>through workspace settings (built, M4.7)
     participant Fe as gui Gui (built, M3.8),<br/>tui Terminal (M7.1)
 
-    Note over User,Fe: The settings are built (M3.4), read-only,<br/>and the TUI is planned (M7.1). Built: core's Args<br/>(M0.2), and the loop and Gui::open of 8.2 (M3.8).
+    Note over User,Fe: The settings are built (M3.4, M4.7), read-only,<br/>and the TUI is planned (M7.1). Built: core's Args<br/>(M0.2), and the loop and Gui::open of 8.2 (M3.8).
     User->>Cli: cargo tp, or tidepool
     Cli->>Cli: Args::from_env,<br/>core cli (built)
     Cli->>Cfg: settings::load()
-    Cfg->>Cfg: platform user_dirs: the<br/>config folder's settings.toml,<br/>at most 1 MiB, codec toml
-    Cfg-->>Cli: [ui] side_panel and<br/>bottom_panel, a bad value<br/>its default, with a warning<br/>in the log, written back<br/>from M4.7
+    Cfg->>Cfg: platform user_dirs: the<br/>config folder's settings.toml,<br/>SettingsFile::user, at most<br/>1 MiB, Settings::resolve
+    Cfg-->>Cli: [ui] side_panel and<br/>bottom_panel, and [keymap],<br/>a bad value its default,<br/>with a warning in the log
     alt --tui, or no display
         Cli->>Fe: open a tui Terminal (M7.1),<br/>first frame within 150 ms
     else the GUI, by default

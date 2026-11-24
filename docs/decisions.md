@@ -275,11 +275,13 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0014 — Workspaces are untrusted until the user trusts them
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-31
 - **Context:** Opening a Rust project with rust-analyzer can run its build
   scripts and proc macros; Gradle and `cargo` tasks run project code;
-  agents could read the workspace.
+  agents could read the workspace. On 2026-11-23 the user accepted this
+  ADR for M4.7, with a trust decision covering the folder trusted and
+  every folder under it, and ADR-0067 records how.
 - **Decision:** a new folder opens untrusted: no tasks, no build scripts or
   proc macros in rust-analyzer, no Gradle, and agents get only the open
   buffer with consent. One prompt trusts the folder; the decision is stored
@@ -4868,3 +4870,183 @@ decides; the roadmap task that first depends on one asks for the decision.
   the view or the rope; M6.2 or M6.7 hold rope snapshots on workers, which
   moves the freeing off the main thread; or a user reports dropped frames
   with many cursors on a large file.
+
+## ADR-0067 — M4.7's workspace: a folder is one canonical root whose ignore files follow gitignore(5); a trust grant covers the folders under it; settings are typed layers, the workspace's applied only once it is trusted, and written back through M1.5's document model
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.7 builds `folder` (roots, `.tidepool/`, `.tidepoolignore` and
+    `.gitignore` matching), `trust` (stored in user data) and `settings`
+    (defaults, then the user's, then the workspace's, written back
+    through M1.5's document model). It is accepted on: untrusted is the
+    default and a trust decision persists; saving settings keeps unknown
+    keys and comments; and an invalid value falls back to its default
+    with a logged warning.
+  - Earlier decisions left M4.7 more: ADR-0064 has it move the user's key
+    bindings into `workspace::settings` and decide whether a workspace's
+    settings may bind keys, and M4.6's security review asked that an
+    untrusted workspace never add bindings; ADR-0060 has it replace the
+    binary's reader of `[ui] side_panel` and `bottom_panel`; ADR-0063 and
+    ADR-0065 say soft wrap and Tab's spaces become settings with it; and
+    ADR-0064 says a user's binding needs a restart until M4.7 watches the
+    settings. Watching files is M4.5's, which depends on M4.3, which
+    depends on M4.7.
+  - The user accepted ADR-0014 on 2026-11-23 and chose four options that
+    day, each the recommended one: a trust decision covers the folder
+    and every folder under it; a workspace's `.tidepool/settings.toml`
+    applies only once the folder is trusted, its `[keymap]` included;
+    ignore files follow Git's syntax, in every folder; and M4.7 builds
+    the library and moves the binary's reading to it, leaving the editor
+    settings to M4.3 and reloading to M4.5.
+  - Git 2.43.0's `git check-ignore --no-index`, run on 2026-11-23 in a
+    scratch repository, shows the rules followed below: a file in an
+    ignored folder cannot be included again; `.git/info/exclude` is
+    beneath every `.gitignore`, and a deeper `.gitignore` beats a
+    shallower one; `**` crosses `/` only between slashes or at an end,
+    and `x**y` matches `xzy` but not `x/y`; brackets never match `/`;
+    `[]]z` matches `]z`; a pattern with an unclosed bracket or a final
+    backslash matches nothing; a CR before the LF and unescaped trailing
+    spaces are dropped; and a `.gitignore` that is a symbolic link is not
+    read ("Too many levels of symbolic links").
+  - `core::path::under` compares canonical paths by their components, so
+    `/w/../etc` is not inside `/w` (ADR-0033). `text::file::save` writes
+    through a temporary file and a rename, following links to their
+    target (ADR-0025). `codec::toml::Document::set` changes one value
+    and keeps every other byte, but cannot add an element to an array or
+    remove a key (ADR-0031).
+- **Decision:**
+  - **A folder is one root,** `workspace::folder::Folder`, opened by its
+    canonical path (`core::path::canonicalize`), which must be a
+    directory. Its own files are in `.tidepool/` under the root, its
+    settings in `.tidepool/settings.toml`. A workspace of several roots
+    (M4.3) holds one `Folder`, and one trust decision, for each.
+  - **Ignore files follow gitignore(5),** matched on a path's bytes with
+    case kept, as Git does with `core.ignoreCase` off: blank lines and `#`
+    comments, `\` escapes, `!` to include again, a leading or middle `/`
+    anchoring a pattern to its file's folder, a final `/` for folders
+    only, `*`, `?` and brackets (ranges, `!` or `^`, and the
+    `[:alpha:]` classes) that never match `/`, and `**` as Git reads it.
+    A file's UTF-8 byte-order mark is skipped. Each pattern is compiled to
+    tokens and matched by stepping a set of states through the path, in
+    time proportional to the path's length times the pattern's, with no
+    backtracking.
+  - **Which rule wins:** a `.git` file or folder is always ignored; a path
+    inside an ignored folder is ignored; otherwise the `.tidepoolignore`
+    files decide, the deepest first and the last matching pattern of a
+    file, then the `.gitignore` files the same way, then the root's
+    `.git/info/exclude`. So `.tidepoolignore` can include again what
+    `.gitignore` ignores, as ripgrep's `.ignore` can. Only files in the
+    root and below it are read: not those of the folders above it, nor
+    Git's global excludes file, which needs Git's configuration (M8).
+  - **Ignore files are untrusted input,** read whatever the folder's
+    trust: each must be a regular file, in a folder reached from the root,
+    neither of them through a symbolic link, as Git reads them; of at most
+    256 KiB, 10,000 patterns and 4,096 bytes a pattern; and all the files
+    one `Ignore` holds at most 1 MiB together, since a lookup costs about
+    the path's length times the bytes of every pattern on its way, and a
+    project could give each folder the same large file. A file past a
+    limit, or one that cannot be read, is not used, and the error names
+    it. `**/**/` compiles as one `**/`, which matches the same.
+  - **Trust grants:** `trust.toml` in the user data folder holds
+    `version = 1` and `folders`, an array of canonical paths. A folder is
+    trusted when it is a grant or inside one (`core::path::under`). Only
+    grants are stored: declining the prompt stores nothing. Trusting
+    reads the file again, adds the grant, and saves it with
+    `text::file::save`; revoking removes one grant, exactly. A file that
+    cannot be read, is not TOML, has another version, an entry that is
+    not an absolute path free of `.` and `..` and spelled as its names
+    join (no `//`, no final separator), more than 4,096 grants, or more
+    than 1 MiB grants nothing and is never overwritten: trusting
+    fails, naming it, until the user fixes or removes it. A folder whose
+    path is not UTF-8 cannot be trusted, since TOML holds only text.
+  - **Settings are typed:** an owner declares each setting in a
+    `settings::Schema`: a boolean, a whole number in a range, a string
+    from a list of choices, or a table it reads itself (the keymap). A
+    key is dotted segments of lowercase ASCII letters, digits and `_`,
+    starting with a letter; `version` is reserved, and no key may be a
+    prefix of another.
+  - **Layers:** the defaults, then `settings.toml` in the user config
+    folder, then the folder's `.tidepool/settings.toml`, which is not
+    even read until the folder is trusted. A value that is not of its
+    setting's kind, out of its range or not one of its choices falls back
+    to the next layer below that has a valid one, or to the default,
+    with a warning naming the file, the key and which value is used. A
+    layer that cannot be used (not a regular file, larger than 1 MiB,
+    unreadable, not TOML, or of a version other than 1) gives none of its
+    values, with one warning. A missing `version` means 1. Unknown keys
+    are ignored, and kept. For a table the top layer that has one wins,
+    and each layer's table can be had for owners that merge them.
+  - **Writing back:** `SettingsFile::write` reads the file again, refuses
+    one that cannot be used rather than replace text it does not
+    understand, sets the value with `Document::set` (and `version = 1`
+    if the file has none), and saves it with `text::file::save`, making
+    its folder if needed. A workspace's file is read and written only at
+    `.tidepool/settings.toml` itself, never through a symbolic link at
+    `.tidepool` or at the file, so that a setting never edits another of
+    the project's files. Only booleans, numbers and strings are written in
+    M4.7.
+  - **The trust gate is checked where settings are resolved:** a
+    workspace's `SettingsFile` is trusted only when
+    `SettingsFile::workspace` or `workspace_from_bytes`, which ask a
+    `TrustStore`, made it, and `Settings::resolve` uses no other, with a
+    warning, and `write` refuses it. A grant is saved only once its text
+    reads back as the same grants, so the next load never refuses it.
+  - **The binary** reads `[ui] side_panel`, `bottom_panel` and `[keymap]`
+    through `workspace::settings`, with their schema declared in `app`,
+    once at start as before, and writes nothing yet. It has no folder
+    until M4.3 opens one, so its workspace layer is empty until then.
+    M4.3 declares and applies the editor's settings (soft wrap, Tab) and
+    gives `editor::keymap` a trusted workspace's `[keymap]` layer; M4.5
+    reloads the settings when they change.
+  - **Fuzz targets:** `ignore`, which reads any bytes as an ignore file
+    and matches paths, and `settings`, which reads any bytes as a
+    settings layer, resolves and edits it, and reads them as a trust
+    file (ADR-0027).
+- **Consequences:**
+  - `workspace` depends on `core`, `codec` and `text`; `platform`, which
+    its row allows, is not needed yet. The task touches three crates:
+    `workspace`, `tidepool` and `xtask`, for the fuzz targets' rows.
+  - Trusting a folder trusts what is later cloned or unpacked inside it,
+    and trusting a home folder trusts everything under it. The prompt
+    (M4.3) must say so.
+  - A file can be swapped for a link or a pipe between the check and the
+    open; in an untrusted folder nothing of the project runs to do that,
+    and in a trusted one the project can run code anyway.
+  - Two Tidepools trusting folders at the same moment can lose one grant,
+    since each reads, adds and renames; the loser's folder prompts again.
+  - `trust.toml` and the folders made for settings get the default modes
+    of the user's umask, as the logs do, so other local users may read
+    which folders are trusted.
+  - On case-insensitive file systems (macOS and Windows by default) a
+    pattern of another case does not match, where Git would match with
+    `core.ignoreCase` on; a nested repository's or submodule's
+    `.gitignore` applies as part of the folder; and the `exclude` of a
+    worktree, whose `.git` is a file, is not read.
+- **Alternatives considered:**
+  - A trust decision for exactly the folder trusted: the strictest, but
+    every subfolder of a trusted repository prompts again, and trusting
+    the parent already runs its children's build scripts.
+  - Storing declines too: no repeated prompt, but a declined subfolder of
+    a trusted folder has no clear answer.
+  - A safe subset of a workspace's settings applied while it is
+    untrusted, as VS Code's restricted settings: more help in an
+    untrusted folder, but every setting must be judged, and a mistake
+    runs project code.
+  - Reading the `.gitignore` files above the root up to the repository's
+    top, and Git's global excludes, as ripgrep does: closer to Git when a
+    subfolder of a repository is opened, but it reads outside the folder
+    and needs Git's configuration.
+  - A defaults file in TOML, typed by example: one file to read, but no
+    ranges or choices, and no way for plugins (M15) to declare theirs.
+  - Merging tables across layers inside `settings`: one answer for every
+    table, but the keymap reports each problem with its layer, which a
+    merged table loses.
+  - Replacing a settings or trust file that cannot be parsed: never
+    stuck, but it destroys what the user wrote, or a newer version's file.
+- **Revisit when:** M4.3 opens folders, shows editors, and gives the
+  keymap a workspace layer; M4.5 watches the settings; M8 reads Git's
+  configuration (global excludes, `core.ignoreCase`); M11 or M12 match
+  paths on a case-insensitive file system; a user reports a path that
+  Tidepool and `git check-ignore` disagree on; or settings need a value
+  removed, or a table written.

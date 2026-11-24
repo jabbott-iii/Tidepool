@@ -1,0 +1,3 @@
+# The folders the user trusts (ADR-0014). Tidepool writes this file.
+version = 1
+folders = ["/home/me/src/tidepool", "/a/b", "/a/b"]

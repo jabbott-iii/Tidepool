@@ -248,7 +248,8 @@ Tidepool assembles every byte an agent receives, gated by consent and
 workspace trust and filtered by the context rules; the agent answers over
 TAP, and an edit comes back only as a proposal for the user to review
 (ADR-0009, `docs/subsystems/agents.md`). Only `History`, where an accepted
-proposal lands, is built.
+proposal lands, the trust store, and the ignore files' matching (M4.7,
+ADR-0067) are built.
 
 ```mermaid
 flowchart TB
@@ -259,8 +260,8 @@ flowchart TB
     symbols(["Symbols from<br/>tidepool-lang<br/>document and<br/>workspace symbols<br/>planned M6.8"])
     manifest[("agent.toml<br/>in the user and<br/>workspace agent<br/>directories<br/>planned M9.3")]
     grants[("Consent grants<br/>in settings.toml<br/>planned M9.3")]
-    trustStore[("Trust decisions<br/>in user data<br/>planned M4.7")]
-    ignore(["workspace::folder<br/>.tidepoolignore<br/>matching<br/>planned M4.7"])
+    trustStore[("workspace::trust<br/>trust.toml in<br/>user data (M4.7)")]
+    ignore(["workspace::folder<br/>.tidepoolignore and<br/>.gitignore matching<br/>(M4.7)"])
     consent(["agent::consent<br/>once, always or never,<br/>per workspace, agent<br/>and capability<br/>planned M9.3"])
     context(["agent::context<br/>prefix and suffix<br/>windows, open buffers<br/>and symbols when<br/>granted<br/>planned M9.3"])
     rules(["Context rules<br/>size caps,<br/>.tidepoolignore, the<br/>secret deny-list, files<br/>marked private<br/>planned M9.3"])
@@ -276,11 +277,11 @@ flowchart TB
     symbols -.->|"only with<br/>context.symbols<br/>granted, planned M9.3"| context
     manifest -.->|"capabilities and<br/>requests, planned M9.3"| consent
     grants -.->|"stored grants,<br/>planned M9.3"| consent
-    trustStore -.->|"trusted or not,<br/>planned M4.7"| consent
+    trustStore -.->|"trusted or not,<br/>planned M9.3"| consent
     user -.->|"answers consent<br/>prompts, planned M9.3"| consent
     consent -.->|"what may be sent, only<br/>the focused buffer when<br/>untrusted, planned M9.3"| context
     context -.->|"the assembled context,<br/>planned M9.3"| rules
-    ignore -.->|"ignored paths,<br/>planned M4.7"| rules
+    ignore -.->|"ignored paths,<br/>planned M9.3"| rules
     rules -.->|"what passes,<br/>planned M9.3"| host
     host -.->|"didOpen, didChange,<br/>tap/inlineCompletion,<br/>tap/predict, tap/chat,<br/>tap/proposeEdits,<br/>planned M9.3"| agentProc
     agentProc -.->|"results and<br/>tap/chatDelta,<br/>planned M9.3"| host
@@ -298,8 +299,9 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class user person
     class agentProc,files external
-    class hist store
-    class buffers,symbols,manifest,grants,trustStore,ignore,consent,context,rules,host,agentLog,checks,ghost,proposal planned
+    class hist,trustStore store
+    class ignore built
+    class buffers,symbols,manifest,grants,consent,context,rules,host,agentLog,checks,ghost,proposal planned
 ```
 
 - The deny-list applies always, beside `.tidepoolignore`: `.env*`,
@@ -588,35 +590,41 @@ stateDiagram-v2
 - An `Io` error at `FileStep::SyncDirectory` comes after the rename: the
   new text is in place, but the save reports an error.
 
-## 9. State: workspace trust (planned)
+## 9. State: workspace trust (built, and planned where the editor adds to it)
 
 A folder opens untrusted until the user trusts it, and the decision is
-stored in user data (ADR-0014, which M4.7 accepts first). The prompt is
-the editor's trust prompt (M4.3).
+stored in user data (ADR-0014, ADR-0067): `workspace::trust`'s
+`TrustStore`, whose grants are in `trust.toml` (M4.7). A grant trusts its
+folder and every folder inside it. The prompt is the editor's trust
+prompt (M4.3).
 
 ```mermaid
 stateDiagram-v2
-    state "Untrusted, planned M4.7" as untrusted
-    state "Trusted, planned M4.7" as trusted
+    state "Untrusted" as untrusted
+    state "Trusted" as trusted
 
-    [*] --> untrusted: a folder opens that user data does not record as trusted, the trust prompt asks
-    [*] --> trusted: a folder opens that user data records as trusted
-    untrusted --> trusted: the user trusts it in the prompt, the decision stored in user data
+    [*] --> untrusted: a folder opens that no grant covers (is_trusted is false)
+    [*] --> trusted: a folder opens that is a grant or inside one
+    untrusted --> trusted: trust, a grant saved in trust.toml; the prompt that asks is planned M4.3
+    trusted --> untrusted: revoke of the grant, when no other grant covers it
 
     note right of untrusted
-        Planned M4.7 and M4.3. While untrusted
-        no tasks run, planned M6.4,
-        rust-analyzer runs without build scripts or proc macros, planned M6.7,
-        no Gradle runs, planned M10.4,
-        agents get only the focused buffer, with consent, planned M9.3,
-        managed tools get detection only, planned M5.1.
+        The folder's .tidepool/settings.toml is never read (M4.7).
+        Planned: no tasks run, M6.4;
+        rust-analyzer runs without build scripts or proc macros, M6.7;
+        no Gradle runs, M10.4;
+        agents get only the focused buffer, with consent, M9.3;
+        managed tools get detection only, M5.1.
     end note
     note right of trusted
-        The spec does not say how trust is taken back.
+        Its settings apply over the user's, key bindings
+        included (M4.7; the binary opens folders from M4.3).
+        A trust file that cannot be used grants nothing,
+        and is never overwritten.
     end note
 
-    classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class untrusted, trusted planned
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
+    class untrusted, trusted built
 ```
 
 ## 10. State: vim modes (planned)
@@ -946,7 +954,7 @@ The docs and code these diagrams were drawn from:
   M3.3
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,
   ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047, ADR-0052,
-  ADR-0053, ADR-0054, ADR-0055, ADR-0056
+  ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0067
 - `crates/text/src/file.rs`, `encoding.rs`, `history.rs`,
   `transaction.rs`, `rope.rs`, `selection.rs`, `error.rs`, `lib.rs`
 - `crates/core/src/testing/fuzz.rs`, `testing/fuzz/engine.rs`,

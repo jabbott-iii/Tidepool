@@ -16,18 +16,18 @@
 //!
 //! Specification: `docs/01-architecture.md` → "The main loop".
 //!
-//! It reads the settings (read-only until M4.7, [`settings`]), opens the
-//! GUI's window, builds the shell in a `ui` tree (`editor::shell`, M3.4,
-//! ADR-0060) with the activity bar's icons registered with the window and
-//! the user's bindings over the default keymap (M4.6, ADR-0064), and
-//! runs the event-driven main loop (M3.8, ADR-0012, ADR-0059) until the
-//! window is closed. Each turn waits on the window until something happens
-//! or the earliest deadline passes (`gui`'s, the most the first present
-//! waits for the backdrop, and the shell's, a tooltip's delay), hands every
-//! input event to the shell, which gives it to the tree before anything
-//! else, stops at a close request, fires the shell's timer, and then
-//! renders, which presents only what changed. So an idle Tidepool waits and
-//! draws nothing.
+//! It reads the settings through `workspace::settings` ([`settings`],
+//! M4.7, ADR-0067), opens the GUI's window, builds the shell in a `ui` tree
+//! (`editor::shell`, M3.4, ADR-0060) with the activity bar's icons
+//! registered with the window and the user's bindings over the default
+//! keymap (M4.6, ADR-0064), and runs the event-driven main loop (M3.8,
+//! ADR-0012, ADR-0059) until the window is closed. Each turn waits on the
+//! window until something happens or the earliest deadline passes (`gui`'s,
+//! the most the first present waits for the backdrop, and the shell's, a
+//! tooltip's delay), hands every input event to the shell, which gives it
+//! to the tree before anything else, stops at a close request, fires the
+//! shell's timer, and then renders, which presents only what changed. So
+//! an idle Tidepool waits and draws nothing.
 //!
 //! `--print-startup-time` prints, on standard output, the time from the
 //! start of `main` to the return of the first present (ADR-0045).

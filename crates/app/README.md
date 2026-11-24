@@ -51,11 +51,17 @@ Built, with the roadmap task that built it:
   through; each conflict or error the reading finds is logged as a
   warning, and each override at info, naming the file, the first 64 of
   them and then how many more there were — M4.6 (ADR-0064).
+- the settings read through `tidepool-workspace`'s `settings`: the
+  binary declares its two panel settings and the keymap's table, and
+  reads the user's `settings.toml` as that crate reads it, still once at
+  startup and writing nothing back; a file with a `version` other than 1
+  gives the defaults, with a warning — M4.7 (ADR-0067).
 
 Not yet, with the roadmap task that adds it:
 
-- settings written back, and the workspace's own, and bindings that
-  take effect without a restart — M4.7.
+- a folder opened, its own settings and key bindings once it is trusted,
+  and the trust prompt — M4.3.
+- settings that take effect without a restart — M4.5.
 - the channel of messages from workers to the loop — M4.3.
 - crash reports and buffer recovery — M4.9.
 - `--tui` — M7.1, M7.5.
@@ -115,7 +121,8 @@ starts the terminal UI from M7.1.
   ADR-0060 (the shell, its icons, the settings it reads and its golden
   scenes); ADR-0063 (the editor view, whose golden scenes it draws);
   ADR-0064 (keymaps as TOML layers, the user's in `settings.toml`, whose
-  problems it logs).
+  problems it logs); ADR-0067 (settings read through
+  `workspace::settings`).
 - API reference: `cargo doc -p tidepool --open`
 
 ## Rules
@@ -139,7 +146,7 @@ The tests check the command line, the startup line, that the loop hands
 input to the shell in order and stops at a close request, the earliest
 deadline, a distinct icon for each view, and the settings: the defaults,
 the two keys, unknown keys ignored, a wrong type, a file that is not
-TOML, missing or too large, each warning logged; the `[keymap]` table as
+TOML, missing, too large or a folder, each warning logged; the `[keymap]` table as
 the user's layer over the default keymap, a `keymap` that is not a table,
 and the keymap's problems logged, a conflict or an error as a warning and
 an override at info, at most 64 of them and then one line saying how many

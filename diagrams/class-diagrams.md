@@ -18,7 +18,7 @@ Drawn from the code and docs as of roadmap task M3.4 (2026-11-22, version 0.1), 
 A class diagram here shows only types that exist in the code (ADR-0029).
 None of its boxes or lines is planned work. The dashed lines below are
 UML's own: realization and dependency. Planned types are listed in prose in
-section 31, and drawn in the other files of `diagrams/` under the names
+section 32, and drawn in the other files of `diagrams/` under the names
 their specs give.
 
 | Notation | Means |
@@ -55,7 +55,7 @@ example, `32 bytes`. Each box shows only some of its fields and methods.
 with `core::color::Color`, and the fuzz targets' result lines with
 `core::testing::fuzz::Summary`.
 `tidepool-bench` uses `core::cli::Args`, `codec::json`, the types of
-`text`, `font`'s `Atlas` and `FontError` (sections 22 and 30), and
+`text`, `font`'s `Atlas` and `FontError` (sections 22 and 31), and
 `ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
 `editor`'s `EditorView`, which `gui`'s `Painter` paints into `gfx`'s
 `Framebuffer`s (M4.1, section 29.2), and `tidepool-sys` no workspace
@@ -2583,7 +2583,7 @@ classDiagram
   starts and drops the outputs after it stops, so neither is timed.
 - `prime_allocator` runs once, before the first suite (`docs/04-quality.md`
   → "Benchmarks").
-- `BenchError` is in section 30.
+- `BenchError` is in section 31.
 
 ## 23. sys: symbol tables and the Linux declarations
 
@@ -2740,7 +2740,7 @@ classDiagram
   through it.
 - A table's function pointers stay valid because no library is ever
   closed: `dlclose` is not declared.
-- `MissingSymbols` is in section 30.
+- `MissingSymbols` is in section 31.
 
 ## 24. platform: the window, its events, present, the clipboard and folders
 
@@ -3464,7 +3464,7 @@ classDiagram
 - A `Font` keeps its bytes and the ranges and headers of the tables it
   checked; a glyph's data is read, and checked, only when its outline is
   asked for. `FontError` names the `Tag` of a table or the `GlyphId` of a
-  glyph; it is in section 30.
+  glyph; it is in section 31.
 - `Limits` and every type above but `Font`, `Outline` and `Bitmap` are
   `Copy`. `Outline::new` checks its contour ends and that every point is
   finite.
@@ -3648,7 +3648,7 @@ classDiagram
   from outliving the next call to `Atlas::glyph`, which may move glyphs
   when it evicts. A glyph is at most `glyph_limit()` a side, and a key
   that fails is remembered with its error until `clear`. `FontError` gains
-  `Faces` and `Atlas` (section 30).
+  `Faces` and `Atlas` (section 31).
 
 ## 27. gui: the window, the first frame and the painter
 
@@ -3798,7 +3798,7 @@ classDiagram
   sent: the `Want`, the style and the channel's sender, and the window's
   `Waker` in `Wake`, a function its `Report` calls after sending, even as
   a panic unwinds it. `Want` is `Copy`. `GuiError` wraps the error of the
-  crate that failed (section 30); a build that fails is a `Failure` that
+  crate that failed (section 31); a build that fails is a `Failure` that
   is logged, not an error.
 
 The painter (M3.5, ADR-0048) paints `ui`'s frames, which the window shows
@@ -4207,7 +4207,7 @@ classDiagram
   writes names and values as they are, and a secret is never a value.
 - `UiError`, which only the calls that change the tree's nodes, focus or
   scrolling, and reading a theme (28.3), return (layout, input and frames
-  never fail), is in section 30.
+  never fail), is in section 31.
 
 ### 28.3 The theme
 
@@ -4344,7 +4344,7 @@ classDiagram
   editor's current-line wash, with `row-hover`'s value (M4.1).
   `Token::name` gives a token's name in the spec and the file, such as
   `bg-raise`.
-- `UiError`'s box lists only its two theme variants; section 30 has the
+- `UiError`'s box lists only its two theme variants; section 31 has the
   rest. `ThemeError` implements `Display` but not `std::error::Error`:
   `UiError` is the error a caller gets, and its `source` is the
   `CodecError` of `ThemeSyntax`.
@@ -5102,7 +5102,7 @@ classDiagram
   their own enabled flag; and `parked`, set on a toast kept out of view
   for want of room in the column, which hides it apart from its style's
   `hidden`, which stays its owner's. The `UiError` box lists only the
-  variants M3.3 adds; section 30 has the rest. `set_overlay_anchor`
+  variants M3.3 adds; section 31 has the rest. `set_overlay_anchor`
   refuses a toast's overlay with `FixedAnchor`: a toast keeps the anchor
   `Toast` gives it.
 
@@ -5906,7 +5906,185 @@ classDiagram
   window of at most that many bytes either side of the cursor, copied
   out of the rope; that and the column count are private to `edit`.
 
-## 30. Error enums across crates
+## 30. workspace: folders, ignore files, trust and settings
+
+`folder` (M4.7, ADR-0067) opens a `Folder`, a root by its canonical
+path, and reads its ignore files: each `IgnoreFile` is the `Pattern`s of
+one file, each a private `Glob` compiled to a few instructions and matched
+by stepping a set of states, within `IgnoreLimits`. An `Ignore` holds the
+files read so far, by folder, and answers `is_ignored` by the rules of
+precedence. `trust` keeps a `TrustStore`'s grants in `trust.toml`.
+`settings` resolves the settings a `Schema` declares, each of a `Kind`,
+from the defaults and the `SettingsFile`s of the user and a trusted
+folder, into `Settings`, with a `Warning` for each value or file it could
+not use; a `SettingsFile` writes a `Value` back through
+`codec::toml::Document`. `WorkspaceError` is in section 31.
+
+```mermaid
+classDiagram
+    direction LR
+    class Folder["workspace::folder::Folder"] {
+        -root: PathBuf
+        +open(path) Result~Folder~
+        +root() Path
+        +config_dir() PathBuf
+        +settings_file() PathBuf
+        +relative(path) Option~Path~
+        +read_ignore_files(dir, ignore, limits) Vec~WorkspaceError~
+        +ignore_for(path, limits) Ignore and its errors
+    }
+    class IgnoreLimits["workspace::folder::IgnoreLimits"] {
+        +max_file_bytes: u64
+        +max_total_bytes: u64
+        +max_patterns: usize
+        +max_pattern_bytes: usize
+        +DEFAULT: IgnoreLimits
+    }
+    class Ignore["workspace::folder::Ignore"] {
+        -files: map of folder to its two files
+        -exclude: Option~IgnoreFile~
+        -total: u64
+        +new() Ignore
+        +set_tidepool_ignore(dir, file)
+        +set_git_ignore(dir, file)
+        +set_exclude(file)
+        +total_bytes() u64
+        +is_ignored(path, is_dir) bool
+    }
+    class IgnoreFile["workspace::folder::IgnoreFile"] {
+        -patterns: Vec~Pattern~
+        -bytes: u64
+        +parse(bytes, path, limits) Result~IgnoreFile~
+        +len() usize
+        +is_empty() bool
+        +bytes() u64
+        +matched(path, is_dir) Match
+    }
+    class Match["workspace::folder::Match"] {
+        <<enumeration>>
+        None
+        Ignore
+        Include
+    }
+    class Pattern["workspace::folder::Pattern"] {
+        -glob: Option~Glob~
+        -negated: bool
+        -dirs_only: bool
+        -name_only: bool
+    }
+    class Glob["workspace::folder::glob::Glob"] {
+        -program: Vec of instructions
+        -literal: Option of bytes
+        -sets: Vec of 256-bit sets
+        -compile(glob) Option~Glob~
+        -matches(text, scratch) bool
+    }
+    class TrustStore["workspace::trust::TrustStore"] {
+        -file: PathBuf
+        -grants: Vec~PathBuf~
+        -problem: Option of the file's error
+        +load(data_dir) TrustStore
+        +file() Path
+        +problem() Option~WorkspaceError~
+        +grants() slice of PathBuf
+        +is_trusted(folder) bool
+        +grant_for(folder) Option~Path~
+        +trust(folder) Result
+        +revoke(grant) Result~bool~
+    }
+    class Schema["workspace::settings::Schema"] {
+        -settings: map of key to Kind
+        +new() Schema
+        +add(key, kind) Result
+        +kind(key) Option~Kind~
+        +keys() iterator of str
+    }
+    class Kind["workspace::settings::Kind"] {
+        <<enumeration>>
+        Bool
+        Integer
+        String
+        Table
+    }
+    class Value["workspace::settings::Value"] {
+        <<enumeration>>
+        Bool
+        Integer
+        String
+        Table
+    }
+    class SettingsFile["workspace::settings::SettingsFile"] {
+        -scope: Scope
+        -path: PathBuf
+        -trusted: bool
+        +user(config_dir) SettingsFile
+        +workspace(folder, trust) Option~SettingsFile~
+        +workspace_from_bytes(folder, trust, bytes) Option~SettingsFile~
+        +from_bytes(scope, path, bytes) SettingsFile
+        +is_trusted() bool
+        +document() Option~Document~
+        +problem() Option~WorkspaceError~
+        +set(schema, key, value) Result
+        +write(schema, key, value) Result
+    }
+    class Settings["workspace::settings::Settings"] {
+        +resolve(schema, user, workspace) Settings
+        +get(key) Option~Value~
+        +source(key) Option~Source~
+        +bool(key) Option~bool~
+        +integer(key) Option~i64~
+        +string(key) Option~str~
+        +table(key) Option~Table~
+        +table_layers(key) slice of Source and Table
+        +warnings() slice of Warning
+        +log_warnings()
+    }
+    class Warning["workspace::settings::Warning"] {
+        +file() Path
+        +key() Option~str~
+        +message() str
+        +using() Option~Source~
+    }
+    class Scope["workspace::settings::Scope"] {
+        <<enumeration>>
+        User
+        Workspace
+    }
+    class Source["workspace::settings::Source"] {
+        <<enumeration>>
+        Default
+        User
+        Workspace
+    }
+    class Document["codec::toml::Document"]
+
+    Folder ..> Ignore : fills
+    Folder ..> IgnoreLimits : bounded by
+    Ignore *-- "0..*" IgnoreFile
+    IgnoreFile *-- "0..*" Pattern
+    Pattern *-- "0..1" Glob
+    IgnoreFile ..> Match : matched
+    TrustStore ..> Folder : is_trusted
+    Schema *-- "0..*" Kind
+    SettingsFile *-- Scope
+    SettingsFile *-- "0..1" Document
+    SettingsFile ..> TrustStore : workspace checks
+    SettingsFile ..> Value : set, write
+    Settings ..> Schema : resolve
+    Settings ..> SettingsFile : resolve
+    Settings *-- "0..*" Value
+    Settings *-- "0..*" Warning
+    Warning ..> Source : using
+```
+
+- `Glob`'s instructions are a private enum of six, 12 bytes each: a byte,
+  any byte but `/`, a byte of a set, a run of bytes but `/`, a run of any
+  bytes, and a split; a glob of literal bytes keeps only `literal`.
+- A `SettingsFile` of `Scope::Workspace` is trusted only when
+  `SettingsFile::workspace` or `workspace_from_bytes` made it, which ask a
+  `TrustStore`; `Settings::resolve` uses no other.
+
+## 31. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
 `std::error::Error`, except `tidepool-sys`, whose one error is a struct,
@@ -5931,7 +6109,12 @@ tree that refused a change or lost the view's nodes, in `Ui`, and the
 `Text` (29.2); since M4.6 it also names a bad or taken command id, wraps
 the `CodecError` of a keymap file that is not TOML in `KeymapSyntax`,
 and holds the `keymap::FileError` of one that is TOML but not a keymap
-in `Keymap` (29.3). `xtask`
+in `Keymap` (29.3). `WorkspaceError` (M4.7) wraps `core`'s `PathError`
+in `Path`, the `CodecError` of a settings or trust file that is not TOML
+in `Toml` and of an edit the document refused in `Edit`, the `TextError`
+of a save in `Save`, and an `io::Error` in `Read` and `CreateFolder`; its
+`Unwritable` shares the error of the file it will not replace through an
+`Arc` (section 30). `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -6054,6 +6237,32 @@ classDiagram
         Keymap
     }
     class KeymapFileError["editor::keymap::FileError"]
+    class WorkspaceError["workspace::WorkspaceError"] {
+        <<enumeration>>
+        Path
+        NotAFolder
+        NotRegularFile
+        Read
+        TooLarge
+        TooManyPatterns
+        IgnoreBudget
+        PatternTooLong
+        Toml
+        Version
+        BadTrustFile
+        NotCanonical
+        TooManyGrants
+        BadSetting
+        UnknownSetting
+        InvalidValue
+        NotWritable
+        Unwritable
+        Edit
+        CreateFolder
+        Save
+        Linked
+        Untrusted
+    }
     class IconError["gui::icon::IconError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
     class OutlineErrorKind["font::outline::ErrorKind"]
@@ -6131,11 +6340,18 @@ classDiagram
     EditorError *-- KeymapFileError : Keymap
     Display <|.. KeymapFileError
     StdError <|.. KeymapFileError
+    Display <|.. WorkspaceError
+    StdError <|.. WorkspaceError
+    WorkspaceError *-- PathError : Path
+    WorkspaceError *-- CodecError : Toml, Edit
+    WorkspaceError *-- TextError : Save
+    WorkspaceError *-- IoError : Read, CreateFolder
+    WorkspaceError o-- WorkspaceError : Unwritable
 ```
 
-## 31. Planned types
+## 32. Planned types
 
-The other 13 members are empty crates, so they have no class diagram yet;
+The other 12 members are empty crates, so they have no class diagram yet;
 the `tidepool` binary's few types are private to its `main.rs` and
 `settings.rs`.
 Their specs name these types, which the tasks in `docs/roadmap.md` build;
@@ -6212,16 +6428,19 @@ The main files these diagrams were drawn from:
   `view/layout.rs`, `command.rs`, `keymap.rs`, `keymap/notation.rs`,
   `keymap/read.rs`, `keymap/engine.rs`, `shell.rs`, `shell/commands.rs`;
   `keymaps/default.toml`
+- `crates/workspace/src/lib.rs`, `error.rs`, `folder.rs`,
+  `folder/glob.rs`, `trust.rs`, `settings.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
-  `crates/ui/Cargo.toml`, `crates/editor/Cargo.toml`, `bench/Cargo.toml`
+  `crates/ui/Cargo.toml`, `crates/editor/Cargo.toml`,
+  `crates/workspace/Cargo.toml`, `bench/Cargo.toml`
 - `docs/01-architecture.md` (the dependency matrix), `docs/roadmap.md`,
   `docs/decisions.md` (ADR-0001, ADR-0010, ADR-0011, ADR-0013, ADR-0019,
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
   ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058,
-  ADR-0063, ADR-0064)
+  ADR-0063, ADR-0064, ADR-0067)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`, `editor.md`

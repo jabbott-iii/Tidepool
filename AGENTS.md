@@ -107,7 +107,8 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   subsequence matcher; Ctrl+Shift+P or F1 opens it, Ctrl+B and Ctrl+J
   toggle the panels, a tooltip shows 500 ms after the pointer rests, and
   the binary reads `[ui] side_panel` and `bottom_panel` from
-  `settings.toml`, read-only until M4.7; with golden scenes of the shell
+  `settings.toml`, read-only (through `workspace::settings` from M4.7);
+  with golden scenes of the shell
   at 1280 × 800 and 1920 × 1080, with the palette open and at scale 2,
   drawn by the binary's `tests/golden.rs` (M3.4, ADR-0060). Every view of
   the shell is empty until its task; and in `tidepool-editor` the editor
@@ -142,8 +143,22 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   `tidepool-bench` suites of a keystroke at 10,000 carets of 100 MB,
   about 19 ms, an accepted exception to the keystroke budget, and of
   keystrokes on M1.1's crafted 100 MB lines, each well within a frame;
-  the binary shows an editor from M4.3 (M4.2, ADR-0065, ADR-0066).
-- **Not built:** everything else. 13 of the 26 workspace members are empty
+  the binary shows an editor from M4.3 (M4.2, ADR-0065, ADR-0066); and
+  in `tidepool-workspace` folders, trust and settings: `folder`, a root by
+  its canonical path, its `.tidepool/` folder, and its `.gitignore`,
+  `.tidepoolignore` and `.git/info/exclude` files, read as Git reads
+  them and matched without backtracking, within limits, a `.git` always
+  ignored and nothing inside an ignored folder included again; `trust`,
+  the folders the user trusts (ADR-0014) in `trust.toml` in the user data
+  folder, each grant trusting the folders inside it, untrusted until
+  then; and `settings`, typed settings declared in a `Schema`, in layers
+  (the defaults, the user's `settings.toml`, a trusted folder's
+  `.tidepool/settings.toml`, never read while it is untrusted), an
+  invalid value falling back to the layer below with a logged warning,
+  and values written back through `codec::toml`'s document model, keeping
+  comments and unknown keys; the binary reads its settings through it;
+  with the fuzz targets `ignore` and `settings` (M4.7, ADR-0067).
+- **Not built:** everything else. 12 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.
 - **Next:** the first unticked task whose dependencies are all ticked,

@@ -40,8 +40,8 @@ Nothing to use yet: sessions and diagnostics land in M6.7.
 
 - Design: [`docs/subsystems/languages.md`](../../docs/subsystems/languages.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0005
-  (Rust and Markdown first); ADR-0014 (trust, Proposed); ADR-0019
-  (positions, and the lone CR).
+  (Rust and Markdown first); ADR-0014 (trust, accepted for M4.7,
+  ADR-0067); ADR-0019 (positions, and the lone CR).
 - API reference: `cargo doc -p tidepool-lang --open`
 
 ## Rules

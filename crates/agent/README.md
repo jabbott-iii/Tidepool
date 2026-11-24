@@ -37,7 +37,8 @@ in M9.3.
 
 - Design: [`docs/subsystems/agents.md`](../../docs/subsystems/agents.md)
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0009
-  (agents are processes speaking TAP, Proposed); ADR-0014 (trust, Proposed).
+  (agents are processes speaking TAP, Proposed); ADR-0014 (trust,
+  accepted for M4.7, ADR-0067).
 - API reference: `cargo doc -p tidepool-agent --open`
 
 ## Rules

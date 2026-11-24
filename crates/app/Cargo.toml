@@ -9,12 +9,14 @@ publish = false
 # crate above it. The main loop (M3.8) uses `core` to read the command line,
 # `platform` for the window's configuration, its events and the user's
 # folders, `gui` to open the window and draw, and `ui` for the tree that
-# input is routed to; the shell (M3.4) uses `editor`'s shell, and `codec`
-# to read the settings.
+# input is routed to; the shell (M3.4) uses `editor`'s shell; and the
+# settings are read with `workspace::settings` (M4.7), the keymap's table
+# being `codec`'s TOML table.
 [dependencies]
 tidepool-core = { path = "../core" }
 tidepool-platform = { path = "../platform" }
 tidepool-codec = { path = "../codec" }
+tidepool-workspace = { path = "../workspace" }
 tidepool-gui = { path = "../gui" }
 tidepool-ui = { path = "../ui" }
 tidepool-editor = { path = "../editor" }

@@ -67,7 +67,7 @@ flowchart TB
     i_editor(("EditorView (M4.1)<br/>command Registry,<br/>keymap Engine (M4.6)<br/>Editor, editing (M4.2)"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -136,9 +136,9 @@ flowchart TB
     e_agents["Language agents<br/>TAP over stdio"]
     i_rpc(("JSON-RPC<br/>transport<br/>planned M6.1"))
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
-    i_ws(("folders, trust,<br/>settings, buffers<br/>planned M4.7, M4.3"))
+    i_ws(("folders, trust,<br/>settings (M4.7),<br/>buffers planned M4.3"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -149,14 +149,16 @@ flowchart TB
     i_rpc -.- c_lang
     c_lang -.->|"lang: planned M6.7"| i_ws
     c_lang -.->|"lang: planned M6.7"| i_tools
-    i_ws -.- c_editor
+    i_ws --- c_editor
     i_tools -.- c_tools
     c_tools -.->|"toolchain: planned M5.2"| e_progs
 
+    classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_agents,c_lang,c_editor,c_tools planned
-    class i_rpc,i_ws,i_tools planned
+    class c_editor,i_ws built
+    class c_agents,c_lang,c_tools planned
+    class i_rpc,i_tools planned
     class e_agents,e_progs external
 ```
 
@@ -165,7 +167,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace<br/>planned M4.7"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -187,8 +189,8 @@ flowchart LR
 
     c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
-    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1),<br/>edits and undo (M4.2);<br/>workspace:<br/>planned M4.3"| i_text
-    c_editor -->|"editor: keymaps (M4.6);<br/>workspace:<br/>planned M4.7"| i_codec
+    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1),<br/>edits and undo (M4.2);<br/>workspace: saving<br/>settings (M4.7)"| i_text
+    c_editor -->|"editor: keymaps (M4.6);<br/>workspace: settings,<br/>trust.toml (M4.7)"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
     c_editor -.->|"workspace:<br/>planned M4.5"| i_os_watch
     c_agents -.->|"agent:<br/>planned M9.3"| i_text
@@ -258,7 +260,7 @@ flowchart LR
     c_syntax["tidepool-syntax<br/>planned M6.2"]
     c_agent["tidepool-agent<br/>planned M9.3"]
     c_editor["tidepool-editor<br/>keymaps (M4.6)<br/>planned M13.4"]
-    c_workspace["tidepool-workspace<br/>planned M4.7"]
+    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)"]
     c_mobile["tidepool-mobile<br/>planned M10.2, M11.3"]
 
     i_jparse(("json::parse,<br/>parse_bytes"))
@@ -291,7 +293,8 @@ flowchart LR
     c_editor -->|"keymaps (M4.6)"| i_tparse
     c_editor -->|"Keymap::read takes,<br/>EditorError wraps (M4.6)"| i_limits
     c_editor -.->|"image viewer,<br/>planned M13.4"| i_png
-    c_workspace -.->|"settings written back,<br/>planned M4.7"| i_tdoc
+    c_workspace -->|"settings read and<br/>written back (M4.7)"| i_tdoc
+    c_workspace -->|"trust.toml (M4.7)"| i_tparse
     c_mobile -.->|"inspect,<br/>planned M10.2"| i_zip
     c_mobile -.->|"ExportOptions.plist,<br/>planned M11.3"| i_plist
 
@@ -307,8 +310,8 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_bench,c_ui,c_editor,c_codec,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
-    class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_workspace,c_mobile planned
+    class c_xtask,c_bench,c_ui,c_editor,c_codec,c_workspace,i_jparse,i_jwrite,i_tparse,i_limits,i_tdoc,i_qoi built
+    class c_rpc,c_lang,c_toolchain,c_syntax,c_agent,c_mobile planned
     class i_png,i_zip,i_plist planned
 ```
 
@@ -336,7 +339,7 @@ the task that built it.
 ```mermaid
 flowchart LR
     c_editor["tidepool-editor<br/>the editor view (M4.1),<br/>editing (M4.2)<br/>planned M4.4"]
-    c_workspace["tidepool-workspace<br/>planned M4.3, M4.4"]
+    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>planned M4.3, M4.4"]
     c_syntax["tidepool-syntax<br/>planned M6.2, M13.2"]
     c_lang["tidepool-lang<br/>planned M6.7"]
     c_agent["tidepool-agent<br/>planned M9.3"]
@@ -368,6 +371,7 @@ flowchart LR
     c_lang -.->|"didChange,<br/>planned M6.7"| i_tx
     c_editor -->|"one step a command,<br/>undo and redo (M4.2)"| i_hist
     c_workspace -.->|"saves,<br/>planned M4.3"| i_hist
+    c_workspace -->|"saves settings and<br/>trust.toml (M4.7)"| i_file
     c_workspace -.->|"buffers,<br/>planned M4.3"| i_file
     c_editor -.->|"find and replace,<br/>planned M4.4"| i_regex
     c_workspace -.->|"project search,<br/>planned M4.4"| i_regex
@@ -383,9 +387,9 @@ flowchart LR
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_rope,c_pos,c_tx,c_hist,c_file,c_ui,c_editor built
+    class c_rope,c_pos,c_tx,c_hist,c_file,c_ui,c_editor,c_workspace built
     class i_rope,i_pos,i_graph,i_tx,i_hist,i_file built
-    class c_workspace,c_syntax,c_lang,c_agent,c_regex,i_regex planned
+    class c_syntax,c_lang,c_agent,c_regex,i_regex planned
 ```
 
 - `pos` adds its conversions and grapheme queries to `Rope` itself, so its
@@ -499,7 +503,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     c_app["tidepool, the app<br/>the main loop, M3.8<br/>the settings, M3.4"]
-    c_workspace["tidepool-workspace<br/>planned M4.5, M4.7"]
+    c_workspace["tidepool-workspace<br/>watch planned M4.5"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
 
@@ -511,7 +515,7 @@ flowchart TB
     c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>the rest planned<br/>M4.5 to M5.9"]
 
     c_app -->|"settings.toml's<br/>folder (M3.4)"| i_paths
-    c_workspace -.->|"trust in user data,<br/>planned M4.7"| i_paths
+    c_app -.->|"trust.toml's folder,<br/>planned M4.3"| i_paths
     c_workspace -.->|"debounced events,<br/>planned M4.5"| i_watch
     c_toolchain -.->|"standard locations,<br/>planned M5.1"| i_paths
     c_toolchain -.->|"Spawn,<br/>planned M5.2"| i_process
@@ -879,14 +883,14 @@ flowchart TB
 
     i_pack(("language packs<br/>planned M6.2"))
     i_mdtree(("markdown:<br/>document tree<br/>planned M6.5"))
-    i_ws(("workspace:<br/>folders, trust<br/>planned M4.7"))
+    i_ws(("workspace:<br/>folders, trust (M4.7)"))
     i_textapi(("text: ChangeSet,<br/>pos conversions"))
     i_json(("codec: json::parse,<br/>to_string_compact"))
     i_tparse(("codec:<br/>toml::parse"))
     i_regex(("regex<br/>planned M4.8"))
 
     c_markdown["tidepool-markdown<br/>planned M6.5"]
-    c_workspace["tidepool-workspace<br/>planned M4.7"]
+    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)"]
     c_text["tidepool-text"]
     c_codec["tidepool-codec"]
     c_regex["tidepool-regex<br/>planned M4.8"]
@@ -902,7 +906,7 @@ flowchart TB
     c_syntax -.->|"pack lexers,<br/>planned M13.2"| i_regex
 
     i_mdtree -.- c_markdown
-    i_ws -.- c_workspace
+    i_ws --- c_workspace
     i_textapi --- c_text
     i_json --- c_codec
     i_tparse --- c_codec
@@ -910,9 +914,9 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_text,c_codec,i_textapi,i_json,i_tparse built
-    class c_lang,c_syntax,c_markdown,c_workspace,c_regex planned
-    class i_pack,i_mdtree,i_ws,i_regex planned
+    class c_text,c_codec,c_workspace,i_textapi,i_json,i_tparse,i_ws built
+    class c_lang,c_syntax,c_markdown,c_regex planned
+    class i_pack,i_mdtree,i_regex planned
 ```
 
 - LSP positions default to UTF-16, and every conversion goes through
@@ -991,14 +995,14 @@ flowchart LR
 
     i_framing(("rpc: JSON-RPC<br/>transport<br/>planned M6.1"))
     i_sessions(("toolchain:<br/>sessions<br/>planned M5.2"))
-    i_folder(("workspace:<br/>folder, trust<br/>planned M4.7"))
+    i_folder(("workspace:<br/>folder, trust (M4.7)"))
     i_buffers(("workspace:<br/>buffers<br/>planned M4.3"))
     i_rope(("text: Rope"))
     i_tparse(("codec:<br/>toml::parse"))
 
     c_rpc["tidepool-rpc<br/>planned M6.1"]
     c_toolchain["tidepool-toolchain<br/>planned M5.2"]
-    c_workspace["tidepool-workspace<br/>planned M4.3, M4.7"]
+    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)<br/>buffers planned M4.3"]
     c_text["tidepool-text"]
     c_codec["tidepool-codec"]
     e_agent["Language agents,<br/>separate processes<br/>tp-agent-mock, tp-agent-local,<br/>tp-agent-claude<br/>planned M9.2, M9.6"]
@@ -1014,17 +1018,17 @@ flowchart LR
 
     i_framing -.- c_rpc
     i_sessions -.- c_toolchain
-    i_folder -.- c_workspace
+    i_folder --- c_workspace
     i_buffers -.- c_workspace
     i_rope --- c_text
     i_tparse --- c_codec
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_text,c_codec,i_rope,i_tparse built
+    class c_text,c_codec,c_workspace,i_rope,i_tparse,i_folder built
     class c_tap,c_host,c_context,c_predict,c_manifest planned
-    class c_rpc,c_toolchain,c_workspace,e_agent planned
-    class i_framing,i_sessions,i_folder,i_buffers planned
+    class c_rpc,c_toolchain,e_agent planned
+    class i_framing,i_sessions,i_buffers planned
 ```
 
 - Every byte an agent receives is assembled by `context`; agents never get

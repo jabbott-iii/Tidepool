@@ -107,13 +107,14 @@
 //! # Soft wrap
 //!
 //! Soft wrap is off at first, and [`EditorView::set_wrap`] turns it on or
-//! off for one view (the setting comes with M4.7). Off, a line runs past
-//! the right edge and the text scrolls sideways. On, a line wraps at the
-//! text area's right edge, less [`CURSOR_WIDTH`] so that a caret at a row's
-//! end shows: after the last space or tab of the row that fits, or, when
-//! the row has none, at the grapheme cluster boundary before the first
-//! cluster that does not fit. A row always holds at least one cluster. A
-//! caret where a line wraps shows at the start of the next row.
+//! off for one view (the setting comes with M4.3, ADR-0067). Off, a line
+//! runs past the right edge and the text scrolls sideways. On, a line
+//! wraps at the text area's right edge, less [`CURSOR_WIDTH`] so that a
+//! caret at a row's end shows: after the last space or tab of the row that
+//! fits, or, when the row has none, at the grapheme cluster boundary
+//! before the first cluster that does not fit. A row always holds at least
+//! one cluster. A caret where a line wraps shows at the start of the next
+//! row.
 //!
 //! # Scrolling
 //!

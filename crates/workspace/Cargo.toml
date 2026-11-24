@@ -5,5 +5,14 @@ version.workspace = true
 license.workspace = true
 publish = false
 
+# Its row of the dependency matrix (docs/01-architecture.md) allows `core`,
+# `platform`, `codec`, `text` and `regex`. Folders, trust and settings
+# (M4.7) use `core`'s paths and log, `codec::toml` to read the settings and
+# trust files and write the settings back, and `text::file` to save them.
+[dependencies]
+tidepool-core = { path = "../core" }
+tidepool-codec = { path = "../codec" }
+tidepool-text = { path = "../text" }
+
 [lints]
 workspace = true

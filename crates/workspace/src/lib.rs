@@ -16,6 +16,23 @@
 //! session state.
 //!
 //! Specification: `docs/subsystems/editor.md`.
+//!
+//! What is built (M4.7, ADR-0067):
+//!
+//! - [`folder`]: a workspace root by its canonical path, its `.tidepool/`
+//!   folder, and its `.tidepoolignore`, `.gitignore` and
+//!   `.git/info/exclude` files, read as Git reads them;
+//! - [`trust`]: the folders the user trusts (ADR-0014), in `trust.toml` in
+//!   the user data folder, each grant covering the folders under it;
+//! - [`settings`]: typed settings in layers (the defaults, the user's
+//!   `settings.toml`, a trusted folder's `.tidepool/settings.toml`), an
+//!   invalid value falling back with a warning, and values written back
+//!   with the file's comments and unknown keys kept.
+//!
+//! Everything here that reads or writes a file blocks, so call it on a
+//! worker, never on the main thread (`AGENTS.md` rule 6). The rest of the
+//! crate lands with M4.3 (`buffers`, `session`, `files`), M4.4 (`search`)
+//! and M4.5 (`watch`).
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -26,3 +43,12 @@
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
+
+pub mod folder;
+pub mod settings;
+pub mod trust;
+
+mod error;
+mod read;
+
+pub use error::WorkspaceError;

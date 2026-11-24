@@ -2661,7 +2661,7 @@ jabbott.dev, reads as the same design (human review).
     the measured exception the acceptance allows, rather than optimize
     first, which ADR-0066 does; so every criterion is met.
 
-- [ ] **M4.7 — workspace: folders, ignore rules, trust, settings**
+- [x] **M4.7 — workspace: folders, ignore rules, trust, settings**
   - Depends: M1.5, M1.8, M2.7
   - Decide first: accept ADR-0014 (workspaces are untrusted until the user
     trusts them), which is `Proposed`.
@@ -2673,6 +2673,49 @@ jabbott.dev, reads as the same design (human review).
     settings keeps unknown keys and comments; an invalid value falls back
     to its default with a logged warning.
   - Verify: `cargo test -p tidepool-workspace`
+  - Note (2026-11-23): the user accepted ADR-0014 that day, with a trust
+    decision covering the folder trusted and every folder inside it,
+    which answers the `Decide first` line. ADR-0067 records the design and
+    the options the user chose, each the recommended one: grants that
+    cover subfolders; a workspace's `.tidepool/settings.toml` applied only
+    once the folder is trusted, its `[keymap]` included; ignore files in
+    Git's syntax, in every folder; and the library with the binary's
+    reading moved to it, the editor's settings left to M4.3 and reloading
+    to M4.5. The task touches three crates, `workspace`, `tidepool` and
+    `xtask` (the fuzz targets' rows), and the doc comments of `editor`
+    and `codec` that named M4.7.
+  - Note (2026-11-23): built. `folder` opens a root by its canonical path
+    and reads `.gitignore`, `.tidepoolignore` and `.git/info/exclude` as
+    gitignore(5) says, each pattern compiled to at most one 12-byte
+    instruction a byte and matched by stepping a set of states, so
+    `*a*a…b` on a run of `a`s takes the run's length times the pattern's;
+    98 cases of `tests/folder.rs` hold the answers Git 2.43.0's `git
+    check-ignore -q --no-index` gave that day, and the precedence tree's
+    `.gitignore` answers were checked against it too. `trust` keeps
+    grants in `trust.toml`; `settings` resolves a `Schema`'s settings
+    from the defaults, the user's file and a trusted folder's, and writes
+    a value back through `codec::toml::Document::set` and
+    `text::file::save`. The binary reads `[ui]` and `[keymap]` through it.
+    The fuzz targets `ignore`, which also compares the matcher with a
+    port of Git's `wildmatch`, and `settings` found nothing, run again
+    after the review's fixes: 376,215 and 3,108,378 inputs in 60 s each.
+  - Note (2026-11-23): the security review found no critical or high
+    issue, and one medium and four low ones, all fixed with tests, and
+    ADR-0067 updated: ignore files had no bound in all, so two hostile
+    1 MiB root files took 2.61 s for one lookup of depth 10 in a release
+    build and a 1 MiB file of `[a]` held 22 MiB (now 256 KiB a file and
+    1 MiB in all, and `**/**/` compiled as one `**/`: that lookup takes
+    0.6 ms, the worst file holds 14.7 bytes a byte, and the hardest
+    family found, `**/a/` groups filling the budget, 4.3 ms); ignore
+    files were read through a linked folder (now never); a trusted
+    folder's `.tidepool/settings.toml` linked to its own `Cargo.toml`
+    let a setting rewrite it (now neither `.tidepool` nor the file may
+    be a link); `trust` could save a grant the next load refuses (now it
+    reads the text back first); and the trust gate was a convention
+    (now `Settings::resolve` uses a workspace's file only from the
+    constructors that ask a `TrustStore`). It leaves three risks to M4.3,
+    in that task's note, and a pipe swapped in between the check and the
+    open, which can still hold a worker.
 
 - [ ] **M4.3 — workspace: buffers and session; editor: explorer, tabs, splits, trust prompt**
   - Depends: M4.7, M4.2
@@ -2688,6 +2731,22 @@ jabbott.dev, reads as the same design (human review).
     mode within the budget; saving a file with a second hard link, or one
     whose owner or group a save would change, warns first.
   - Verify: `cargo test -p tidepool-workspace -p tidepool-editor`
+  - Note (2026-11-23): M4.7 leaves this task (ADR-0067): opening a folder
+    in the binary, whose title strip says `NO FOLDER` until then, with
+    its `TrustStore` loaded from `trust.toml` in the user data folder; the
+    trust prompt, which must say that trusting a folder trusts every
+    folder inside it; declaring and applying the editor's settings (soft
+    wrap, ADR-0063; Tab's spaces, ADR-0065); and giving `editor::keymap` a
+    trusted folder's `[keymap]` layer, from `Settings::table_layers`.
+    M4.7's security review asks this task, besides: to warn about or
+    refuse trusting `/`, the home folder, or a folder whose parent others
+    may write (a grant is a path, so it outlives its folder and trusts
+    what is later made there); to show the files an untrusted folder's
+    ignore files hide, at least `build.rs`, `.cargo/config.toml` and
+    `.tidepool/settings.toml`, so that they cannot be hidden from a user
+    deciding whether to trust it; and to resolve the settings again when
+    trust changes, since a `SettingsFile` read before a revoke stays
+    usable.
 
 - [ ] **M4.8 — regex: the engine and Unicode classes**
   - Depends: M0.2, M1.6
@@ -2718,6 +2777,10 @@ jabbott.dev, reads as the same design (human review).
   - Accept: external edits reload or prompt correctly; watcher limits
     produce the fix-it message.
   - Verify: `cargo test -p tidepool-platform -p tidepool-workspace`
+  - Note (2026-11-23): reloading the settings when `settings.toml` or a
+    folder's `.tidepool/settings.toml` changes, so that a binding takes
+    effect without a restart (ADR-0064), waits for this task's watcher
+    (ADR-0067).
 
 - [ ] **M4.9 — app: crash reports and buffer recovery**
   - Depends: M3.4, M4.3

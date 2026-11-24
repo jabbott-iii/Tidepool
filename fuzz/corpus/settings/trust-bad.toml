@@ -1,0 +1,2 @@
+version = 1
+folders = ["/a/../b", "rel", 3]

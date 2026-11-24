@@ -1,0 +1,11 @@
+# Rust and editors
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+!crates/app/Cargo.lock
+.idea/
+*.swp
+node_modules/
+dist/**
+!dist/keep/
