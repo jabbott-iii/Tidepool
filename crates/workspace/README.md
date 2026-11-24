@@ -51,7 +51,7 @@ Built, with the roadmap task that built it:
 
 Not yet, with the roadmap task that adds it:
 
-- `buffers`, `session`, and the file tree model in `files` — M4.3.
+- `buffers`, `session`, and the file tree model in `files` — M4.11.
 - `search`, and the file finder's index in `files` — M4.4.
 - `watch` — M4.5.
 

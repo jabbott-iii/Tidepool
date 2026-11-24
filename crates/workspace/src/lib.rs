@@ -31,7 +31,7 @@
 //!
 //! Everything here that reads or writes a file blocks, so call it on a
 //! worker, never on the main thread (`AGENTS.md` rule 6). The rest of the
-//! crate lands with M4.3 (`buffers`, `session`, `files`), M4.4 (`search`)
+//! crate lands with M4.11 (`buffers`, `session`, `files`), M4.4 (`search`)
 //! and M4.5 (`watch`).
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,

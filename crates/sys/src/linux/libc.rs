@@ -15,7 +15,9 @@
 //! The C library on Linux (glibc): the dynamic loader; `poll` and
 //! `pipe2`, which the event loop waits in and its waker's self-pipe comes
 //! from; `write`, with which the waker writes to it; and `setlocale`, with
-//! which the window takes the character locale for typed text (M2.2).
+//! which the window takes the character locale for typed text (M2.2); and
+//! `geteuid`, `getegid` and the mode bits with which `platform` tells the
+//! owner and group a new file gets, which a save checks (M4.10, ADR-0068).
 //!
 //! Ported in part from nadir-sys `linux/libc.rs`: the loader, its flags and
 //! its tests, with Tidepool's names and reworded comments (the header
@@ -23,7 +25,8 @@
 //! library: reading `dlerror`'s message clears it; and, in M2.2,
 //! `setlocale`, `LC_CTYPE` and the test that the locale has a name, with
 //! Nadir's documentation reworded. Nadir's error numbers for ALSA and its
-//! `ioctl` are left out; `poll`, `pipe2`, `write` and their tests are new.
+//! `ioctl` are left out; `poll`, `pipe2`, `write` and their tests are new,
+//! and so, in M4.10, are the users and groups and their tests.
 //!
 //! Sources: `<dlfcn.h>`, and `<bits/dlfcn.h>` for the flag values;
 //! `<sys/poll.h>` (which `<poll.h>` includes), and `<bits/poll.h>` for the
@@ -31,10 +34,16 @@
 //! `<bits/fcntl-linux.h>` (which `<fcntl.h>` includes) for the flags of
 //! `pipe2`, whose values are the kernel's `<asm-generic/fcntl.h>`;
 //! `<locale.h>` for `setlocale`, and `<bits/locale.h>` for the value of
-//! `LC_CTYPE`. Each item gives its declaration there, without glibc's
+//! `LC_CTYPE`; `<unistd.h>` for `geteuid` and `getegid`,
+//! `<bits/types.h>` and `<bits/typesizes.h>` for the widths of `uid_t`,
+//! `gid_t` and `mode_t`, and `<sys/stat.h>` and `<bits/stat.h>` for the
+//! mode bits. Each item gives its declaration there, without glibc's
 //! attribute macros (`__THROW`, `__wur` and the like). x86_64 and aarch64
-//! both use glibc's generic `bits/` headers for these, and the kernel's
-//! generic flags.
+//! both use glibc's generic `bits/` headers for the loader, `poll`,
+//! `pipe2`, `write` and the locale, and the kernel's generic flags. For
+//! the users, groups and mode bits (M4.10), x86_64's `bits/typesizes.h`
+//! and `bits/stat.h` are its own, and the values here were read from them;
+//! aarch64's were not at hand (verify on aarch64).
 //!
 //! Only what `tidepool-platform` calls is declared, and nothing `std`
 //! already gives: an `errno` is read with
@@ -56,10 +65,11 @@
 //! exits, so `dlclose` is not declared: the function pointers of a table
 //! loaded from one can never dangle.
 
-// `pollfd` and `nfds_t` keep the names their header gives them.
+// `pollfd`, `nfds_t`, `uid_t`, `gid_t` and `mode_t` keep the names their
+// headers give them.
 #![allow(non_camel_case_types)]
 
-use core::ffi::{c_char, c_int, c_short, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_void};
 use core::mem::offset_of;
 
 // ---------------------------------------------------------------------------
@@ -252,6 +262,72 @@ unsafe extern "C" {
     ///   closed by anything else during the call, so that the bytes cannot
     ///   go to a file that took its number.
     pub fn write(fd: c_int, buf: *const c_void, n: usize) -> isize;
+}
+
+// ---------------------------------------------------------------------------
+// Users, groups and mode bits
+// ---------------------------------------------------------------------------
+
+/// A user's number.
+/// `sys/types.h`: `typedef __uid_t uid_t;`, where `bits/types.h` gives
+/// `__STD_TYPE __UID_T_TYPE __uid_t;` and `bits/typesizes.h`
+/// `#define __UID_T_TYPE __U32_TYPE`, an `unsigned int`.
+pub type uid_t = c_uint;
+
+/// A group's number.
+/// `sys/types.h`: `typedef __gid_t gid_t;`, where `bits/types.h` gives
+/// `__STD_TYPE __GID_T_TYPE __gid_t;` and `bits/typesizes.h`
+/// `#define __GID_T_TYPE __U32_TYPE`, an `unsigned int`.
+pub type gid_t = c_uint;
+
+/// A file's type and permission bits, as `stat` reports them in
+/// `st_mode` and `std::os::unix::fs::MetadataExt::mode` gives them.
+/// `sys/stat.h`: `typedef __mode_t mode_t;`, where `bits/types.h` gives
+/// `__STD_TYPE __MODE_T_TYPE __mode_t;` and `bits/typesizes.h`
+/// `#define __MODE_T_TYPE __U32_TYPE`, an `unsigned int`.
+pub type mode_t = c_uint;
+
+const _: () = assert!(size_of::<uid_t>() == 4 && align_of::<uid_t>() == 4);
+const _: () = assert!(size_of::<gid_t>() == 4 && align_of::<gid_t>() == 4);
+const _: () = assert!(size_of::<mode_t>() == 4 && align_of::<mode_t>() == 4);
+
+/// The setgid bit. On a folder, Linux gives every file made in it the
+/// folder's group rather than the group of the process that makes it, and
+/// gives every folder made in it the bit too.
+/// `sys/stat.h`: `#define S_ISGID __S_ISGID`, and `bits/stat.h`:
+/// `#define __S_ISGID 02000`.
+pub const S_ISGID: mode_t = 0o2000;
+
+/// Every permission bit of a mode: setuid, setgid, sticky, and read,
+/// write and run for the owner, the group and others. The rest of a mode
+/// is the file's type.
+/// `sys/stat.h`: `# define ALLPERMS
+/// (S_ISUID|S_ISGID|S_ISVTX|S_IRWXU|S_IRWXG|S_IRWXO)/* 07777 */`.
+pub const ALLPERMS: mode_t = 0o7777;
+
+unsafe extern "C" {
+    /// The effective user of this process: whose permissions its file
+    /// operations use, and the owner of a file it makes. (Linux checks
+    /// files against the file-system user, which is the effective user
+    /// unless `setfsuid` changed it; Tidepool never calls `setfsuid`.)
+    /// `unistd.h`: `extern __uid_t geteuid (void)`.
+    ///
+    /// It takes nothing, reads only the process's own credentials, and
+    /// cannot fail: getuid(2) of Linux man-pages 6.7 says these functions
+    /// "are always successful and never modify errno". So it is declared
+    /// `safe`, as [`dlerror`] is.
+    pub safe fn geteuid() -> uid_t;
+
+    /// The effective group of this process: the group of a file it makes
+    /// in a folder without the [`S_ISGID`] bit. (As for [`geteuid`], the
+    /// file-system group is the effective group unless `setfsgid` changed
+    /// it; Tidepool never calls `setfsgid`.)
+    /// `unistd.h`: `extern __gid_t getegid (void)`.
+    ///
+    /// It takes nothing, reads only the process's own credentials, and
+    /// cannot fail, as getgid(2) of Linux man-pages 6.7 says. So it is
+    /// declared `safe`, as [`geteuid`] is.
+    pub safe fn getegid() -> gid_t;
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +636,94 @@ mod tests {
         assert_eq!(written, 0);
         let mut fds = [watching(&read_end)];
         assert_eq!(poll_now(&mut fds), 0);
+    }
+
+    /// The real, effective, saved and file-system ids that
+    /// `/proc/self/status` gives on its `field` line (`Uid:` or `Gid:`),
+    /// or `None` without `/proc`.
+    fn status_ids(field: &str) -> Option<[u32; 4]> {
+        let status = fs::read_to_string("/proc/self/status").ok()?;
+        let line = status.lines().find_map(|line| line.strip_prefix(field))?;
+        let ids: Vec<u32> = line
+            .split_whitespace()
+            .map(|id| id.parse().expect("an id is a number"))
+            .collect();
+        Some(ids.try_into().expect("four ids"))
+    }
+
+    #[test]
+    fn the_effective_user_and_group_are_the_ones_the_kernel_reports() {
+        let test = "the_effective_user_and_group_are_the_ones_the_kernel_reports";
+        let (Some(uid), Some(gid)) = (status_ids("Uid:"), status_ids("Gid:")) else {
+            skipped(test, "/proc is not mounted, so the ids cannot be read");
+            return;
+        };
+        // Real, effective, saved and file-system: the second is ours, and
+        // the fourth, which a new file takes, is the same, since nothing
+        // here calls setfsuid or setfsgid.
+        assert_eq!(geteuid(), uid[1]);
+        assert_eq!(getegid(), gid[1]);
+        assert_eq!(uid[3], uid[1]);
+        assert_eq!(gid[3], gid[1]);
+    }
+
+    #[test]
+    fn a_new_file_takes_the_effective_user_and_the_mode_bits_mean_what_they_say() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        /// Removes the test's folder when the test passes; a failing test
+        /// leaves it behind to look at.
+        struct Remove<'a>(&'a Path);
+        impl Drop for Remove<'_> {
+            fn drop(&mut self) {
+                if !std::thread::panicking() {
+                    let _ = fs::remove_dir_all(self.0);
+                }
+            }
+        }
+
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after 1970");
+        let dir = std::env::temp_dir().join(format!(
+            "tidepool-sys-libc-owner-{}-{}",
+            std::process::id(),
+            since.as_nanos()
+        ));
+        fs::create_dir(&dir).expect("create a fresh test directory");
+        let _remove = Remove(&dir);
+        let file = dir.join("new");
+        File::create(&file).expect("create a file");
+        let made = fs::metadata(&file).expect("read the file's metadata");
+        assert_eq!(made.uid(), geteuid());
+        // The group is the folder's when the folder has the setgid bit.
+        let folder = fs::metadata(&dir).expect("read the folder's metadata");
+        let group = if folder.mode() & S_ISGID == 0 {
+            getegid()
+        } else {
+            folder.gid()
+        };
+        assert_eq!(made.gid(), group);
+
+        // std's permissions are the mode's permission bits, and the
+        // setgid bit is the one std sets with 0o2000.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o2755))
+            .expect("set the folder's setgid bit");
+        let mode = fs::metadata(&dir).expect("read the folder again").mode();
+        assert_eq!(mode & ALLPERMS, 0o2755, "{mode:#o}");
+        assert_ne!(mode & S_ISGID, 0, "{mode:#o}");
+        assert_ne!(
+            mode & !ALLPERMS,
+            0,
+            "the rest is the file's type: {mode:#o}"
+        );
+        let inside = dir.join("inside");
+        File::create(&inside).expect("create a file in the setgid folder");
+        assert_eq!(
+            fs::metadata(&inside).expect("read its metadata").gid(),
+            fs::metadata(&dir).expect("read the folder").gid(),
+            "a file in a setgid folder takes the folder's group"
+        );
     }
 
     #[test]

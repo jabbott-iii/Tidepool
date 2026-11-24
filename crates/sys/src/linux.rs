@@ -16,8 +16,8 @@
 //! Xlib, whose functions are a table loaded from `libX11.so.6` while the
 //! program runs.
 //!
-//! - [`libc`]: the dynamic loader, `poll`, `pipe2`, `write` and
-//!   `setlocale`.
+//! - [`libc`]: the dynamic loader, `poll`, `pipe2`, `write`, `setlocale`,
+//!   and `geteuid` and `getegid` with the mode bits.
 //! - [`evdev`]: the kernel's key codes, which an X server reports shifted
 //!   by 8.
 //! - [`x11`]: the Xlib types, constants and events that

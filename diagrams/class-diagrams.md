@@ -2596,7 +2596,9 @@ each one up through a `Library` and names every one it cannot find in a
 `libX11.so.6` that `platform`'s window, its events, typed text, present
 and clipboard call, loaded with `dlopen` (M2.1, M2.2, M2.7, ADR-0010).
 `linux::libc` links what it declares from the C library: the dynamic
-loader, `poll`, `pipe2`, `write(2)`, and `setlocale` (M2.1, M2.2).
+loader, `poll`, `pipe2`, `write(2)`, and `setlocale` (M2.1, M2.2), and
+`geteuid` and `getegid`, declared `safe`, with the mode bits `S_ISGID`
+and `ALLPERMS` (M4.10).
 `linux::evdev` gives the kernel's key codes that `platform`'s key map
 reads (M2.2, ADR-0039). Each struct has every field of its header,
 and `XEvent` the members Tidepool reads and the header's `pad`, each
@@ -2631,6 +2633,9 @@ classDiagram
         +pipe2(pipefd, flags) c_int
         +write(fd, buf, count) ssize_t
         +setlocale(category, locale) name
+        +geteuid() uid_t
+        +getegid() gid_t
+        +S_ISGID: mode_t
     }
     class Evdev["linux::evdev"] {
         <<module>>
@@ -2742,7 +2747,7 @@ classDiagram
   closed: `dlclose` is not declared.
 - `MissingSymbols` is in section 31.
 
-## 24. platform: the window, its events, present, the clipboard and folders
+## 24. platform: the window, its events, present, the clipboard, folders and file metadata
 
 `tidepool-platform` has one public API on every system (M2.2): a
 `window::Window` opened from a `WindowConfig`, with its `CursorShape`;
@@ -2753,7 +2758,10 @@ crate's `Error`. M2.7 adds the clipboard's `Selection`, which
 `set_selection` and `request_selection` take and `Event::Pasted` answers
 (ADR-0042), and the folders: `paths::UserDirs`, which `paths::user_dirs`
 finds, and `dirs::android_sdk` and `dirs::rustup_home`, which fail with
-`Error::Unsupported` off Linux. A `Window` holds its system's backend: X11 on Linux
+`Error::Unsupported` off Linux. M4.10 adds `file::metadata`, a file's
+`Metadata` (its link count, `Owner` and permission bits), and
+`file::new_file_owner`, the `Owner` of a file made in a folder, which a
+save checks (ADR-0068), and fail the same way off Linux. A `Window` holds its system's backend: X11 on Linux
 (24.2), and on every other system one whose `open` fails with
 `Error::Unsupported`. A `Window` is neither `Send` nor `Sync`; a `Waker`
 is both. Input events are `core::input::InputEvent`, in logical units.
@@ -2815,6 +2823,20 @@ classDiagram
         +android_sdk() Result~PathBuf~
         +rustup_home() Result~PathBuf~
     }
+    class FileMod["file"] {
+        <<module>>
+        +metadata(path) Result~Metadata~
+        +new_file_owner(folder) Result~Owner~
+    }
+    class Metadata["file::Metadata"] {
+        +links: u64
+        +owner: Owner
+        +permissions: u32
+    }
+    class Owner["file::Owner"] {
+        +user: u32
+        +group: u32
+    }
     class Waker["events::Waker"] {
         +wake()
     }
@@ -2849,6 +2871,10 @@ classDiagram
     Event *-- Selection : Pasted
     Folders ..> UserDirs : user_dirs finds
     Folders ..> PlatformError : fails with
+    FileMod ..> Metadata : metadata reads
+    FileMod ..> Owner : new_file_owner gives
+    FileMod ..> PlatformError : fails with
+    Metadata *-- Owner : owner
     Pixels ..> PixelsError : new fails with
 ```
 

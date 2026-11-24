@@ -22,9 +22,12 @@
 //! [`events`](events::Event) and [waker](events::Waker), and
 //! [`present`](window::Window::present) in [`surface`] (M2.2), the
 //! [`clipboard`] (M2.7), on Linux, through X11; and on Linux, the user's
-//! folders in [`paths`] and the tools' in [`dirs`] (M2.7). On any other
-//! system [`Window::open`](window::Window::open) and the folders fail with
-//! [`Error::Unsupported`], until macOS (M11) and Windows (M12).
+//! folders in [`paths`] and the tools' in [`dirs`] (M2.7), and in
+//! [`file`](mod@file) a file's link count, owner, group and permission
+//! bits and the owner a new file gets, which a save checks (M4.10). On
+//! any other system [`Window::open`](window::Window::open), the folders
+//! and the file metadata fail with [`Error::Unsupported`], until macOS
+//! (M11) and Windows (M12).
 //!
 //! No `target_os` shows in the API: every type, method and error variant
 //! exists on every system, and each says where it behaves differently.
@@ -47,6 +50,7 @@ pub mod clipboard;
 pub mod dirs;
 mod error;
 pub mod events;
+pub mod file;
 pub mod paths;
 pub mod surface;
 pub mod window;

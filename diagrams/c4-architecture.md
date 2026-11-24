@@ -323,8 +323,9 @@ uses.
 ### 2.1 Layers 0 and 1: foundations, OS behavior, formats and engines
 
 `core`, `codec` and `text` are built, `sys` has its Linux declarations
-(M2.1, M2.2, M2.7), and `platform` its Linux window over X11 (M2.2), its
-clipboard and the user's and tools' folders (M2.7). Those two
+(M2.1, M2.2, M2.7, M4.10), and `platform` its Linux window over X11
+(M2.2), its clipboard and the user's and tools' folders (M2.7), and the
+file metadata a save checks (M4.10). Those two
 allow `unsafe_code`. `gfx` has its CPU rasterizer and the backdrop (M2.3),
 and its golden scenes (M2.4). `font` has its TrueType parser and glyph
 rasterizer (M2.8), and the bundled faces, fallback, layout, the glyph
@@ -333,7 +334,7 @@ atlas and its golden scenes (M2.5). The other two crates are empty.
 ```mermaid
 flowchart LR
     subgraph L1["Layer 1"]
-        k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>clipboard, paths,<br/>dirs (M2.7)<br/>planned: watch M4.5,<br/>process M5.7, pty M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, M11.1,<br/>Windows M12.1, M12.2"]
+        k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>clipboard, paths,<br/>dirs (M2.7)<br/>file metadata (M4.10)<br/>planned: watch M4.5,<br/>process M5.7, pty M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, M11.1,<br/>Windows M12.1, M12.2"]
         k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>qoi: QOI images, decoded<br/>and encoded (M2.4)<br/>planned M10.7,<br/>M10.2, M11.3"]
         k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
@@ -343,7 +344,7 @@ flowchart LR
     end
     subgraph L0["Layer 0: foundations"]
         k_core["tidepool-core<br/>error, log, testing, rng,<br/>hash with sha256, cli,<br/>civil, input, geom,<br/>color, cancel (M0.2)<br/>testing::fuzz (M1.6)<br/>path (M1.8)"]
-        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>dynlib, linux::libc,<br/>linux::x11 and its<br/>Xlib table (M2.1)<br/>write(2), setlocale,<br/>linux::evdev, typed<br/>text (M2.2)<br/>selections and<br/>properties (M2.7)<br/>planned: inotify M4.5,<br/>processes and PTY<br/>M5.7, M5.9, terminal<br/>M7.1, macOS M11.7,<br/>M11.8, Windows<br/>M12.1, M12.2"]
+        k_sys["tidepool-sys<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>dynlib, linux::libc,<br/>linux::x11 and its<br/>Xlib table (M2.1)<br/>write(2), setlocale,<br/>linux::evdev, typed<br/>text (M2.2)<br/>selections and<br/>properties (M2.7)<br/>geteuid, getegid,<br/>mode bits (M4.10)<br/>planned: inotify M4.5,<br/>processes and PTY<br/>M5.7, M5.9, terminal<br/>M7.1, macOS M11.7,<br/>M11.8, Windows<br/>M12.1, M12.2"]
     end
 
     k_platform -->|"input, geom, log"| k_core
@@ -390,7 +391,7 @@ flowchart LR
         k_toolchain["tidepool-toolchain<br/>planned M5.1: descriptor,<br/>detect, registry<br/>process, sessions,<br/>secret M5.2<br/>download, install M5.3"]
         k_syntax["tidepool-syntax<br/>planned M6.2: Rust,<br/>Markdown and TOML<br/>lexers, language packs<br/>declarative pack<br/>lexers M13.2"]
         k_term["tidepool-term<br/>planned M5.8:<br/>VT parser and grid"]
-        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>planned: buffers,<br/>session M4.3<br/>search M4.4, watch M4.5"]
+        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>planned: buffers,<br/>files, session M4.11<br/>search M4.4, watch M4.5"]
         k_ui["tidepool-ui<br/>tree, layout, focus,<br/>input, metrics, draw,<br/>a11y, UiError (M3.1)<br/>theme (M3.2)<br/>widgets: the<br/>controls (M3.6),<br/>collections, tab strip,<br/>splitter, card, code<br/>block (M3.7)<br/>overlay, and the<br/>modal, tooltip, toast,<br/>palette (M3.3)"]
     end
     subgraph L01["Layers 0 and 1"]
@@ -413,7 +414,7 @@ flowchart LR
     k_term -.->|"planned M5.8"| k_core
     k_term -.->|"planned M5.4"| k_platform
     k_workspace -->|"path, log (M4.7)"| k_core
-    k_workspace -.->|"planned M4.3"| k_platform
+    k_workspace -.->|"file metadata (M4.10),<br/>planned M4.11"| k_platform
     k_workspace -->|"toml (M4.7)"| k_codec
     k_workspace -->|"file::save, Rope (M4.7)"| k_text
     k_workspace -.->|"planned M4.4"| k_regex
@@ -1127,8 +1128,8 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | Package | Path | Layer | `unsafe` | Built (task) | Planned (tasks) | Declared workspace dependencies |
 | :- | :- | :- | :- | :- | :- | :- |
 | `tidepool-core` | `crates/core` | 0, foundations | deny | `error`, `log`, `testing`, `rng`, `hash`, `cli`, `civil`, `input`, `geom`, `color`, `cancel` (M0.2); `testing::fuzz` (M1.6); `path` (M1.8) | — | none |
-| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2); the selections and properties the clipboard calls (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
-| `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2); `clipboard`, `paths` and `dirs` on Linux (M2.7) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
+| `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2); the selections and properties the clipboard calls (M2.7); `geteuid`, `getegid` and the mode bits (M4.10) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
+| `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2); `clipboard`, `paths` and `dirs` on Linux (M2.7); `file` on Linux (M4.10) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
 | `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6); `qoi` and its fuzz target (M2.4) | M10.7, M10.2, M11.3 | `core`, dev only |
 | `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
@@ -1139,7 +1140,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-toolchain` | `crates/toolchain` | 2, services | deny | nothing | M5.1, M5.2, M5.3, M5.5, M10.1, M11.2, M12.3, M15.8 | none |
 | `tidepool-syntax` | `crates/syntax` | 2, services | deny | nothing | M6.2, M13.2, M13.3, M15.8 | none |
 | `tidepool-term` | `crates/term` | 2, services | deny | nothing | M5.8, M5.4 | none |
-| `tidepool-workspace` | `crates/workspace` | 2, services | deny | `folder` with its ignore files, `trust`, `settings` and the error, and fuzz targets `ignore` and `settings` (M4.7) | M4.3, M4.4, M4.5 | `core`, `codec`, `text` |
+| `tidepool-workspace` | `crates/workspace` | 2, services | deny | `folder` with its ignore files, `trust`, `settings` and the error, and fuzz targets `ignore` and `settings` (M4.7) | M4.11, M4.4, M4.5 | `core`, `codec`, `text` |
 | `tidepool-ui` | `crates/ui` | 2, services | deny | `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` and the error (M3.1); `theme`, with the bundled `themes/tidepool-dark.toml`, the error's theme variants and fuzz target `theme` (M3.2); `widgets`, the controls, the theme the tree holds and `UiError::WrongWidget` (M3.6); `widgets`' collections (list, tree view, table), tab strip, splitter, card and code block, which each layout binds (M3.7); `overlay`, `widgets`' modal dialog, tooltip, toast, and command palette, `Row::matched`, `Response::blocked`, the accessibility tree's `modal`, `description`, and `active`, `TextMetrics::scale`, `input::PRESS_SLOP`, and the error's overlay variants (M3.3); the `current-line` token, and `widgets::is_hidden` and `widgets::flag_at` made public for the editor view (M4.1) | none: `anim` has no task yet | `core`, `codec`, `text` |
 | `tidepool-lang` | `crates/lang` | 3, language and tool features | deny | nothing | M6.7, M6.8, M6.3, M6.4, M6.6, M13.1 | none |
 | `tidepool-vcs` | `crates/vcs` | 3, language and tool features | deny | nothing | M8.1, M8.3 | none |

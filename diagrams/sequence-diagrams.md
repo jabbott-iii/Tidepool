@@ -369,11 +369,11 @@ sequenceDiagram
 (`crates/text/src/file.rs`, `encoding.rs`). Nothing is written. A file
 with bytes that are not text loads read-only, with those bytes kept beside
 the text. Today the callers are tests; `workspace::buffers` runs loads on
-workers from M4.3.
+workers from M4.11.
 
 ```mermaid
 sequenceDiagram
-    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.3)
+    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.11)
     participant Load as text file load
     participant Dec as text encoding Decoder
     participant Fs as file system
@@ -394,7 +394,7 @@ sequenceDiagram
     Load->>Load: LineEndings::of(text),<br/>the trailing break,<br/>the bytes read
     Load-->>Caller: Loaded
     Caller->>Load: is_large()
-    Load-->>Caller: true above LARGE_FILE_BYTES,<br/>16 MiB, for the editor's<br/>large-file mode (M4.3)
+    Load-->>Caller: true above LARGE_FILE_BYTES,<br/>16 MiB, for the buffers'<br/>large-file mode (M4.11)
     Caller->>Load: format()
     alt bytes were replaced
         Load-->>Caller: None, and read_only() is true:<br/>the file is not to be<br/>written back
@@ -418,7 +418,7 @@ already in place.
 
 ```mermaid
 sequenceDiagram
-    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.3)
+    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.11)
     participant Hist as text History
     participant Save as text file save
     participant Fs as file system
@@ -687,7 +687,7 @@ sequenceDiagram
 sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
     participant Keys as editor keymap<br/>engine (built, M4.6)
-    participant Cmd as editor command (built, M4.2)<br/>and buffer (M4.3)
+    participant Cmd as editor command (built, M4.2)<br/>and buffer (M4.11)
     participant Txt as text Transaction<br/>and History (built)
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 

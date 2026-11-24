@@ -247,6 +247,30 @@ path counts as unset (XDG Base Directory 0.8); the home directory is
 `HOME`, or the user database's when that is unset or empty. Nothing is
 made: a caller makes a folder before writing into it.
 
+### File metadata for saves
+
+A save renames a new file over the old one (ADR-0025), so before it
+`workspace::buffers` (M4.11) asks `platform::file` (M4.10, ADR-0068) two
+things:
+
+- the file's link count, owner, group and permission bits, from
+  `stat(2)` through `std`, following links;
+- the owner and group of a file Tidepool would make in its folder: the
+  effective user (`geteuid`), and the folder's group if the folder has
+  the setgid bit, else the effective group (`getegid`), as open(2) says.
+  A file system mounted with `bsdgroups` (`grpid`, ext4(5)) gives every
+  new file its folder's group; one without Unix owners (FAT, a share
+  mapped to one user) fixes the owner by its mount options; NFS's root
+  squashing, an export's default, gives root's new files the anonymous
+  user and group, 65534 by default (exports(5)); and in a user namespace
+  (a rootless container, a Flatpak sandbox) unmapped ids read as the
+  overflow id, 65534 by default (user_namespaces(7)). None is seen, so
+  an error or an overflow id means not knowing, and the save asks
+  (ADR-0068).
+
+The folder asked about is the one holding the file the save reaches after
+its links, not the folder of a link to it.
+
 ### Managed tools on Linux
 
 - rustup: the official `rustup-init` for the host triple, downloaded with

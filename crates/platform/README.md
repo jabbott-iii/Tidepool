@@ -46,6 +46,16 @@ Built, with the roadmap task that built it:
   logs) from the XDG variables, and `dirs::android_sdk` and
   `dirs::rustup_home`, on Linux; elsewhere they fail with
   `Error::Unsupported` — M2.7.
+- `file`: `file::metadata` (`Metadata`: a file's link count, its
+  `Owner`, a user and a group, and its permission bits), following
+  symbolic links as a save does, and `file::new_file_owner`, the owner and
+  group a file this process makes in a folder gets: the effective user,
+  and the folder's group if the folder has the setgid bit, else the
+  effective group (open(2)), which `workspace::buffers` compares before
+  a save that would split a hard link or change the owner or group
+  (M4.11, ADR-0068). On Linux through `std`'s `stat` and `sys`'s
+  `geteuid` and `getegid`; elsewhere they fail with
+  `Error::Unsupported` — M4.10.
 
 Not yet, with the roadmap task that adds it:
 
@@ -115,6 +125,35 @@ use tidepool_platform::paths;
 if let Ok(dirs) = paths::user_dirs() {
     assert!(dirs.config.is_absolute() && dirs.logs.is_absolute());
 }
+```
+
+Before saving over a file by renaming a new one over it, tell whether the
+new file would differ from it: another name (a hard link) would keep the
+old text, or the file would take another owner or group. Ask about the
+file the save reaches once its links are followed, and the folder that
+holds it, not the folder of a link to it. An error, which every system but
+Linux gives until M11.8 and M12.2, means not knowing, so the save asks:
+
+```rust
+use std::path::Path;
+
+use tidepool_core::path;
+use tidepool_platform::file;
+
+/// Whether a file renamed over the one `path` reaches would split a hard
+/// link or change its owner or group, or `None` if that cannot be told.
+/// (A real check also treats an overflow id as unknown: see `file::Owner`.)
+fn rename_changes(path: &Path) -> Option<bool> {
+    let target = path::canonicalize(path).ok()?;
+    let folder = target.parent()?;
+    let found = file::metadata(&target).ok()?;
+    let new = file::new_file_owner(folder).ok()?;
+    Some(found.links > 1 || found.owner != new)
+}
+
+let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+let ask_first = rename_changes(&manifest) != Some(false);
+println!("ask before saving: {ask_first}");
 ```
 
 A frame's view checks its shape, so that `present` can never read past

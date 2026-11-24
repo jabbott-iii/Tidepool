@@ -29,9 +29,10 @@ use std::io;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// This system does not have this yet: a window, or the folders of
-    /// [`paths`](crate::paths) and [`dirs`](crate::dirs). Linux has them;
-    /// macOS gets them in M11.7 and M11.8, and Windows in M12.1 and M12.2.
+    /// This system does not have this yet: a window, the folders of
+    /// [`paths`](crate::paths) and [`dirs`](crate::dirs), or the metadata
+    /// of [`file`](crate::file). Linux has them; macOS gets them in M11.7
+    /// and M11.8, and Windows in M12.1 and M12.2.
     Unsupported {
         /// What is missing, such as "window".
         what: &'static str,

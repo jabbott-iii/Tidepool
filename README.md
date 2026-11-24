@@ -16,7 +16,8 @@ parsers, a benchmark harness with the text engine's suites, the
 glyph atlas's, the command palette's, and the editor view's, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
-XDG folders, a CPU rasterizer with jabbott.dev's backdrop, checked
+XDG folders, the file metadata a save checks (links, owner and group), a
+CPU rasterizer with jabbott.dev's backdrop, checked
 against golden frames by a QOI codec and harness of our own, and a
 TrueType parser, glyph rasterizer, glyph atlas and text layout, with
 fallback, for the bundled Saira and JetBrains Mono, and the UI toolkit's

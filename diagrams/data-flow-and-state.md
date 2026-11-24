@@ -42,7 +42,7 @@ Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1). 
 
 A caller loads a file, edits its rope through its `History`, and saves a
 revision atomically (ADR-0025). Today the caller is `tidepool-text`'s own
-tests; `workspace::buffers` takes that place in M4.3 (section 2).
+tests; `workspace::buffers` takes that place in M4.11 (section 2).
 
 ```mermaid
 flowchart TB
@@ -96,9 +96,10 @@ flowchart TB
 
 The workspace wraps section 1: buffers keyed by canonical path, loaded and
 saved on workers, watched for outside changes, and remembered in the
-session. None of it is built; the text engine it calls is, and so are the
-editing commands, which commit to a rope's `History` themselves until
-M4.3's buffers hold it (M4.2, ADR-0065).
+session. None of it is built; the text engine it calls is, and so are
+`platform`'s file metadata (M4.10) and the editing commands, which commit
+to a rope's `History` themselves until M4.11's buffers hold it (M4.2,
+ADR-0065).
 
 ```mermaid
 flowchart TB
@@ -107,30 +108,30 @@ flowchart TB
     disk[("Files on disk")]
     text(["tidepool-text<br/>file::load, History,<br/>file::save, as in<br/>section 1"])
     cmds(["editor commands, editor::edit<br/>edits as Transactions,<br/>one command one<br/>undo step (M4.2)"])
-    buffers(["workspace::buffers<br/>keyed by canonical path,<br/>loads and saves on<br/>workers, large-file<br/>mode above 16 MB<br/>planned M4.3"])
-    meta(["File metadata<br/>through platform<br/>link count, owner<br/>and group<br/>planned M4.3"])
+    buffers(["workspace::buffers<br/>keyed by canonical path,<br/>loads and saves on<br/>workers, large-file<br/>mode above 16 MB<br/>planned M4.11"])
+    meta(["platform::file<br/>link count, owner<br/>and group, and a new<br/>file's owner (M4.10)"])
     watcher(["platform file watching<br/>inotify<br/>planned M4.5"])
     watch(["workspace::watch<br/>debounced file events,<br/>polling fallback<br/>planned M4.5"])
-    session(["workspace::session<br/>open editors, layout,<br/>cursors<br/>planned M4.3"])
-    sessionStore[("Session state<br/>in the user data<br/>directory<br/>planned M4.3")]
+    session(["workspace::session<br/>open editors, layout,<br/>cursors<br/>planned M4.11"])
+    sessionStore[("Session state<br/>in the user data<br/>directory<br/>planned M4.11")]
     recovery[("recovery/<br/>unsaved buffers<br/>after a crash<br/>planned M4.9")]
 
     user -.->|"keys and commands,<br/>planned M4.3: the binary<br/>shows an editor"| cmds
     cmds -->|"commit, undo, redo<br/>through History (M4.2)"| text
     cmds -.->|"Transactions,<br/>planned M4.3"| buffers
-    buffers -.->|"load, commit, checkpoint,<br/>save, mark_saved,<br/>planned M4.3"| text
+    buffers -.->|"load, commit, checkpoint,<br/>save, mark_saved,<br/>planned M4.11"| text
     disk -->|"bytes"| text
     text -->|"the atomic save"| disk
-    disk -.->|"link count, owner,<br/>group, planned M4.3"| meta
-    meta -.->|"before a save: a second<br/>hard link, or another<br/>owner or group,<br/>planned M4.3"| buffers
-    buffers -.->|"a warning before such<br/>a save, planned M4.3"| user
+    disk -->|"link count, owner,<br/>group (M4.10)"| meta
+    meta -.->|"before a save: a second<br/>hard link, or another<br/>owner or group,<br/>planned M4.11"| buffers
+    buffers -.->|"a question before such<br/>a save: in place, a new<br/>file or cancel, planned<br/>M4.11, its dialog M4.3"| user
     buffers -.->|"reload or merge prompts<br/>after an outside change,<br/>planned M4.5"| user
     fsEvents -.->|"changed paths,<br/>planned M4.5"| watcher
     watcher -.->|"file events,<br/>planned M4.5"| watch
     watch -.->|"a file changed on disk,<br/>planned M4.5"| buffers
-    buffers -.->|"the open buffers,<br/>planned M4.3"| session
-    session -.->|"saved, planned M4.3"| sessionStore
-    sessionStore -.->|"restored on start,<br/>planned M4.3"| session
+    buffers -.->|"the open buffers,<br/>planned M4.11"| session
+    session -.->|"saved, planned M4.11"| sessionStore
+    sessionStore -.->|"loaded, planned M4.11;<br/>restored on start, M4.3"| session
     buffers -.->|"the panic hook saves<br/>unsaved buffers,<br/>planned M4.9"| recovery
     recovery -.->|"offered on the next<br/>start, planned M4.9"| user
 
@@ -141,14 +142,14 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class user person
     class fsEvents,disk external
-    class text,cmds built
-    class buffers,meta,watcher,watch,session,sessionStore,recovery planned
+    class text,cmds,meta built
+    class buffers,watcher,watch,session,sessionStore,recovery planned
 ```
 
 - A save renames a new file over the old one, which splits a hard link
   and gives the file the saver's owner and group (ADR-0025). So buffers
-  check the link count, owner and group first, and warn or write in place
-  (M4.3).
+  check the link count, owner and group first, and ask whether to write
+  in place or save as a new file (M4.11, ADR-0068).
 - The reload or merge prompts after an outside change come with file
   watching (M4.5), whose acceptance checks them.
 - Only the main thread touches buffers; other threads get immutable rope
@@ -256,7 +257,7 @@ flowchart TB
     user["User"]
     agentProc["Language agent<br/>a process speaking<br/>TAP on stdin<br/>and stdout"]
     files[("Workspace files<br/>on disk")]
-    buffers[("Open buffers<br/>rope snapshots from<br/>workspace::buffers<br/>planned M4.3")]
+    buffers[("Open buffers<br/>rope snapshots from<br/>workspace::buffers<br/>planned M4.11")]
     symbols(["Symbols from<br/>tidepool-lang<br/>document and<br/>workspace symbols<br/>planned M6.8"])
     manifest[("agent.toml<br/>in the user and<br/>workspace agent<br/>directories<br/>planned M9.3")]
     grants[("Consent grants<br/>in settings.toml<br/>planned M9.3")]
@@ -512,7 +513,7 @@ flowchart LR
 
 What `tidepool-text`'s calls report about one file: `Loaded::read_only`,
 `History::is_modified`, `checkpoint`, `file::save` and `mark_saved`. No
-type holds these states yet; `workspace::buffers` does from M4.3, and adds
+type holds these states yet; `workspace::buffers` does from M4.11, and adds
 the dashed ones. 8.1 draws what the text engine reports, and 8.2 the
 states the workspace adds.
 
@@ -528,7 +529,7 @@ stateDiagram-v2
     state "Saving the Checkpoint" as saving
     state "Save failed" as saveFailed
 
-    [*] --> loading: file load, on a<br/>worker from M4.3
+    [*] --> loading: file load, on a<br/>worker from M4.11
     loading --> loadFailed: NotRegularFile, or Io<br/>at Metadata, Open or Read
     loadFailed --> [*]
     loading --> readOnly: bytes were replaced,<br/>so the Loaded format<br/>is None
@@ -557,17 +558,17 @@ stateDiagram-v2
     state "Unmodified" as clean
     state "Modified" as dirty
     state "Saving the Checkpoint" as saving
-    state "Large-file mode<br/>planned M4.3" as large
-    state "Save warning<br/>planned M4.3" as warn
+    state "Large-file mode<br/>read-only<br/>planned M4.11" as large
+    state "Save warning<br/>planned M4.11" as warn
     state "Changed on disk<br/>planned M4.5" as changed
     state "In recovery<br/>planned M4.9" as recovered
 
     [*] --> loading: file load, as in 8.1
     loading --> clean: a Format, as in 8.1
     clean --> dirty: a commit, as in 8.1
-    loading --> large: is_large, more than<br/>16 MiB, planned M4.3
-    dirty --> warn: a second hard link,<br/>or another owner or<br/>group, planned M4.3
-    warn --> saving: the user goes on, or<br/>the buffer writes in<br/>place, planned M4.3
+    loading --> large: is_large, more than<br/>16 MiB, planned M4.11
+    dirty --> warn: a second hard link,<br/>or another owner or<br/>group, planned M4.11
+    warn --> saving: the user saves as a<br/>new file or writes in<br/>place, planned M4.11
     clean --> changed: the file changed<br/>on disk, planned M4.5
     dirty --> changed: the file changed<br/>on disk, planned M4.5
     changed --> clean: reload, planned M4.5
@@ -949,12 +950,12 @@ The docs and code these diagrams were drawn from:
 - `docs/subsystems/ui-and-theme.md`: the `overlay`, `input` and
   `widgets` rows
 - `docs/04-quality.md`: "Fuzz smoke"
-- `docs/roadmap.md`: M0.2, M4.2, M4.3, M4.5, M4.6, M4.7, M4.9, M5.1 to
-  M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to M9.5, M10.4,
-  M3.3
+- `docs/roadmap.md`: M0.2, M4.2, M4.10, M4.11, M4.3, M4.5, M4.6, M4.7,
+  M4.9, M5.1 to M5.6, M6.1, M6.3, M6.4, M6.7, M6.8, M7.2 to M7.4, M9.3 to
+  M9.5, M10.4, M3.3
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,
   ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047, ADR-0052,
-  ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0067
+  ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0067, ADR-0068
 - `crates/text/src/file.rs`, `encoding.rs`, `history.rs`,
   `transaction.rs`, `rope.rs`, `selection.rs`, `error.rs`, `lib.rs`
 - `crates/core/src/testing/fuzz.rs`, `testing/fuzz/engine.rs`,

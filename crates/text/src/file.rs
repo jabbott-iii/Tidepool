@@ -32,7 +32,7 @@
 //!   Unix, even when only the group differs; gives it the access list its
 //!   directory passes on (a default POSIX ACL on Linux, the inherited ACL on
 //!   Windows); drops extended attributes; and on Unix clears setuid and
-//!   setgid, as a write in place would. `workspace::buffers` (M4.3) checks
+//!   setgid, as a write in place would. `workspace::buffers` (M4.11) checks
 //!   the link count, owner and group before a save (ADR-0025).
 //! - **Callers** run loads and saves on workers, never on the main thread,
 //!   and serialize the saves of one file ([`History::checkpoint`]).
@@ -323,7 +323,7 @@ pub fn load(path: impl AsRef<Path>) -> Result<Loaded, TextError> {
 /// The rename makes a new file: it splits a hard link, gives the file the
 /// saver's owner and group on Unix and the access list its directory
 /// passes on (a default POSIX ACL on Linux, the inherited ACL on Windows),
-/// and drops extended attributes. `workspace::buffers` (M4.3) checks the
+/// and drops extended attributes. `workspace::buffers` (M4.11) checks the
 /// link count, owner and group first. Saves of one file must be serialized
 /// by the caller ([`History::checkpoint`]).
 ///

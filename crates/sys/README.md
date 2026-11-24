@@ -36,7 +36,12 @@ Built, with the roadmap task that built it:
   M2.1. `write(2)`, which `Waker::wake` writes with, for code that must be
   async-signal-safe, which `std` does not promise for `File`'s `write`;
   and `setlocale` with `LC_CTYPE`, with which the window takes the
-  environment's character locale for typed text — M2.2.
+  environment's character locale for typed text — M2.2. `geteuid` and
+  `getegid`, declared `safe` since they take nothing and cannot fail,
+  with `uid_t`, `gid_t` and `mode_t` (each 4 bytes, asserted), and the
+  mode bits `S_ISGID` and `ALLPERMS`, with which `platform` tells the
+  owner and group of a new file, which a save checks — M4.10
+  (ADR-0068).
 - `linux::evdev`, ported in part from Nadir: the kernel's 118 key codes
   (`linux/input-event-codes.h`) that `tidepool-platform`'s key map gives a
   `Key`, which an X server reports shifted by 8 (ADR-0039) — M2.2.

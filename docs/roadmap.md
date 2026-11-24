@@ -2717,20 +2717,122 @@ jabbott.dev, reads as the same design (human review).
     in that task's note, and a pipe swapped in between the check and the
     open, which can still hold a worker.
 
-- [ ] **M4.3 — workspace: buffers and session; editor: explorer, tabs, splits, trust prompt**
-  - Depends: M4.7, M4.2
-  - Do: `buffers` (keyed by canonical path; loaded and saved on workers
-    through `text::file`, saves through `History::checkpoint` and
-    `mark_saved`; large-file mode above 16 MB; before a save, the file's
-    link count, owner and group through `platform`, warning or writing in
-    place when the rename would split a hard link or change the owner or
-    group, per ADR-0025), `session`, and the file tree model of `files`;
-    explorer, open editors, tabs, splits and the trust prompt.
-  - Accept: opening, editing and saving files round-trips; untrusted state
-    is the default; session restores; a 100 MB file opens in large-file
-    mode within the budget; saving a file with a second hard link, or one
-    whose owner or group a save would change, warns first.
-  - Verify: `cargo test -p tidepool-workspace -p tidepool-editor`
+- [x] **M4.10 — platform: file metadata and the process's user and group (Linux)**
+  - Depends: M2.1, M2.2
+  - Do: per ADR-0068 and ADR-0025: in `tidepool-sys`, `geteuid` and
+    `getegid` from libc; in `tidepool-platform`, a file's link count,
+    owner, group and permission bits, following symbolic links as a save
+    does, and the owner and group that a file this process creates in a
+    folder gets (the effective user; the folder's group when the folder
+    has the setgid bit, else the effective group), with `Unsupported` on
+    other systems until M11.8 and M12.2;
+    `docs/subsystems/sys-and-platform.md` and both crates' READMEs.
+  - Accept: a file with a second hard link reports two links; a file the
+    test makes reports the process's owner and group, and the owner and
+    group given for its folder are the ones it has; the setgid rule is
+    tested; a missing file is an error; each declaration cites its
+    header, and any new `unsafe` block has its `// SAFETY:` comment.
+  - Verify: `cargo test -p tidepool-sys -p tidepool-platform`;
+    `cargo xtask unsafe-audit`
+  - Note (2026-11-23): built. `tidepool-sys` declares `geteuid` and
+    `getegid` as `safe` functions, since they take nothing and cannot
+    fail (getuid(2) and getgid(2), Linux man-pages 6.7), so no `unsafe`
+    block is new, with `uid_t`, `gid_t` and `mode_t` (4 bytes each,
+    asserted), `S_ISGID` and `ALLPERMS`, from glibc 2.39's x86_64 headers;
+    aarch64's were not at hand, so its values are marked to verify there.
+    `tidepool-platform`'s `file` has `metadata` (`Metadata`: links,
+    `Owner`, permission bits) and `new_file_owner`, through `std`'s `stat`
+    on Linux and `Unsupported` elsewhere. Eight tests in `linux::file`
+    and two in `sys` ran here; the setgid folder was given another of
+    this user's groups, and under `unshare --user --map-current-user`
+    that test prints `SKIPPED:`. `TIDEPOOL_IT_X11=1 xvfb-run -a cargo
+    test -p tidepool-sys -p tidepool-platform` passed with no `SKIPPED`;
+    clippy is clean for x86_64 and aarch64 Linux, x86_64 macOS and
+    x86_64 Windows, where the `Unsupported` test was compiled, not run.
+    The 137 Mermaid blocks of `diagrams/` parse and render with Mermaid
+    11.17.2 in headless Chrome, which rejected a planted broken one.
+  - Note (2026-11-23): the security review found no critical or high
+    issue. Its two medium ones concern M4.11's use: the folder to ask
+    about is the one holding the file the save reaches after links (the
+    README's example now asks about the canonical path's folder, and
+    `new_file_owner` says so), and the rule misses NFS's root squashing
+    and a user namespace's overflow ids (now disclosed, with an error or
+    an overflow id meaning ask), for which it suggested checking the
+    save's own temporary file before the rename; M4.11's `Decide first`
+    line asks that. Its low ones were fixed: the setgid test skips in a
+    user namespace instead of failing, the example handles a bare file
+    name, the sticky bit is described rightly, a header claim is
+    reworded, and the `sys` test removes its folder.
+
+- [ ] **M4.11 — workspace: buffers, the file tree model and session**
+  - Depends: M4.10, M4.7, M1.2, M1.3, M1.6, M1.9
+  - Decide first (ADR-0068, M4.10's security review): how a save tells
+    that its rename would split a hard link or change the owner or group:
+    by M4.10's rule (`platform::file::new_file_owner` for the folder of the
+    file the save reaches after links, which `text::file` would have to
+    expose, an error or an overflow id meaning ask), or by reading the
+    save's own temporary file just before the rename, which is exact on
+    every file system (NFS squashing and user namespaces included) and
+    narrows the race, but needs `text::file`'s save in two steps, making
+    `text` a fourth crate of the task.
+  - Do: per ADR-0068 and `docs/subsystems/editor.md`:
+    - `buffers`: open buffers keyed by canonical path, each a rope and
+      its `History`, loaded and saved on workers through `text::file`,
+      saves through `History::checkpoint` and `mark_saved`, each result
+      carrying the buffer version it was made for, so that a stale one
+      is dropped; a file of more than 16 MiB opens read-only until made
+      editable; before a save over an existing file, its link count,
+      owner and group through `platform` (M4.10), and when a rename would
+      split a hard link or change the owner or group, the save stops for
+      its owner to choose: write in place, save as a new file, or cancel
+      (ADR-0025).
+    - `files`: a folder's file tree model, read a folder at a time when
+      asked, on workers, each entry with its ignore state from `folder`.
+    - `session`: one file a folder in the user data folder's
+      `sessions/`, named from the folder's canonical path, which it holds
+      and loading checks; the open editors, the splits, and each
+      editor's selection and scroll; read within limits, never
+      panicking, with a fuzz target `session` (ADR-0027).
+    - a `tidepool-bench` suite opening a 100 MB file.
+  - Accept: opening, editing and saving files round-trips, headless; a
+    100 MB file opens in large-file mode within the budget; saving a file
+    with a second hard link, or one whose owner or group a save would
+    change, stops for the choice first, and each answer does what it
+    says; a session round-trips, and one that names another folder is
+    not used.
+  - Verify: `cargo test -p tidepool-workspace`; `cargo xtask bench
+    workspace`; `cargo xtask fuzz-smoke --target session --secs 60`
+
+- [ ] **M4.3 — editor: explorer, open editors, tabs, splits, trust prompt; app: folders and sessions**
+  - Depends: M4.11, M4.7, M4.2
+  - Decide first (ADR-0068):
+    - how a folder is opened: a command-line argument, a command that
+      takes a typed path, or both (a native file dialog would need the
+      desktop portal over D-Bus, a socket that rule 8 does not allow);
+    - which folders the trust prompt warns about or refuses: `/`, the
+      home folder, a folder whose parent others may write (M4.7's
+      review);
+    - whether the explorer shows the files that ignore files hide, in
+      every folder or only in an untrusted one, so that `build.rs`,
+      `.cargo/config.toml` and `.tidepool/settings.toml` cannot be
+      hidden from a user deciding whether to trust it (M4.7's review);
+    - what shape splits take (side by side only, or both ways) and how
+      many editor groups there may be.
+  - Do: the explorer and open editors over M4.11's `files` and
+    `buffers`; tabs and splits; the trust prompt, which says that
+    trusting a folder trusts every folder inside it; the save warning's
+    dialog (ADR-0068); and in the binary, opening a folder with its
+    `TrustStore` loaded from `trust.toml`, the editor's settings (soft
+    wrap, ADR-0063; Tab's spaces, ADR-0065), the keymap's workspace layer
+    from `Settings::table_layers`, settings resolved again when trust
+    changes, the window's clipboard routed to the editor, the channel of
+    messages from workers to the loop, and the session restored on start.
+  - Accept: opening, editing and saving files round-trips in the window;
+    untrusted state is the default; session restores; a large file opens
+    read-only; the save warning shows before a save that would split a
+    hard link or change the owner or group.
+  - Verify: `cargo test -p tidepool-editor -p tidepool`;
+    `cargo xtask golden`
   - Note (2026-11-23): M4.7 leaves this task (ADR-0067): opening a folder
     in the binary, whose title strip says `NO FOLDER` until then, with
     its `TrustStore` loaded from `trust.toml` in the user data folder; the
@@ -2747,6 +2849,16 @@ jabbott.dev, reads as the same design (human review).
     deciding whether to trust it; and to resolve the settings again when
     trust changes, since a `SettingsFile` read before a revoke stays
     usable.
+  - Note (2026-11-23): ADR-0068 split this task, which was `workspace:
+    buffers and session; editor: explorer, tabs, splits, trust prompt`:
+    M4.10 gives `platform` the file metadata a save checks, and M4.11
+    builds `workspace`'s `buffers`, the file tree model of `files` and
+    `session`, with the 100 MB open budget; this task keeps the views
+    and the binary, and its `Decide first` line holds their questions.
+    The user chose that day that sessions live in the user data folder,
+    that a save which would split a hard link or change the owner or
+    group asks whether to write in place or save as a new file, and that
+    a large file loads whole and opens read-only.
 
 - [ ] **M4.8 — regex: the engine and Unicode classes**
   - Depends: M0.2, M1.6
@@ -3197,6 +3309,9 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
     on macOS.
   - Verify: `cargo test -p tidepool-platform -p tidepool-workspace` on macOS
     - ⏳ needs macOS
+  - Note (2026-11-23): this task also gives `platform`'s file metadata
+    for saves on macOS, whose new files take their folder's group
+    (ADR-0068, M4.10).
 
 - [ ] **M11.1 — sys/platform: macOS**
   - Depends: M11.8
@@ -3260,6 +3375,9 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
   - Do: per `docs/03-platforms.md` → Windows.
   - Accept: the terminal snapshot tests and watcher tests pass on Windows.
   - Verify: `cargo test -p tidepool-platform -p tidepool-term` on Windows
+  - Note (2026-11-23): this task also gives `platform`'s file metadata
+    for saves on Windows: a file's link count, and whatever stands for
+    its owner there (ADR-0068, M4.10).
 
 - [ ] **M12.3 — toolchain: winget plans, rustup-init.exe, JDK and SDK paths**
   - Depends: M12.1, M5.3

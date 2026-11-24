@@ -5050,3 +5050,143 @@ decides; the roadmap task that first depends on one asks for the decision.
   paths on a case-insensitive file system; a user reports a path that
   Tidepool and `git check-ignore` disagree on; or settings need a value
   removed, or a table written.
+
+## ADR-0068 — M4.3 splits: M4.10 gives `platform` file metadata and the process's user and group, M4.11 builds `workspace`'s buffers, file tree and session, M4.3 keeps the views and the binary; sessions live in the user data folder; a save that would change a file's links, owner or group asks; large files load whole and open read-only
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - M4.3 asks for `workspace`'s `buffers` (keyed by canonical path,
+    loaded and saved on workers, with large-file mode above 16 MB and,
+    before a save, ADR-0025's check of the file's link count, owner and
+    group through `platform`), `session` and the file tree model of
+    `files`, and the editor's explorer, open editors, tabs, splits and
+    trust prompt. ADR-0067 left it more: opening folders in the binary,
+    the editor's settings, the keymap's workspace layer, and three risks
+    from M4.7's security review.
+  - That reaches six or seven crates: `sys`, for the process's effective
+    user and group, which `std` does not give; `platform`, for a file's
+    link count, owner, group and permission bits, which `std` gives only
+    through `std::os::unix`, behind a `cfg` that rule 5 keeps in `sys`
+    and `platform`; `workspace`; `editor`; `tidepool`; `tidepool-bench`,
+    for the budget of opening a 100 MB file in at most 1 s
+    (`docs/00-overview.md`); and `xtask`, for the fuzz row of the session
+    file, a parser of a file on disk (ADR-0027). `CLAUDE.md` asks that a
+    task spreading past three crates be raised as probably mis-scoped.
+  - On 2026-11-23, a scratch program outside the repository loaded a
+    100 MB file of short lines with `text::file::load` in 0.41 to 0.47 s
+    over three runs, in a release build on the reference machine with the
+    file in the page cache: within the budget without loading in chunks.
+  - `docs/subsystems/editor.md` says large-file mode is read-only by
+    default, with no highlighting or language server, and loads in
+    chunks.
+  - On 2026-11-23 the user chose the recommended option of each of four
+    questions: "Split in three"; sessions in the "User data folder"; a
+    save that would split a link or change the owner or group asks "in
+    place / replace"; and large files take a "Whole load, read-only".
+  - M4.10's security review, the same day, found that a rule for a new
+    file's owner and group misses more than the mount options it names:
+    NFS's root squashing, an export's default, gives root's new files the
+    anonymous user and group (65534 by default, exports(5)), and inside a
+    user namespace (a rootless container, a Flatpak sandbox) unmapped ids
+    read as the overflow id, 65534 by default (user_namespaces(7)), so a
+    folder's group and a file's can look the same when they are not. It
+    also found that the folder to ask about is the one holding the file
+    the save reaches after links, which `text::file` does not expose, and
+    suggested a check of the save's own temporary file just before the
+    rename, exact on every file system; M4.11's `Decide first` line asks
+    the user that.
+- **Decision:**
+  - **The split** (ADR-0024). Two new tasks, listed before M4.3:
+    - **M4.10** (`platform: file metadata and the process's user and
+      group (Linux)`), in `sys` and `platform`: a file's link count,
+      owner, group and permission bits, following symbolic links as a
+      save does; and the owner and group a file that this process creates
+      in a folder gets, which on Linux is the process's effective user
+      (`geteuid`) and, when the folder has the setgid bit, the folder's
+      group, else the process's effective group (`getegid`). Other
+      systems answer `Unsupported` until macOS (M11.8) and Windows
+      (M12.2) add theirs.
+    - **M4.11** (`workspace: buffers, the file tree model and session`),
+      in `workspace`, `tidepool-bench` and `xtask`: `buffers`, the file
+      tree model of `files`, `session`, a benchmark of opening a 100 MB
+      file, and the session file's fuzz target.
+    - **M4.3** keeps the views and the binary, the part that finishes
+      what it promised: the explorer, open editors, tabs, splits and the
+      trust prompt in `editor`, and in `tidepool` opening folders, the
+      editor's settings, the keymap's workspace layer and the window's
+      clipboard. It depends on M4.11 too. Its `Decide first` line asks how
+      a folder is opened, what the trust prompt warns about or refuses,
+      whether the explorer shows the files that ignore files hide, and
+      what shape splits take.
+  - **Sessions live in the user data folder,** one file a folder under
+    its `sessions/`, named from the folder's canonical path, which the
+    file also holds and which loading checks, so that two folders whose
+    names collide never restore each other's. Nothing is written into the
+    project, so `git status` shows nothing and an untrusted repository
+    cannot ship a session.
+  - **A save that would change a file's identity asks first.** Before
+    saving over an existing file, `buffers` compares the link count,
+    owner and group of the file the save reaches (links followed, as
+    `text::file::save` follows them, ADR-0025) with what a new file in
+    its folder would have (M4.10). When a rename would split a hard link
+    (more than one link) or give the file another owner or group, the
+    save stops and asks, with three answers:
+    - **write in place,** which keeps the links, owner, group,
+      permissions, access lists and extended attributes, but can leave
+      the file part-written if Tidepool or the machine stops during the
+      write;
+    - **save as a new file,** the atomic save of ADR-0025, which splits
+      the link or takes the saver's owner and group;
+    - or **cancel**.
+  - **Large files load whole, read-only.** A file of more than
+    `text::file::LARGE_FILE_BYTES` (16 MiB) loads whole on a worker
+    through `text::file::load`, like any other, and its buffer opens
+    read-only until a command makes it editable. It gets no highlighting
+    or language server when those come (M6.2, M6.7). Loading in chunks is
+    not built, since the budget is met without it.
+- **Consequences:**
+  - Three changes to review in place of one, each within three crates,
+    and M4.3's questions are asked when it starts, with buffers and
+    sessions in place.
+  - `sys` declares `geteuid` and `getegid`, which take nothing and cannot
+    fail, as `safe` functions, as it declares `dlerror`, so `platform`
+    calls them with no `unsafe` block; `platform` also reads
+    `std::os::unix`'s metadata behind its Linux backend.
+  - A write in place is not atomic: the user chooses it, warned, for a
+    file whose identity matters more.
+  - The check and the save are two steps, so a file changed between them
+    (another link made, its owner changed) is saved as the check saw it.
+  - A rule cannot see `bsdgroups`, file systems without Unix owners, NFS
+    squashing or a user namespace's overflow ids, so an error, or an id
+    that is the overflow id, counts as not knowing, and the save asks.
+    M4.11 decides whether to check the save's temporary file instead.
+  - A rename that changes neither links, owner nor group still drops the
+    file's access list and extended attributes (ADR-0025), with no
+    question.
+  - A 100 MB file shows after about half a second on a worker, while the
+    main thread goes on answering events; its whole text is in memory.
+  - A session stays behind when its folder is deleted, and a moved
+    folder starts without its session.
+- **Alternatives considered:**
+  - Splitting in two, everything under the views in one task: five
+    crates, still past the rule.
+  - Keeping M4.3 whole: one large review across six or seven crates.
+  - Sessions in the folder's `.tidepool/session.toml`: they travel with
+    the folder, but write into the project and can be shipped by an
+    untrusted repository.
+  - Always writing such a file in place: keeps its identity without a
+    question, but a crash during the write can corrupt it.
+  - Warning, then always replacing: the link splits or the owner changes
+    each time the user goes on.
+  - Learning the owner and group a rename gives by making a probe file
+    in the folder: right on every file system, but it writes in the
+    user's folder before each such save.
+  - Loading in chunks now: more work, and a new loading interface in
+    `text`, with no gain against the budget measured.
+  - Large files editable at once: unlike the spec's read-only default.
+- **Revisit when:** opening a 100 MB file takes more than 1 s on the
+  reference machine; users ask to edit large files without the extra
+  command; a session should travel with its folder; a file system is
+  found whose new files take an owner or group other than M4.10's rule
+  gives; or macOS (M11.8) or Windows (M12.2) add file metadata.

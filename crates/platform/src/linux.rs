@@ -34,15 +34,18 @@
 //! - [`library`]: loading a shared library, and Xlib's table, once.
 //! - [`xdg`]: the user's and the tools' folders, from the XDG variables and
 //!   the tools' own, for [`paths`](crate::paths) and [`dirs`](crate::dirs).
+//! - [`file`](mod@file): a file's metadata and a new file's owner, for
+//!   [`file`](crate::file) (M4.10).
 //!
 //! Everything that needs no X server (the display's rules, the key map,
-//! the modifiers, the translation of events and the resource lookup) is
-//! tested on its own, always. The tests that open windows run only with
+//! the modifiers, the translation of events, the resource lookup and the
+//! file metadata) is tested on its own, always. The tests that open windows run only with
 //! `TIDEPOOL_IT_X11=1` (ADR-0039), under `xvfb-run`.
 
 mod claim;
 mod connection;
 mod display;
+mod file;
 mod input;
 mod keymap;
 mod library;
@@ -52,6 +55,7 @@ mod window;
 mod xdg;
 mod xresources;
 
+pub(crate) use self::file::{file_metadata, new_file_owner};
 pub(crate) use self::waker::Waker;
 pub(crate) use self::window::Window;
 pub(crate) use self::xdg::{android_sdk, rustup_home, user_dirs};

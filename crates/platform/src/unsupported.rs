@@ -17,11 +17,11 @@
 //!
 //! New in Tidepool. Opening a window fails with [`Error::Unsupported`], so
 //! no window, and no waker, ever exists here: both types are empty, and
-//! their methods cannot be called. The user's and the tools' folders fail
-//! the same way.
+//! their methods cannot be called. The user's and the tools' folders, and
+//! the file metadata a save checks, fail the same way.
 
 use core::convert::Infallible;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use tidepool_core::geom::{DeviceRect, DeviceSize, Scale};
@@ -29,6 +29,7 @@ use tidepool_core::geom::{DeviceRect, DeviceSize, Scale};
 use crate::Error;
 use crate::clipboard::Selection;
 use crate::events::Event;
+use crate::file::{Metadata, Owner};
 use crate::paths::UserDirs;
 use crate::surface::Pixels;
 use crate::window::{CursorShape, WindowConfig};
@@ -54,6 +55,16 @@ pub(crate) fn android_sdk() -> Result<PathBuf, Error> {
 /// Fails: this system has no tool folders yet.
 pub(crate) fn rustup_home() -> Result<PathBuf, Error> {
     Err(unsupported("tool folders"))
+}
+
+/// Fails: this system has no file metadata yet.
+pub(crate) fn file_metadata(_path: &Path) -> Result<Metadata, Error> {
+    Err(unsupported("file metadata"))
+}
+
+/// Fails: this system has no file metadata yet.
+pub(crate) fn new_file_owner(_folder: &Path) -> Result<Owner, Error> {
+    Err(unsupported("file metadata"))
 }
 
 /// A window that cannot exist.
@@ -156,5 +167,21 @@ mod tests {
                 "{found:?}"
             );
         }
+    }
+
+    #[test]
+    fn file_metadata_is_not_read_and_says_why() {
+        let os = std::env::consts::OS;
+        let here = Path::new(".");
+        let found = file_metadata(here);
+        assert!(
+            matches!(found, Err(Error::Unsupported { what: "file metadata", os: o }) if o == os),
+            "{found:?}"
+        );
+        let found = new_file_owner(here);
+        assert!(
+            matches!(found, Err(Error::Unsupported { what: "file metadata", os: o }) if o == os),
+            "{found:?}"
+        );
     }
 }

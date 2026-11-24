@@ -47,8 +47,8 @@ The subsystems and the main interfaces between them, from the top layer
 down: 1.1 what the app, the frontends and the editor use, 1.2 what the
 agents, languages and toolchains offer one another, and 1.3 what all of
 them stand on. Only formats and text (`codec` and `text`), `xtask`,
-`sys`'s Linux declarations (M2.1, M2.2, M2.7), `platform`'s Linux window
-(M2.2, M2.7), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
+`sys`'s Linux declarations (M2.1, M2.2, M2.7, M4.10), `platform`'s Linux
+window (M2.2, M2.7) and file metadata (M4.10), `gfx`'s rasterizer (M2.3), `font`'s atlas and layout
 (M2.5), `gui`'s first frame (M2.6), painter (M3.5) and rendering of `ui`
 frames in its window (M3.8), and `ui`'s tree,
 layout, input routing, draw lists and accessibility tree (M3.1), its
@@ -136,7 +136,7 @@ flowchart TB
     e_agents["Language agents<br/>TAP over stdio"]
     i_rpc(("JSON-RPC<br/>transport<br/>planned M6.1"))
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
-    i_ws(("folders, trust,<br/>settings (M4.7),<br/>buffers planned M4.3"))
+    i_ws(("folders, trust,<br/>settings (M4.7),<br/>buffers planned M4.11"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
     c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -339,7 +339,7 @@ the task that built it.
 ```mermaid
 flowchart LR
     c_editor["tidepool-editor<br/>the editor view (M4.1),<br/>editing (M4.2)<br/>planned M4.4"]
-    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>planned M4.3, M4.4"]
+    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>planned M4.11, M4.4"]
     c_syntax["tidepool-syntax<br/>planned M6.2, M13.2"]
     c_lang["tidepool-lang<br/>planned M6.7"]
     c_agent["tidepool-agent<br/>planned M9.3"]
@@ -370,9 +370,9 @@ flowchart LR
     c_syntax -.->|"re-lex new ranges,<br/>planned M6.2"| i_tx
     c_lang -.->|"didChange,<br/>planned M6.7"| i_tx
     c_editor -->|"one step a command,<br/>undo and redo (M4.2)"| i_hist
-    c_workspace -.->|"saves,<br/>planned M4.3"| i_hist
+    c_workspace -.->|"saves,<br/>planned M4.11"| i_hist
     c_workspace -->|"saves settings and<br/>trust.toml (M4.7)"| i_file
-    c_workspace -.->|"buffers,<br/>planned M4.3"| i_file
+    c_workspace -.->|"buffers,<br/>planned M4.11"| i_file
     c_editor -.->|"find and replace,<br/>planned M4.4"| i_regex
     c_workspace -.->|"project search,<br/>planned M4.4"| i_regex
     c_syntax -.->|"pack lexers,<br/>planned M13.2"| i_regex
@@ -462,9 +462,9 @@ flowchart TB
     i_clip(("clipboard: set_selection,<br/>request_selection,<br/>Selection (M2.7)"))
     i_terminal(("terminal:<br/>raw mode guard<br/>planned M7.1"))
 
-    c_platform["tidepool-platform<br/>the crate root, M0.1<br/>window, events, surface<br/>on X11, M2.2<br/>clipboard, M2.7<br/>more planned M4.5 on"]
+    c_platform["tidepool-platform<br/>the crate root, M0.1<br/>window, events, surface<br/>on X11, M2.2<br/>clipboard, M2.7<br/>file metadata, M4.10<br/>more planned M4.5 on"]
     i_decl(("dynlib, libc, x11,<br/>evdev declarations<br/>M2.1, M2.2, M2.7"))
-    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>selections, M2.7<br/>more planned M4.5 on"]
+    c_sys["tidepool-sys<br/>the crate root, M0.1<br/>dynlib, linux::libc,<br/>linux::x11, M2.1<br/>linux::evdev, write(2),<br/>typed text, M2.2<br/>selections, M2.7<br/>geteuid, getegid, M4.10<br/>more planned M4.5 on"]
     e_os["OS libraries<br/>libc and libX11 on Linux<br/>AppKit, Win32 later"]
 
     c_gui -->|"M2.6"| i_window
@@ -498,37 +498,40 @@ flowchart TB
   `wait_events` as `Event::Pasted`, which also answers other programs for
   the selections the window set (ADR-0042).
 
-### 3.2 tidepool-platform: paths, watching, processes and the PTY
+### 3.2 tidepool-platform: paths, file metadata, watching, processes and the PTY
 
 ```mermaid
 flowchart TB
     c_app["tidepool, the app<br/>the main loop, M3.8<br/>the settings, M3.4"]
-    c_workspace["tidepool-workspace<br/>watch planned M4.5"]
+    c_workspace["tidepool-workspace<br/>buffers planned M4.11<br/>watch planned M4.5"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
 
     i_paths(("paths: user_dirs,<br/>dirs: android_sdk,<br/>rustup_home (M2.7)"))
+    i_file(("file: metadata,<br/>new_file_owner<br/>(M4.10)"))
     i_watch(("watch<br/>planned M4.5"))
     i_process(("process<br/>planned M5.7"))
     i_pty(("Pty::spawn<br/>planned M5.9"))
 
-    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>the rest planned<br/>M4.5 to M5.9"]
+    c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>file built M4.10<br/>the rest planned<br/>M4.5 to M5.9"]
 
     c_app -->|"settings.toml's<br/>folder (M3.4)"| i_paths
     c_app -.->|"trust.toml's folder,<br/>planned M4.3"| i_paths
+    c_workspace -.->|"links, owner, group<br/>before a save,<br/>planned M4.11"| i_file
     c_workspace -.->|"debounced events,<br/>planned M4.5"| i_watch
     c_toolchain -.->|"standard locations,<br/>planned M5.1"| i_paths
     c_toolchain -.->|"Spawn,<br/>planned M5.2"| i_process
     c_term -.->|"terminal panel,<br/>planned M5.4"| i_pty
 
     i_paths --- c_platform
+    i_file --- c_platform
     i_watch -.- c_platform
     i_process -.- c_platform
     i_pty -.- c_platform
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_platform,i_paths built
+    class c_app,c_platform,i_paths,i_file built
     class c_workspace,c_toolchain,c_term planned
     class i_watch,i_process,i_pty planned
 ```
@@ -996,13 +999,13 @@ flowchart LR
     i_framing(("rpc: JSON-RPC<br/>transport<br/>planned M6.1"))
     i_sessions(("toolchain:<br/>sessions<br/>planned M5.2"))
     i_folder(("workspace:<br/>folder, trust (M4.7)"))
-    i_buffers(("workspace:<br/>buffers<br/>planned M4.3"))
+    i_buffers(("workspace:<br/>buffers<br/>planned M4.11"))
     i_rope(("text: Rope"))
     i_tparse(("codec:<br/>toml::parse"))
 
     c_rpc["tidepool-rpc<br/>planned M6.1"]
     c_toolchain["tidepool-toolchain<br/>planned M5.2"]
-    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)<br/>buffers planned M4.3"]
+    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)<br/>buffers planned M4.11"]
     c_text["tidepool-text"]
     c_codec["tidepool-codec"]
     e_agent["Language agents,<br/>separate processes<br/>tp-agent-mock, tp-agent-local,<br/>tp-agent-claude<br/>planned M9.2, M9.6"]

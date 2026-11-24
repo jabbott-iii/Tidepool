@@ -31,7 +31,8 @@
 //! macro that makes the tables is private to this crate.
 //!
 //! On Linux, the module `linux`: `linux::libc` (the dynamic loader,
-//! `poll`, `pipe2`, `write` and `setlocale`), `linux::evdev` (the kernel's
+//! `poll`, `pipe2`, `write`, `setlocale`, and `geteuid` and `getegid` with
+//! the mode bits), `linux::evdev` (the kernel's
 //! key codes) and `linux::x11` (Xlib's types, constants and events, and
 //! `Xlib`, the table of its functions in `libX11.so.6`). A system's module
 //! exists only on that system. macOS and Windows are declared from M11.7

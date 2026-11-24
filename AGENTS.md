@@ -157,7 +157,14 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   invalid value falling back to the layer below with a logged warning,
   and values written back through `codec::toml`'s document model, keeping
   comments and unknown keys; the binary reads its settings through it;
-  with the fuzz targets `ignore` and `settings` (M4.7, ADR-0067).
+  with the fuzz targets `ignore` and `settings` (M4.7, ADR-0067); and in
+  `tidepool-platform`, on Linux, `file`: a file's link count, owner,
+  group and permission bits, links followed, and the owner and group of
+  a file the process makes in a folder (the effective user, and the
+  folder's group when it has the setgid bit, else the effective group),
+  with `geteuid` and `getegid` declared in `tidepool-sys`, which a save
+  is to check before it splits a hard link or changes an owner (M4.10,
+  ADR-0068).
 - **Not built:** everything else. 12 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

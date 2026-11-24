@@ -22,6 +22,7 @@ crates/sys/src/
 ├── linux/
 │   ├── libc.rs           # dlopen/dlsym/dlerror (no dlclose), poll, pipe2 (O_CLOEXEC, O_NONBLOCK),
 │   │                     # write (async-signal-safe), setlocale (LC_CTYPE);
+│   │                     # geteuid/getegid (safe), uid_t/gid_t/mode_t, S_ISGID, ALLPERMS (M4.10);
 │   │                     # later inotify_* (M4.5), fork/execve/setsid/waitpid, kill (M5.7),
 │   │                     # posix_openpt/grantpt/unlockpt/ptsname_r, ioctl TIOCSCTTY (M5.9),
 │   │                     # termios, ioctl TIOCGWINSZ, sigaction (M7.1)
@@ -82,6 +83,7 @@ crates/sys/src/
 | `process` | Low-level spawn helpers `toolchain` builds on: pipes, process groups, kill-tree |
 | `watch` | Directory watching (inotify / FSEvents / ReadDirectoryChangesW) |
 | `paths` | `user_dirs()`: `UserDirs`, the config, data, cache and log folders per OS |
+| `file` | `metadata(path)`: a file's link count, `Owner` (user and group) and permission bits, links followed; `new_file_owner(folder)`: the owner and group of a file this process makes there (M4.10, ADR-0068) |
 | `dirs` | Standard tool locations: `android_sdk()`, `rustup_home()` |
 
 ### Invariants
@@ -109,6 +111,10 @@ crates/sys/src/
   (ADR-0043).
 - `paths` and `dirs` only find paths: they make no folder. Off Linux they
   fail with `Error::Unsupported` until M11.8 and M12.2.
+- `file` only reads: it makes, changes and opens nothing, and follows
+  links as a save does. Off Linux it fails with `Error::Unsupported`
+  until M11.8 and M12.2. It reports what the system says, so a file can
+  change between the check and a save that relies on it (ADR-0068).
 
 ## Tests
 
@@ -131,7 +137,13 @@ crates/sys/src/
   budget. A resize is tested through
   the translation of `ConfigureNotify`, without a server, as are the
   display's rules, the key map, the modifiers, the rest of the events
-  and the folders' rules (`linux::xdg`). The window tests are
+  and the folders' rules (`linux::xdg`). File metadata needs no server
+  (`linux::file`, M4.10): a second hard link counted on both names, a new
+  file's owner matching `new_file_owner`, the permission bits, links
+  followed to their target, missing files, dangling links and loops, a
+  file that is not a folder, the setgid rule on its own, and a setgid
+  folder given another of the process's groups, which skips with
+  `SKIPPED:` when the process is in no other group. The window tests are
   `#[cfg(test)]` tests inside
   `platform`'s library, since only its library target may call Xlib,
   and they run only with `TIDEPOOL_IT_X11=1`, printing `SKIPPED:`

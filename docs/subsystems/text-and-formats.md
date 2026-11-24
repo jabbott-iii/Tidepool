@@ -312,7 +312,8 @@ Saving follows ADR-0025.
   saver's owner and group on Unix (even when only the group differs) and
   the access list its directory passes on (a default POSIX ACL on Linux,
   the inherited ACL on Windows), and drops extended attributes.
-  `workspace::buffers` checks the link count, owner and group first (M4.3).
+  `workspace::buffers` checks the link count, owner and group first (M4.11,
+  ADR-0068).
 - **Errors** name the step that failed (`FileStep`) and carry the
   operating system's error as their source. Messages hold no path and no
   text.
