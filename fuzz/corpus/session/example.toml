@@ -1,0 +1,11 @@
+# The editors a folder had open (ADR-0068). Tidepool writes this file.
+version = 1
+folder = "/home/me/src/tidepool"
+active_group = 1
+layout = { split = "row", panes = [
+    { weight = 1.0, layout = { active = 0, editors = [
+        { path = "/home/me/src/tidepool/README.md", primary = 0,
+          cursors = [[0, 0]], scroll = { line = 0, row = 0, y = 0.0, x = 0.0 } },
+    ] } },
+    { weight = 1.0, layout = { active = 0, editors = [] } },
+] }

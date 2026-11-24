@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The fuzz targets of `tidepool-workspace`: `ignore` and `settings`, one
-//! test named after each (ADR-0027, ADR-0067, `docs/04-quality.md` →
-//! "Fuzz smoke").
+//! The fuzz targets of `tidepool-workspace`: `ignore`, `settings` and
+//! `session`, one test named after each (ADR-0027, ADR-0067, ADR-0068,
+//! `docs/04-quality.md` → "Fuzz smoke").
 //!
 //! A plain `cargo test` runs their saved crashes (`fuzz/crashes/<target>/`)
 //! and their seeds unchanged, the hand-made ones in `fuzz/corpus/<target>/`.
@@ -55,13 +55,30 @@
 //! - a trust file that parses gives at most `MAX_GRANTS` grants, sorted,
 //!   each once, each absolute and spelled as its names join; a refusal is
 //!   one of the documented errors, and holds nothing unescaped.
-
+//!
+//! `session` reads any bytes as a session file, with the session's own
+//! limits, whose `edge-*` seeds sit exactly at the limits a seed can reach
+//! (splits 8 deep, 16 panes, 64 groups, 1,024 cursors):
+//!
+//! - a session that parses keeps every limit: splits at most
+//!   [`MAX_DEPTH`] deep, of 2 to [`MAX_PANES`] panes with finite weights
+//!   above 0; at most [`MAX_GROUPS`] groups and [`MAX_EDITORS`] editors,
+//!   each group's `active` an editor of it (or 0 when it has none), and
+//!   `active_group` a group; each editor's path absolute, with 1 to
+//!   [`MAX_CURSORS`] cursors and finite scroll offsets from 0;
+//! - it writes back ([`Session::to_text`]) to a text that reads as the
+//!   same session, and writing that again gives the same text;
+//! - a refusal is one of the documented errors, and holds nothing
+//!   unescaped.
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use tidepool_core::testing::fuzz::{Outcome, Target};
 use tidepool_workspace::WorkspaceError;
 use tidepool_workspace::folder::{Folder, Ignore, IgnoreFile, IgnoreLimits, Match};
+use tidepool_workspace::session::{
+    self, Group, Layout, MAX_CURSORS, MAX_DEPTH, MAX_EDITORS, MAX_GROUPS, MAX_PANES, Session,
+};
 use tidepool_workspace::settings::{Kind, Schema, Scope, Settings, SettingsFile, Source, Value};
 use tidepool_workspace::trust::{self, TrustStore};
 
@@ -153,6 +170,32 @@ const SETTINGS_TOKENS: &[&[u8]] = &[
     b"\\u202e",
 ];
 
+/// The session file's keys and values.
+const SESSION_TOKENS: &[&[u8]] = &[
+    b"version = 1\n",
+    b"folder = \"/w\"\n",
+    b"active_group = ",
+    b"layout = ",
+    b"{ split = \"row\", panes = [",
+    b"{ split = \"column\", panes = [",
+    b"{ weight = 1.0, layout = ",
+    b"{ active = 0, editors = [",
+    b"{ path = \"/w/a.rs\", primary = 0, cursors = [[0, 0]], ",
+    b"scroll = { line = 0, row = 0, y = 0.0, x = 0.0 } }",
+    b"[0, 0], ",
+    b"] }",
+    b" }, ",
+    b"0",
+    b"1",
+    b"-1",
+    b"1e39",
+    b"nan",
+    b"inf",
+    b"\"/w/../x\"",
+    b"\"rel\"",
+    b"\\u202e",
+];
+
 /// A run's result line for `fuzz-smoke`, then the verdict.
 #[expect(
     clippy::print_stdout,
@@ -200,6 +243,15 @@ fn ignore() {
 fn settings() {
     let outcome = Target::new(ROOT, "settings", read_settings)
         .dictionary(SETTINGS_TOKENS)
+        .memory_cap(MEMORY_CAP)
+        .run();
+    report(&outcome);
+}
+
+#[test]
+fn session() {
+    let outcome = Target::new(ROOT, "session", read_session)
+        .dictionary(SESSION_TOKENS)
         .memory_cap(MEMORY_CAP)
         .run();
     report(&outcome);
@@ -831,4 +883,150 @@ fn the_wildmatch_port_answers_as_git_did() {
             "{pattern:?} {text:?}"
         );
     }
+}
+
+/// Reads `input` as a session file and checks what `workspace::session`
+/// promises of it.
+fn read_session(input: &[u8]) {
+    let file = Path::new("session.toml");
+    match session::parse(input, file) {
+        Ok(parsed) => {
+            check_session(&parsed);
+            let text = parsed.to_text().expect("a session read writes back");
+            let again = session::parse(text.as_bytes(), file).expect("its text reads");
+            assert_eq!(again, parsed, "the text reads as the same session");
+            assert_eq!(
+                again.to_text().expect("writes"),
+                text,
+                "and writes the same"
+            );
+        }
+        Err(error) => {
+            assert!(
+                matches!(
+                    error,
+                    WorkspaceError::TooLarge { .. }
+                        | WorkspaceError::Toml { .. }
+                        | WorkspaceError::Version { .. }
+                        | WorkspaceError::BadSessionFile { .. }
+                ),
+                "an undocumented error: {error:?}"
+            );
+            check_message(&error.to_string());
+        }
+    }
+}
+
+/// Checks that a session that parsed keeps every limit.
+fn check_session(parsed: &Session) {
+    assert!(parsed.folder.is_absolute());
+    let groups = parsed.groups();
+    assert!(!groups.is_empty() && groups.len() <= MAX_GROUPS);
+    assert!(parsed.active_group < groups.len());
+    let editors: usize = groups.iter().map(|group| group.editors.len()).sum();
+    assert!(editors <= MAX_EDITORS);
+    for group in &groups {
+        check_group(group);
+    }
+    check_depth(&parsed.layout, 0);
+}
+
+fn check_group(group: &Group) {
+    assert!(group.active < group.editors.len().max(1));
+    for editor in &group.editors {
+        assert!(editor.path.is_absolute());
+        let cursors = editor.selection.cursors().len();
+        assert!((1..=MAX_CURSORS).contains(&cursors));
+        let scroll = editor.scroll;
+        for units in [scroll.y, scroll.x] {
+            assert!(units.is_finite() && units >= 0.0, "{units}");
+        }
+    }
+}
+
+fn check_depth(layout: &Layout, depth: usize) {
+    if let Layout::Split(split) = layout {
+        assert!(depth < MAX_DEPTH, "splits nest past the limit");
+        assert!((2..=MAX_PANES).contains(&split.panes.len()));
+        for pane in &split.panes {
+            assert!(pane.weight.is_finite() && pane.weight > 0.0);
+            check_depth(&pane.layout, depth + 1);
+        }
+    }
+}
+
+#[test]
+fn the_session_edge_seeds_sit_exactly_at_each_limit() {
+    let seed = |name: &str| {
+        let path = format!("{ROOT}/fuzz/corpus/session/{name}");
+        std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+    };
+    let parse = |bytes: &[u8]| session::parse(bytes, Path::new("x"));
+    let depth = |layout: &Layout| {
+        let mut deepest = 0;
+        let mut stack = vec![(layout, 0)];
+        while let Some((layout, at)) = stack.pop() {
+            if let Layout::Split(split) = layout {
+                deepest = deepest.max(at + 1);
+                stack.extend(split.panes.iter().map(|pane| (&pane.layout, at + 1)));
+            }
+        }
+        deepest
+    };
+    let deep = parse(&seed("edge-depth.toml")).expect("at the limit");
+    assert_eq!(depth(&deep.layout), MAX_DEPTH);
+    let panes = parse(&seed("edge-panes.toml")).expect("at the limit");
+    let Layout::Split(split) = &panes.layout else {
+        panic!("a split");
+    };
+    assert_eq!(split.panes.len(), MAX_PANES);
+    let groups = parse(&seed("edge-groups.toml")).expect("at the limit");
+    assert_eq!(groups.groups().len(), MAX_GROUPS);
+    let cursors = parse(&seed("edge-cursors.toml")).expect("at the limit");
+    let selection = &cursors.groups()[0].editors[0].selection;
+    assert_eq!(selection.cursors().len(), MAX_CURSORS);
+
+    // One step past each is refused: by the session's check, or for an
+    // array past 1,024 entries by `codec`'s limit first.
+    let past = |name: &str, from: &str, to: &str| {
+        let text = String::from_utf8(seed(name)).expect("UTF-8");
+        assert!(text.contains(from), "{name}");
+        let changed = text.replacen(from, to, 1);
+        assert!(
+            matches!(
+                parse(changed.as_bytes()),
+                Err(WorkspaceError::BadSessionFile { .. } | WorkspaceError::Toml { .. })
+            ),
+            "{name}"
+        );
+    };
+    // One more split around the innermost group: both of its ends change.
+    let deeper = String::from_utf8(seed("edge-depth.toml"))
+        .expect("UTF-8")
+        .replacen(
+            "{ active = 0, editors = [{",
+            "{ split = \"row\", panes = [{ weight = 1.0, layout = { active = 0, editors = [] } \
+             }, { weight = 1.0, layout = { active = 0, editors = [{",
+            1,
+        )
+        .replacen("x = 0.0 } }] }", "x = 0.0 } }] } }] }", 1);
+    assert!(
+        matches!(
+            parse(deeper.as_bytes()),
+            Err(WorkspaceError::BadSessionFile { .. })
+        ),
+        "one more split"
+    );
+    past(
+        "edge-panes.toml",
+        "panes = [",
+        "panes = [{ weight = 1.0, layout = { active = 0, editors = [] } }, ",
+    );
+    past(
+        "edge-groups.toml",
+        "panes = [{ weight = 1.0, layout = { active = 0, editors = [] } }, ",
+        "panes = [{ weight = 1.0, layout = { active = 0, editors = [] } }, \
+         { weight = 1.0, layout = { active = 0, editors = [] } }, ",
+    );
+    past("edge-cursors.toml", "cursors = [", "cursors = [[0, 0], ");
 }

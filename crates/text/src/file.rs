@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Text files: [`load`] with the large-file threshold, and the atomic
-//! [`save`] of ADR-0025.
+//! Text files: [`load`] with the large-file threshold, the atomic [`save`]
+//! of ADR-0025 and its two steps ([`prepare`], then
+//! [`PreparedSave::commit`]), and [`write_in_place`] (ADR-0069).
 //!
 //! - **Loading** decodes by BOM ([`encoding`](crate::encoding)) and reports
 //!   the format, the line endings, the trailing break and whether the file
@@ -33,15 +34,21 @@
 //!   directory passes on (a default POSIX ACL on Linux, the inherited ACL on
 //!   Windows); drops extended attributes; and on Unix clears setuid and
 //!   setgid, as a write in place would. `workspace::buffers` (M4.11) checks
-//!   the link count, owner and group before a save (ADR-0025).
+//!   the link count, owner and group between [`prepare`] and
+//!   [`PreparedSave::commit`], against the temporary file's (ADR-0069).
+//! - **Writing in place** ([`write_in_place`]) keeps the file itself, with
+//!   its links, owner, group, permissions, access list and extended
+//!   attributes, but is not atomic: a crash during it leaves the new text's
+//!   start over the old file's end.
 //! - **Callers** run loads and saves on workers, never on the main thread,
 //!   and serialize the saves of one file ([`History::checkpoint`]).
 //!
 //! [`History::checkpoint`]: crate::History::checkpoint
 
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions, Permissions};
-use std::io::{self, BufWriter, ErrorKind, Read, Write};
+use std::io::{self, BufWriter, ErrorKind, Read, Seek, Write};
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf, Prefix};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -89,7 +96,8 @@ pub enum FileStep {
     /// ([`ErrorKind::InvalidInput`]).
     ReadLink,
     /// Opening the existing file for writing, which neither creates nor
-    /// truncates it, to check that the user may write it. A refusal is
+    /// truncates it: to check that the user may write it before a save, and
+    /// to write it in [`write_in_place`]. A refusal is
     /// [`TextError::NotWritable`] instead.
     CheckWritable,
     /// Creating the temporary file.
@@ -105,6 +113,16 @@ pub enum FileStep {
     /// Syncing the directory after the rename. The target already holds the
     /// new text, but it may not survive a crash.
     SyncDirectory,
+    /// Writing the text over the file, in [`write_in_place`]. The file may
+    /// then hold the new text's start over the old text's end.
+    WriteInPlace,
+    /// Cutting the file to the new text's length after writing it in
+    /// place. The file holds the new text, and the old text's end after it
+    /// if the new text is shorter.
+    SetLength,
+    /// Syncing the file after writing it in place. The file holds the new
+    /// text, but it may not survive a crash.
+    SyncInPlace,
 }
 
 /// How many line breaks of each kind a text has (ADR-0019).
@@ -323,9 +341,10 @@ pub fn load(path: impl AsRef<Path>) -> Result<Loaded, TextError> {
 /// The rename makes a new file: it splits a hard link, gives the file the
 /// saver's owner and group on Unix and the access list its directory
 /// passes on (a default POSIX ACL on Linux, the inherited ACL on Windows),
-/// and drops extended attributes. `workspace::buffers` (M4.11) checks the
-/// link count, owner and group first. Saves of one file must be serialized
-/// by the caller ([`History::checkpoint`]).
+/// and drops extended attributes. A caller that must know first runs the
+/// two steps itself, [`prepare`] and [`PreparedSave::commit`], and looks
+/// between them, as `workspace::buffers` (M4.11) does (ADR-0069). Saves
+/// of one file must be serialized by the caller ([`History::checkpoint`]).
 ///
 /// [`History::checkpoint`]: crate::History::checkpoint
 ///
@@ -346,12 +365,177 @@ pub fn load(path: impl AsRef<Path>) -> Result<Loaded, TextError> {
 /// the new text.
 pub fn save(path: impl AsRef<Path>, text: &Rope, format: Format) -> Result<(), TextError> {
     Temp::create(path.as_ref())?
-        .write(|file| {
-            let mut out = BufWriter::with_capacity(BLOCK, file);
-            encode(text, format, &mut out)?;
-            out.flush()
-        })?
+        .write(encoder(text, format), Permit::Now)?
         .commit()
+}
+
+/// Writes `text` in `format` to a temporary file through a buffer.
+fn encoder(text: &Rope, format: Format) -> impl FnOnce(&mut File) -> io::Result<()> + '_ {
+    move |file| {
+        let mut out = BufWriter::with_capacity(BLOCK, file);
+        encode(text, format, &mut out)?;
+        out.flush()
+    }
+}
+
+/// Steps 1 to 4 of [`save`], but for the permissions: follows the links at
+/// `path` to the target, checks it, and writes `text` in `format` to a new
+/// temporary file beside it, synced. The target is not touched.
+///
+/// The [`PreparedSave`] it returns names the target and the temporary file,
+/// so that a caller can look at both before it calls
+/// [`commit`](PreparedSave::commit), which gives the temporary file the
+/// target's permissions and renames it, or drops it, which removes the
+/// temporary file (ADR-0069).
+///
+/// Until the commit, the temporary file of an existing target stays as
+/// private as it was created (mode 0600 on Unix), so that while the caller
+/// looks no one else can open it and read the new text, not even the
+/// temporary file's group, which can differ from the target's: that is
+/// what a caller looks for (M4.11's security review). A new file's
+/// temporary file has `std`'s default mode from the start, as in [`save`].
+///
+/// # Errors
+///
+/// As for [`save`], at the steps before [`FileStep::Rename`]; the
+/// temporary file is then removed, or stays behind if that fails too.
+pub fn prepare(
+    path: impl AsRef<Path>,
+    text: &Rope,
+    format: Format,
+) -> Result<PreparedSave, TextError> {
+    let temp = Temp::create(path.as_ref())?.write(encoder(text, format), Permit::AtCommit)?;
+    Ok(PreparedSave { temp })
+}
+
+/// A save written but not yet renamed: the temporary file beside the
+/// target holds the new text, synced, still private ([`prepare`]).
+///
+/// [`commit`](PreparedSave::commit) renames it over the target. Dropping it
+/// instead closes and removes the temporary file, and the target stays as
+/// it was. `Debug` shows the two paths, never the text.
+pub struct PreparedSave {
+    temp: Temp,
+}
+
+impl PreparedSave {
+    /// The file the rename replaces: the end of the chain of symbolic links
+    /// at the path given to [`prepare`], or the path itself when it is no
+    /// link. On Unix it is the links' targets joined as written, not a
+    /// canonical path.
+    pub fn target(&self) -> &Path {
+        &self.temp.target
+    }
+
+    /// The temporary file, in the target's directory, named [`TEMP_PREFIX`]
+    /// and a suffix. It is the new file the rename puts at the target, so
+    /// its owner and group are those the target will have.
+    pub fn temp_path(&self) -> &Path {
+        &self.temp.removal.path
+    }
+
+    /// Whether the target existed when [`prepare`] looked: the rename then
+    /// replaces it. Otherwise the rename creates it.
+    pub fn replaces(&self) -> bool {
+        self.temp.permissions.is_some()
+    }
+
+    /// Gives the temporary file the target's permissions (on Unix without
+    /// setuid and setgid) and syncs it again, then steps 5 and 6 of
+    /// [`save`]: closes it, renames it over the target, and syncs the
+    /// directory.
+    ///
+    /// # Errors
+    ///
+    /// [`TextError::Io`] at [`FileStep::SetPermissions`] or
+    /// [`FileStep::Sync`], or at [`FileStep::Rename`], after each of which
+    /// the temporary file is removed (or stays behind if that fails too)
+    /// and the target is as it was; or at [`FileStep::SyncDirectory`], when
+    /// the target already holds the new text.
+    pub fn commit(mut self) -> Result<(), TextError> {
+        if self.temp.permissions.is_some() {
+            self.temp.permit()?;
+            self.temp.sync()?;
+        }
+        self.temp.commit()
+    }
+}
+
+impl fmt::Debug for PreparedSave {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PreparedSave")
+            .field("target", &self.target())
+            .field("temp_path", &self.temp_path())
+            .field("replaces", &self.replaces())
+            .finish()
+    }
+}
+
+/// Writes `text` in `format` over the existing file at `path`, following
+/// its symbolic links as [`save`] does, without a temporary file or a
+/// rename (ADR-0068, ADR-0069).
+///
+/// The file stays the same file, so it keeps its other names (hard links),
+/// its owner and group, its permission bits, its access list and its
+/// extended attributes; on Unix, the kernel clears setuid and setgid when
+/// a user other than root writes it. The target must be a regular file
+/// that the user may write. It is opened without creating or truncating
+/// it, written from its start through a buffer, cut to the new text's
+/// length, and synced.
+///
+/// **This is not atomic.** If Tidepool or the machine stops during the
+/// write, or the disk fills, the file holds the new text's start over the
+/// old text's end. [`save`] is atomic, but makes a new file. Writes of one
+/// file must be serialized by the caller ([`History::checkpoint`]), as
+/// saves are.
+///
+/// [`History::checkpoint`]: crate::History::checkpoint
+///
+/// # Errors
+///
+/// [`TooManyLinks`](TextError::TooManyLinks);
+/// [`NotRegularFile`](TextError::NotRegularFile);
+/// [`NotWritable`](TextError::NotWritable); [`Io`](TextError::Io) at
+/// [`FileStep::Metadata`] (with [`ErrorKind::NotFound`] when the target
+/// does not exist, which a write in place does not create),
+/// [`FileStep::ReadLink`] or [`FileStep::CheckWritable`], before anything
+/// is written; or at [`FileStep::WriteInPlace`], [`FileStep::SetLength`]
+/// or [`FileStep::SyncInPlace`], each of which says what the file may
+/// hold then.
+pub fn write_in_place(
+    path: impl AsRef<Path>,
+    text: &Rope,
+    format: Format,
+) -> Result<(), TextError> {
+    let (target, existing) = resolve(path.as_ref())?;
+    let Some(metadata) = existing else {
+        return Err(io_error(
+            FileStep::Metadata,
+            io::Error::from(ErrorKind::NotFound),
+        ));
+    };
+    check_regular(&metadata)?;
+    let file = open_writable(&target)?;
+    // The path may have changed between the look and the open.
+    check_regular(
+        &file
+            .metadata()
+            .map_err(|error| io_error(FileStep::Metadata, error))?,
+    )?;
+    let mut out = BufWriter::with_capacity(BLOCK, file);
+    encode(text, format, &mut out).map_err(|error| io_error(FileStep::WriteInPlace, error))?;
+    let mut file = out
+        .into_inner()
+        .map_err(|error| io_error(FileStep::WriteInPlace, error.into_error()))?;
+    // Opened at its start without appending, so the position is the bytes
+    // written.
+    let len = file
+        .stream_position()
+        .map_err(|error| io_error(FileStep::SetLength, error))?;
+    file.set_len(len)
+        .map_err(|error| io_error(FileStep::SetLength, error))?;
+    file.sync_all()
+        .map_err(|error| io_error(FileStep::SyncInPlace, error))
 }
 
 /// A save in progress: the temporary file beside the target. Dropping it
@@ -369,6 +553,17 @@ struct Temp {
     dir: PathBuf,
     /// The target's permissions, if it exists.
     permissions: Option<Permissions>,
+}
+
+/// When a save in progress gives its temporary file the target's
+/// permissions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Permit {
+    /// Before the sync, as [`save`] does.
+    Now,
+    /// At [`PreparedSave::commit`], so that the file stays private while a
+    /// caller looks at it.
+    AtCommit,
 }
 
 /// Removes a file when dropped, unless disarmed.
@@ -453,19 +648,37 @@ impl Temp {
     }
 
     /// Step 4 of [`save`]: writes the temporary file with `write`, gives it
-    /// the target's permissions (less setuid and setgid on Unix), and syncs
-    /// it.
-    fn write(mut self, write: impl FnOnce(&mut File) -> io::Result<()>) -> Result<Temp, TextError> {
+    /// the target's permissions (less setuid and setgid on Unix) when
+    /// `permit` says now, and syncs it.
+    fn write(
+        mut self,
+        write: impl FnOnce(&mut File) -> io::Result<()>,
+        permit: Permit,
+    ) -> Result<Temp, TextError> {
         write(&mut self.file).map_err(|error| io_error(FileStep::Write, error))?;
+        if permit == Permit::Now {
+            self.permit()?;
+        }
+        self.sync()?;
+        Ok(self)
+    }
+
+    /// Gives the temporary file the target's permissions, if the target
+    /// exists.
+    fn permit(&mut self) -> Result<(), TextError> {
         if let Some(permissions) = &self.permissions {
             self.file
                 .set_permissions(permissions.clone())
                 .map_err(|error| io_error(FileStep::SetPermissions, error))?;
         }
+        Ok(())
+    }
+
+    /// Syncs the temporary file to the disk.
+    fn sync(&mut self) -> Result<(), TextError> {
         self.file
             .sync_all()
-            .map_err(|error| io_error(FileStep::Sync, error))?;
-        Ok(self)
+            .map_err(|error| io_error(FileStep::Sync, error))
     }
 
     /// Steps 5 and 6 of [`save`]: closes the temporary file, renames it over
@@ -652,8 +865,14 @@ fn check_regular(metadata: &Metadata) -> Result<(), TextError> {
 /// Refuses a regular file the user may not write, by opening it for
 /// writing without creating or truncating it.
 fn check_writable(target: &Path) -> Result<(), TextError> {
+    open_writable(target).map(drop)
+}
+
+/// Opens `target` for writing without creating or truncating it; a
+/// refusal is [`TextError::NotWritable`].
+fn open_writable(target: &Path) -> Result<File, TextError> {
     match OpenOptions::new().write(true).open(target) {
-        Ok(_) => Ok(()),
+        Ok(file) => Ok(file),
         Err(error)
             if matches!(
                 error.kind(),
@@ -814,7 +1033,7 @@ mod tests {
 
         let temp = Temp::create(&path)
             .expect("create")
-            .write(write_text(&new, Format::UTF8))
+            .write(write_text(&new, Format::UTF8), Permit::Now)
             .expect("write and sync");
         let left = temp.abandon();
 
@@ -843,10 +1062,13 @@ mod tests {
             (1, Format::new(crate::Encoding::Utf16Le, true)),
             (70_000, Format::UTF8),
         ] {
-            let result = Temp::create(&path).expect("create").write(|file| {
-                let mut out = FailAfter { inner: file, left };
-                encode(&text, format, &mut out)
-            });
+            let result = Temp::create(&path).expect("create").write(
+                |file| {
+                    let mut out = FailAfter { inner: file, left };
+                    encode(&text, format, &mut out)
+                },
+                Permit::Now,
+            );
             let Err(error) = result else {
                 panic!("the write must fail after {left} bytes");
             };
@@ -872,7 +1094,7 @@ mod tests {
         fs::write(&path, b"original").expect("write the original");
         let mut temp = Temp::create(&path)
             .expect("create")
-            .write(write_text(&Rope::from("new"), Format::UTF8))
+            .write(write_text(&Rope::from("new"), Format::UTF8), Permit::Now)
             .expect("write");
         // Renaming over a directory that is not empty fails everywhere.
         let blocker = dir.join("blocker");
@@ -938,7 +1160,7 @@ mod tests {
         let temp = Temp::create(&path).expect("create");
         assert_eq!(mode(&temp.removal.path), 0o600);
         let temp = temp
-            .write(write_text(&Rope::from("new"), Format::UTF8))
+            .write(write_text(&Rope::from("new"), Format::UTF8), Permit::Now)
             .expect("write");
         assert_eq!(mode(&temp.removal.path), 0o664);
         temp.commit().expect("commit");

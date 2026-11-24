@@ -10,7 +10,7 @@
 | `transaction` | `ChangeSet`: canonical byte-range replacements in the old text, each holding its new text as a `Rope`; apply, map positions, compose, invert. `Transaction`: a change set and the selection after it; `change_each` for multi-cursor commands |
 | `history` | Undo tree that applies every step to the buffer's rope: branches kept, grouping by command (`GroupId`) and by time (coalescing kinds), saved-state markers through checkpoints |
 | `encoding` | UTF-8, UTF-16 LE/BE with BOM, detected by BOM only; invalid UTF-8 or UTF-16 opens read-only and lossless |
-| `file` | Load (with size threshold for large-file mode), atomic save (temp file in the same directory, fsync, rename, keep permissions, links followed), line-ending and trailing-newline preservation |
+| `file` | Load (with size threshold for large-file mode), atomic save (temp file in the same directory, fsync, rename, keep permissions, links followed) and its two steps, write in place, line-ending and trailing-newline preservation |
 
 Invariants:
 
@@ -312,8 +312,28 @@ Saving follows ADR-0025.
   saver's owner and group on Unix (even when only the group differs) and
   the access list its directory passes on (a default POSIX ACL on Linux,
   the inherited ACL on Windows), and drops extended attributes.
-  `workspace::buffers` checks the link count, owner and group first (M4.11,
-  ADR-0068).
+- **The save in two steps** (ADR-0069): `prepare(path, &Rope, Format)` runs
+  steps 1 to 4 but for the permissions, and returns a `PreparedSave`,
+  which names the target it resolved (`target`), the temporary file
+  (`temp_path`) and whether the target existed (`replaces`); `commit`
+  gives the temporary file the target's permissions, syncs it again, and
+  runs steps 5 and 6, and dropping it removes the temporary file and
+  leaves the target as it was. Until the commit, an existing target's
+  temporary file stays 0600 on Unix, so that while the caller looks, its
+  group, which may not be the target's, cannot read the new text (M4.11's
+  security review). `save` itself gives the permissions before its one
+  sync, as before. `workspace::buffers` compares the target's link count, owner
+  and group with the temporary file's between them, since the temporary
+  file is the new file the rename puts there (M4.11, ADR-0068).
+- **Writing in place** (`write_in_place(path, &Rope, Format)`, ADR-0069)
+  follows the links as a save does, refuses anything but an existing
+  regular file the user may write, opens it without creating or
+  truncating it, writes the text from its start, cuts it to the new
+  length and syncs it. The file keeps its links, owner, group, permission
+  bits, access list and extended attributes. It is not atomic: an error
+  at `WriteInPlace`, `SetLength` or `SyncInPlace` says what the file may
+  hold, and a crash during the write leaves the new text's start over the
+  old text's end.
 - **Errors** name the step that failed (`FileStep`) and carry the
   operating system's error as their source. Messages hold no path and no
   text.
@@ -967,7 +987,12 @@ Tests: the hand-made vectors and the property tests are in
     and BE, LF, CR LF, lone CR, mixed endings, no trailing newline, the
     empty file; invalid files load read-only; a simulated crash between
     write and rename and a failed write leave the original; refused saves
-    change nothing; the large-file threshold; on Unix, modes and links.
+    change nothing; the large-file threshold; on Unix, modes and links;
+    the save in two steps (a prepared save leaves the target alone until
+    its commit, a dropped one leaves nothing, and it names a link's
+    target) and the write in place (it keeps a hard link that a save
+    splits, writes exactly the new text, refuses a missing, read-only or
+    non-regular file, and on Unix keeps the inode and the mode).
 - `codec`: RFC 8259 JSON cases, toml-test's TOML 1.1 cases, ZIP files
   produced by the `zip` command-line tool and by Android and Apple tools,
   hand-made vectors for inflate edge cases (stored, fixed and dynamic

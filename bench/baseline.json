@@ -101,6 +101,11 @@
       "median_ns": 9944,
       "p95_ns": 10381,
       "samples": 460
+    },
+    "workspace/buffers/open/100mb": {
+      "median_ns": 336475238,
+      "p95_ns": 398535194,
+      "samples": 10
     }
   },
   "version": 1

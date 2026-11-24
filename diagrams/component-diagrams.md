@@ -52,7 +52,7 @@ window (M2.2, M2.7) and file metadata (M4.10), `gfx`'s rasterizer (M2.3), `font`
 (M2.5), `gui`'s first frame (M2.6), painter (M3.5) and rendering of `ui`
 frames in its window (M3.8), and `ui`'s tree,
 layout, input routing, draw lists and accessibility tree (M3.1), its
-theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3), and `editor`'s shell (M3.4) and editor view (M4.1), have code behind their interfaces; the app's main loop opens that window and hands the tree its input (M3.8). Each arrow names the crate in
+theme (M3.2), its controls (M3.6), its collections (M3.7) and its overlays (M3.3), `editor`'s shell (M3.4) and editor view (M4.1), and `workspace`'s folders, trust and settings (M4.7) and its buffers, file tree and sessions (M4.11), have code behind their interfaces; the app's main loop opens that window and hands the tree its input (M3.8). Each arrow names the crate in
 its group that will use an interface and the task that adds that use.
 
 ### 1.1 The app, the frontends and the editor
@@ -67,7 +67,7 @@ flowchart TB
     i_editor(("EditorView (M4.1)<br/>command Registry,<br/>keymap Engine (M4.6)<br/>Editor, editing (M4.2)"))
 
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7),<br/>buffers, the file tree,<br/>sessions (M4.11)"]
 
     i_draw(("Tree, Widget,<br/>DrawList, Frame,<br/>TextMetrics (M3.1)"))
     i_theme(("Theme, Token<br/>(M3.2)"))
@@ -136,9 +136,9 @@ flowchart TB
     e_agents["Language agents<br/>TAP over stdio"]
     i_rpc(("JSON-RPC<br/>transport<br/>planned M6.1"))
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
-    i_ws(("folders, trust,<br/>settings (M4.7),<br/>buffers planned M4.11"))
+    i_ws(("folders, trust,<br/>settings (M4.7),<br/>buffers, files,<br/>session (M4.11)"))
     i_tools(("tool registry,<br/>Spawn, sessions<br/>planned M5.1, M5.2"))
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7),<br/>buffers, the file tree,<br/>sessions (M4.11)"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
     e_progs["Outside programs<br/>rust-analyzer, git,<br/>curl, SDK tools"]
 
@@ -167,7 +167,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     c_front["Frontends<br/>tidepool-gui (M2.6, M3.5)<br/>tidepool-tui<br/>planned M7.1"]
-    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7)"]
+    c_editor["Editor and workspace<br/>tidepool-editor: the shell (M3.4),<br/>the editor view (M4.1),<br/>commands, keymaps (M4.6),<br/>editing (M4.2)<br/>tidepool-workspace: folders,<br/>trust, settings (M4.7),<br/>buffers, the file tree,<br/>sessions (M4.11)"]
     c_agents["Agents<br/>tidepool-agent<br/>planned M9.3, M9.4"]
     c_lang["Languages<br/>tidepool-syntax<br/>tidepool-markdown<br/>tidepool-rpc<br/>tidepool-lang<br/>planned M6.1, M6.2,<br/>M6.5, M6.7"]
     c_tools["Toolchains<br/>tidepool-toolchain<br/>tidepool-vcs<br/>tidepool-term<br/>tidepool-mobile<br/>planned M5.1, M5.8,<br/>M8.1, M10.2"]
@@ -179,19 +179,21 @@ flowchart LR
     i_text(("Rope, Transaction,<br/>History, file,<br/>pos::grapheme"))
     i_codec(("json: parse, write<br/>toml: parse, Document<br/>qoi: decode, encode"))
     i_regex(("regex matching<br/>planned M4.8"))
+    i_os_file(("file: metadata<br/>(M4.10)"))
     i_os_watch(("watch<br/>planned M4.5"))
     i_os_proc(("process, PTY<br/>planned M5.7, M5.9"))
 
     c_fmt["Formats and text<br/>tidepool-codec: json,<br/>toml, qoi<br/>tidepool-text: rope to<br/>atomic save<br/>tidepool-regex:<br/>planned M4.8"]
-    c_os["OS layer<br/>tidepool-sys: dynlib, libc,<br/>x11, evdev, M2.1, M2.2<br/>tidepool-platform: the<br/>X11 window, events and<br/>present, M2.2"]
+    c_os["OS layer<br/>tidepool-sys: dynlib, libc,<br/>x11, evdev, M2.1, M2.2<br/>tidepool-platform: the<br/>X11 window, events and<br/>present, M2.2, file<br/>metadata, M4.10"]
     e_os["OS libraries<br/>libc and libX11,<br/>AppKit and Win32 later"]
     e_cargo["cargo"]
 
     c_front -->|"gui (M2.6)"| i_os_win
     c_front -.->|"tui:<br/>planned M7.1"| i_os_term
-    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1),<br/>edits and undo (M4.2);<br/>workspace: saving<br/>settings (M4.7)"| i_text
-    c_editor -->|"editor: keymaps (M4.6);<br/>workspace: settings,<br/>trust.toml (M4.7)"| i_codec
+    c_editor -->|"editor: the view's<br/>Rope, Selection (M4.1),<br/>edits and undo (M4.2);<br/>workspace: saving<br/>settings (M4.7), buffers'<br/>loads and saves (M4.11)"| i_text
+    c_editor -->|"editor: keymaps (M4.6);<br/>workspace: settings,<br/>trust.toml (M4.7),<br/>session files (M4.11)"| i_codec
     c_editor -.->|"editor, workspace:<br/>planned M4.4"| i_regex
+    c_editor -->|"workspace: links,<br/>owner, group before<br/>a save (M4.11)"| i_os_file
     c_editor -.->|"workspace:<br/>planned M4.5"| i_os_watch
     c_agents -.->|"agent:<br/>planned M9.3"| i_text
     c_agents -.->|"agent:<br/>planned M9.3"| i_codec
@@ -210,6 +212,7 @@ flowchart LR
     i_text --- c_fmt
     i_codec --- c_fmt
     i_regex -.- c_fmt
+    i_os_file --- c_os
     i_os_watch -.- c_os
     i_os_proc -.- c_os
     c_os -->|"sys declares,<br/>platform calls"| e_os
@@ -217,7 +220,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_xtask,c_front,c_render,c_editor,c_fmt,c_os,i_text,i_codec,i_os_win built
+    class c_xtask,c_front,c_render,c_editor,c_fmt,c_os,i_text,i_codec,i_os_win,i_os_file built
     class c_agents,c_lang,c_tools planned
     class i_os_term,i_regex,i_os_watch,i_os_proc planned
     class e_os,e_cargo external
@@ -248,6 +251,9 @@ writes references and images with `qoi::encode` (ADR-0044), and
 `json::parse_bytes` and `json::to_string_pretty` (6.5). `ui`'s `theme`
 reads a theme file with `toml::parse` within the `Limits` it is given,
 and wraps a `CodecError` in `UiError::ThemeSyntax` (M3.2, ADR-0047).
+`workspace`'s `session::parse` reads a session file with
+`toml::parse_bytes` within the session's own `Limits`, and
+`Session::to_text` writes one through `toml::Document` (M4.11).
 
 ```mermaid
 flowchart LR
@@ -260,7 +266,7 @@ flowchart LR
     c_syntax["tidepool-syntax<br/>planned M6.2"]
     c_agent["tidepool-agent<br/>planned M9.3"]
     c_editor["tidepool-editor<br/>keymaps (M4.6)<br/>planned M13.4"]
-    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)"]
+    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>session (M4.11)"]
     c_mobile["tidepool-mobile<br/>planned M10.2, M11.3"]
 
     i_jparse(("json::parse,<br/>parse_bytes"))
@@ -293,8 +299,8 @@ flowchart LR
     c_editor -->|"keymaps (M4.6)"| i_tparse
     c_editor -->|"Keymap::read takes,<br/>EditorError wraps (M4.6)"| i_limits
     c_editor -.->|"image viewer,<br/>planned M13.4"| i_png
-    c_workspace -->|"settings read and<br/>written back (M4.7)"| i_tdoc
-    c_workspace -->|"trust.toml (M4.7)"| i_tparse
+    c_workspace -->|"settings read and<br/>written back (M4.7);<br/>session files<br/>written (M4.11)"| i_tdoc
+    c_workspace -->|"trust.toml (M4.7);<br/>session files<br/>read (M4.11)"| i_tparse
     c_mobile -.->|"inspect,<br/>planned M10.2"| i_zip
     c_mobile -.->|"ExportOptions.plist,<br/>planned M11.3"| i_plist
 
@@ -331,15 +337,17 @@ diagram draws who uses its interfaces, `ui`'s fields (M3.6, ADR-0049),
 the cuts of what its M3.7 components show (ADR-0052), the matches its
 rows draw, widened to whole clusters (M3.3), the editor view, which
 shows a rope and its selection and cuts long lines at a cluster boundary
-(M4.1), and the editing commands, which move by cluster and edit every
+(M4.1), the editing commands, which move by cluster and edit every
 cursor through `change_each` and `History` (M4.2, ADR-0065), and
+`workspace`'s buffers, which hold a rope and its `History` and save in
+`file`'s two steps or write in place (M4.11, ADR-0069), and
 who will, and 2.3 how its modules use one another. Each module box names
 the task that built it.
 
 ```mermaid
 flowchart LR
     c_editor["tidepool-editor<br/>the editor view (M4.1),<br/>editing (M4.2)<br/>planned M4.4"]
-    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>planned M4.11, M4.4"]
+    c_workspace["tidepool-workspace<br/>settings, trust (M4.7)<br/>buffers, session (M4.11)<br/>planned M4.4"]
     c_syntax["tidepool-syntax<br/>planned M6.2, M13.2"]
     c_lang["tidepool-lang<br/>planned M6.7"]
     c_agent["tidepool-agent<br/>planned M9.3"]
@@ -350,14 +358,14 @@ flowchart LR
     i_graph(("pos::grapheme:<br/>is_boundary,<br/>next_boundary,<br/>prev_boundary,<br/>graphemes"))
     i_tx(("ChangeSet: apply,<br/>invert, compose, map<br/>Transaction::change_each"))
     i_hist(("History: commit,<br/>undo, redo, jump_to,<br/>checkpoint, mark_saved"))
-    i_file(("file::load,<br/>file::save"))
+    i_file(("file::load, save,<br/>prepare and commit,<br/>write_in_place"))
     i_regex(("linear-time<br/>matching<br/>planned M4.8"))
 
     c_rope["text::rope<br/>M1.1"]
     c_pos["text::pos<br/>M1.1"]
     c_tx["text::transaction<br/>M1.2"]
     c_hist["text::history<br/>M1.2"]
-    c_file["text::file<br/>M1.3"]
+    c_file["text::file<br/>M1.3, M4.11"]
     c_regex["tidepool-regex<br/>an empty library<br/>planned M4.8"]
 
     c_editor -->|"the view: text<br/>from the rope (M4.1)"| i_rope
@@ -370,9 +378,9 @@ flowchart LR
     c_syntax -.->|"re-lex new ranges,<br/>planned M6.2"| i_tx
     c_lang -.->|"didChange,<br/>planned M6.7"| i_tx
     c_editor -->|"one step a command,<br/>undo and redo (M4.2)"| i_hist
-    c_workspace -.->|"saves,<br/>planned M4.11"| i_hist
+    c_workspace -->|"buffers: checkpoint,<br/>mark_saved (M4.11)"| i_hist
     c_workspace -->|"saves settings and<br/>trust.toml (M4.7)"| i_file
-    c_workspace -.->|"buffers,<br/>planned M4.11"| i_file
+    c_workspace -->|"buffers: load, prepare,<br/>commit, write_in_place;<br/>sessions: save (M4.11)"| i_file
     c_editor -.->|"find and replace,<br/>planned M4.4"| i_regex
     c_workspace -.->|"project search,<br/>planned M4.4"| i_regex
     c_syntax -.->|"pack lexers,<br/>planned M13.2"| i_regex
@@ -405,7 +413,7 @@ holds the selection after its change, and `file` loads and saves through
 ```mermaid
 flowchart TB
     c_hist["text::history<br/>M1.2"]
-    c_file["text::file<br/>M1.3"]
+    c_file["text::file<br/>M1.3, M4.11"]
     i_tx(("ChangeSet,<br/>Transaction"))
     c_tx["text::transaction<br/>M1.2"]
     i_sel(("Selection:<br/>validate, map"))
@@ -503,7 +511,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     c_app["tidepool, the app<br/>the main loop, M3.8<br/>the settings, M3.4"]
-    c_workspace["tidepool-workspace<br/>buffers planned M4.11<br/>watch planned M4.5"]
+    c_workspace["tidepool-workspace<br/>buffers, M4.11<br/>watch planned M4.5"]
     c_toolchain["tidepool-toolchain<br/>planned M5.1, M5.2"]
     c_term["tidepool-term<br/>planned M5.4"]
 
@@ -516,8 +524,8 @@ flowchart TB
     c_platform["tidepool-platform<br/>window, events, surface<br/>built M2.2, clipboard<br/>M2.7 (3.1)<br/>paths and dirs built M2.7<br/>file built M4.10<br/>the rest planned<br/>M4.5 to M5.9"]
 
     c_app -->|"settings.toml's<br/>folder (M3.4)"| i_paths
-    c_app -.->|"trust.toml's folder,<br/>planned M4.3"| i_paths
-    c_workspace -.->|"links, owner, group<br/>before a save,<br/>planned M4.11"| i_file
+    c_app -.->|"the user data folder<br/>of trust.toml and<br/>sessions/, planned M4.3"| i_paths
+    c_workspace -->|"metadata of a save's<br/>target and temp file,<br/>before the rename (M4.11)"| i_file
     c_workspace -.->|"debounced events,<br/>planned M4.5"| i_watch
     c_toolchain -.->|"standard locations,<br/>planned M5.1"| i_paths
     c_toolchain -.->|"Spawn,<br/>planned M5.2"| i_process
@@ -531,11 +539,15 @@ flowchart TB
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_app,c_platform,i_paths,i_file built
-    class c_workspace,c_toolchain,c_term planned
+    class c_app,c_platform,c_workspace,i_paths,i_file built
+    class c_toolchain,c_term planned
     class i_watch,i_process,i_pty planned
 ```
 
+- `buffers` reads the `metadata` of the file a save would replace and of
+  the save's own temporary file, which shows the owner and group the file
+  system really gave a new file there (ADR-0069); nothing calls
+  `new_file_owner` yet.
 - Of the crates in the binary, only `toolchain`, `term`, `workspace`, `gui`,
   `tui` and the app may depend on `platform` (`tidepool-bench` may use any
   crate), so the editor's terminal panel (M5.4) reaches the PTY through
@@ -999,13 +1011,13 @@ flowchart LR
     i_framing(("rpc: JSON-RPC<br/>transport<br/>planned M6.1"))
     i_sessions(("toolchain:<br/>sessions<br/>planned M5.2"))
     i_folder(("workspace:<br/>folder, trust (M4.7)"))
-    i_buffers(("workspace:<br/>buffers<br/>planned M4.11"))
+    i_buffers(("workspace:<br/>buffers (M4.11)"))
     i_rope(("text: Rope"))
     i_tparse(("codec:<br/>toml::parse"))
 
     c_rpc["tidepool-rpc<br/>planned M6.1"]
     c_toolchain["tidepool-toolchain<br/>planned M5.2"]
-    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)<br/>buffers planned M4.11"]
+    c_workspace["tidepool-workspace<br/>folder, trust (M4.7)<br/>buffers (M4.11)"]
     c_text["tidepool-text"]
     c_codec["tidepool-codec"]
     e_agent["Language agents,<br/>separate processes<br/>tp-agent-mock, tp-agent-local,<br/>tp-agent-claude<br/>planned M9.2, M9.6"]
@@ -1022,16 +1034,16 @@ flowchart LR
     i_framing -.- c_rpc
     i_sessions -.- c_toolchain
     i_folder --- c_workspace
-    i_buffers -.- c_workspace
+    i_buffers --- c_workspace
     i_rope --- c_text
     i_tparse --- c_codec
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_text,c_codec,c_workspace,i_rope,i_tparse,i_folder built
+    class c_text,c_codec,c_workspace,i_rope,i_tparse,i_folder,i_buffers built
     class c_tap,c_host,c_context,c_predict,c_manifest planned
     class c_rpc,c_toolchain,e_agent planned
-    class i_framing,i_sessions,i_buffers planned
+    class i_framing,i_sessions planned
 ```
 
 - Every byte an agent receives is assembled by `context`; agents never get
@@ -1266,6 +1278,7 @@ flowchart TB
     c_ffz["font tests/fuzz.rs<br/>target ttf"]
     c_ufz["ui tests/fuzz.rs<br/>target theme, M3.2"]
     c_efz["editor tests/fuzz.rs<br/>target keymap, M4.6"]
+    c_wfz["workspace tests/fuzz.rs<br/>targets ignore, settings,<br/>M4.7, session, M4.11"]
     c_more["fuzz targets to come:<br/>regex, vt,<br/>rpc framing,<br/>Markdown,<br/>git's parsers,<br/>inflate, png,<br/>zip, xml<br/>planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"]
 
     i_target(("testing::fuzz:<br/>Target, Outcome,<br/>assert_clean"))
@@ -1275,6 +1288,7 @@ flowchart TB
     i_fparse(("Font::parse, outline,<br/>outline::rasterize"))
     i_uparse(("Theme::parse"))
     i_kparse(("Keymap::read,<br/>Sequence::parse,<br/>Engine"))
+    i_wparse(("IgnoreFile::parse,<br/>Settings::resolve,<br/>trust::parse,<br/>session::parse,<br/>Session::to_text"))
 
     subgraph sg_core["tidepool-core"]
         c_engine["testing::fuzz<br/>the fuzz engine,<br/>ADR-0027, M1.6"]
@@ -1286,6 +1300,7 @@ flowchart TB
     c_font["tidepool-font library"]
     c_ui["tidepool-ui library"]
     c_editorlib["tidepool-editor library"]
+    c_wslib["tidepool-workspace library"]
     f_corpus[("fuzz/corpus seeds,<br/>fuzz/crashes findings")]
 
     c_main -->|"fuzz-smoke"| i_fuzzrun
@@ -1296,6 +1311,7 @@ flowchart TB
     e_cargo -->|"runs"| c_ffz
     e_cargo -->|"runs"| c_ufz
     e_cargo -->|"runs"| c_efz
+    e_cargo -->|"runs"| c_wfz
     c_fuzz -->|"reads the<br/>fuzz-result line"| i_summary
     c_fuzz -->|"checks rows<br/>and seeds"| f_corpus
 
@@ -1304,12 +1320,14 @@ flowchart TB
     c_ffz -->|"ttf"| i_target
     c_ufz -->|"theme"| i_target
     c_efz -->|"keymap"| i_target
+    c_wfz -->|"ignore, settings,<br/>session"| i_target
     c_more -.->|"planned M4.8,<br/>M5.8, M6.1, M6.5,<br/>M8.1, M10.7,<br/>M10.2"| i_target
     c_cfz -->|"fuzzes"| i_cparse
     c_tfz -->|"fuzzes"| i_tdec
     c_ffz -->|"fuzzes"| i_fparse
     c_ufz -->|"fuzzes"| i_uparse
     c_efz -->|"fuzzes"| i_kparse
+    c_wfz -->|"fuzzes"| i_wparse
 
     i_target --- c_engine
     i_summary --- c_engine
@@ -1321,13 +1339,14 @@ flowchart TB
     i_fparse --- c_font
     i_uparse --- c_ui
     i_kparse --- c_editorlib
+    i_wparse --- c_wslib
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_ufz,c_efz,c_engine,c_rng,c_codec,c_text,c_font,c_ui,c_editorlib built
-    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse,i_uparse,i_kparse built
+    class c_main,c_fuzz,c_cfz,c_tfz,c_ffz,c_ufz,c_efz,c_wfz,c_engine,c_rng,c_codec,c_text,c_font,c_ui,c_editorlib,c_wslib built
+    class i_fuzzrun,i_target,i_summary,i_pcg,i_cparse,i_tdec,i_fparse,i_uparse,i_kparse,i_wparse built
     class c_more planned
     class e_cargo external
     class f_corpus store
@@ -1360,8 +1379,10 @@ binary uses `core`'s `cli` (M2.6), outside this view. `xtask` also uses `core`'s
 measures `text`'s library with inputs drawn from `Pcg32`, and `font`'s
 atlas filling with the bundled Saira (M2.5), and the repaint of `ui`'s
 command palette, its text measured with `gui`'s `FontMetrics` (M3.3,
-outside this view), and keeps its baseline with `codec`'s JSON and
-`text`'s atomic save.
+outside this view), and the opening of a 100 MB file through
+`workspace`'s `Buffers`, a load job run and its result taken, as a worker
+and the main loop open one (M4.11), and keeps its baseline with
+`codec`'s JSON and `text`'s atomic save.
 
 ```mermaid
 flowchart TB
@@ -1371,7 +1392,7 @@ flowchart TB
     c_ftests["font tests<br/>bundled.rs"]
     c_utests["ui tests<br/>layout.rs, a11y.rs,<br/>theme.rs, widgets.rs,<br/>collections.rs,<br/>components.rs,<br/>settling.rs,<br/>overlays.rs, popups.rs"]
     c_guitests["gui tests<br/>paint.rs, M3.5"]
-    c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, the binary"]
+    c_bench["tidepool-bench<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, suites::editor,<br/>suites::workspace,<br/>the binary"]
 
     i_check(("testing: check,<br/>check_sized"))
     i_pcg(("rng: Pcg32"))
@@ -1381,6 +1402,7 @@ flowchart TB
     i_save(("file::save"))
     i_sha(("hash: fnv1a64"))
     i_fill(("bundled::load,<br/>Atlas::glyph"))
+    i_open(("Buffers::open,<br/>LoadJob::run,<br/>finish_load"))
 
     subgraph sg_core["tidepool-core"]
         c_testing["testing<br/>the property harness, M0.2"]
@@ -1390,6 +1412,7 @@ flowchart TB
     c_codec["tidepool-codec library"]
     c_text["tidepool-text library"]
     c_font6["tidepool-font library"]
+    c_ws6["tidepool-workspace library"]
 
     c_testkit["tidepool-testkit<br/>an empty library<br/>planned M5.1, M6.1"]
     i_fakes(("fake tools,<br/>fake LSP server<br/>planned M5.1, M6.1"))
@@ -1409,6 +1432,7 @@ flowchart TB
     c_guitests --> i_pcg
     c_bench -->|"the text suites"| i_tall
     c_bench -->|"the font suite"| i_fill
+    c_bench -->|"the workspace<br/>suite (M4.11)"| i_open
     c_bench -->|"inputs"| i_pcg
     c_bench -->|"baseline.json"| i_bjson
     c_bench -->|"writes the<br/>baseline"| i_save
@@ -1422,12 +1446,13 @@ flowchart TB
     i_tall --- c_text
     i_save --- c_text
     i_fill --- c_font6
+    i_open --- c_ws6
     i_fakes -.- c_testkit
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class c_ctests,c_ttests,c_gtests,c_ftests,c_utests,c_guitests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text,c_font6 built
-    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha,i_fill built
+    class c_ctests,c_ttests,c_gtests,c_ftests,c_utests,c_guitests,c_bench,c_testing,c_rng,c_hash,c_codec,c_text,c_font6,c_ws6 built
+    class i_check,i_pcg,i_cparse,i_tall,i_bjson,i_save,i_sha,i_fill,i_open built
     class c_testkit,i_fakes planned
 ```
 
@@ -1447,7 +1472,7 @@ Docs:
 - `docs/roadmap.md`: every task ID drawn; `docs/decisions.md`: ADR-0002,
   ADR-0010, ADR-0017, ADR-0027, ADR-0028, ADR-0029, ADR-0035, ADR-0044,
   ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0052, ADR-0053, ADR-0054,
-  ADR-0055, ADR-0056.
+  ADR-0055, ADR-0056, ADR-0068, ADR-0069.
 - `AGENTS.md` (workspace map) and each member's `README.md` (`## Status`).
 
 Code:
@@ -1470,6 +1495,8 @@ Code:
   `widgets.rs` and `widgets/`;
   `themes/tidepool-dark.toml`; `crates/gui/src/first_frame.rs`,
   `paint.rs`, `metrics.rs`, `icon.rs`.
+- `crates/workspace/src/`: `lib.rs`, `buffers.rs`, `files.rs`,
+  `session.rs`; `crates/platform/src/file.rs`.
 - Tests: `crates/codec/tests/fuzz.rs`, `json.rs`, `toml.rs`, `qoi.rs`;
   `crates/text/tests/fuzz.rs`, `model.rs`, `positions.rs`, `edits.rs`;
   `crates/gfx/tests/golden.rs`; `crates/font/tests/golden.rs`;
@@ -1477,11 +1504,11 @@ Code:
   `collections.rs`, `components.rs`, `settling.rs`, `overlays.rs`,
   `popups.rs`;
   `crates/gui/tests/golden.rs`, `controls/mod.rs`, `components/mod.rs`,
-  `overlays/mod.rs`, `paint.rs`.
+  `overlays/mod.rs`, `paint.rs`; `crates/workspace/tests/fuzz.rs`.
 - `xtask/src/`: `main.rs`, `check.rs`, `cargo.rs`, `metadata.rs`,
   `matrix.rs`, `deps.rs`, `layers.rs`, `crates.rs`, `unsafe_audit.rs`,
   `headers.rs`, `workflows.rs`, `ucd.rs`, `fuzz.rs`, `bench.rs`,
   `golden.rs`, `theme.rs`.
 - `bench/src/`: `lib.rs`, `main.rs`, `harness.rs`, `baseline.rs`,
   `cli.rs`, `suites.rs`, `suites/text.rs`, `suites/font.rs`,
-  `suites/ui.rs`.
+  `suites/ui.rs`, `suites/workspace.rs`.

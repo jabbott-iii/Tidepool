@@ -7,12 +7,12 @@ It is part of [Tidepool](https://github.com/jabbott-iii/Tidepool)'s
 development tooling: `cargo xtask bench` builds its binary in the release
 profile and runs its suites, which may measure any crate of the workspace
 (ADR-0035). Today they measure `tidepool-text`, `tidepool-font`,
-`tidepool-ui`, and `tidepool-editor`.
+`tidepool-ui`, `tidepool-editor`, and `tidepool-workspace`.
 
 Layer 6, tools (dev-only). It may use any workspace crate, as its row of the
 dependency matrix in [`docs/01-architecture.md`](../docs/01-architecture.md)
-says; it uses `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, and
-`editor`. `gui`'s `FontMetrics` measures `ui`'s text as the window does,
+says; it uses `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`,
+`editor`, and `workspace`. `gui`'s `FontMetrics` measures `ui`'s text as the window does,
 and its painter paints the editor view's frames into `gfx`'s
 framebuffers.
 
@@ -89,6 +89,13 @@ Built, with the roadmap task that built it:
   shrank, by no more than the window a motion reads. The tests run them
   on one copy of the file and on lines a thousandth as long, never on
   100 MB. Not yet recorded in the baseline — M4.2 (ADR-0065).
+- `suites::workspace`, `workspace/buffers/open/100mb`: a file of at least
+  100 MB of short lines, written once in a folder made anew in the
+  system's temporary folder, opened into a new `Buffers` each iteration
+  as a worker and the main loop open one (the load job run, then
+  `finish_load`), read-only as a large file, against the open budget of
+  1 s. Recorded in the baseline on the reference machine, median about
+  336 ms — M4.11 (ADR-0068).
 
 Not yet, with the roadmap task that adds it:
 

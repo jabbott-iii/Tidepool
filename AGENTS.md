@@ -164,7 +164,23 @@ nothing else yet: no folder or file opens (M2.6, M3.8, M3.4).
   folder's group when it has the setgid bit, else the effective group),
   with `geteuid` and `getegid` declared in `tidepool-sys`, which a save
   is to check before it splits a hard link or changes an owner (M4.10,
-  ADR-0068).
+  ADR-0068); and in `tidepool-workspace` buffers, the file tree and
+  sessions: `buffers`, open buffers keyed by canonical path, each a rope
+  and its `History`, loaded and saved by jobs a worker runs, each result
+  carrying its buffer and version so a stale one is dropped, a file past
+  16 MiB read-only until made editable, and a save that writes its
+  temporary file, compares it and the file it would replace through
+  `platform::file`, and asks before a rename that would split a hard link
+  or change the owner or group (write in place, save as a new file, or
+  cancel), through `text::file`'s save in two steps, `prepare` and
+  `PreparedSave::commit`, and its `write_in_place` (ADR-0069); `files`, a
+  folder's tree read a folder at a time by jobs, at most 10,000 entries
+  each, with its ignore state, a link shown and never followed; and
+  `session`, the editors, splits, selections and scroll of a folder, one
+  TOML file a folder in the user data folder's `sessions/`, named from
+  the folder's canonical path, which it holds and loading checks, read
+  within limits, with the fuzz target `session`; and a `tidepool-bench`
+  suite opening a 100 MB file into a buffer (M4.11, ADR-0068).
 - **Not built:** everything else. 12 of the 26 workspace members are empty
   crates with a doc comment. Each crate's `README.md` says what it has and
   which tasks add the rest.

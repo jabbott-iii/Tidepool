@@ -152,7 +152,8 @@ The design is ADR-0027's; the engine's rustdoc
   `fuzz/corpus/<target>/` is missing or holds no regular file that is not
   hidden. `fuzz/NOTICE.md` says where a saved input may come from.
 - **Targets now** (M1.6, `qoi` from M2.4, `ttf` from M2.8, `theme`
-  from M3.2, `keymap` from M4.6, and `ignore` and `settings` from M4.7). The
+  from M3.2, `keymap` from M4.6, `ignore` and `settings` from M4.7, and
+  `session` from M4.11). The
   parsers run with small `Limits` (4 KiB of input, depth 32, strings of
   1 KiB, numbers of 64 bytes, 256 entries, images of 64 px a side and
   4 KiB of pixels; for `ttf`, 4 KiB of file, 256 points a glyph, 4 levels
@@ -163,7 +164,10 @@ The design is ADR-0027's; the engine's rustdoc
   bindings and 8 modes a layer and 8 steps a binding; for `ignore`,
   16 KiB, 64 patterns and 256 bytes a pattern; `settings` reads with the
   settings' own limits, 1 MiB and `codec`'s defaults, which the inputs
-  never reach), and
+  never reach; `session` reads with the session file's own, 1 MiB, depth
+  64, strings of 4,096 bytes, numbers of 64 bytes and 1,024 entries, and
+  its structural limits, splits 8 deep, 16 panes a split, 64 groups,
+  1,024 editors and 1,024 cursors an editor), and
   their corpora hold `edge-*` seeds that sit exactly at each limit, so
   that one mutation crosses it; the decoder of `text::encoding` takes no
   `Limits`. Each has a 16 MiB written-memory cap.
@@ -179,6 +183,7 @@ The design is ADR-0027's; the engine's rustdoc
   | `keymap` | `editor` | `keymap::Keymap::read` of the input, or of its lossy decoding, as a keymap file; its `keymap` table, if it has one, parsed with `codec`'s default limits as the binary parses `settings.toml`, as the user's layer over the default keymap; `keymap::Sequence::parse` of each of its first 64 lines; and a `keymap::Engine` over each keymap read, given up to 256 presses that the input's bytes choose, three bytes each: any key with any modifiers, or a whole binding's steps or one step of the keymap's own, so that chords finish and modes change | a keymap that reads starts in one of its modes, whose names are mode names, each once; each mode's bindings are sorted, none starting another's, of 1 to 8 steps, naming a registered command or an engine command of a mode it has, their keys reading back as shown, within the limits for two layers; every problem is of its kind, and each layer gives at most `max_modes + 1` about its modes and `2 × max_bindings + 1` about its bindings, however many entries its tables have; reading again gives the same keymap; the engine's stack holds 1 to 32 modes of the keymap and fewer than 8 steps pending, and it resolves only to registered commands with the key's repeat flag; keys that read show in a form that reads back the same, twice, and keys that do not give an offset at a character boundary; no message shows unescaped what `xtask` escapes; nothing but those and `codec`'s errors is returned | `keymaps/` (ADR-0064) |
   | `ignore` | `workspace` | `folder::IgnoreFile::parse` of the input; for a file that parses, `folder::Ignore::is_ignored` of each of the input's first 32 lines as a path, as a file and as a folder, with the file as the root's `.gitignore` and as a `.tidepoolignore`; and the input's first line as a pattern against its other lines, with a port of Git's `wildmatch` | a file that parses has at most the limit's patterns, and a refusal is one of the three limits', naming a line the input has; `is_ignored` is exactly "a name is `.git`, or a folder above the path or the path itself is matched to be ignored", the same twice and the same for both kinds of file; the matcher agrees with `wildmatch` wherever the pattern and the path are small enough for backtracking (40 and 64 bytes, at most 6 `*`); no message shows unescaped what `xtask` escapes | — |
   | `settings` | `workspace` | `settings::SettingsFile::from_bytes` of the input as a user's file, `settings::Settings::resolve` of it alone, under the same bytes as a trusted folder's (one in the system's temporary folder, trusted once a run), and as a workspace's file no trusted folder gave, `SettingsFile::set` of each of five scalars to a value a hash of the input picks, and `trust::parse` of the input | every setting holds a value of its kind, in its range and among its choices, from the default or a layer given, the same when resolved again; the untrusted workspace's file gives only the defaults and one warning; the warnings are at most one for the file and two a setting; an edit either fails as `Edit` and leaves the file as it was, or gives settings holding the value from the user's layer, with every other setting as it was; a trust file gives at most 4,096 grants, sorted, each once, absolute and spelled as its names join; no message shows unescaped what `xtask` escapes | — |
+  | `session` | `workspace` | `session::parse` of the input; for a session that parses, `Session::to_text`, `session::parse` of that text, and `Session::to_text` again | a session that parses keeps every limit (splits at most 8 deep of 2 to 16 panes with finite weights above 0; at most 64 groups and 1,024 editors; each group's `active` one of its editors, or 0 for none, and `active_group` a group; each editor's path absolute, with 1 to 1,024 cursors and finite scroll offsets from 0); it writes to a text that reads as the same session, and writes that again to the same text; a refusal is `TooLarge`, `Toml`, `Version` or `BadSessionFile`, and no message shows unescaped what `xtask` escapes | — |
 
   Later: XML, plist, YAML, CSV, INI, DEFLATE, ZIP, PNG, Markdown, regex
   compile, VT parser, JSON-RPC framing, LSP messages, TAP messages, git
@@ -415,7 +420,10 @@ The design is ADR-0027's; the engine's rustdoc
   a rope of its own, so that the keystroke frees the leaves it replaced,
   and seven keystrokes (a cluster and a word either way, a deletion,
   Down and typing) on each of M1.1's crafted 100 MB lines (M4.2,
-  ADR-0065). The `editor` suites' rustdoc describes the files. Highlighting a 10k-line file, project search, and
+  ADR-0065); and opening a 100 MB file of short lines into a buffer, as a
+  worker and the main loop do, against the open budget of 1 s
+  (`workspace/buffers/open/100mb`, M4.11). The `editor` and `workspace`
+  suites' rustdoc describes the files. Highlighting a 10k-line file, project search, and
   startup come with their tasks, which record them with `--save` on the
   reference machine (ADR-0035).
 - A change that slows a suite by more than 10% against the baseline must

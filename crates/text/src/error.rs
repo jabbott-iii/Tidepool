@@ -182,6 +182,11 @@ fn step_name(step: FileStep) -> &'static str {
         FileStep::Sync => "sync the temporary file",
         FileStep::Rename => "rename the temporary file over the file",
         FileStep::SyncDirectory => "sync the directory (the file already holds the new text)",
+        FileStep::WriteInPlace => "write the text over the file (it may hold a mix of both texts)",
+        FileStep::SetLength => {
+            "cut the file to the new text's length (the old text's end may follow it)"
+        }
+        FileStep::SyncInPlace => "sync the file (it already holds the new text)",
     }
 }
 
@@ -417,6 +422,19 @@ mod tests {
             (
                 FileStep::SyncDirectory,
                 "could not sync the directory (the file already holds the new text)",
+            ),
+            (
+                FileStep::WriteInPlace,
+                "could not write the text over the file (it may hold a mix of both texts)",
+            ),
+            (
+                FileStep::SetLength,
+                "could not cut the file to the new text's length (the old text's end may \
+                 follow it)",
+            ),
+            (
+                FileStep::SyncInPlace,
+                "could not sync the file (it already holds the new text)",
             ),
         ];
         for (step, message) in steps {

@@ -617,7 +617,7 @@ mod tests {
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--target", "yaml"]),
-            "unknown fuzz target `yaml`; the targets are: json, toml, qoi, encoding, ttf, theme, keymap, ignore, settings"
+            "unknown fuzz target `yaml`; the targets are: json, toml, qoi, encoding, ttf, theme, keymap, ignore, settings, session"
         );
         assert_eq!(
             usage_error(&["fuzz-smoke", "--secs", "soon"]),

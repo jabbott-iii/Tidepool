@@ -9,8 +9,9 @@ publish = false
 # workspace crate: `core` parses the command line and makes the inputs,
 # `codec` reads and writes the baseline, `text`, `font`, `ui` and `editor`
 # are what the suites measure, `gui` measures `ui`'s text as the window
-# does and paints the editor view's frames into `gfx`'s framebuffers, and
-# `text` saves the baseline atomically.
+# does and paints the editor view's frames into `gfx`'s framebuffers,
+# `workspace` opens the 100 MB file of its suite, and `text` saves the
+# baseline atomically.
 [dependencies]
 tidepool-core = { path = "../crates/core" }
 tidepool-codec = { path = "../crates/codec" }
@@ -20,6 +21,7 @@ tidepool-gfx = { path = "../crates/gfx" }
 tidepool-ui = { path = "../crates/ui" }
 tidepool-gui = { path = "../crates/gui" }
 tidepool-editor = { path = "../crates/editor" }
+tidepool-workspace = { path = "../crates/workspace" }
 
 [lints]
 workspace = true

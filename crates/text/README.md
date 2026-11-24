@@ -45,6 +45,12 @@ Built, with the roadmap task that built it:
   `std` does, keep the promises about replaced runs, give back the input,
   and encode it back when nothing was replaced; seeded from
   `fuzz/corpus/encoding/` — M1.6.
+- In `file`, the atomic save in two steps, `prepare` (the temporary file
+  written and synced beside the target, which it names, and kept private)
+  and `PreparedSave::commit` (the target's permissions, then the rename),
+  so that a caller can compare the two files first, and `write_in_place`, which writes over a file and
+  keeps its links, owner, group and attributes but is not atomic — M4.11
+  (ADR-0069).
 
 All of the crate's planned modules exist.
 
@@ -172,7 +178,9 @@ output Tidepool's demo page shows: positions, graphemes, undo and the save.
   (saving: links followed, the temporary file's mode, what a rename
   changes); ADR-0027 (the fuzz target, in `tests/fuzz.rs`); ADR-0034 (a
   relative link is followed from its own directory as Windows reaches it;
-  Unix keeps the lexical join).
+  Unix keeps the lexical join); ADR-0069 (the save in two public steps, so
+  that `workspace::buffers` compares the temporary file with the file
+  before the rename, and the write in place).
 - [`docs/04-quality.md`](../../docs/04-quality.md) ("Fuzz smoke"): what the
   target runs and checks.
 - API reference: `cargo doc -p tidepool-text --open`

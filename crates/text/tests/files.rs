@@ -15,10 +15,12 @@
 //! Loading and saving real files through the public API: unchanged files
 //! round-trip byte for byte (BOMs, UTF-16, every line ending, no trailing
 //! newline), a file that is not valid UTF-8 is never written back, refused
-//! saves change nothing, and the large-file threshold. On Unix, also modes
-//! and symbolic links (ADR-0025); on Unix and Windows, a relative link
-//! behind a link to a directory, and a link target with a root or a drive
-//! alone (ADR-0034).
+//! saves change nothing, and the large-file threshold. A save in two steps
+//! and a write in place (ADR-0069): what each step leaves, and that a write
+//! in place keeps a hard link that a save splits. On Unix, also modes and
+//! symbolic links (ADR-0025), and that a write in place keeps the file and
+//! its mode; on Unix and Windows, a relative link behind a link to a
+//! directory, and a link target with a root or a drive alone (ADR-0034).
 //!
 //! Each test has its own scratch directory under `target/tmp`, removed when
 //! it passes.
@@ -896,5 +898,241 @@ mod unix {
         let reference = dir.join("reference.txt");
         write(&reference, b"x");
         assert_eq!(mode(&path), mode(&reference));
+    }
+}
+
+/// ADR-0069: `prepare` writes the temporary file beside the target and
+/// leaves the target alone; `commit` renames it over the target.
+#[test]
+fn a_prepared_save_writes_the_temp_file_then_commits() {
+    let dir = scratch_dir("prepare");
+    let path = dir.join("notes.txt");
+    write(&path, b"old");
+
+    let prepared = file::prepare(&path, &Rope::from("new"), Format::UTF8).expect("prepare");
+    assert!(prepared.replaces());
+    assert_eq!(prepared.target(), path);
+    assert_eq!(prepared.temp_path().parent(), Some(&*dir));
+    let name = prepared.temp_path().file_name().expect("a name");
+    assert!(name.to_string_lossy().starts_with(TEMP_PREFIX), "{name:?}");
+    assert_eq!(read(prepared.temp_path()), b"new");
+    assert_eq!(read(&path), b"old", "the target waits for the commit");
+    let debug = format!("{prepared:?}");
+    assert!(
+        debug.contains("notes.txt") && !debug.contains("new\""),
+        "{debug}"
+    );
+
+    prepared.commit().expect("commit");
+    assert_eq!(read(&path), b"new");
+    assert_eq!(names(&dir), ["notes.txt"]);
+}
+
+/// ADR-0069: dropping a prepared save removes its temporary file and
+/// leaves the target as it was.
+#[test]
+fn a_dropped_prepared_save_changes_nothing() {
+    let dir = scratch_dir("prepare-drop");
+    let path = dir.join("notes.txt");
+    write(&path, b"old");
+    let prepared = file::prepare(&path, &Rope::from("new"), Format::UTF8).expect("prepare");
+    let temp = prepared.temp_path().to_path_buf();
+    assert!(temp.exists());
+    drop(prepared);
+    assert!(!temp.exists());
+    assert_eq!(read(&path), b"old");
+    assert_eq!(names(&dir), ["notes.txt"]);
+}
+
+/// A prepared save of a missing file replaces nothing, and its commit
+/// creates the file.
+#[test]
+fn a_prepared_save_of_a_new_file_replaces_nothing() {
+    let dir = scratch_dir("prepare-new");
+    let path = dir.join("new.txt");
+    let prepared = file::prepare(&path, &Rope::from("made"), Format::UTF8).expect("prepare");
+    assert!(!prepared.replaces());
+    assert_eq!(prepared.target(), path);
+    prepared.commit().expect("commit");
+    assert_eq!(read(&path), b"made");
+}
+
+/// A prepared save reports the file its links lead to, so that a caller
+/// looks at the file the rename replaces.
+#[test]
+fn a_prepared_save_names_the_target_of_a_link() {
+    let dir = scratch_dir("prepare-link");
+    let target = dir.join("target.txt");
+    let link = dir.join("link.txt");
+    write(&target, b"old");
+    if let Err(error) = file_link(Path::new("target.txt"), &link) {
+        skipped(
+            "a_prepared_save_names_the_target_of_a_link",
+            &format!("cannot make a symbolic link here: {error}"),
+        );
+        return;
+    }
+    let prepared = file::prepare(&link, &Rope::from("new"), Format::UTF8).expect("prepare");
+    assert_eq!(prepared.target(), dir.join("target.txt"));
+    assert_eq!(prepared.temp_path().parent(), Some(&*dir));
+    prepared.commit().expect("commit");
+    assert!(is_link(&link));
+    assert_eq!(read(&target), b"new");
+}
+
+/// ADR-0069: a write in place keeps a hard link, which a save splits.
+#[test]
+fn a_write_in_place_keeps_a_hard_link_that_a_save_splits() {
+    let dir = scratch_dir("in-place-hard-link");
+    let path = dir.join("one.txt");
+    let other = dir.join("two.txt");
+    write(&path, b"old text");
+    fs::hard_link(&path, &other).expect("a second name");
+
+    file::write_in_place(&path, &Rope::from("in place"), Format::UTF8).expect("in place");
+    assert_eq!(read(&path), b"in place");
+    assert_eq!(read(&other), b"in place", "both names are one file");
+    assert!(!has_temp(&dir));
+
+    file::save(&path, &Rope::from("saved"), Format::UTF8).expect("save");
+    assert_eq!(read(&path), b"saved");
+    assert_eq!(read(&other), b"in place", "the rename split the link");
+}
+
+/// A write in place cuts a file to a shorter text, grows it for a longer
+/// one, and writes the format's bytes.
+#[test]
+fn a_write_in_place_leaves_exactly_the_new_text() {
+    let dir = scratch_dir("in-place-lengths");
+    let path = dir.join("notes.txt");
+    write(&path, b"a much longer old text\r\n");
+    file::write_in_place(&path, &Rope::from("short"), Format::UTF8).expect("shorter");
+    assert_eq!(read(&path), b"short");
+    let long = "x".repeat(200_000);
+    file::write_in_place(&path, &Rope::from(long.as_str()), Format::UTF8).expect("longer");
+    assert_eq!(read(&path), long.as_bytes());
+    let bom = Format::new(Encoding::Utf8, true);
+    file::write_in_place(&path, &Rope::from("é"), bom).expect("a BOM");
+    assert_eq!(read(&path), "\u{feff}é".as_bytes());
+    file::write_in_place(&path, &Rope::from(""), Format::UTF8).expect("empty");
+    assert_eq!(read(&path), b"");
+    assert_eq!(names(&dir), ["notes.txt"]);
+}
+
+/// A write in place never creates a file, and refuses a directory.
+#[test]
+fn a_write_in_place_needs_an_existing_regular_file() {
+    let dir = scratch_dir("in-place-refused");
+    let missing = dir.join("missing.txt");
+    let error = file::write_in_place(&missing, &Rope::from("x"), Format::UTF8)
+        .expect_err("nothing to write over");
+    assert!(
+        matches!(&error, TextError::Io { step: FileStep::Metadata, error }
+            if error.kind() == io::ErrorKind::NotFound),
+        "{error:?}"
+    );
+    assert!(!missing.exists());
+    fs::create_dir(dir.join("sub")).expect("mkdir");
+    let error = file::write_in_place(dir.join("sub"), &Rope::from("x"), Format::UTF8)
+        .expect_err("a directory");
+    assert!(
+        matches!(error, TextError::NotRegularFile { directory: true }),
+        "{error:?}"
+    );
+    assert_eq!(names(&dir), ["sub"]);
+}
+
+/// A write in place refuses a read-only file, as a save does, and leaves
+/// it as it was.
+#[test]
+fn a_write_in_place_refuses_a_read_only_file() {
+    let dir = scratch_dir("in-place-read-only");
+    let path = dir.join("locked.txt");
+    write(&path, b"keep me");
+    let original = fs::metadata(&path).expect("stat").permissions();
+    let mut read_only = original.clone();
+    read_only.set_readonly(true);
+    fs::set_permissions(&path, read_only).expect("make it read-only");
+    let writable_anyway = fs::OpenOptions::new().write(true).open(&path).is_ok();
+
+    let result = file::write_in_place(&path, &Rope::from("changed"), Format::UTF8);
+
+    let after = read(&path);
+    fs::set_permissions(&path, original).expect("restore the permissions");
+    if writable_anyway {
+        skipped(
+            "a_write_in_place_refuses_a_read_only_file",
+            "this user can write read-only files",
+        );
+        return;
+    }
+    let error = result.expect_err("a read-only file is not written");
+    assert!(matches!(error, TextError::NotWritable { .. }), "{error:?}");
+    assert_eq!(after, b"keep me");
+}
+
+/// A write in place follows links as a save does, and keeps them links
+/// (ADR-0025): the file the link names holds the text, and keeps its inode
+/// and its mode, where a save makes a new file.
+#[cfg(unix)]
+mod in_place_unix {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+
+    use super::*;
+
+    #[test]
+    fn a_write_in_place_keeps_the_file_and_its_mode() {
+        let dir = scratch_dir("in-place-unix");
+        let target = dir.join("target.txt");
+        let link = dir.join("link.txt");
+        write(&target, b"old\n");
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).expect("chmod");
+        symlink("target.txt", &link).expect("link");
+        let inode = fs::metadata(&target).expect("stat").ino();
+
+        file::write_in_place(&link, &Rope::from("new\n"), Format::UTF8).expect("in place");
+
+        let after = fs::metadata(&target).expect("stat");
+        assert_eq!(after.ino(), inode, "the same file");
+        assert_eq!(after.permissions().mode() & 0o7777, 0o640);
+        assert!(is_link(&link));
+        assert_eq!(read(&target), b"new\n");
+
+        file::save(&link, &Rope::from("saved\n"), Format::UTF8).expect("save");
+        assert_ne!(
+            fs::metadata(&target).expect("stat").ino(),
+            inode,
+            "a new file"
+        );
+        assert!(is_link(&link));
+        assert_eq!(names(&dir), ["link.txt", "target.txt"]);
+    }
+
+    /// M4.11's security review: a prepared save's temporary file stays
+    /// 0600 while its caller looks at it, since its group can be one the
+    /// target's mode was never meant for; the commit gives it the
+    /// target's mode, without setuid and setgid.
+    #[test]
+    fn a_prepared_save_stays_private_until_its_commit() {
+        let dir = scratch_dir("prepare-private");
+        let path = dir.join("shared.txt");
+        let mode = |path: &Path| fs::metadata(path).expect("stat").permissions().mode() & 0o7777;
+        for (before, after) in [(0o640, 0o640), (0o664, 0o664), (0o2755, 0o755)] {
+            write(&path, b"old");
+            fs::set_permissions(&path, fs::Permissions::from_mode(before)).expect("chmod");
+            let prepared = file::prepare(&path, &Rope::from("new"), Format::UTF8).expect("prepare");
+            assert_eq!(mode(prepared.temp_path()), 0o600, "{before:o}");
+            prepared.commit().expect("commit");
+            assert_eq!(mode(&path), after, "{before:o}");
+            assert_eq!(read(&path), b"new");
+        }
+        // A new file's temporary file has the default mode from the start.
+        let new = dir.join("new.txt");
+        let prepared = file::prepare(&new, &Rope::from("x"), Format::UTF8).expect("prepare");
+        let reference = dir.join("reference.txt");
+        write(&reference, b"x");
+        assert_eq!(mode(prepared.temp_path()), mode(&reference));
+        prepared.commit().expect("commit");
+        assert_eq!(names(&dir), ["new.txt", "reference.txt", "shared.txt"]);
     }
 }

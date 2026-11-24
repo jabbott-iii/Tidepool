@@ -11,10 +11,10 @@ knows which frontend is drawing. `workspace` is the project model under it.
 | `folder` | Workspace roots, `.tidepool/` directory, `.tidepoolignore` and `.gitignore` matching |
 | `trust` | Trust state per folder (ADR-0014), stored in user data |
 | `settings` | Defaults → user `settings.toml` → workspace `.tidepool/settings.toml`; unknown keys preserved; invalid values fall back with a warning |
-| `files` | File tree model, fuzzy file finder index |
+| `files` | File tree model, fuzzy file finder index (M4.4) |
 | `watch` | Debounced file events from `platform`, with a polling fallback |
 | `search` | Project search on workers with `tidepool-regex`; streaming results |
-| `buffers` | Open buffers keyed by canonical path; external-change detection and reload/merge prompts |
+| `buffers` | Open buffers keyed by canonical path, loaded and saved on workers; external-change detection and reload/merge prompts (M4.5) |
 | `session` | Open editors, layout, cursors; restored on start |
 
 What is built (M4.7, ADR-0067): `folder`, `trust` and `settings`. Their
@@ -69,6 +69,52 @@ The binary reads its panel settings and `[keymap]` through `settings`
 settings and gives the keymap a trusted folder's `[keymap]` layer; M4.5
 reloads settings when the file changes.
 
+Also built (M4.11, ADR-0068, ADR-0069): `buffers`, the file tree model of
+`files`, and `session`. Their rustdoc is authoritative; in short:
+
+- **Work goes to workers as jobs.** `Buffers` and `FileTree` never touch
+  the file system. They hand out jobs (`LoadJob`, `SaveJob`,
+  `ReadDirJob`), plain values a worker thread runs, and take back what
+  each did. A result carries the buffer and its version, or the folder
+  and its read, so a stale one is dropped: a save for a buffer since
+  closed, or a folder's read that a later read replaced. Who runs the
+  jobs, and the channel back to the main loop, is M4.3's binary.
+- **A buffer is one file,** keyed by its canonical path, so two spellings
+  of a path or a link and its target open one buffer. It holds a rope and
+  the `History` every edit goes through; each `Buffer::edit` raises its
+  version. A file of more than 16 MiB loads whole, on a worker, and opens
+  read-only until `make_editable`; a file with bytes that are not text
+  stays read-only, since saving would lose them.
+- **A save asks before it changes a file's identity.** A save writes a
+  temporary file beside the file (`text::file::prepare`), then reads the
+  file it would replace (after its links) and the temporary file through
+  `platform::file::metadata`. When the file has more than one name (a
+  hard link), or the temporary file's owner or group differ from the
+  file's, or either cannot be read or is the overflow id 65534, it
+  removes the temporary file, changes nothing, and returns a
+  `SaveQuestion`. The answer is a save in `SaveMode::InPlace`, which
+  writes over the file and keeps its identity but is not atomic, or
+  `SaveMode::NewFile`, the atomic save; doing nothing cancels. The
+  temporary file stays private (0600 on Unix) until the rename, so no one
+  reads the new text while the save looks, and a file that appeared at a
+  new file's path while the save wrote is asked about, not replaced. Saves
+  of a buffer are serialized through `History::checkpoint` and
+  `mark_saved`.
+  On systems whose metadata `platform` cannot read yet (macOS until
+  M11.8, Windows until M12.2), every save over a file asks.
+- **The file tree reads a folder at a time,** when it is opened, at most
+  10,000 entries, folders first, each with its kind and its ignore state
+  from the ignore files above it. Ignored entries are kept and marked,
+  for the explorer to show or hide (M4.3). A symbolic link shows as a
+  link and is never followed.
+- **A session** is one TOML file a folder in `sessions/` in the user data
+  folder, named by the SHA-256 of the folder's canonical path, which it
+  also holds and loading checks. It keeps a tree of splits (side by side
+  or stacked, at most 8 deep, 16 panes a split) whose leaves are groups
+  of editors (64 groups and 1,024 editors at most), each editor's path,
+  cursors (1,024 at most), primary cursor and scroll. It is read as
+  untrusted input, within its limits, never panicking.
+
 ## `tidepool-editor`
 
 ### Editor view
@@ -78,7 +124,7 @@ reloads settings when the file changes.
   indent guides, inlay hints, ghost text, minimap (later).
 - Multi-cursor and rectangular selection.
 - Large-file mode above 16 MB: read-only by default, no highlighting or
-  LSP, chunked loading.
+  LSP; the file loads whole, on a worker (ADR-0068).
 - Images (PNG) and binary files (hex view) open in viewers instead (M13.4).
 
 What is built (M4.1, ADR-0063): `editor::view::EditorView` shows a
@@ -381,5 +427,26 @@ tree, and the `tidepool` binary shows it in `gui`'s window. The rustdoc of
   rules and compare the matcher with a port of Git's `wildmatch`, and
   resolve, edit and read settings and trust files
   (`docs/04-quality.md` → "Fuzz smoke").
-- Session restore round-trips.
+- Buffers, the file tree and sessions, headless
+  (`crates/workspace/tests/`, M4.11): `buffers.rs` opens, edits and saves
+  files byte for byte with the jobs on other threads, one buffer a file
+  however it is spelled, a large file read-only until made editable and a
+  file that is not text read-only for good, a file with a second hard link
+  stopping the save and each answer doing what it says, an ordinary file
+  saving without a question where `platform` can tell, serialized saves,
+  stale results and failures; a unit test makes the temporary file read
+  as another group, as a setgid folder would, and checks that the save
+  asks and each answer works. `files.rs` reads a tree with its ignore
+  files, opens and closes folders, drops a stale read, reports a folder
+  that cannot be read and an ignore file that cannot be used, refuses
+  paths out of the tree, and shows a link without following it.
+  `session.rs` round-trips a session through the user data folder,
+  refuses another folder's, the documented example reads, files that are
+  not sessions are refused, a session past a limit is not written, and a
+  selection is restored only where it fits the file. The fuzz target
+  `session` (`crates/workspace/tests/fuzz.rs`) reads any bytes as a
+  session file (`docs/04-quality.md` → "Fuzz smoke").
+- The open budget (M4.11): `tidepool-bench`'s `workspace/buffers/open/100mb`
+  opens a 100 MB file as a worker and the main loop would
+  (`docs/04-quality.md` → "Benchmarks").
 - Responsiveness suite with slow fakes (`docs/04-quality.md`).

@@ -9,8 +9,12 @@ publish = false
 # `platform`, `codec`, `text` and `regex`. Folders, trust and settings
 # (M4.7) use `core`'s paths and log, `codec::toml` to read the settings and
 # trust files and write the settings back, and `text::file` to save them.
+# Buffers (M4.11) load and save through `text::file`, and read a file's
+# links, owner and group through `platform::file` before a save replaces
+# it (ADR-0069); the session file is TOML through `codec`.
 [dependencies]
 tidepool-core = { path = "../core" }
+tidepool-platform = { path = "../platform" }
 tidepool-codec = { path = "../codec" }
 tidepool-text = { path = "../text" }
 

@@ -17,22 +17,32 @@
 //!
 //! Specification: `docs/subsystems/editor.md`.
 //!
-//! What is built (M4.7, ADR-0067):
+//! What is built:
 //!
 //! - [`folder`]: a workspace root by its canonical path, its `.tidepool/`
 //!   folder, and its `.tidepoolignore`, `.gitignore` and
-//!   `.git/info/exclude` files, read as Git reads them;
+//!   `.git/info/exclude` files, read as Git reads them (M4.7, ADR-0067);
 //! - [`trust`]: the folders the user trusts (ADR-0014), in `trust.toml` in
-//!   the user data folder, each grant covering the folders under it;
+//!   the user data folder, each grant covering the folders under it
+//!   (M4.7);
 //! - [`settings`]: typed settings in layers (the defaults, the user's
 //!   `settings.toml`, a trusted folder's `.tidepool/settings.toml`), an
 //!   invalid value falling back with a warning, and values written back
-//!   with the file's comments and unknown keys kept.
+//!   with the file's comments and unknown keys kept (M4.7);
+//! - [`buffers`]: open buffers keyed by canonical path, each a rope and
+//!   its history, loaded and saved by jobs that workers run, a large file
+//!   read-only until made editable, and a save that asks before its rename
+//!   would split a hard link or change the file's owner or group (M4.11,
+//!   ADR-0068, ADR-0069);
+//! - [`files`]: a folder's file tree, read a folder at a time by jobs,
+//!   each entry with its ignore state (M4.11);
+//! - [`session`]: the editors, splits, selections and scroll a folder had,
+//!   one file a folder in the user data folder (M4.11, ADR-0068).
 //!
 //! Everything here that reads or writes a file blocks, so call it on a
-//! worker, never on the main thread (`AGENTS.md` rule 6). The rest of the
-//! crate lands with M4.11 (`buffers`, `session`, `files`), M4.4 (`search`)
-//! and M4.5 (`watch`).
+//! worker, never on the main thread (`AGENTS.md` rule 6); `buffers` and
+//! `files` hand out jobs for that. The rest of the crate lands with M4.4
+//! (`search`, and the file finder's index in `files`) and M4.5 (`watch`).
 
 // rustdoc does not apply the workspace `unsafe_code = "deny"` to doc tests,
 // so this forbids `unsafe` in them, README examples included (ADR-0036).
@@ -44,7 +54,10 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+pub mod buffers;
+pub mod files;
 pub mod folder;
+pub mod session;
 pub mod settings;
 pub mod trust;
 

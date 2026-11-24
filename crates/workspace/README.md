@@ -11,7 +11,7 @@ documents, and its settings are TOML read with `tidepool-codec`.
 Layer 2, services. It may use `core`, `platform`, `codec`, `text` and
 `regex`, as its row of the dependency matrix in
 [`docs/01-architecture.md`](../../docs/01-architecture.md) says; it uses
-`core`, `codec` and `text` so far.
+`core`, `platform`, `codec` and `text` so far.
 
 ## Status
 
@@ -48,16 +48,73 @@ Built, with the roadmap task that built it:
   temporary file and a rename — M4.7.
 - two fuzz targets, `ignore` and `settings` (which also reads its input
   as a trust file), in `tests/fuzz.rs` — M4.7.
+- `buffers`: open buffers keyed by canonical path, each a rope and its
+  undo history, loaded and saved by jobs that a worker runs, so the main
+  thread never waits on a file, each result carrying the buffer and
+  version it was made for so that a stale one is dropped. A file of more
+  than 16 MiB opens read-only until made editable, and one with bytes
+  that are not text stays read-only. A save writes a temporary file, then
+  compares the file it would replace (its link count, owner and group,
+  through `platform::file`) with the temporary file's real owner and
+  group, and when the rename would split a hard link or change the owner
+  or group, or it cannot tell, it removes the temporary file and asks:
+  write in place, save as a new file, or cancel — M4.11 (ADR-0068,
+  ADR-0069).
+- `files`: a folder's file tree, read a folder at a time by jobs, each
+  entry with its kind (a link shown, never followed) and its ignore state
+  from the ignore files above it, at most 10,000 entries a folder —
+  M4.11.
+- `session`: the editors a folder had open, their splits, selections and
+  scroll, in one TOML file a folder under `sessions/` in the user data
+  folder, named from the folder's canonical path, which the file holds
+  and loading checks; read within limits, never panicking, with the fuzz
+  target `session` — M4.11 (ADR-0068).
 
 Not yet, with the roadmap task that adds it:
 
-- `buffers`, `session`, and the file tree model in `files` — M4.11.
 - `search`, and the file finder's index in `files` — M4.4.
 - `watch` — M4.5.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
 ## Usage
+
+A buffer opened, edited through its history, and saved. Each job runs on
+a worker in the binary; here they run in place. A real file's save may
+come back as `SaveReport::Asks`, which the caller answers by saving again
+in `SaveMode::InPlace` or `SaveMode::NewFile`.
+
+```rust
+use std::time::Instant;
+use tidepool_text::{Group, Place, Selection, Transaction};
+use tidepool_workspace::buffers::{Buffers, SaveMode, SaveReport};
+
+let dir = std::env::temp_dir().join(format!("tidepool-readme-{}", std::process::id()));
+std::fs::create_dir_all(&dir)?;
+let path = dir.join("notes.md");
+std::fs::write(&path, "# Notes\n")?;
+
+let mut buffers = Buffers::new();
+let job = buffers.open(&path); // a worker calls `job.run()`
+let id = buffers.finish_load(job.run())?.id;
+
+let buffer = buffers.get_mut(id).expect("open");
+let (text, history) = buffer.edit()?;
+let caret = Selection::caret(text.len());
+let typed = Transaction::change_each(text, &caret, |at| {
+    Some((at.head..at.head, "more\n", Place::End))
+})?;
+history.commit(text, typed, &caret, Instant::now(), Group::New)?;
+
+let job = buffers.save(id, SaveMode::Check)?; // a worker calls `job.run()`
+match buffers.finish_save(job.run()) {
+    SaveReport::Saved { .. } => assert_eq!(std::fs::read_to_string(&path)?, "# Notes\nmore\n"),
+    SaveReport::Asks { .. } => {} // on a system whose file metadata `platform` cannot read yet
+    other => panic!("{other:?}"),
+}
+std::fs::remove_dir_all(&dir)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 A schema, the user's settings over the defaults, and a value written back
 in memory with the file's comment kept. `SettingsFile::user` and
@@ -89,7 +146,11 @@ assert_eq!(settings.source("editor.tab_size"), Some(Source::User));
 - Design: [`docs/subsystems/editor.md`](../../docs/subsystems/editor.md)
   → `tidepool-workspace`
 - Decisions in [`docs/decisions.md`](../../docs/decisions.md): ADR-0067
-  (M4.7's folders, ignore files, trust and settings); ADR-0014
+  (M4.7's folders, ignore files, trust and settings); ADR-0068 (sessions
+  in the user data folder; a save that would change a file's links, owner
+  or group asks; large files load whole and open read-only); ADR-0069 (the
+  save compares its own temporary file with the file just before the
+  rename); ADR-0014
   (untrusted until trusted); ADR-0013 (settings are TOML); ADR-0031
   (the document model keeps the text it does not change); ADR-0025 (the
   atomic save follows links).
@@ -100,11 +161,15 @@ assert_eq!(settings.source("editor.tab_size"), Some(Source::User));
 - `unsafe` is denied by the workspace lint, and in doc tests by the crate
   root's `#![doc(test(attr(forbid(unsafe_code))))]` (ADR-0036);
   `cargo xtask unsafe-audit` checks both.
-- Ignore files, settings and trust files are parsers of untrusted input:
-  they take limits, never panic, and have fuzz targets (ADR-0027). A
-  workspace's own settings are read only once it is trusted (ADR-0014).
+- Ignore files, settings, trust and session files are parsers of
+  untrusted input: they take limits, never panic, and have fuzz targets
+  (ADR-0027). A workspace's own settings are read only once it is trusted
+  (ADR-0014).
 - Reading and writing files blocks, so it runs on workers, never on the
-  main thread (`AGENTS.md` rule 6).
+  main thread (`AGENTS.md` rule 6): `buffers` and `files` hand out jobs
+  for that, and never touch the file system themselves.
+- The file tree reads a folder only when it is reached from the root
+  without a symbolic link, as Git reads ignore files.
 - Path-scoped rules in `.claude/rules/`:
   [`dependencies.md`](../../.claude/rules/dependencies.md) for its
   `Cargo.toml`.
@@ -115,6 +180,8 @@ assert_eq!(settings.source("editor.tab_size"), Some(Source::User));
 cargo test -p tidepool-workspace
 cargo xtask fuzz-smoke --target ignore
 cargo xtask fuzz-smoke --target settings
+cargo xtask fuzz-smoke --target session
+cargo xtask bench workspace
 ```
 
 `cargo xtask ci` runs the whole gate.

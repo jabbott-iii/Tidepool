@@ -51,9 +51,11 @@ Built, with the roadmap task that built it:
   symbolic links as a save does, and `file::new_file_owner`, the owner and
   group a file this process makes in a folder gets: the effective user,
   and the folder's group if the folder has the setgid bit, else the
-  effective group (open(2)), which `workspace::buffers` compares before
-  a save that would split a hard link or change the owner or group
-  (M4.11, ADR-0068). On Linux through `std`'s `stat` and `sys`'s
+  effective group (open(2)). `workspace::buffers` reads the metadata of
+  the file a save would replace and of the save's temporary file before
+  the rename, to ask before one that would split a hard link or change
+  the owner or group (M4.11, ADR-0069); `new_file_owner` has no caller
+  yet. On Linux through `std`'s `stat` and `sys`'s
   `geteuid` and `getegid`; elsewhere they fail with
   `Error::Unsupported` — M4.10.
 

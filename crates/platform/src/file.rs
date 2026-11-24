@@ -36,8 +36,12 @@
 //!   ([`new_file_owner`]). Saving another user's file, as root does,
 //!   gives it to the saver.
 //!
-//! So `workspace::buffers` (M4.11) compares the two before a save and asks
-//! the user whether to write in place instead (ADR-0068).
+//! So `workspace::buffers` (M4.11) asks the user whether to write in place
+//! instead when a save would change either (ADR-0068). It reads the
+//! [`metadata`] of the file and of the save's own temporary file, just
+//! before the rename, which sees what the file system really gives a new
+//! file; [`new_file_owner`] is the rule for it without making one
+//! (ADR-0069).
 //!
 //! # Systems
 //!

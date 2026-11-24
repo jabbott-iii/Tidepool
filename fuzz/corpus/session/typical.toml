@@ -1,0 +1,5 @@
+# The editors a folder had open (ADR-0068). Tidepool writes this file.
+version = 1
+folder = "/home/me/src/tidepool"
+active_group = 2
+layout = { split = "row", panes = [{ weight = 2.0, layout = { active = 1, editors = [{ path = "/home/me/src/tidepool/src/main.rs", primary = 1, cursors = [[0, 0], [4, 10], [20, 25]], scroll = { line = 120, row = 0, y = 7.25, x = 33.5 } }, { path = "/home/me/src/tidepool/README.md", primary = 0, cursors = [[0, 0]], scroll = { line = 0, row = 0, y = 0.0, x = 0.0 } }] } }, { weight = 1.0, layout = { split = "column", panes = [{ weight = 0.5, layout = { active = 0, editors = [{ path = "/home/me/src/tidepool/Cargo.toml", primary = 0, cursors = [[3, 3]], scroll = { line = 2, row = 1, y = 0.0, x = 0.0 } }] } }, { weight = 0.5, layout = { active = 0, editors = [] } }] } }] }

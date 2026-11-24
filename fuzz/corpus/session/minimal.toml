@@ -1,0 +1,4 @@
+version = 1
+folder = "/w"
+active_group = 0
+layout = { active = 0, editors = [] }

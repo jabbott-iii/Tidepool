@@ -13,7 +13,8 @@ core library, JSON, TOML and its document model, which writes edits
 back, the text engine's rope, positions,
 selections, undo tree, encodings and atomic save, a fuzzer for the
 parsers, a benchmark harness with the text engine's suites, the
-glyph atlas's, the command palette's, and the editor view's, and a
+glyph atlas's, the command palette's, the editor view's, and opening a
+100 MB file, and a
 Linux window over X11, with its events, a waker, presenting what
 changed and the clipboard, on hand-written libc and X11 declarations, the
 XDG folders, the file metadata a save checks (links, owner and group), a
@@ -37,8 +38,11 @@ from a default keymap and your bindings in `settings.toml`, and the
 editing commands, which move, type, delete, indent, undo, copy and paste
 at many cursors at once, and workspace folders, whose `.gitignore` and
 `.tidepoolignore` files are read as Git reads them, workspace trust,
-untrusted until you trust a folder, and layered settings, checked and
-written back with their comments kept, are built;
+untrusted until you trust a folder, layered settings, checked and
+written back with their comments kept, open buffers, loaded and saved on
+worker threads, which ask before a save would split a hard link or change
+a file's owner or group, the file tree, read a folder at a time, and each
+folder's session in the user data folder, are built;
 and
 `cargo tp` opens a Linux window and runs the event-driven main loop,
 which waits until something happens and draws only what changed: it shows

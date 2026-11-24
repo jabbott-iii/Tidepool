@@ -5053,7 +5053,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0068 — M4.3 splits: M4.10 gives `platform` file metadata and the process's user and group, M4.11 builds `workspace`'s buffers, file tree and session, M4.3 keeps the views and the binary; sessions live in the user data folder; a save that would change a file's links, owner or group asks; large files load whole and open read-only
 
-- **Status:** Accepted
+- **Status:** Accepted; ADR-0069 has M4.11's save check its own temporary file just before the rename, in place of M4.10's rule
 - **Date:** 2026-11-23
 - **Context:**
   - M4.3 asks for `workspace`'s `buffers` (keyed by canonical path,
@@ -5190,3 +5190,131 @@ decides; the roadmap task that first depends on one asks for the decision.
   command; a session should travel with its folder; a file system is
   found whose new files take an owner or group other than M4.10's rule
   gives; or macOS (M11.8) or Windows (M12.2) add file metadata.
+
+## ADR-0069 — M4.11's save checks its own temporary file just before the rename: `text::file` gains a two-step save and a write in place
+
+- **Status:** Accepted
+- **Date:** 2026-11-23
+- **Context:**
+  - ADR-0068 has `workspace::buffers` (M4.11) ask before a save whose
+    rename would split a hard link or give the file another owner or
+    group, and left M4.11 to decide how the save tells. M4.10 built
+    `platform::file::metadata` (a file's link count, owner, group and
+    permission bits) and `new_file_owner` (the owner and group a file the
+    process makes in a folder gets, by Linux's rule: the effective user,
+    and the folder's group when it has the setgid bit, else the effective
+    group).
+  - M4.10's security review found that the rule cannot see a file
+    system mounted with `bsdgroups`, one without Unix owners (FAT, a
+    share mapped to one user), or NFS's root squashing (exports(5)), so a
+    check against it can miss a change or ask about one that does not
+    happen. It also found that the folder to ask about is the one holding
+    the file the save reaches after links, which `text::file` did not
+    expose, and suggested reading the save's own temporary file just
+    before the rename instead.
+  - `text::file::save` (M1.3, ADR-0025) already works in steps inside:
+    it follows the links to the target, creates a private temporary file
+    beside it, writes, gives it the target's permissions and syncs it,
+    then renames it over the target. Only the whole save is public.
+  - Writing in place, ADR-0068's first answer to the question, needs a
+    writer that opens the existing file and writes over it; nothing in
+    Tidepool did that.
+  - On 2026-11-23 the user chose "Check the temp file", the recommended
+    option of M4.11's `Decide first` line, over M4.10's rule, accepting
+    that `text` becomes a fourth crate of the task (with `workspace`,
+    `tidepool-bench` and `xtask`), which `CLAUDE.md` asks to be raised.
+  - M4.11's security review, the same day, found nothing critical or
+    high. Its medium finding: `prepare` gave the temporary file the
+    target's permissions before the check, while the file kept its own
+    group, so in the very case the check is for (a setgid folder, a
+    `bsdgroups` mount) that group could read the new text before the save
+    asked, and a crash left it readable. Among its low ones: a save of a
+    file that did not exist renamed over one that appeared while it wrote;
+    and an answer to the question is not tied to the file it was asked
+    about, since `platform`'s metadata has no device or inode number. The
+    user chose that day to record the first two fixes here, before this
+    record's first commit (recommended, as ADR-0025 was), and to leave the
+    third to M4.3, which builds the question's dialog (recommended).
+- **Decision:**
+  - **A save in two public steps.** `text::file::prepare` follows the
+    links, checks the target, and writes and syncs the temporary file:
+    steps 1 to 4 of `save`, but for the permissions. The temporary file of
+    an existing target stays as private as it was made (0600 on Unix).
+    `prepare` returns a `PreparedSave`, which names the target it
+    resolved and the temporary file, and whose `commit` gives the
+    temporary file the target's permissions (without setuid and setgid),
+    syncs it again, renames it and syncs the folder, steps 5 and 6.
+    Dropping it removes the temporary file and leaves the target as it
+    was. `save` does what it did, in the order it did it, with one sync.
+  - **The check reads two real files.** Between the steps, `buffers`
+    reads, through `platform::file::metadata`, the target the save
+    resolved (its link count, owner and group) and the temporary file
+    (the owner and group the file system really gave a new file there).
+    The rename would split a link when the target has more than one, and
+    change the owner or group when the two differ. Then it commits, or
+    drops the prepared save and asks. A new file has nothing to compare,
+    and commits, unless a file is found at its path by then: one that
+    appeared while the save wrote, which it asks about rather than
+    replaces (`SaveQuestion::appeared`).
+  - **Unknown means ask.** An error reading either file, or an id equal
+    to 65534 on either side (the default overflow id a user namespace
+    shows for ids it does not map, user_namespaces(7), and NFS's
+    anonymous id, exports(5)), counts as a change, so the save asks.
+  - **A write in place.** `text::file::write_in_place` follows the links
+    as `save` does, refuses anything but an existing regular file the
+    user may write, then opens it without creating or truncating it,
+    writes the encoded text over it, cuts it to the new length, and syncs
+    it. The file keeps its links, owner, group, permission bits, access
+    list and extended attributes. `buffers` runs it when the user answers
+    "write in place"; "save as a new file" runs `save`.
+  - `platform::file::new_file_owner` stays as M4.10 built it; `buffers`
+    does not call it.
+- **Consequences:**
+  - The check is exact wherever the file system reports owners, NFS's
+    squashing, `bsdgroups` and setgid folders included, since it reads
+    the owner and group a new file really got.
+  - The check runs microseconds before the rename, not before the
+    write, so the window in which another process can change the target
+    (make a link, change its owner) unseen is the length of two `stat`
+    calls.
+  - When the save asks, the temporary file was written for nothing and
+    is removed: one wasted write of the file, only in that case. A large
+    file opens read-only (ADR-0068), so this is rare above 16 MiB.
+  - The temporary file is read by its path. Another user who may write
+    the folder could swap it between the write and the check; that user
+    could replace the target itself as easily, so nothing is lost
+    against ADR-0025. While the caller looks, it is private, so no one
+    else can open it and read the new text.
+  - A prepared save syncs its temporary file twice, once with the text
+    and once with the permissions; a plain `save` syncs once.
+  - A file that appears at a new file's path after the last look and
+    before the rename is still replaced; the window is one `stat`.
+  - An answer is not tied to the file asked about: if the path names
+    another file by the time the user answers, a write in place writes
+    that one, and a save as a new file replaces it. M4.3 adds the device
+    and inode number to `platform::file`'s metadata and to the question,
+    and compares them before it acts.
+  - Inside a user namespace whose overflow id is not 65534, or on a file
+    system that reports no owners, an unmapped or missing id is not seen
+    as unknown. Then the check compares what the system shows.
+  - A write in place is not atomic: a crash or a full disk during it
+    leaves the new text's start over the old file's end. The user
+    chooses it, warned (ADR-0068).
+  - `text`'s public API grows (`prepare`, `PreparedSave`,
+    `write_in_place`, and three `FileStep`s for writing over a file,
+    cutting it to length and syncing it); nothing in it breaks.
+  - `new_file_owner` has no caller yet, besides its tests.
+- **Alternatives considered:**
+  - M4.10's rule, `new_file_owner` of the canonical path's folder, before
+    anything is written: no change to `text`, but blind to `bsdgroups`,
+    owner-less file systems and NFS squashing, with a wider window before
+    the rename.
+  - Making a probe file in the folder before each save: as exact, but a
+    second file written into the user's folder, and still a window.
+  - Keeping the prepared temporary file while the user answers: no
+    second write, but a stray file in the user's folder for as long as
+    the dialog stays open, which a crash leaves behind.
+- **Revisit when:** a file system or sandbox is found whose new files
+  report an owner or group that differs from what a rename gives them;
+  the overflow id must be read from `/proc/sys/kernel/overflowuid`; or
+  macOS (M11.8) or Windows (M12.2) add file metadata.

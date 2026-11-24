@@ -62,7 +62,13 @@ closed; every other arrow from it is planned.
   `toolchains.toml` in user data, which records what was found (M5.1).
 - A workspace folder is one of the developer's projects, with its own
   `.tidepool/settings.toml`; the binary is to open, trust, edit and save
-  it (M4.3), through `tidepool-workspace`'s folders and trust (M4.7).
+  it (M4.3), through `tidepool-workspace`'s folders and trust (M4.7) and
+  its buffers and file tree (M4.11).
+- A folder's session, the editors it had open and how they were split,
+  is one TOML file a folder in `sessions/` in the user data folder, never
+  in the project (ADR-0068). `tidepool-workspace`'s `session` reads and
+  writes it (M4.11); the binary is to restore it when a folder opens and
+  save it (M4.3).
 
 ```mermaid
 flowchart LR
@@ -76,6 +82,7 @@ flowchart LR
         end
         s_toml[("Settings and Tidepool's<br/>TOML files<br/>settings.toml read (M3.4),<br/>its [keymap] (M4.6),<br/>through workspace (M4.7),<br/>planned M6.2")]
         s_desc[("Managed-tool records<br/>descriptors, toolchains.toml<br/>planned M5.1")]
+        s_session[("Session files<br/>sessions/ in user data,<br/>one a folder, read and<br/>written by workspace's<br/>session (M4.11)")]
     end
     e_folders[("Workspace folders<br/>the developer's projects")]
 
@@ -86,6 +93,7 @@ flowchart LR
     c_app -.->|"planned M7.1:<br/>with --tui"| c_tui
     c_app -->|"reads [ui] (M3.4),<br/>[keymap] (M4.6),<br/>through workspace (M4.7)"| s_toml
     c_app -.->|"planned M5.1:<br/>loads, records"| s_desc
+    c_app -.->|"planned M4.3:<br/>restores, saves"| s_session
     c_app -.->|"planned M4.3:<br/>opens, edits, saves"| e_folders
 
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
@@ -93,7 +101,7 @@ flowchart LR
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     class p_dev person
-    class c_app,c_gui,s_toml built
+    class c_app,c_gui,s_toml,s_session built
     class c_tui,s_desc planned
     class e_folders external
 ```
@@ -209,7 +217,7 @@ flowchart TB
 
     subgraph b_dev["Dev-only, in the repository"]
         c_xtask["xtask, run as cargo xtask<br/>ci, deps, layers, crates,<br/>features, unsafe-audit,<br/>headers, workflows, ucd,<br/>theme, golden, fuzz-smoke,<br/>site, bench"]
-        c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and the text suites (M1.9),<br/>the atlas fill (M2.5),<br/>the palette repaint (M3.3)"]
+        c_bench["tidepool-bench, bench/<br/>the benchmark harness<br/>and the text suites (M1.9),<br/>the atlas fill (M2.5),<br/>the palette repaint (M3.3),<br/>the editor view (M4.1),<br/>keystrokes (M4.2), a<br/>100 MB file's open (M4.11)"]
         c_testkit["tidepool-testkit<br/>planned: fake tools M5.1,<br/>fake LSP server M6.1"]
         s_baseline[("bench/baseline.json<br/>the reference machine's<br/>numbers (M1.9)")]
     end
@@ -310,9 +318,10 @@ The binary's crates by layer (`docs/01-architecture.md` → "Layers"), in
 five diagrams. Every arrow is an edge of the dependency matrix. Only
 `platform` (on `core` and `sys`, M2.2), `gfx` (on `core`, M2.3), `gui`
 (on `core`, `platform`, `gfx` and `font`, M2.6, and `ui`, M3.2), the
-binary (on `core`, `platform` and `gui`, M2.6, `ui`, M3.8, and `codec`
-and `editor`, M3.4), `editor` (on `core` and `ui`, M3.4, `text`, M4.1,
-and `codec`, M4.6) and `ui` (on
+binary (on `core`, `platform` and `gui`, M2.6, `ui`, M3.8, `codec`
+and `editor`, M3.4, and `workspace`, M4.7), `editor` (on `core` and `ui`,
+M3.4, `text`, M4.1, and `codec`, M4.6), `workspace` (on `core`, `codec`
+and `text`, M4.7, and `platform`, M4.11) and `ui` (on
 `core`, M3.1, `codec`, M3.2, and `text`, M3.6) declare dependencies yet; their
 edges, and the three dev-dependencies on `tidepool-core` that the tests
 of `codec`, `text` and `font` use, are solid. Every
@@ -336,7 +345,7 @@ flowchart LR
     subgraph L1["Layer 1"]
         k_platform["tidepool-platform<br/>built: the crate root, which<br/>allows unsafe_code (M0.1)<br/>window, events with the<br/>Waker, surface, on X11<br/>over a Unix socket (M2.2)<br/>clipboard, paths,<br/>dirs (M2.7)<br/>file metadata (M4.10)<br/>planned: watch M4.5,<br/>process M5.7, pty M5.9,<br/>terminal M7.1, macOS<br/>M11.7, M11.8, M11.1,<br/>Windows M12.1, M12.2"]
         k_codec["tidepool-codec<br/>json: JSON and JSONC,<br/>compact and pretty<br/>writers (M1.4)<br/>toml: the TOML 1.1<br/>parser with spans (M1.7)<br/>and Document, which<br/>edits it (M1.5)<br/>Limits, CodecError<br/>qoi: QOI images, decoded<br/>and encoded (M2.4)<br/>planned M10.7,<br/>M10.2, M11.3"]
-        k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)"]
+        k_text["tidepool-text<br/>rope, pos with grapheme<br/>tables (M1.1)<br/>selection, transaction,<br/>history (M1.2)<br/>encoding, file with<br/>the atomic save (M1.3)<br/>the save's two steps,<br/>write_in_place (M4.11)"]
         k_regex["tidepool-regex<br/>planned M4.8: parser,<br/>NFA, Pike VM,<br/>Unicode classes"]
         k_gfx["tidepool-gfx<br/>framebuffer, raster,<br/>blend, clip, image,<br/>glyph, damage,<br/>backdrop (M2.3)<br/>golden scenes in<br/>tests/golden.rs (M2.4)"]
         k_font["tidepool-font<br/>ttf, outline, Limits,<br/>FontError (M2.8)<br/>bundled, fallback,<br/>layout, atlas, golden<br/>scenes (M2.5)"]
@@ -380,7 +389,10 @@ tooltip, the toast, and the command palette, over a layer of overlays in
 the tree, the palette's rows widening what a query matched to the same
 boundaries (M3.3, ADR-0052). `workspace` has its folders and ignore
 files, trust and settings (M4.7, ADR-0067), reading TOML with `codec`
-and saving settings with `text::file`; the other four service crates are
+and saving settings with `text::file`, and its buffers, file tree model
+and sessions (M4.11, ADR-0068), which load and save through `text::file`
+and read a file's links, owner and group through `platform::file` before
+a save replaces it (ADR-0069); the other four service crates are
 empty. Each arrow is labelled with the task whose module first needs that
 crate.
 
@@ -391,7 +403,7 @@ flowchart LR
         k_toolchain["tidepool-toolchain<br/>planned M5.1: descriptor,<br/>detect, registry<br/>process, sessions,<br/>secret M5.2<br/>download, install M5.3"]
         k_syntax["tidepool-syntax<br/>planned M6.2: Rust,<br/>Markdown and TOML<br/>lexers, language packs<br/>declarative pack<br/>lexers M13.2"]
         k_term["tidepool-term<br/>planned M5.8:<br/>VT parser and grid"]
-        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>planned: buffers,<br/>files, session M4.11<br/>search M4.4, watch M4.5"]
+        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>buffers, files,<br/>session (M4.11)<br/>planned: search and the<br/>finder index M4.4,<br/>watch M4.5"]
         k_ui["tidepool-ui<br/>tree, layout, focus,<br/>input, metrics, draw,<br/>a11y, UiError (M3.1)<br/>theme (M3.2)<br/>widgets: the<br/>controls (M3.6),<br/>collections, tab strip,<br/>splitter, card, code<br/>block (M3.7)<br/>overlay, and the<br/>modal, tooltip, toast,<br/>palette (M3.3)"]
     end
     subgraph L01["Layers 0 and 1"]
@@ -413,10 +425,10 @@ flowchart LR
     k_syntax -.->|"planned M13.2"| k_regex
     k_term -.->|"planned M5.8"| k_core
     k_term -.->|"planned M5.4"| k_platform
-    k_workspace -->|"path, log (M4.7)"| k_core
-    k_workspace -.->|"file metadata (M4.10),<br/>planned M4.11"| k_platform
+    k_workspace -->|"path, log (M4.7);<br/>sha256 (M4.11)"| k_core
+    k_workspace -->|"file::metadata<br/>before a save (M4.11)"| k_platform
     k_workspace -->|"toml (M4.7)"| k_codec
-    k_workspace -->|"file::save, Rope (M4.7)"| k_text
+    k_workspace -->|"file::save, Rope (M4.7);<br/>load, prepare, write_in_place,<br/>History, Selection (M4.11)"| k_text
     k_workspace -.->|"planned M4.4"| k_regex
     k_ui -->|"geom, color, input;<br/>tests: testing, rng"| k_core
     k_ui -->|"theme: toml, Limits,<br/>CodecError (M3.2)"| k_codec
@@ -452,7 +464,7 @@ flowchart LR
         k_rpc["tidepool-rpc<br/>planned M6.1"]
         k_toolchain["tidepool-toolchain<br/>planned M5.1"]
         k_syntax["tidepool-syntax<br/>planned M6.2"]
-        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)"]
+        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>buffers, files,<br/>session (M4.11)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_codec["tidepool-codec"]
@@ -513,7 +525,7 @@ flowchart LR
     subgraph L2["Layer 2"]
         k_syntax["tidepool-syntax<br/>planned M6.2"]
         k_term["tidepool-term<br/>planned M5.8"]
-        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)"]
+        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>buffers, files,<br/>session (M4.11)"]
         k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3, M4.1)"]
     end
     subgraph L01["Layers 0 and 1"]
@@ -570,7 +582,7 @@ flowchart LR
     end
     subgraph L2["Layer 2"]
         k_ui["tidepool-ui<br/>(M3.1, M3.2, M3.6,<br/>M3.7, M3.3, M4.1)"]
-        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)"]
+        k_workspace["tidepool-workspace<br/>folder, trust,<br/>settings (M4.7)<br/>buffers, files,<br/>session (M4.11)"]
     end
     subgraph L01["Layers 0 and 1"]
         k_gfx["tidepool-gfx"]
@@ -886,7 +898,7 @@ test` on the saved crashes and seeds alone, and on mutated inputs when
 
 ```mermaid
 flowchart TB
-    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text, ttf in tidepool-font, theme in tidepool-ui, keymap in tidepool-editor"]
+    c_smoke["xtask fuzz-smoke, xtask/src/fuzz.rs<br/>TARGETS: json, toml and qoi in tidepool-codec, encoding in tidepool-text, ttf in tidepool-font, theme in tidepool-ui, keymap in tidepool-editor, ignore, settings and session in tidepool-workspace"]
     e_cargo["cargo test --profile fuzz -p PACKAGE --test fuzz -- --exact TARGET --nocapture<br/>with TIDEPOOL_FUZZ_SECS, TIDEPOOL_FUZZ_SEED, and TIDEPOOL_FUZZ_REPLAY=1 for --replay"]
     subgraph b_codec["tidepool-codec: tests/fuzz.rs"]
         t_json["test json<br/>json::parse_bytes and json::parse, both dialects, small Limits"]
@@ -905,6 +917,11 @@ flowchart TB
     subgraph b_editor["tidepool-editor: tests/fuzz.rs"]
         t_keymap["test keymap<br/>keymap::Keymap::read as a file and as a user layer, Sequence::parse, and an Engine over each keymap, with small Limits (M4.6)"]
     end
+    subgraph b_workspace["tidepool-workspace: tests/fuzz.rs"]
+        t_ignore["test ignore<br/>folder::IgnoreFile::parse with small IgnoreLimits, Ignore::is_ignored, the globs against a port of Git's wildmatch (M4.7)"]
+        t_settings["test settings<br/>settings::SettingsFile and Settings::resolve as a user's and a trusted workspace's file, values written back, trust::parse (M4.7)"]
+        t_session["test session<br/>session::parse within the session's limits, each session written back with to_text and read again (M4.11)"]
+    end
     subgraph b_fuzz["tidepool-core: testing::fuzz"]
         f_api["fuzz.rs<br/>Target: new, seeds_in, dictionary, memory_cap, run<br/>Outcome, Summary, Finding, FuzzError, keep_died"]
         f_engine["engine<br/>the target on its own thread with a 2 MiB stack<br/>the caller is the watchdog, HANG_LIMIT 5 s"]
@@ -912,7 +929,7 @@ flowchart TB
         f_memory["memory<br/>VmHWM against memory_cap, VmPeak against reserved_cap"]
         f_paths["paths<br/>each directory looked at without following a link, made one level at a time"]
     end
-    s_corpus[("fuzz/corpus/json, toml, qoi, encoding, ttf, theme, keymap<br/>the seeds")]
+    s_corpus[("fuzz/corpus/json, toml, qoi, encoding, ttf, theme, keymap, ignore, settings, session<br/>the seeds")]
     s_inplace[("crates/codec/tests/json, crates/codec/tests/toml-test, themes/ and keymaps/<br/>more seeds, read in place")]
     s_crashes[("fuzz/crashes/TARGET<br/>KIND-HASH findings, .last-input, died-HASH")]
     e_proc["Linux: /proc/self/status"]
@@ -925,6 +942,9 @@ flowchart TB
     e_cargo -->|"runs"| t_ttf
     e_cargo -->|"runs"| t_theme
     e_cargo -->|"runs"| t_keymap
+    e_cargo -->|"runs"| t_ignore
+    e_cargo -->|"runs"| t_settings
+    e_cargo -->|"runs"| t_session
     t_json -->|"Target"| f_api
     t_toml -->|"Target"| f_api
     t_qoi -->|"Target"| f_api
@@ -932,6 +952,9 @@ flowchart TB
     t_ttf -->|"Target"| f_api
     t_theme -->|"Target"| f_api
     t_keymap -->|"Target"| f_api
+    t_ignore -->|"Target"| f_api
+    t_settings -->|"Target"| f_api
+    t_session -->|"Target"| f_api
     f_api -->|"run_with: the saved crashes first, then the seeds"| f_paths
     f_api --> f_engine
     f_engine --> f_mutate
@@ -947,7 +970,7 @@ flowchart TB
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#ffffff
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class c_smoke,t_json,t_toml,t_qoi,t_enc,t_ttf,t_theme,t_keymap,f_api,f_engine,f_mutate,f_memory,f_paths built
+    class c_smoke,t_json,t_toml,t_qoi,t_enc,t_ttf,t_theme,t_keymap,t_ignore,t_settings,t_session,f_api,f_engine,f_mutate,f_memory,f_paths built
     class s_corpus,s_inplace,s_crashes store
     class e_cargo,e_proc external
 ```
@@ -972,7 +995,9 @@ keystrokes, typing and graphemes (ADR-0035), the glyph atlas's fill
 view: a wheel notch through a 10,000-line file at 1080p, with soft wrap
 off and on, and the first layout of a 10,000-byte line, each handled as
 the main loop does and its damage painted with `gui`'s `Painter` into a
-`gfx` framebuffer (M4.1).
+`gfx` framebuffer (M4.1), and the opening of a 100 MB file as a worker
+and the main loop open one, through `workspace`'s `Buffers`, against the
+budget of 1 s (M4.11, ADR-0068).
 `tidepool-testkit` is an
 empty crate; its edges are the matrix's row for it. `testkit` keeps fake
 tools in
@@ -985,7 +1010,7 @@ flowchart LR
     t_text["tidepool-text tests<br/>tests/edits.rs, model.rs,<br/>positions.rs, unit tests"]
     t_ui["tidepool-ui tests<br/>tests/layout.rs, a11y.rs,<br/>theme.rs, widgets.rs,<br/>unit tests"]
     c_xtask["xtask"]
-    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, suites::editor,<br/>the binary"]
+    c_bench["tidepool-bench, bench/<br/>harness, baseline, cli,<br/>suites::text, suites::font,<br/>suites::ui, suites::editor,<br/>suites::workspace,<br/>the binary"]
     s_baseline[("bench/baseline.json")]
     c_testkit["tidepool-testkit<br/>dev-only<br/>planned M5.1: fake tools<br/>planned M6.1: fake LSP<br/>server, transcripts"]
     k_core["tidepool-core<br/>testing: check,<br/>check_sized,<br/>assert_approx<br/>rng: Pcg32"]
@@ -996,6 +1021,7 @@ flowchart LR
     k_ui["tidepool-ui"]
     k_gui["tidepool-gui"]
     k_editor["tidepool-editor"]
+    k_workspace["tidepool-workspace"]
     k_rpc["tidepool-rpc<br/>planned M6.1"]
 
     t_codec -->|"dev-dependency:<br/>property tests"| k_core
@@ -1011,6 +1037,7 @@ flowchart LR
     c_bench -->|"measures its text<br/>with FontMetrics (M3.3);<br/>paints the view<br/>with Painter (M4.1)"| k_gui
     c_bench -->|"scrolls an EditorView<br/>(M4.1)"| k_editor
     c_bench -->|"the window's<br/>framebuffers (M4.1)"| k_gfx
+    c_bench -->|"opens a 100 MB file<br/>with Buffers (M4.11)"| k_workspace
     c_testkit -.->|"planned M5.1"| k_core
     c_testkit -.->|"planned M6.1"| k_codec
     c_testkit -.->|"planned M6.1"| k_rpc
@@ -1018,7 +1045,7 @@ flowchart LR
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
-    class t_codec,t_text,t_ui,c_xtask,c_bench,k_core,k_codec,k_text,k_font,k_gfx,k_ui,k_gui,k_editor built
+    class t_codec,t_text,t_ui,c_xtask,c_bench,k_core,k_codec,k_text,k_font,k_gfx,k_ui,k_gui,k_editor,k_workspace built
     class s_baseline store
     class c_testkit,k_rpc planned
 ```
@@ -1131,7 +1158,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-sys` | `crates/sys` | 0, foundations | allowed | the crate root (M0.1); `dynlib`, `linux::libc`, `linux::x11` with the `Xlib` table (M2.1); `write(2)`, `setlocale`, `linux::evdev`, typed text and variadic tables (M2.2); the selections and properties the clipboard calls (M2.7); `geteuid`, `getegid` and the mode bits (M4.10) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M12.1, M12.2 | none |
 | `tidepool-platform` | `crates/platform` | 1, OS behavior, formats, engines | allowed | the crate root (M0.1); `window`, `events` with the `Waker`, `surface` and the error, on Linux through X11 (M2.2); `clipboard`, `paths` and `dirs` on Linux (M2.7); `file` on Linux (M4.10) | M4.5, M5.7, M5.9, M7.1, M11.7, M11.8, M11.1, M12.1, M12.2 | `core`, `sys` |
 | `tidepool-codec` | `crates/codec` | 1, OS behavior, formats, engines | deny | `json` (M1.4), `toml` (M1.7) and its `Document` (M1.5), fuzz targets `json` and `toml` (M1.6); `qoi` and its fuzz target (M2.4) | M10.7, M10.2, M11.3 | `core`, dev only |
-| `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6) | none: every planned module exists | `core`, dev only |
+| `tidepool-text` | `crates/text` | 1, OS behavior, formats, engines | deny | `rope`, `pos` (M1.1); `selection`, `transaction`, `history` (M1.2); `encoding`, `file` (M1.3); fuzz target `encoding` (M1.6); `file::prepare`, `PreparedSave` and `file::write_in_place` (M4.11, ADR-0069) | none: every planned module exists | `core`, dev only |
 | `tidepool-regex` | `crates/regex` | 1, OS behavior, formats, engines | deny | nothing | M4.8 | none |
 | `tidepool-gfx` | `crates/gfx` | 1, OS behavior, formats, engines | deny | `framebuffer`, `clip`, `blend`, `raster`, `image`, `glyph`, `damage`, `backdrop` and the error (M2.3); the golden scenes in `tests/golden.rs` (M2.4) | none: every planned module exists | `core` |
 | `tidepool-font` | `crates/font` | 1, OS behavior, formats, engines | deny | `ttf`, `outline`, `Limits` and the error, and fuzz target `ttf` (M2.8); `bundled`, `fallback`, `layout`, `atlas`, and the golden scenes in `tests/golden.rs` (M2.5) | none: every planned module exists | `core`, dev only |
@@ -1140,7 +1167,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-toolchain` | `crates/toolchain` | 2, services | deny | nothing | M5.1, M5.2, M5.3, M5.5, M10.1, M11.2, M12.3, M15.8 | none |
 | `tidepool-syntax` | `crates/syntax` | 2, services | deny | nothing | M6.2, M13.2, M13.3, M15.8 | none |
 | `tidepool-term` | `crates/term` | 2, services | deny | nothing | M5.8, M5.4 | none |
-| `tidepool-workspace` | `crates/workspace` | 2, services | deny | `folder` with its ignore files, `trust`, `settings` and the error, and fuzz targets `ignore` and `settings` (M4.7) | M4.11, M4.4, M4.5 | `core`, `codec`, `text` |
+| `tidepool-workspace` | `crates/workspace` | 2, services | deny | `folder` with its ignore files, `trust`, `settings` and the error, and fuzz targets `ignore` and `settings` (M4.7); `buffers`, the file tree model of `files`, `session`, the error's variants for them, and fuzz target `session` (M4.11) | M4.4, M4.5 | `core`, `platform`, `codec`, `text` |
 | `tidepool-ui` | `crates/ui` | 2, services | deny | `tree`, `layout`, `focus`, `input`, `metrics`, `draw`, `a11y` and the error (M3.1); `theme`, with the bundled `themes/tidepool-dark.toml`, the error's theme variants and fuzz target `theme` (M3.2); `widgets`, the controls, the theme the tree holds and `UiError::WrongWidget` (M3.6); `widgets`' collections (list, tree view, table), tab strip, splitter, card and code block, which each layout binds (M3.7); `overlay`, `widgets`' modal dialog, tooltip, toast, and command palette, `Row::matched`, `Response::blocked`, the accessibility tree's `modal`, `description`, and `active`, `TextMetrics::scale`, `input::PRESS_SLOP`, and the error's overlay variants (M3.3); the `current-line` token, and `widgets::is_hidden` and `widgets::flag_at` made public for the editor view (M4.1) | none: `anim` has no task yet | `core`, `codec`, `text` |
 | `tidepool-lang` | `crates/lang` | 3, language and tool features | deny | nothing | M6.7, M6.8, M6.3, M6.4, M6.6, M13.1 | none |
 | `tidepool-vcs` | `crates/vcs` | 3, language and tool features | deny | nothing | M8.1, M8.3 | none |
@@ -1151,7 +1178,7 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
 | `tidepool-tui` | `crates/tui` | 4, views and frontends | deny | nothing | M7.1, M7.5 | none |
 | `tidepool` (app) | `crates/app` | 5, application | deny | a `main` (M0.1) that opens the window, shows the first frame and takes `--print-startup-time` (M2.6); the event-driven main loop, with its window test (M3.8); the shell's wiring, the settings and the shell's golden scenes (M3.4); the editor view's golden scenes (M4.1); the user's keymap, `settings.toml`'s `[keymap]` (M4.6); the settings read through `workspace::settings` (M4.7) | M4.9, M7.1, M7.5, M14.4 | `core`, `platform`, `codec`, `workspace`, `gui`, `ui`, `editor` |
 | `xtask` | `xtask` | 6, tools | deny | `deps`, `layers`, `unsafe-audit`, `ci` (M0.3), with `unsafe-audit`'s rules for doc tests, proc macros and pass-through macros (M0.15); `headers` (M0.7); `workflows` (M0.8); `crates` (M0.9), with ADR-0028's sections and order and the `LICENSE` and `NOTICE` copies (M0.13); escaped paths, links never resolved (M0.10); `ucd` (M1.1); `fuzz-smoke` (M1.6); `features` and `site`, with `headers` for HTML, CSS and JS (M0.14, which awaits its published page); `bench` (M1.9); `golden`, a step of `ci` (M2.4); `theme`, the last step of `ci` (M3.2) | `tools` (M5.1), `package` (M11.6, M12.4, M14.4) | `core`, `codec` |
-| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5); `suites::ui` (M3.3); `suites::editor` (M4.1), with the keystroke suites (M4.2) | suites for M4.4, M9.4, M14.3, M15.2, M15.5 | `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, `editor` |
+| `tidepool-bench` | `bench` | 6, tools | deny | `harness`, `baseline`, `cli`, `suites::text` and the binary (M1.9); `suites::font` (M2.5); `suites::ui` (M3.3); `suites::editor` (M4.1), with the keystroke suites (M4.2); `suites::workspace`, opening a 100 MB file (M4.11) | suites for M4.4, M9.4, M14.3, M15.2, M15.5 | `core`, `codec`, `text`, `font`, `gfx`, `ui`, `gui`, `editor`, `workspace` |
 | `tidepool-testkit` | `crates/testkit` | 6, tools (dev-only) | deny | nothing | M5.1, M6.1 | none |
 
 ## Sources
@@ -1169,7 +1196,10 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
   `crates/gui/tests/components/mod.rs` and
   `crates/gui/tests/overlays/mod.rs`, and the references in
   `tests/golden/`
-- `crates/text/src/lib.rs`, `crates/text/tests/fuzz.rs`
+- `crates/text/src/lib.rs`, `crates/text/src/file.rs`,
+  `crates/text/tests/fuzz.rs`
+- `crates/workspace/src/lib.rs`, `buffers.rs`, `files.rs`, `session.rs`,
+  `crates/workspace/tests/fuzz.rs`; `fuzz/corpus/`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`; `crates/platform/src/lib.rs`,
   `crates/ui/src/lib.rs`, `crates/ui/src/theme.rs`,
@@ -1189,4 +1219,5 @@ that forbids `unsafe` in them (M0.15); the table leaves those out.
   `sys-and-platform.md` and `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0003, ADR-0008, ADR-0009, ADR-0010,
   ADR-0017, ADR-0018, ADR-0027, ADR-0028, ADR-0029, ADR-0044, ADR-0046,
-  ADR-0047, ADR-0049, ADR-0052, ADR-0053, ADR-0054, ADR-0055 and ADR-0056
+  ADR-0047, ADR-0049, ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056,
+  ADR-0067, ADR-0068 and ADR-0069

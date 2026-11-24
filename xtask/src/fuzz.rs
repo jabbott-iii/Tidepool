@@ -113,6 +113,10 @@ pub(crate) const TARGETS: &[Target] = &[
         name: "settings",
         package: "tidepool-workspace",
     },
+    Target {
+        name: "session",
+        package: "tidepool-workspace",
+    },
 ];
 
 /// How long each target is fuzzed when `--secs` is not given.

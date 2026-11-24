@@ -14,7 +14,8 @@
 
 //! The error type for `tidepool-workspace`.
 //!
-//! New in Tidepool (M4.7, ADR-0067).
+//! New in Tidepool (M4.7, ADR-0067), with the errors of buffers, the file
+//! tree and sessions from M4.11.
 
 use std::error::Error;
 use std::fmt;
@@ -27,8 +28,9 @@ use tidepool_core::path::{self, PathError};
 use tidepool_text::TextError;
 
 /// Errors produced by `tidepool-workspace`: opening a [folder](crate::folder),
-/// reading its ignore files, the [trust store](crate::trust) and the
-/// [settings](crate::settings).
+/// reading its ignore files, the [trust store](crate::trust), the
+/// [settings](crate::settings), [buffers](crate::buffers), the
+/// [file tree](crate::files) and [sessions](crate::session).
 ///
 /// A call that returns one changes nothing in memory, and a file it would
 /// have written is as it was, except as [`WorkspaceError::Save`] says.
@@ -180,9 +182,11 @@ pub enum WorkspaceError {
         /// What the operating system reported.
         source: io::Error,
     },
-    /// A file could not be saved ([`tidepool_text::file::save`]). The file
-    /// is as it was, unless the step was the directory's sync, after which
-    /// it holds the new text.
+    /// A file could not be saved ([`tidepool_text::file::save`], or
+    /// [`tidepool_text::file::write_in_place`]). The file is as it was,
+    /// unless the step was the directory's sync, after which it holds the
+    /// new text, or a step of a write in place, which says what the file
+    /// may hold ([`tidepool_text::FileStep`]).
     Save {
         /// The file.
         path: PathBuf,
@@ -203,6 +207,58 @@ pub enum WorkspaceError {
     Untrusted {
         /// The file.
         path: PathBuf,
+    },
+    /// A file could not be loaded into a buffer
+    /// ([`tidepool_text::file::load`]): it cannot be read, or is not a
+    /// regular file.
+    Load {
+        /// The file, by its canonical path.
+        path: PathBuf,
+        /// The load's error, with the step that failed.
+        source: TextError,
+    },
+    /// No open buffer has this id: it was closed, or never opened.
+    NoBuffer {
+        /// The id.
+        id: crate::buffers::BufferId,
+    },
+    /// A buffer that is read-only cannot be edited or saved
+    /// ([`ReadOnly`](crate::buffers::ReadOnly)).
+    ReadOnlyBuffer {
+        /// The buffer's file.
+        path: PathBuf,
+        /// Why it is read-only.
+        why: crate::buffers::ReadOnly,
+    },
+    /// A save of this buffer is already running: saves of one buffer are
+    /// serialized ([`tidepool_text::History::checkpoint`]).
+    SaveInFlight {
+        /// The buffer's file.
+        path: PathBuf,
+    },
+    /// A folder the [file tree](crate::files) does not read: one outside
+    /// the root, named with `..`, or reached through a symbolic link or
+    /// something that is not a folder, as Git does not follow a link.
+    NotBrowsable {
+        /// The folder, relative to the root.
+        path: PathBuf,
+    },
+    /// A session file whose contents are not a session
+    /// ([`session`](crate::session)).
+    BadSessionFile {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong, such as "`layout` is missing, or is not a table".
+        reason: &'static str,
+    },
+    /// A session file that holds another folder's session, as when two
+    /// folders' names gave it the same name, so it is not used
+    /// (ADR-0068).
+    OtherFolder {
+        /// The file.
+        path: PathBuf,
+        /// The folder the session was asked for.
+        folder: PathBuf,
     },
 }
 
@@ -304,6 +360,36 @@ impl fmt::Display for WorkspaceError {
                 "`{}` is not written, as no trusted folder gave it",
                 path::display(path)
             ),
+            Self::Load { path, source } => {
+                write!(f, "cannot open `{}`: {source}", path::display(path))
+            }
+            Self::NoBuffer { id } => write!(f, "no buffer {} is open", id.get()),
+            Self::ReadOnlyBuffer { path, why } => {
+                write!(f, "`{}` is read-only: {why}", path::display(path))
+            }
+            Self::SaveInFlight { path } => write!(
+                f,
+                "`{}` is being saved already; a save waits for the last one",
+                path::display(path)
+            ),
+            Self::NotBrowsable { path } => write!(
+                f,
+                "`{}` is not a folder of the workspace reached without a symbolic link",
+                path::display(path)
+            ),
+            Self::BadSessionFile { path, reason } => {
+                write!(
+                    f,
+                    "`{}` is not a session file: {reason}",
+                    path::display(path)
+                )
+            }
+            Self::OtherFolder { path, folder } => write!(
+                f,
+                "`{}` holds another folder's session, not `{}`'s",
+                path::display(path),
+                path::display(folder)
+            ),
         }
     }
 }
@@ -314,7 +400,7 @@ impl Error for WorkspaceError {
             Self::Path(error) => Some(error),
             Self::Read { source, .. } | Self::CreateFolder { source, .. } => Some(source),
             Self::Toml { source, .. } | Self::Edit { source, .. } => Some(source),
-            Self::Save { source, .. } => Some(source),
+            Self::Save { source, .. } | Self::Load { source, .. } => Some(source),
             Self::Unwritable { reason, .. } => Some(reason.as_ref()),
             _ => None,
         }

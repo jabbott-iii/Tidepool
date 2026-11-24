@@ -249,9 +249,8 @@ made: a caller makes a folder before writing into it.
 
 ### File metadata for saves
 
-A save renames a new file over the old one (ADR-0025), so before it
-`workspace::buffers` (M4.11) asks `platform::file` (M4.10, ADR-0068) two
-things:
+A save renames a new file over the old one (ADR-0025). `platform::file`
+(M4.10, ADR-0068) answers two questions about it:
 
 - the file's link count, owner, group and permission bits, from
   `stat(2)` through `std`, following links;
@@ -270,6 +269,14 @@ things:
 
 The folder asked about is the one holding the file the save reaches after
 its links, not the folder of a link to it.
+
+`workspace::buffers` (M4.11) does not use that rule. It asks the first
+question twice, of the file and of the save's own temporary file, just
+before the rename: the temporary file is the new file the rename puts
+there, so its owner and group are what the file will have, on every file
+system that reports owners, `bsdgroups` and NFS squashing included
+(ADR-0069). An error, or an overflow id on either side, still means not
+knowing, and the save asks.
 
 ### Managed tools on Linux
 

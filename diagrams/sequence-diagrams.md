@@ -4,7 +4,8 @@ These diagrams follow Tidepool's flows through time: who calls whom, in
 what order, and what comes back. Sections 1 to 7 are read from the code:
 `cargo xtask ci` and its `golden` step, `cargo xtask fuzz-smoke` and its
 engine, and loading,
-saving, editing and undoing text in `tidepool-text`, and so are 8.2 and
+saving, editing and undoing text in `tidepool-text`, with a buffer's save
+in `tidepool-workspace`, which looks before it renames (6.2), and so are 8.2 and
 8.3, the main loop to the first frame, with the settings of 8.1, and so
 is section 14, a tooltip's delay, which the shell times. Sections 9 to 13
 are the flows the specs plan, from a keystroke to signing an Android
@@ -368,12 +369,15 @@ sequenceDiagram
 `Decoder`, which picks the encoding from a byte-order mark alone
 (`crates/text/src/file.rs`, `encoding.rs`). Nothing is written. A file
 with bytes that are not text loads read-only, with those bytes kept beside
-the text. Today the callers are tests; `workspace::buffers` runs loads on
-workers from M4.11.
+the text. The caller is a `workspace::buffers` `LoadJob`, which a worker
+runs, or a test (M4.11): `Buffers::open` gives the job, `LoadJob::run`
+canonicalizes the path and calls `load`, and `Buffers::finish_load` makes
+the buffer, read-only when `is_large` or with no `Format`, or finds the
+one already open under that canonical path.
 
 ```mermaid
 sequenceDiagram
-    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.11)
+    participant Caller as caller: a buffers<br/>LoadJob on a worker,<br/>or a test
     participant Load as text file load
     participant Dec as text encoding Decoder
     participant Fs as file system
@@ -394,7 +398,7 @@ sequenceDiagram
     Load->>Load: LineEndings::of(text),<br/>the trailing break,<br/>the bytes read
     Load-->>Caller: Loaded
     Caller->>Load: is_large()
-    Load-->>Caller: true above LARGE_FILE_BYTES,<br/>16 MiB, for the buffers'<br/>large-file mode (M4.11)
+    Load-->>Caller: true above LARGE_FILE_BYTES,<br/>16 MiB: the buffer opens<br/>read-only (M4.11)
     Caller->>Load: format()
     alt bytes were replaced
         Load-->>Caller: None, and read_only() is true:<br/>the file is not to be<br/>written back
@@ -414,18 +418,22 @@ directory sync after the rename is skipped where the directory cannot be
 opened (always on Windows, where `std` cannot open one; on Unix, one the
 user may not read) or the file system refuses to sync one (`EINVAL`,
 `ENOTSUP`); any other error syncing it fails the save, with the new text
-already in place.
+already in place. 6.1 draws the save, which is also two public steps,
+`prepare` and `PreparedSave::commit` (ADR-0069), and 6.2 how a buffer
+uses those steps to look before it renames (M4.11).
+
+### 6.1 The save, in its two steps
 
 ```mermaid
 sequenceDiagram
-    participant Caller as caller: a test today,<br/>workspace buffers on<br/>a worker (M4.11)
+    participant Caller as caller: a buffers<br/>SaveJob on a worker,<br/>or a test
     participant Hist as text History
-    participant Save as text file save
+    participant Save as text file save,<br/>or prepare then commit
     participant Fs as file system
 
     Caller->>Hist: checkpoint()
     Hist-->>Caller: Checkpoint: the sealed<br/>revision and its exact text
-    Caller->>Save: save(path, checkpoint.text(), format)
+    Caller->>Save: save(path, checkpoint.text(), format),<br/>or prepare with the same
     loop at most 40 symbolic links
         Save->>Fs: symlink_metadata, read_link,<br/>where Windows' rules apply<br/>canonicalize the link's directory
     end
@@ -438,9 +446,17 @@ sequenceDiagram
     Save->>Fs: create_new a temp file named<br/>.tidepool-save- and a fixed-length<br/>suffix, in the target's directory
     Note over Save,Fs: Mode 0600 on Unix for an existing<br/>target, so no other process opens it<br/>first: the one cfg(unix) in the library<br/>of text. Up to 16 names are tried.
     Save->>Fs: encode(text, format) through a<br/>64 KiB BufWriter, the BOM first<br/>if the format has one
-    Save->>Fs: the target's permissions, less<br/>setuid and setgid on Unix
+    opt save, not prepare
+        Save->>Fs: the target's permissions, less<br/>setuid and setgid on Unix
+    end
     Save->>Fs: sync_all
     alt every step so far succeeded
+        opt the caller called prepare
+            Save-->>Caller: a PreparedSave: target(),<br/>temp_path(), replaces(), the<br/>temp file still 0600 on Unix
+            Note over Caller,Save: The caller may look at both files<br/>now (6.2), while no one else can read<br/>the temp file. Dropping the PreparedSave<br/>removes it, and the target stays<br/>as it was.
+            Caller->>Save: commit()
+            Save->>Fs: the target's permissions, less<br/>setuid and setgid on Unix, then<br/>sync_all again
+        end
         Save->>Fs: close the temp file, rename it over<br/>the target, so links stay links
         Save->>Fs: sync the directory, skipped where<br/>it cannot be opened or the file<br/>system refuses (EINVAL, ENOTSUP)
         alt the directory synced, or the sync was skipped
@@ -455,6 +471,86 @@ sequenceDiagram
         Save-->>Caller: TextError::Io with its FileStep,<br/>the target as it was
     end
 ```
+
+### 6.2 A buffer's save, which looks before the rename (M4.11)
+
+The rename puts a new file at the path: it splits a hard link, and the
+new file takes the owner and group the file system gives a file made
+there. So a save in `SaveMode::Check`, the default, reads the target and
+its own temporary file between the two steps, and stops to ask when the
+rename would change the file's links, owner or group, or it cannot tell
+(ADR-0068, ADR-0069). The tests of `tidepool-workspace` own the `Buffers`
+and run each job on a thread of their own; the binary's main loop, its
+workers, the channel back and the dialog that asks the user are planned
+(M4.3).
+
+```mermaid
+sequenceDiagram
+    participant Owner as owner of the Buffers,<br/>on the main thread
+    participant Bufs as workspace Buffers
+    participant Worker as worker thread:<br/>SaveJob run
+    participant TFile as text file
+    participant PFile as platform file metadata
+
+    Owner->>Bufs: save(id, SaveMode::Check)
+    Bufs->>Bufs: refuse a read-only buffer<br/>(ReadOnlyBuffer) or one<br/>being saved (SaveInFlight),<br/>then History::checkpoint
+    Bufs-->>Owner: a SaveJob: the buffer, its<br/>version, a ticket, the<br/>checkpoint's text, the Format
+    Owner-)Worker: the SaveJob
+    Worker->>TFile: prepare(path, text, format)
+    TFile-->>Worker: a PreparedSave, its temp file<br/>written and synced (6.1),<br/>or a TextError
+    Worker->>PFile: metadata(target())
+    PFile-->>Worker: its link count, owner<br/>and group, or an error
+    alt the target did not exist, replaces() is false, and none is there now
+        Worker->>TFile: commit()
+    else the rename would replace a file, or one appeared since prepare
+        Worker->>PFile: metadata(temp_path())
+        PFile-->>Worker: the owner and group the file<br/>system gave the new file
+        Worker->>Worker: a SaveQuestion when a file appeared,<br/>more than one link, another user<br/>or group, an error, or OVERFLOW_ID,<br/>65534
+        alt no question
+            Worker->>TFile: commit(): rename,<br/>sync the directory
+        else a question
+            Worker->>Worker: drop the PreparedSave,<br/>which removes the temp file
+        end
+    end
+    Worker-)Owner: a SaveDone: the buffer, the ticket,<br/>the version, and Saved, Asks<br/>or Failed
+    Owner->>Bufs: finish_save(done)
+    alt the buffer was closed, or waits for another save
+        Bufs-->>Owner: SaveReport::Stale
+    else saved
+        Bufs->>Bufs: History::mark_saved(checkpoint)
+        Bufs-->>Owner: SaveReport::Saved with the version
+    else asks
+        Bufs-->>Owner: SaveReport::Asks with<br/>the SaveQuestion
+        Note over Owner,Bufs: The owner asks the user: write in<br/>place, save as a new file, or cancel,<br/>which is doing nothing. The dialog<br/>is planned (M4.3).
+        opt the user answers
+            Owner->>Bufs: save(id, SaveMode::InPlace<br/>or SaveMode::NewFile)
+            Bufs-->>Owner: a new SaveJob
+            Owner-)Worker: the SaveJob
+            Worker->>TFile: write_in_place(path, text, format)<br/>for InPlace, save for NewFile
+            Worker-)Owner: a SaveDone, which<br/>finish_save takes as above
+        end
+    else failed
+        Bufs->>Bufs: History::clear_saved after a failure<br/>at WriteInPlace, SetLength,<br/>SyncInPlace or SyncDirectory
+        Bufs-->>Owner: SaveReport::Failed with<br/>the WorkspaceError
+    end
+```
+
+- `write_in_place` follows the links as `save` does, refuses anything but
+  an existing regular file the user may write, opens it without creating
+  or truncating it, writes the encoded text over it, cuts it to the new
+  length and syncs it. The file keeps its links, owner, group, permission
+  bits, access list and extended attributes, but a crash or a full disk
+  during the write leaves the new text's start over the old text's end.
+- The check runs just before the rename, so another process can change
+  the target unseen only for as long as the two `stat` calls take
+  (ADR-0069). The temporary file stays private until the commit gives it
+  the target's permissions, so its group, which may not be the target's,
+  never reads the new text (M4.11's security review).
+- An answer is not yet tied to the file it was asked about: M4.3 adds the
+  device and inode number to the metadata and the question, and compares
+  them before it acts (ADR-0069).
+- Where `platform` cannot read metadata yet (macOS until M11.8, Windows
+  until M12.2), every save over an existing file asks.
 
 ## 7. An edit, its undo and its redo
 
@@ -651,6 +747,8 @@ keys to it; `Transaction` and `History`
 are built (M1.2), and so are the keymap engine, which resolves a key in
 its mode to a named command (M4.6, ADR-0064), the editing commands, which
 run on every cursor and commit through the history (M4.2, ADR-0065), the
+buffers, whose `Buffer::edit` raises a buffer's version before an edit
+(M4.11), the
 editor view, which the binary shows from M4.3 (M4.1, ADR-0063), core's `InputEvent` (M0.2), `platform`'s
 events (M2.2), `ui`'s routing of an event and its frames with their damage
 (M3.1, ADR-0046), `gui`'s painter of those frames (M3.5, ADR-0048), and
@@ -687,18 +785,18 @@ sequenceDiagram
 sequenceDiagram
     participant ML as app main loop<br/>(built, M3.8)
     participant Keys as editor keymap<br/>engine (built, M4.6)
-    participant Cmd as editor command (built, M4.2)<br/>and buffer (M4.11)
+    participant Cmd as editor command (built, M4.2)<br/>and buffer (built, M4.11)
     participant Txt as text Transaction<br/>and History (built)
     participant Bg as syntax worker, lang,<br/>agent (M6.2, M6.7, M9.4)
 
-    Note over ML,Bg: planned M4.3. Transaction and History (M1.2),<br/>the loop (M3.8), the keymap engine (M4.6)<br/>and the editing commands (M4.2) are built.
+    Note over ML,Bg: planned M4.3. Transaction and History (M1.2),<br/>the loop (M3.8), the keymap engine (M4.6),<br/>the editing commands (M4.2) and the<br/>buffers (M4.11) are built.
     ML->>Keys: the key, in the current<br/>mode: the default keymap<br/>has one, vim mode adds<br/>the rest (M7.2)
     Keys->>Cmd: a named command, such<br/>as typing a character
+    Cmd->>Cmd: Buffer::edit: the buffer's<br/>version goes up by one, and<br/>its Rope and History are lent
     Cmd->>Txt: Transaction::change_each(text,<br/>selection, an edit per cursor)
     Txt-->>Cmd: a Transaction
     Cmd->>Txt: History::commit(text, transaction,<br/>selection before, now,<br/>Group::Coalesce)
     Txt-->>Cmd: a Step: the change<br/>sets and the selection
-    Cmd->>Cmd: the buffer's version<br/>goes up by one
     Cmd-)Bg: a rope snapshot, a cheap clone,<br/>with the version: highlight,<br/>didChange, agent request
     Note over ML,Bg: The main thread sends, and never waits.<br/>A slow LSP server or agent adds 0 ms.
 ```
@@ -723,7 +821,7 @@ sequenceDiagram
     Plat->>Disp: XPutImage
     Note over ML,Disp: Keystroke to pixels: p99 within 16 ms<br/>at 1920x1080 on the reference machine
     Bg-)ML: a Msg with the version it was made for, through mpsc (M4.3),<br/>and the Waker ends wait_events
-    ML->>ML: handle_message on a<br/>later turn (M4.3): a result<br/>for an older version is dropped
+    ML->>ML: handle_message on a<br/>later turn (M4.3): a result<br/>for an older version is dropped,<br/>as Buffers::is_current tells (M4.11)
 ```
 
 ## 10. An LSP request and a stale result (planned)
@@ -1080,6 +1178,8 @@ sequenceDiagram
   `crates/gui/tests/components/mod.rs`, `crates/gui/tests/overlays/mod.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `transaction.rs`,
   `history.rs`, `pos.rs`, `lib.rs`
+- `crates/workspace/src/buffers.rs`, `crates/workspace/tests/buffers.rs`;
+  `crates/platform/src/file.rs`
 - `crates/core/src/cli.rs`, `input.rs`, `hash.rs`
 - `crates/app/src/main.rs`, `crates/app/README.md`
 - `crates/gui/src/frontend.rs`, `first_frame.rs`, `paint.rs`
@@ -1097,5 +1197,5 @@ sequenceDiagram
   `agents.md`, `mobile.md`
 - `docs/decisions.md`: ADR-0002, ADR-0007, ADR-0009, ADR-0012, ADR-0014,
   ADR-0016, ADR-0017, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0044,
-  ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0052
+  ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0052, ADR-0068, ADR-0069
 - `docs/roadmap.md`: the tasks named in each section

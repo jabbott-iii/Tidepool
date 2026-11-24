@@ -53,7 +53,7 @@ struct ReadmeDoctests;
 
 pub use encoding::{Decoded, Decoder, Encoding, Format};
 pub use error::TextError;
-pub use file::{FileStep, LineEndings, Loaded};
+pub use file::{FileStep, LineEndings, Loaded, PreparedSave};
 pub use history::{Checkpoint, Group, GroupId, History, RevisionId, Step};
 pub use pos::{LineBreak, LineCol, LineSpan, Unit};
 pub use rope::{Rope, RopeBuilder};

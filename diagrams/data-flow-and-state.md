@@ -7,7 +7,8 @@ agent's context, and fuzz smoke. Sections 6 to 14 are state diagrams: the
 fuzz engine's run, a text `History`, a saved file, workspace trust, vim
 mode, a managed tool, a language session, `ui`'s press guard around a
 modal, and a toast and the column of toasts. The text engine, the fuzz engine, fuzz smoke,
-and `ui`'s overlays are built; the rest is planned.
+`ui`'s overlays, and the workspace's trust (M4.7) and its buffers, file
+tree and sessions (M4.11) are built; the rest is planned.
 
 Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1). What the code has is drawn solid; what the roadmap plans is dashed and labelled with the task that builds it (ADR-0029).
 
@@ -41,12 +42,13 @@ Drawn from the code and docs as of roadmap task M3.3 (2026-11-22, version 0.1). 
 ## 1. Data flow: a file through `tidepool-text` (built)
 
 A caller loads a file, edits its rope through its `History`, and saves a
-revision atomically (ADR-0025). Today the caller is `tidepool-text`'s own
-tests; `workspace::buffers` takes that place in M4.11 (section 2).
+revision atomically (ADR-0025), or writes it in place (ADR-0069). The
+caller is `workspace::buffers`, whose jobs run these calls on a worker
+(M4.11, section 2), and `tidepool-text`'s own tests.
 
 ```mermaid
 flowchart TB
-    caller["Caller<br/>today the tests<br/>of tidepool-text"]
+    caller["Caller<br/>workspace::buffers'<br/>jobs (M4.11), and<br/>the tests of<br/>tidepool-text"]
     disk[("File on disk<br/>the target, symbolic<br/>links followed")]
     temp[("Temporary file<br/>beside the target<br/>.tidepool-save-PID-<br/>COUNT-TIME.tmp")]
     rope[("The buffer's Rope<br/>held by the caller,<br/>O(1) snapshots")]
@@ -54,7 +56,8 @@ flowchart TB
     load(["file::load<br/>regular files only,<br/>64 KiB blocks into<br/>encoding::Decoder"])
     edit(["History::commit, undo,<br/>redo, jump_to<br/>change the Rope and<br/>the History, both<br/>or neither"])
     ckpt(["History::checkpoint<br/>seals the current<br/>revision"])
-    save(["file::save<br/>resolve links, temp file,<br/>encoding::encode, sync,<br/>rename, sync the<br/>directory"])
+    save(["file::save: prepare,<br/>then PreparedSave::commit<br/>resolve links, temp file,<br/>encoding::encode, sync;<br/>then rename, sync the<br/>directory"])
+    inplace(["file::write_in_place<br/>resolve links, open the<br/>file without creating or<br/>truncating it, encode<br/>over it, set_len, sync"])
     mark(["History::mark_saved<br/>the checkpoint's<br/>revision is on disk"])
 
     disk -->|"bytes"| load
@@ -71,8 +74,13 @@ flowchart TB
     ckpt -->|"Checkpoint::text,<br/>with the Format"| save
     save -->|"the encoded bytes,<br/>BOM first if the<br/>Format has one"| temp
     temp -->|"renamed over<br/>the target"| disk
+    save -->|"between the steps:<br/>the PreparedSave's<br/>target and temp_path"| caller
     save -->|"Ok"| mark
     save -->|"TextError with<br/>its FileStep"| caller
+    ckpt -->|"Checkpoint::text,<br/>when the caller<br/>writes in place"| inplace
+    inplace -->|"the encoded bytes<br/>over the old ones,<br/>cut to their length"| disk
+    inplace -->|"Ok"| mark
+    inplace -->|"TextError at WriteInPlace,<br/>SetLength or SyncInPlace"| caller
     mark -->|"the saved revision"| hist
 
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
@@ -82,7 +90,7 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class caller,disk external
     class temp,rope,hist store
-    class load,edit,ckpt,save,mark built
+    class load,edit,ckpt,save,inplace,mark built
 ```
 
 - Decoding never fails: bytes that are not text become U+FFFD and are kept
@@ -91,47 +99,71 @@ flowchart TB
   unchanged file saves byte for byte (ADR-0019).
 - An error before the rename removes the temporary file and leaves the
   target untouched; a crash before it leaves the temporary file behind.
+  Dropping a `PreparedSave` instead of committing it also removes the
+  temporary file and leaves the target untouched: that is how a caller
+  that looked between the steps cancels (ADR-0069).
+- A write in place keeps the file itself, with its links, owner and
+  group, but is not atomic: a crash or a full disk during it leaves the
+  new text's start over the old text's end.
 
-## 2. Data flow: buffers, watching and session around the text engine (planned)
+## 2. Data flow: buffers, the file tree, watching and sessions around the text engine (built, and planned where the views, watching and recovery add to it)
 
-The workspace wraps section 1: buffers keyed by canonical path, loaded and
-saved on workers, watched for outside changes, and remembered in the
-session. None of it is built; the text engine it calls is, and so are
-`platform`'s file metadata (M4.10) and the editing commands, which commit
-to a rope's `History` themselves until M4.11's buffers hold it (M4.2,
-ADR-0065).
+The workspace wraps section 1: buffers keyed by canonical path, loaded
+and saved by jobs that a worker runs, a folder's file tree read a folder
+at a time, watched for outside changes, and remembered in a session. The
+buffers, the file tree model and the sessions are built (M4.11, ADR-0068,
+ADR-0069), with the text engine they call, `platform`'s file metadata
+(M4.10), the ignore files (M4.7), and the editing commands, which commit
+to a rope's `History` themselves until M4.3 puts them over a buffer
+(M4.2, ADR-0065). Who runs the jobs, the channel that brings their
+results back to the main loop, the views that show buffers and rows, the
+save dialog and restoring a session are M4.3's; watching is M4.5's, and
+recovery M4.9's.
 
 ```mermaid
 flowchart TB
     user["User<br/>edits, saves,<br/>opens folders"]
     fsEvents["OS file events<br/>inotify on Linux"]
     disk[("Files on disk")]
-    text(["tidepool-text<br/>file::load, History,<br/>file::save, as in<br/>section 1"])
+    text(["tidepool-text<br/>file::load, History,<br/>prepare and commit,<br/>save, write_in_place,<br/>as in section 1"])
     cmds(["editor commands, editor::edit<br/>edits as Transactions,<br/>one command one<br/>undo step (M4.2)"])
-    buffers(["workspace::buffers<br/>keyed by canonical path,<br/>loads and saves on<br/>workers, large-file<br/>mode above 16 MB<br/>planned M4.11"])
-    meta(["platform::file<br/>link count, owner<br/>and group, and a new<br/>file's owner (M4.10)"])
+    buffers(["workspace::buffers<br/>Buffers keyed by canonical<br/>path, each a Rope, its<br/>History and a Version;<br/>read-only above<br/>16 MiB (M4.11)"])
+    worker(["LoadJob, SaveJob and<br/>ReadDirJob run on a<br/>worker thread (M4.11);<br/>the binary's workers,<br/>planned M4.3"])
+    meta(["platform::file<br/>metadata: link count,<br/>owner and group (M4.10)"])
+    files(["workspace::files<br/>FileTree: a folder at a<br/>time, at most 10,000<br/>entries a folder, each<br/>with its ignore<br/>state (M4.11)"])
+    folder(["workspace::folder<br/>the ignore files (M4.7)"])
     watcher(["platform file watching<br/>inotify<br/>planned M4.5"])
     watch(["workspace::watch<br/>debounced file events,<br/>polling fallback<br/>planned M4.5"])
-    session(["workspace::session<br/>open editors, layout,<br/>cursors<br/>planned M4.11"])
-    sessionStore[("Session state<br/>in the user data<br/>directory<br/>planned M4.11")]
+    session(["workspace::session<br/>Session: the editors,<br/>splits, selections and<br/>scroll, read within<br/>limits (M4.11)"])
+    sessionStore[("sessions/ in the user<br/>data folder, one TOML<br/>file a folder, named by<br/>the SHA-256 of its<br/>path (M4.11)")]
     recovery[("recovery/<br/>unsaved buffers<br/>after a crash<br/>planned M4.9")]
 
     user -.->|"keys and commands,<br/>planned M4.3: the binary<br/>shows an editor"| cmds
     cmds -->|"commit, undo, redo<br/>through History (M4.2)"| text
-    cmds -.->|"Transactions,<br/>planned M4.3"| buffers
-    buffers -.->|"load, commit, checkpoint,<br/>save, mark_saved,<br/>planned M4.11"| text
+    cmds -.->|"Transactions through<br/>Buffer::edit, planned M4.3"| buffers
+    buffers -->|"History::new, checkpoint,<br/>mark_saved, clear_saved<br/>(M4.11)"| text
+    buffers -->|"LoadJob: a path;<br/>SaveJob: the Checkpoint's<br/>text, Format, SaveMode<br/>(M4.11)"| worker
+    worker -->|"load; prepare, then<br/>commit or drop; save;<br/>write_in_place (M4.11)"| text
     disk -->|"bytes"| text
-    text -->|"the atomic save"| disk
+    text -->|"the atomic save,<br/>or a write in place"| disk
     disk -->|"link count, owner,<br/>group (M4.10)"| meta
-    meta -.->|"before a save: a second<br/>hard link, or another<br/>owner or group,<br/>planned M4.11"| buffers
-    buffers -.->|"a question before such<br/>a save: in place, a new<br/>file or cancel, planned<br/>M4.11, its dialog M4.3"| user
+    meta -->|"the target's links, owner<br/>and group, and the temp<br/>file's owner and group,<br/>before the rename (M4.11)"| worker
+    worker -->|"LoadDone; SaveDone:<br/>saved, asks with a<br/>SaveQuestion, or failed,<br/>with the buffer's<br/>version (M4.11)"| buffers
+    buffers -.->|"SaveReport::Asks: in place,<br/>a new file or cancel; its<br/>dialog, planned M4.3"| user
+    files -->|"ReadDirJob: a folder<br/>of the tree (M4.11)"| worker
+    disk -->|"a folder's entries,<br/>links not followed<br/>(M4.11)"| worker
+    disk -->|"the ignore files<br/>(M4.7)"| folder
+    folder -->|"Ignore: the rules from<br/>the root down to the<br/>folder (M4.11)"| worker
+    worker -->|"ReadDirDone: a Listing,<br/>or its error (M4.11)"| files
+    files -.->|"the explorer's rows,<br/>planned M4.3"| user
     buffers -.->|"reload or merge prompts<br/>after an outside change,<br/>planned M4.5"| user
     fsEvents -.->|"changed paths,<br/>planned M4.5"| watcher
     watcher -.->|"file events,<br/>planned M4.5"| watch
     watch -.->|"a file changed on disk,<br/>planned M4.5"| buffers
-    buffers -.->|"the open buffers,<br/>planned M4.11"| session
-    session -.->|"saved, planned M4.11"| sessionStore
-    sessionStore -.->|"loaded, planned M4.11;<br/>restored on start, M4.3"| session
+    cmds -.->|"each editor's path,<br/>selection and scroll,<br/>planned M4.3"| session
+    session -->|"Session::save: to_text,<br/>then text::file::save<br/>(M4.11)"| sessionStore
+    sessionStore -->|"Session::load: parse,<br/>another folder's<br/>refused (M4.11)"| session
+    session -.->|"restored when the<br/>folder opens,<br/>planned M4.3"| cmds
     buffers -.->|"the panic hook saves<br/>unsaved buffers,<br/>planned M4.9"| recovery
     recovery -.->|"offered on the next<br/>start, planned M4.9"| user
 
@@ -142,18 +174,28 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class user person
     class fsEvents,disk external
-    class text,cmds,meta built
-    class buffers,watcher,watch,session,sessionStore,recovery planned
+    class text,cmds,buffers,worker,meta,files,folder,session built
+    class sessionStore store
+    class watcher,watch,recovery planned
 ```
 
 - A save renames a new file over the old one, which splits a hard link
-  and gives the file the saver's owner and group (ADR-0025). So buffers
-  check the link count, owner and group first, and ask whether to write
-  in place or save as a new file (M4.11, ADR-0068).
+  and gives the file the saver's owner and group (ADR-0025). So a save in
+  `SaveMode::Check`, the default, reads the target's link count, owner
+  and group and the temporary file's owner and group just before the
+  rename, and when they would change, or cannot be known, drops the
+  prepared save and asks whether to write in place or save as a new file
+  (M4.11, ADR-0068, ADR-0069). `sequence-diagrams.md` section 6.2 draws
+  it.
+- Each result carries what it was made for: a save its buffer, version
+  and ticket, so a save of a closed buffer is `SaveReport::Stale`; a
+  folder's read its request, so `FileTree::finish` drops one that a later
+  read replaced.
 - The reload or merge prompts after an outside change come with file
   watching (M4.5), whose acceptance checks them.
 - Only the main thread touches buffers; other threads get immutable rope
-  snapshots (`docs/01-architecture.md` → "Threading model").
+  snapshots (`docs/01-architecture.md` → "Threading model"), as a
+  `SaveJob` does.
 
 ## 3. Data flow: a managed tool's install (planned)
 
@@ -249,15 +291,15 @@ Tidepool assembles every byte an agent receives, gated by consent and
 workspace trust and filtered by the context rules; the agent answers over
 TAP, and an edit comes back only as a proposal for the user to review
 (ADR-0009, `docs/subsystems/agents.md`). Only `History`, where an accepted
-proposal lands, the trust store, and the ignore files' matching (M4.7,
-ADR-0067) are built.
+proposal lands, the trust store, the ignore files' matching (M4.7,
+ADR-0067), and the open buffers (M4.11) are built.
 
 ```mermaid
 flowchart TB
     user["User"]
     agentProc["Language agent<br/>a process speaking<br/>TAP on stdin<br/>and stdout"]
     files[("Workspace files<br/>on disk")]
-    buffers[("Open buffers<br/>rope snapshots from<br/>workspace::buffers<br/>planned M4.11")]
+    buffers[("Open buffers<br/>rope snapshots from<br/>workspace::buffers<br/>(M4.11)")]
     symbols(["Symbols from<br/>tidepool-lang<br/>document and<br/>workspace symbols<br/>planned M6.8"])
     manifest[("agent.toml<br/>in the user and<br/>workspace agent<br/>directories<br/>planned M9.3")]
     grants[("Consent grants<br/>in settings.toml<br/>planned M9.3")]
@@ -300,9 +342,9 @@ flowchart TB
     classDef store fill:#1168bd,stroke:#0b4884,color:#ffffff
     class user person
     class agentProc,files external
-    class hist,trustStore store
+    class hist,trustStore,buffers store
     class ignore built
-    class buffers,symbols,manifest,grants,consent,context,rules,host,agentLog,checks,ghost,proposal planned
+    class symbols,manifest,grants,consent,context,rules,host,agentLog,checks,ghost,proposal planned
 ```
 
 - The deny-list applies always, beside `.tidepoolignore`: `.env*`,
@@ -332,7 +374,7 @@ flowchart TB
     test(["A target's test<br/>in tests/fuzz.rs<br/>Target::run: Config<br/>from the environment,<br/>reads the inputs"])
     engine(["fuzz engine<br/>unchanged inputs, then<br/>mutated ones, a watchdog<br/>for hangs, the<br/>memory checks"])
     mutator(["mutate<br/>1 to 16 changes,<br/>from a Pcg32 stream<br/>for each input"])
-    parser(["The code under test<br/>json, toml, qoi,<br/>encoding, ttf, theme<br/>or keymap, on a thread<br/>with a 2 MiB stack"])
+    parser(["The code under test<br/>json, toml, qoi,<br/>encoding, ttf, theme,<br/>keymap, ignore, settings<br/>or session, on a thread<br/>with a 2 MiB stack"])
     corpus[("fuzz/corpus/TARGET/<br/>the seeds,<br/>in name order")]
     inPlace[("Seeds read in place<br/>crates/codec/tests/json/,<br/>crates/codec/tests/<br/>toml-test/, themes/,<br/>keymaps/")]
     crashes[("fuzz/crashes/TARGET/<br/>KIND-HASH files,<br/>died-HASH, the<br/>hidden .last-input")]
@@ -370,8 +412,10 @@ flowchart TB
 ```
 
 - The targets are `json`, `toml` and `qoi` in `tidepool-codec`,
-  `encoding` in `tidepool-text`, `ttf` in `tidepool-font`, and `theme` in
-  `tidepool-ui` (M3.2) (`TARGETS` in `xtask/src/fuzz.rs`).
+  `encoding` in `tidepool-text`, `ttf` in `tidepool-font`, `theme` in
+  `tidepool-ui` (M3.2), `keymap` in `tidepool-editor` (M4.6), and
+  `ignore`, `settings` (M4.7) and `session` (M4.11) in
+  `tidepool-workspace` (`TARGETS` in `xtask/src/fuzz.rs`).
 - A file in `fuzz/crashes/TARGET/` is named after its `Kind` and the
   input's FNV-1a hash: `panic-`, `hang-`, `memory-` or `reserve-`, then 16
   hex digits. An unchanged input that fails is named where it is, not
@@ -509,13 +553,13 @@ flowchart LR
   history is dropped.
 - `is_modified` is false exactly at the saved revision, on any branch.
 
-## 8. State: a saved file (built, and planned where the workspace adds to it)
+## 8. State: a saved file (built, and planned where watching and recovery add to it)
 
 What `tidepool-text`'s calls report about one file: `Loaded::read_only`,
-`History::is_modified`, `checkpoint`, `file::save` and `mark_saved`. No
-type holds these states yet; `workspace::buffers` does from M4.11, and adds
-the dashed ones. 8.1 draws what the text engine reports, and 8.2 the
-states the workspace adds.
+`History::is_modified`, `checkpoint`, `file::save` and `mark_saved`. A
+`workspace::buffers::Buffer` holds these states (M4.11). 8.1 draws what
+the text engine reports, and 8.2 the states a buffer adds, with those
+watching and recovery are to add.
 
 ### 8.1 What the text engine reports (built)
 
@@ -529,7 +573,7 @@ stateDiagram-v2
     state "Saving the Checkpoint" as saving
     state "Save failed" as saveFailed
 
-    [*] --> loading: file load, on a<br/>worker from M4.11
+    [*] --> loading: file load, on a worker<br/>in a buffer's LoadJob
     loading --> loadFailed: NotRegularFile, or Io<br/>at Metadata, Open or Read
     loadFailed --> [*]
     loading --> readOnly: bytes were replaced,<br/>so the Loaded format<br/>is None
@@ -550,25 +594,42 @@ stateDiagram-v2
     class loading, loadFailed, readOnly, clean, dirty, saving, saveFailed built
 ```
 
-### 8.2 What the workspace adds
+### 8.2 What a buffer adds
+
+A `workspace::buffers::Buffer` holds the states of 8.1 and adds its own
+(M4.11, ADR-0068, ADR-0069): a large file read-only until made editable,
+and a save that stops to ask before its rename would change the file's
+identity. Watching (M4.5) and recovery (M4.9) are to add the dashed
+states.
 
 ```mermaid
 stateDiagram-v2
-    state "Loading" as loading
+    state "Loading<br/>a LoadJob on a worker" as loading
     state "Unmodified" as clean
     state "Modified" as dirty
-    state "Saving the Checkpoint" as saving
-    state "Large-file mode<br/>read-only<br/>planned M4.11" as large
-    state "Save warning<br/>planned M4.11" as warn
+    state "Read-only, Large<br/>more than 16 MiB" as large
+    state "Read-only, NotText<br/>no save Format" as notText
+    state "Saving<br/>a SaveJob in Check mode" as saving
+    state "Asked<br/>SaveReport Asks,<br/>with a SaveQuestion" as asked
+    state "Saving as answered<br/>InPlace or NewFile" as answered
     state "Changed on disk<br/>planned M4.5" as changed
     state "In recovery<br/>planned M4.9" as recovered
 
-    [*] --> loading: file load, as in 8.1
-    loading --> clean: a Format, as in 8.1
-    clean --> dirty: a commit, as in 8.1
-    loading --> large: is_large, more than<br/>16 MiB, planned M4.11
-    dirty --> warn: a second hard link,<br/>or another owner or<br/>group, planned M4.11
-    warn --> saving: the user saves as a<br/>new file or writes in<br/>place, planned M4.11
+    [*] --> loading: Buffers open, then<br/>finish_load
+    loading --> clean: a Format, 16 MiB<br/>or less
+    loading --> large: is_large
+    loading --> notText: bytes were replaced
+    large --> clean: Buffer make_editable
+    clean --> dirty: a commit through<br/>Buffer edit
+    dirty --> clean: undo or redo back<br/>to the saved revision
+    dirty --> saving: Buffers save,<br/>the default mode
+    saving --> clean: one name, and the temp<br/>file's owner and group<br/>are the file's, so<br/>commit and mark_saved
+    saving --> asked: a second hard link,<br/>another owner or group,<br/>or one not known, so<br/>the temp file is removed
+    saving --> dirty: failed, or edited<br/>since the checkpoint
+    asked --> answered: saved again in InPlace<br/>or NewFile mode; the<br/>dialog that asks the<br/>user, planned M4.3
+    asked --> dirty: cancel, nothing<br/>was written
+    answered --> clean: saved, mark_saved
+    answered --> dirty: failed, after a write<br/>in place with<br/>clear_saved
     clean --> changed: the file changed<br/>on disk, planned M4.5
     dirty --> changed: the file changed<br/>on disk, planned M4.5
     changed --> clean: reload, planned M4.5
@@ -577,19 +638,28 @@ stateDiagram-v2
     recovered --> dirty: restored on the next<br/>start, planned M4.9
 
     note left of large
-        Read-only by default, with no highlighting or LSP. The text engine only reports is_large. The mode is the editor's.
+        Read-only by default (ADR-0068), and to get no highlighting or language server when those come (M6.2, M6.7). A buffer of a file that is not text stays read-only; make_editable refuses it.
     end note
 
     classDef built fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef planned fill:#ffffff,stroke:#888888,stroke-dasharray: 5 5,color:#555555
-    class loading, clean, dirty, saving built
-    class large, warn, changed, recovered planned
+    class loading, clean, dirty, large, notText, saving, asked, answered built
+    class changed, recovered planned
 ```
 
-- Saves of one buffer are serialized, so the last `mark_saved` matches the
-  disk (`History::checkpoint`).
+- Saves of one buffer are serialized: a second `Buffers::save` while one
+  runs is `WorkspaceError::SaveInFlight`, so the last `mark_saved` matches
+  the disk (`History::checkpoint`).
+- A question is what a save reports (`SaveReport::Asks`), not a state the
+  buffer keeps: the prepared save was dropped, and the buffer is free to
+  save again. Its answer is a save in `SaveMode::InPlace` or
+  `SaveMode::NewFile`; doing nothing cancels. A new file, which the
+  rename creates, saves without a question.
 - An `Io` error at `FileStep::SyncDirectory` comes after the rename: the
-  new text is in place, but the save reports an error.
+  new text is in place, but the save reports an error. After it, and
+  after a write in place that stopped at `WriteInPlace`, `SetLength` or
+  `SyncInPlace`, `finish_save` forgets which revision is on disk
+  (`History::clear_saved`), so the buffer reads as modified.
 
 ## 9. State: workspace trust (built, and planned where the editor adds to it)
 
@@ -955,14 +1025,17 @@ The docs and code these diagrams were drawn from:
   M9.5, M10.4, M3.3
 - `docs/decisions.md`: ADR-0002, ADR-0006, ADR-0009, ADR-0014, ADR-0016,
   ADR-0019, ADR-0020, ADR-0025, ADR-0027, ADR-0029, ADR-0047, ADR-0052,
-  ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0067, ADR-0068
+  ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0067, ADR-0068, ADR-0069
+- `crates/workspace/src/buffers.rs`, `files.rs`, `session.rs`,
+  `folder.rs`; `crates/platform/src/file.rs`
 - `crates/text/src/file.rs`, `encoding.rs`, `history.rs`,
   `transaction.rs`, `rope.rs`, `selection.rs`, `error.rs`, `lib.rs`
 - `crates/core/src/testing/fuzz.rs`, `testing/fuzz/engine.rs`,
   `testing/fuzz/mutate.rs`, `testing/fuzz/paths.rs`,
   `testing/fuzz/memory.rs`, `rng.rs`, `hash/sha256.rs`
 - `crates/codec/tests/fuzz.rs`, `crates/text/tests/fuzz.rs`,
-  `crates/font/tests/fuzz.rs`, `crates/ui/tests/fuzz.rs`
+  `crates/font/tests/fuzz.rs`, `crates/ui/tests/fuzz.rs`,
+  `crates/editor/tests/fuzz.rs`, `crates/workspace/tests/fuzz.rs`
 - `xtask/src/fuzz.rs`
 - `crates/ui/src/overlay.rs`, `input.rs`, `metrics.rs`, `widgets/toast.rs`
 - `.github/workflows/ci.yml`: the fuzz-smoke step

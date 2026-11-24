@@ -229,7 +229,7 @@ impl Folder {
 
 /// `root` joined with `dir`, if every name of `dir` is a folder reached
 /// without a symbolic link.
-fn real_dir(root: &Path, dir: &Path) -> Option<PathBuf> {
+pub(crate) fn real_dir(root: &Path, dir: &Path) -> Option<PathBuf> {
     let mut path = root.to_path_buf();
     for component in dir.components() {
         path.push(component);

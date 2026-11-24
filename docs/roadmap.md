@@ -2764,7 +2764,7 @@ jabbott.dev, reads as the same design (human review).
     name, the sticky bit is described rightly, a header claim is
     reworded, and the `sys` test removes its folder.
 
-- [ ] **M4.11 — workspace: buffers, the file tree model and session**
+- [x] **M4.11 — workspace: buffers, the file tree model and session**
   - Depends: M4.10, M4.7, M1.2, M1.3, M1.6, M1.9
   - Decide first (ADR-0068, M4.10's security review): how a save tells
     that its rename would split a hard link or change the owner or group:
@@ -2802,6 +2802,64 @@ jabbott.dev, reads as the same design (human review).
     not used.
   - Verify: `cargo test -p tidepool-workspace`; `cargo xtask bench
     workspace`; `cargo xtask fuzz-smoke --target session --secs 60`
+  - Note (2026-11-23): ADR-0069 answers the `Decide first` line with the
+    option the user chose that day, the recommended one: the save checks
+    its own temporary file just before the rename. `text::file` gains a
+    save in two public steps (`prepare`, then `PreparedSave::commit`) and
+    `write_in_place`, so `text` is a fourth crate of this task.
+  - Note (2026-11-23): built. `workspace::buffers` holds buffers by
+    canonical path and hands out `LoadJob`s and `SaveJob`s for workers,
+    whose results carry the buffer, its version and a ticket, so a stale
+    one is `SaveReport::Stale`; a save in `SaveMode::Check` prepares its
+    temporary file, reads it and the target through `platform::file`, and
+    returns `SaveReport::Asks` with a `SaveQuestion` when the target has
+    more than one link, its owner or group differ from the new file's,
+    either is unknown or 65534, or a file appeared at a new file's path;
+    `SaveMode::InPlace` and `SaveMode::NewFile` answer it. `files` reads a
+    folder at a time (`FileTree`, `ReadDirJob`), at most 10,000 entries,
+    each with its ignore state, never through a link. `session` keeps one
+    TOML file a folder in `sessions/`, named by the SHA-256 of the
+    folder's canonical path, refusing another folder's
+    (`WorkspaceError::OtherFolder`), with splits at most 8 deep of 16
+    panes, 64 groups, 1,024 editors and 1,024 cursors an editor, and the
+    fuzz target `session` with `edge-*` seeds at those limits. Tests:
+    `cargo test -p tidepool-workspace` passed (30 unit, 11 `buffers`, 6
+    `files`, 9 `session`, 7 `fuzz`, and the earlier 10 `folder`, 15
+    `settings`, 8 `trust` and 2 doc tests), and `cargo test -p
+    tidepool-text` (37 `files` tests, with 6 new). The owner and group
+    case is tested in a unit test whose metadata reader reports another
+    group for the temporary file, since `workspace` may not use
+    `cfg(unix)` to make a setgid folder; it was also run once by hand
+    against a real setgid folder of another of this user's groups (107
+    against the file's 1000), where the save asked and "write in place"
+    kept the file's group and mode 0640. On systems whose metadata
+    `platform` cannot read yet, every save over a file asks.
+  - Note (2026-11-23): `cargo xtask bench workspace`:
+    `workspace/buffers/open/100mb` at a median of 517 ms (p95 701 ms) at
+    a load near 19, then 343 ms (p95 368 ms) and 336 ms (p95 399 ms) at a
+    load of 2 to 4, the last saved to `bench/baseline.json` on the
+    reference machine: within the 1 s budget. `cargo xtask fuzz-smoke
+    --target session --secs 60` ran clean twice with seed
+    `0xbb8aa7900f353951`: 2,012,557 inputs, then 2,128,726 on the final
+    code, the slowest 7.80 ms (the first run's 652 ms, the 13 KB cursors
+    seed, was a stall at a load near 16 that the same inputs did not
+    repeat; that seed parses and writes in about 1.5 ms in the fuzz
+    profile).
+  - Note (2026-11-23): the security review found no critical or high
+    issue. Fixed: its medium one, that `prepare` gave the temporary file
+    the target's mode before the check while the file kept its own group,
+    so that group could read the new text (it now stays 0600 until
+    `commit`, ADR-0069 amended before its first commit, as the user
+    chose); a save of a new file renaming over a file that appeared
+    meanwhile (it asks); a clippy lint in a test; scratch folders of the
+    new tests (now under `target/`) and of the benchmark (made anew with
+    a name no other run has); and the file tree looks at the folders on
+    its way again after listing. Left, as the user chose: tying an answer
+    to the file asked about by its device and inode, in M4.3. Residual: a
+    folder swapped for a link and back between the tree's two looks can
+    still show another folder's names, and older tests (`folder.rs`,
+    `trust.rs`, `settings.rs`) keep predictable scratch names in the
+    system's temporary folder.
 
 - [ ] **M4.3 — editor: explorer, open editors, tabs, splits, trust prompt; app: folders and sessions**
   - Depends: M4.11, M4.7, M4.2
@@ -2859,6 +2917,16 @@ jabbott.dev, reads as the same design (human review).
     that a save which would split a hard link or change the owner or
     group asks whether to write in place or save as a new file, and that
     a large file loads whole and opens read-only.
+  - Note (2026-11-23): M4.11's security review leaves this task two
+    things (ADR-0069). An answer to the save's question is not tied to the
+    file it was asked about, so this task adds the device and inode number
+    to `platform::file::Metadata` and to `workspace::buffers::SaveQuestion`,
+    and before a save in `SaveMode::InPlace` or `SaveMode::NewFile` acts on
+    an answer, compares them and asks again if the path names another file
+    (the user chose that day to leave it here rather than add `platform`
+    to M4.11). And a session's editors may name files outside the folder,
+    so restoring one opens them as untrusted, as any file of an untrusted
+    folder is.
 
 - [ ] **M4.8 — regex: the engine and Unicode classes**
   - Depends: M0.2, M1.6

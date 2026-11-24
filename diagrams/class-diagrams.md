@@ -3,7 +3,7 @@
 These diagrams show the types the built crates have: `tidepool-core`,
 `tidepool-codec`, `tidepool-text`, `xtask`, `tidepool-bench`,
 `tidepool-sys`, `tidepool-platform`, `tidepool-gfx`, `tidepool-font`,
-`tidepool-gui` and `tidepool-ui`.
+`tidepool-gui`, `tidepool-ui`, `tidepool-editor` and `tidepool-workspace`.
 Each shows what a type owns,
 what it refers to, which traits it implements, and the few fields and
 methods the design rests on, under their names in the code. An overview of
@@ -58,10 +58,15 @@ with `core::color::Color`, and the fuzz targets' result lines with
 `text`, `font`'s `Atlas` and `FontError` (sections 22 and 31), and
 `ui`'s `Palette` and `Row` with `gui`'s `FontMetrics` (M3.3), and
 `editor`'s `EditorView`, which `gui`'s `Painter` paints into `gfx`'s
-`Framebuffer`s (M4.1, section 29.2), and `tidepool-sys` no workspace
-crate (section 23). `tidepool-editor` reads keymaps with `codec::toml`
+`Framebuffer`s (M4.1, section 29.2), and `workspace`'s `Buffers`, which
+open its 100 MB file (M4.11, section 30.2), and `tidepool-sys` no
+workspace crate (section 23). `tidepool-editor` reads keymaps with `codec::toml`
 within its own `keymap::Limits`, wrapping a `codec::CodecError` in its
-`EditorError` (M4.6, section 29.3).
+`EditorError` (M4.6, section 29.3). `tidepool-workspace` uses `core`'s
+paths and log, `codec::toml`, and `text`'s `Rope` and `file::save`
+(M4.7), and, from M4.11, `core`'s SHA-256, `text`'s `History`,
+`Selection` and the rest of `file`, and `platform::file`'s `Metadata`
+and `Owner` (section 30).
 `tidepool-platform` uses `core`'s geometry and input types and `sys`'s
 Linux declarations (section 24), `tidepool-gfx` `core`'s geometry and
 colors (section 25), and `tidepool-gui` `platform`'s window, `gfx`'s
@@ -1891,7 +1896,13 @@ classDiagram
 whether its last line ends with a break. `file::save` writes the text in
 the given `Format` through a temp file in the same directory, syncs it and
 renames it over the file, keeping its permissions and following symbolic
-links. Each I/O error names the `FileStep` that failed.
+links. Each I/O error names the `FileStep` that failed. Since M4.11
+(ADR-0069) the save is also two public steps: `file::prepare` writes and
+syncs the temp file and returns a `PreparedSave`, which names the target
+it resolved and the temp file, so that a caller can look at both; its
+`commit` renames, and dropping it removes the temp file. `save` is
+`prepare` then `commit`. `file::write_in_place` writes over the existing
+file instead, which keeps its links, owner and group but is not atomic.
 
 ```mermaid
 classDiagram
@@ -1902,6 +1913,15 @@ classDiagram
         +TEMP_PREFIX: str
         +load(path) Result~Loaded~
         +save(path, text, format) Result
+        +prepare(path, text, format) Result~PreparedSave~
+        +write_in_place(path, text, format) Result
+    }
+    class PreparedSave {
+        -temp: Temp
+        +target() Path
+        +temp_path() Path
+        +replaces() bool
+        +commit() Result
     }
     class Loaded {
         -decoded: Decoded
@@ -1933,7 +1953,9 @@ classDiagram
         -dir: PathBuf
         -permissions: Option~Permissions~
         -create(path) Result~Temp~
-        -write(write) Result~Temp~
+        -write(write, permit) Result~Temp~
+        -permit() Result
+        -sync() Result
         -commit() Result
     }
     class Removal {
@@ -1956,15 +1978,20 @@ classDiagram
         Sync
         Rename
         SyncDirectory
+        WriteInPlace
+        SetLength
+        SyncInPlace
     }
     class Decoded["encoding::Decoded"]
     class Format["encoding::Format"]
     class LineBreak["pos::LineBreak"]
     class TextError["text::TextError"]
     FileFns ..> Loaded : load returns
-    FileFns ..> Format : save takes
-    FileFns ..> Temp : save writes through
+    FileFns ..> Format : save, prepare and<br/>write_in_place take
+    FileFns ..> PreparedSave : prepare returns
+    FileFns ..> Temp : prepare writes through
     FileFns ..> TextError : fails with
+    PreparedSave *-- Temp
     Loaded *-- Decoded
     Loaded *-- LineEndings
     Loaded *-- LineBreak : trailing_break
@@ -1973,6 +2000,7 @@ classDiagram
     Drop <|.. Removal
     TextError *-- FileStep : Io
     note for Removal "Removes the temp file on drop<br/>unless the rename disarmed it"
+    note for PreparedSave "Dropping it removes the temp<br/>file; the target stays as it was"
     note for Loaded "is_large is true above<br/>LARGE_FILE_BYTES, 16 MiB,<br/>for the large-file mode"
 ```
 
@@ -2470,9 +2498,11 @@ merged `Baseline` back. `suites::all` lists the 18 text suites, which use
 `tidepool-text`'s `Rope` and `History`, then the font suite, which fills
 `tidepool-font`'s `Atlas` (M2.5), then the ui suite, which repaints a
 `tidepool-ui` `Palette`, its text measured with `tidepool-gui`'s
-`FontMetrics` (M3.3, 28.7), then the three editor suites, which scroll
+`FontMetrics` (M3.3, 28.7), then the editor suites, which scroll
 a `tidepool-editor` `EditorView` and paint it with `tidepool-gui`'s
-`Painter` (M4.1, 29.2).
+`Painter` (M4.1, 29.2) and time keystrokes (M4.2), then the workspace
+suite, which opens a 100 MB file through `tidepool-workspace`'s `Buffers`
+(M4.11, 30.2).
 
 ```mermaid
 classDiagram
@@ -2760,8 +2790,10 @@ crate's `Error`. M2.7 adds the clipboard's `Selection`, which
 finds, and `dirs::android_sdk` and `dirs::rustup_home`, which fail with
 `Error::Unsupported` off Linux. M4.10 adds `file::metadata`, a file's
 `Metadata` (its link count, `Owner` and permission bits), and
-`file::new_file_owner`, the `Owner` of a file made in a folder, which a
-save checks (ADR-0068), and fail the same way off Linux. A `Window` holds its system's backend: X11 on Linux
+`file::new_file_owner`, the `Owner` of a file made in a folder, which
+fail the same way off Linux. `workspace::buffers` reads the `Metadata`
+of a save's target and of its temporary file just before the rename
+(M4.11, ADR-0069, 30.2); nothing calls `new_file_owner` yet. A `Window` holds its system's backend: X11 on Linux
 (24.2), and on every other system one whose `open` fails with
 `Error::Unsupported`. A `Window` is neither `Send` nor `Sync`; a `Waker`
 is both. Input events are `core::input::InputEvent`, in logical units.
@@ -5932,7 +5964,17 @@ classDiagram
   window of at most that many bytes either side of the cursor, copied
   out of the rope; that and the column count are private to `edit`.
 
-## 30. workspace: folders, ignore files, trust and settings
+## 30. workspace: folders, ignore files, trust, settings, buffers, the file tree and sessions
+
+`tidepool-workspace` has the folders, ignore files, trust and settings of
+M4.7 (30.1), and the buffers (30.2), the file tree model (30.3) and the
+sessions (30.4) of M4.11 (ADR-0068, ADR-0069). Everything in it that
+reads or writes a file blocks, so its caller runs that on a worker,
+never on the main thread (`AGENTS.md` rule 6); `buffers` and `files` hand
+out jobs for that, and keep only what the jobs bring back.
+`WorkspaceError` is in section 31.
+
+### 30.1 Folders, ignore files, trust and settings
 
 `folder` (M4.7, ADR-0067) opens a `Folder`, a root by its canonical
 path, and reads its ignore files: each `IgnoreFile` is the `Pattern`s of
@@ -6110,6 +6152,427 @@ classDiagram
   `SettingsFile::workspace` or `workspace_from_bytes` made it, which ask a
   `TrustStore`; `Settings::resolve` uses no other.
 
+### 30.2 Buffers and their jobs
+
+`buffers` (M4.11, ADR-0068, ADR-0069) keeps the open `Buffer`s of a
+`Buffers`, each under a `BufferId` never used again, and finds one by its
+file's canonical path. A `Buffer` holds a `text::Rope` and the
+`text::History` every edit goes through; `Buffer::edit` raises its
+`Version`. `Buffers` never touches the file system: `open` gives a
+`LoadJob` and `save` a `SaveJob`, plain values a worker thread runs, and
+`finish_load` and `finish_save` take back the `LoadDone` and `SaveDone`.
+A save in `SaveMode::Check` writes through `text::file::prepare`, reads
+`platform::file::metadata` of the `PreparedSave`'s target and of its
+temporary file, and builds a `SaveQuestion` from the two. When the rename
+would split a hard link or change the file's owner or group, or either
+cannot be known, the job drops the prepared save, which removes the
+temporary file, and `finish_save` reports `SaveReport::Asks`; the answer
+is a save in `SaveMode::InPlace` (`text::file::write_in_place`) or
+`SaveMode::NewFile` (`text::file::save`). A file of more than
+`LARGE_FILE_BYTES` (16 MiB) opens `ReadOnly::Large` until
+`Buffer::make_editable`; one that is not text stays `ReadOnly::NotText`.
+
+```mermaid
+classDiagram
+    direction LR
+    class BuffersMod["workspace::buffers"] {
+        <<module>>
+        +OVERFLOW_ID: u32
+        +LARGE_FILE_BYTES: u64, from text::file
+        +Owner, from platform::file
+    }
+    class Buffers["workspace::buffers::Buffers"] {
+        -buffers: map of BufferId to Buffer
+        -by_path: map of PathBuf to BufferId
+        -next_id: u64
+        -next_ticket: u64
+        +new() Buffers
+        +open(path) LoadJob
+        +finish_load(done) Result~Opened~
+        +get(id) Option~Buffer~
+        +get_mut(id) Option~Buffer~
+        +find(path) Option~BufferId~
+        +iter() iterator of Buffer
+        +is_current(id, version) bool
+        +close(id) Option~Buffer~
+        +save(id, mode) Result~SaveJob~
+        +finish_save(done) SaveReport
+    }
+    class Buffer["workspace::buffers::Buffer"] {
+        -id: BufferId
+        -path: PathBuf
+        -text: Rope
+        -history: History
+        -format: Option~Format~
+        -file_len: u64
+        -read_only: Option~ReadOnly~
+        -version: Version
+        -saving: Option of a ticket and its Checkpoint
+        +path() Path
+        +text() Rope
+        +history() History
+        +format() Option~Format~
+        +read_only() Option~ReadOnly~
+        +version() Version
+        +is_modified() bool
+        +is_saving() bool
+        +edit() Result of the Rope and History
+        +make_editable() Result
+    }
+    class BufferId["workspace::buffers::BufferId"] {
+        +get() u64
+    }
+    class Version["workspace::buffers::Version"] {
+        +get() u64
+    }
+    class Opened["workspace::buffers::Opened"] {
+        +id: BufferId
+        +already_open: bool
+    }
+    class ReadOnly["workspace::buffers::ReadOnly"] {
+        <<enumeration>>
+        Large
+        NotText
+    }
+    class SaveMode["workspace::buffers::SaveMode"] {
+        <<enumeration>>
+        Check
+        NewFile
+        InPlace
+    }
+    class LoadJob["workspace::buffers::LoadJob"] {
+        -path: PathBuf
+        +path() Path
+        +run() LoadDone
+    }
+    class LoadDone["workspace::buffers::LoadDone"] {
+        -requested: PathBuf
+        -result: Result of the canonical path and its Loaded
+        +requested() Path
+        +canonical() Option~Path~
+    }
+    class SaveJob["workspace::buffers::SaveJob"] {
+        -id: BufferId
+        -ticket: u64
+        -version: Version
+        -path: PathBuf
+        -text: Rope
+        -format: Format
+        -mode: SaveMode
+        +id() BufferId
+        +version() Version
+        +path() Path
+        +mode() SaveMode
+        +run() SaveDone
+    }
+    class SaveDone["workspace::buffers::SaveDone"] {
+        -id: BufferId
+        -ticket: u64
+        -version: Version
+        -outcome: Outcome
+        +id() BufferId
+    }
+    class Outcome["workspace::buffers::Outcome"] {
+        <<enumeration>>
+        Saved
+        Asks
+        Failed
+    }
+    class SaveReport["workspace::buffers::SaveReport"] {
+        <<enumeration>>
+        Saved
+        Asks
+        Failed
+        Stale
+    }
+    class SaveQuestion["workspace::buffers::SaveQuestion"] {
+        -target: PathBuf
+        -links: Option~u64~
+        -owner: Option~Owner~
+        -new_owner: Option~Owner~
+        -appeared: bool
+        +of(target, file, new) Option~SaveQuestion~
+        +target() Path
+        +links() Option~u64~
+        +owner() Option~Owner~
+        +new_owner() Option~Owner~
+        +appeared() bool
+        +splits_link() bool
+        +changes_user() Option~bool~
+        +changes_group() Option~bool~
+    }
+    class Rope["text::Rope"]
+    class History["text::History"]
+    class Checkpoint["text::Checkpoint"]
+    class Loaded["text::file::Loaded"]
+    class PreparedSave["text::file::PreparedSave"]
+    class Metadata["platform::file::Metadata"]
+    class Owner["platform::file::Owner"]
+
+    Buffers *-- "0..*" Buffer
+    Buffers ..> LoadJob : open makes
+    Buffers ..> LoadDone : finish_load takes
+    Buffers ..> Opened : finish_load returns
+    Buffers ..> SaveJob : save makes
+    Buffers ..> SaveDone : finish_save takes
+    Buffers ..> SaveReport : finish_save returns
+    Buffer *-- BufferId : id
+    Buffer *-- Version : version
+    Buffer *-- Rope : text
+    Buffer *-- History
+    Buffer *-- "0..1" ReadOnly
+    Buffer *-- "0..1" Checkpoint : saving
+    Opened --> BufferId
+    LoadJob ..> LoadDone : run returns
+    LoadDone *-- "0..1" Loaded
+    SaveJob --> BufferId
+    SaveJob *-- Version
+    SaveJob *-- SaveMode
+    SaveJob o-- Rope : the checkpoint's text
+    SaveJob ..> PreparedSave : in Check mode, prepare,<br/>then commit or drop
+    SaveJob ..> Metadata : reads the target's<br/>and the temp file's
+    SaveJob ..> SaveDone : run returns
+    SaveDone *-- Outcome
+    Outcome *-- SaveQuestion : Asks
+    SaveReport *-- SaveQuestion : Asks
+    SaveQuestion ..> Metadata : of takes
+    SaveQuestion *-- "0..2" Owner
+    Metadata *-- Owner
+```
+
+- A `SaveJob`'s `ticket` names the save its buffer waits for, so
+  `finish_save` reports `Stale` for a buffer since closed or for another
+  save's result. A second `save` of a buffer before the first finishes is
+  `WorkspaceError::SaveInFlight`.
+- `finish_save` marks the checkpoint's revision saved on `Saved`
+  (`History::mark_saved`), and after a failure at
+  `FileStep::WriteInPlace`, `SetLength`, `SyncInPlace` or `SyncDirectory`
+  forgets which revision is on disk (`History::clear_saved`), so the
+  buffer reads as modified.
+- `SaveQuestion::changes_user` and `changes_group` are `None` when an
+  owner could not be read or is `OVERFLOW_ID` (65534); `SaveQuestion::of`
+  asks then too. A new file, which the rename creates, has nothing to
+  compare, and saves without a question.
+- `Debug` of a `Buffer`, a `SaveJob` and a `LoadDone` shows sizes and
+  states, never the text.
+
+### 30.3 The file tree
+
+`files` (M4.11) reads a `Folder`'s tree a folder at a time.
+`FileTree::expand` opens a folder and, the first time and after a read
+that failed, gives a `ReadDirJob` that lists it (`refresh` always does);
+a worker runs it, and `FileTree::finish`
+keeps the `ReadDirDone`'s `Listing`, or drops it when a later read of the
+folder replaced it. A `Listing` holds at most `MAX_ENTRIES` (10,000)
+`Entry`s, folders first, each with its `EntryKind`, read without
+following a symbolic link, and whether the ignore files above it ignore
+it. `FileTree::rows` flattens what is open into the `Row`s an explorer
+shows, depth first.
+
+```mermaid
+classDiagram
+    direction LR
+    class FilesMod["workspace::files"] {
+        <<module>>
+        +MAX_ENTRIES: usize
+    }
+    class FileTree["workspace::files::FileTree"] {
+        -folder: Folder
+        -limits: IgnoreLimits
+        -dirs: map of PathBuf to Dir
+        -next_request: u64
+        +new(folder) FileTree
+        +with_limits(folder, limits) FileTree
+        +folder() Folder
+        +expand(dir) Result~Option~ReadDirJob~~
+        +refresh(dir) Result~ReadDirJob~
+        +collapse(dir)
+        +finish(done) bool
+        +listing(dir) Option~Listing~
+        +error(dir) Option~WorkspaceError~
+        +problems(dir) slice of WorkspaceError
+        +is_expanded(dir) bool
+        +is_loading(dir) bool
+        +rows() Vec~Row~
+    }
+    class Dir["workspace::files::Dir"] {
+        -expanded: bool
+        -pending: Option~u64~
+        -listing: Option~Listing~
+        -error: Option~WorkspaceError~
+        -problems: Vec~WorkspaceError~
+    }
+    class ReadDirJob["workspace::files::ReadDirJob"] {
+        -folder: Folder
+        -dir: PathBuf
+        -request: u64
+        -limits: IgnoreLimits
+        +dir() Path
+        +run() ReadDirDone
+    }
+    class ReadDirDone["workspace::files::ReadDirDone"] {
+        -dir: PathBuf
+        -request: u64
+        -result: Result~Listing~
+        -problems: Vec~WorkspaceError~
+        +dir() Path
+    }
+    class Listing["workspace::files::Listing"] {
+        -entries: Vec~Entry~
+        -truncated: bool
+        +entries() slice of Entry
+        +is_truncated() bool
+    }
+    class Entry["workspace::files::Entry"] {
+        -name: OsString
+        -kind: EntryKind
+        -ignored: bool
+        +name() OsStr
+        +kind() EntryKind
+        +is_ignored() bool
+    }
+    class EntryKind["workspace::files::EntryKind"] {
+        <<enumeration>>
+        File
+        Folder
+        Link
+        Other
+    }
+    class Row["workspace::files::Row"] {
+        +path: PathBuf
+        +depth: usize
+        +kind: EntryKind
+        +ignored: bool
+        +expanded: bool
+        +loading: bool
+    }
+    class Folder["workspace::folder::Folder"]
+    class IgnoreLimits["workspace::folder::IgnoreLimits"]
+    class Ignore["workspace::folder::Ignore"]
+
+    FileTree *-- Folder
+    FileTree *-- IgnoreLimits
+    FileTree *-- "0..*" Dir
+    FileTree ..> ReadDirJob : expand, refresh make
+    FileTree ..> ReadDirDone : finish takes
+    FileTree ..> Row : rows makes
+    Dir *-- "0..1" Listing
+    ReadDirJob *-- Folder : a clone
+    ReadDirJob ..> Ignore : run reads the<br/>ignore files into
+    ReadDirJob ..> ReadDirDone : run returns
+    ReadDirDone *-- "0..1" Listing
+    Listing *-- "0..*" Entry
+    Entry *-- EntryKind
+    Row *-- EntryKind
+```
+
+- A job's `request` names the read its folder waits for; `finish` returns
+  `false` and keeps nothing for any other.
+- `expand` and `refresh` refuse a path that is not relative or holds `.`
+  or `..` (`WorkspaceError::NotBrowsable`), and a job does too for a
+  folder reached through a symbolic link, as Git does not follow one.
+
+### 30.4 Sessions
+
+`session` (M4.11, ADR-0068) keeps the editors a folder had open: a
+`Session` names the folder's canonical path, a `Layout` tree whose leaves
+are `Group`s of `EditorState`s and whose inner nodes are `Split`s of
+`Pane`s along an `Axis`, and the group that had focus. It lives in one
+TOML file a folder, `sessions/` in the user data folder, named by
+`file_name`, the SHA-256 of the folder's path in hex. `Session::load`
+refuses a file that holds another folder's session
+(`WorkspaceError::OtherFolder`); `parse` reads the file's bytes within the
+limits, and never panics (the fuzz target `session`); `Session::to_text`
+writes only a session that reads back as itself.
+
+```mermaid
+classDiagram
+    direction LR
+    class SessionMod["workspace::session"] {
+        <<module>>
+        +DIR_NAME: str
+        +VERSION: i64
+        +MAX_FILE_BYTES: u64
+        +MAX_DEPTH: usize
+        +MAX_PANES: usize
+        +MAX_GROUPS: usize
+        +MAX_EDITORS: usize
+        +MAX_CURSORS: usize
+        +MAX_PATH_BYTES: usize
+        +parse(bytes, path) Result~Session~
+        +file_name(folder) String
+        +path_in(data_dir, folder) PathBuf
+    }
+    class Session["workspace::session::Session"] {
+        +folder: PathBuf
+        +layout: Layout
+        +active_group: usize
+        +new(folder) Session
+        +groups() Vec~Group~
+        +load(data_dir, folder) Result~Option~Session~~
+        +save(data_dir) Result
+        +to_text() Result~String~
+    }
+    class Layout["workspace::session::Layout"] {
+        <<enumeration>>
+        Group
+        Split
+    }
+    class Split["workspace::session::Split"] {
+        +axis: Axis
+        +panes: Vec~Pane~
+    }
+    class Axis["workspace::session::Axis"] {
+        <<enumeration>>
+        Row
+        Column
+    }
+    class Pane["workspace::session::Pane"] {
+        +weight: f32
+        +layout: Layout
+    }
+    class Group["workspace::session::Group"] {
+        +editors: Vec~EditorState~
+        +active: usize
+    }
+    class EditorState["workspace::session::EditorState"] {
+        +path: PathBuf
+        +selection: Selection
+        +scroll: Scroll
+        +selection_in(text) Selection
+    }
+    class Scroll["workspace::session::Scroll"] {
+        +line: usize
+        +row: usize
+        +y: f32
+        +x: f32
+    }
+    class Folder["workspace::folder::Folder"]
+    class Selection["text::Selection"]
+    class Rope["text::Rope"]
+    class Document["codec::toml::Document"]
+
+    SessionMod ..> Session : parse returns
+    Session *-- Layout
+    Layout *-- Group : Group
+    Layout *-- Split : Split
+    Split *-- Axis
+    Split *-- "2..*" Pane
+    Pane *-- Layout
+    Group *-- "0..*" EditorState
+    EditorState *-- Selection
+    EditorState *-- Scroll
+    EditorState ..> Rope : selection_in checks against
+    Session ..> Folder : new and load take
+    Session ..> SessionMod : load and save find the file with path_in
+    Session ..> Document : to_text writes through
+```
+
+- `EditorState::selection_in` gives the stored selection when it fits the
+  file as it is now, else a caret at the start.
+- `Session::save` writes through `text::file::save`, making `sessions/`
+  if needed. Restoring a session when a folder opens is M4.3's.
+
 ## 31. Error enums across crates
 
 Each crate has its own error enum that implements `Display` and
@@ -6140,7 +6603,12 @@ in `Path`, the `CodecError` of a settings or trust file that is not TOML
 in `Toml` and of an edit the document refused in `Edit`, the `TextError`
 of a save in `Save`, and an `io::Error` in `Read` and `CreateFolder`; its
 `Unwritable` shares the error of the file it will not replace through an
-`Arc` (section 30). `xtask`
+`Arc` (section 30). M4.11 adds the `TextError` of a load in `Load`, and
+names a buffer that is not open (`NoBuffer`), read-only
+(`ReadOnlyBuffer`, with its `buffers::ReadOnly`) or already saving
+(`SaveInFlight`), a folder the file tree does not read (`NotBrowsable`),
+and a session file that is not a session (`BadSessionFile`) or holds
+another folder's (`OtherFolder`) (30.2 to 30.4). `xtask`
 turns a `CoreError` into the text of `Error::Usage`. The boxes list only
 some variants.
 
@@ -6288,6 +6756,13 @@ classDiagram
         Save
         Linked
         Untrusted
+        Load
+        NoBuffer
+        ReadOnlyBuffer
+        SaveInFlight
+        NotBrowsable
+        BadSessionFile
+        OtherFolder
     }
     class IconError["gui::icon::IconError"]
     class TtfErrorKind["font::ttf::ErrorKind"]
@@ -6370,7 +6845,7 @@ classDiagram
     StdError <|.. WorkspaceError
     WorkspaceError *-- PathError : Path
     WorkspaceError *-- CodecError : Toml, Edit
-    WorkspaceError *-- TextError : Save
+    WorkspaceError *-- TextError : Save, Load
     WorkspaceError *-- IoError : Read, CreateFolder
     WorkspaceError o-- WorkspaceError : Unwritable
 ```
@@ -6424,7 +6899,7 @@ The main files these diagrams were drawn from:
   `crates.rs`, `ucd.rs`, `theme.rs`, `Cargo.toml`
 - `bench/src/lib.rs`, `harness.rs`, `baseline.rs`, `cli.rs`, `error.rs`,
   `suites.rs`, `suites/text.rs`, `suites/font.rs`, `suites/ui.rs`,
-  `suites/editor.rs`
+  `suites/editor.rs`, `suites/workspace.rs`
 - `crates/sys/src/lib.rs`, `dynlib.rs`, `linux.rs`, `linux/libc.rs`,
   `linux/x11.rs`, `linux/evdev.rs`
 - `crates/platform/src/lib.rs`, `error.rs`, `window.rs`, `events.rs`,
@@ -6455,7 +6930,8 @@ The main files these diagrams were drawn from:
   `keymap/read.rs`, `keymap/engine.rs`, `shell.rs`, `shell/commands.rs`;
   `keymaps/default.toml`
 - `crates/workspace/src/lib.rs`, `error.rs`, `folder.rs`,
-  `folder/glob.rs`, `trust.rs`, `settings.rs`
+  `folder/glob.rs`, `trust.rs`, `settings.rs`, `buffers.rs`, `files.rs`,
+  `session.rs`
 - `crates/codec/Cargo.toml`, `crates/text/Cargo.toml`,
   `crates/platform/Cargo.toml`, `crates/gfx/Cargo.toml`,
   `crates/font/Cargo.toml`, `crates/gui/Cargo.toml`,
@@ -6466,10 +6942,11 @@ The main files these diagrams were drawn from:
   ADR-0020, ADR-0027, ADR-0029, ADR-0035, ADR-0039, ADR-0040, ADR-0042,
   ADR-0044, ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049, ADR-0050,
   ADR-0052, ADR-0053, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058,
-  ADR-0063, ADR-0064, ADR-0067)
+  ADR-0063, ADR-0064, ADR-0067, ADR-0068, ADR-0069)
 - `docs/subsystems/core.md`, `text-and-formats.md`,
   `sys-and-platform.md`, `rendering.md`, `ui-and-theme.md`,
   `frontends.md`, `toolchains.md`, `vim-mode.md`, `editor.md`
 - The `README.md` of `crates/core`, `crates/codec`, `crates/text`,
   `crates/sys`, `crates/platform`, `crates/gfx`, `crates/font`,
-  `crates/gui`, `crates/ui`, `crates/editor` and `bench`
+  `crates/gui`, `crates/ui`, `crates/editor`, `crates/workspace` and
+  `bench`
