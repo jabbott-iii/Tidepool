@@ -23,7 +23,7 @@ Closes #
 - [ ] Bug fix
 - [ ] Roadmap task (every acceptance criterion in `docs/roadmap.md` is met)
 - [ ] New feature or change outside the roadmap (recorded in `docs/decisions.md`)
-- [ ] Breaking change: a public API, a file format Tidepool writes, a protocol (TAP), the dependency matrix or a command line
+- [ ] Breaking change: a public API, a file format Tidepool writes, a protocol (TAP), the dependency matrix or a command line, recorded in an ADR in `docs/decisions.md`, with `!` before the commit's colon and a `BREAKING CHANGE:` footer that names the ADR
 - [ ] Managed tool: a new or changed descriptor, detection or install plan
 - [ ] Performance
 - [ ] Documentation
@@ -36,8 +36,8 @@ Closes #
 you could not run, and why: a check that needs macOS or Windows, a real
 tool (rust-analyzer, the Android SDK, Xcode), or a display, for example. -->
 
-- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd, theme)
-- [ ] `cargo xtask fuzz-smoke --target <target>`, for a parser change (from M1.6)
+- [ ] `cargo xtask ci` (deps, fmt, clippy `-D warnings`, tests, golden, layers, crates, features, unsafe-audit, headers, workflows, ucd, theme); on Linux, as CI runs it, `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`, so that the window tests run too
+- [ ] `cargo xtask fuzz-smoke --target <target>`, for a parser change
 - [ ] `cargo xtask golden` (a step of `ci` too), for a change to what `gfx`, `font`, `ui`, `gui` or `tui` draw
 - [ ] `cargo xtask bench <filter>`, for performance work (paste the numbers before and after)
 - [ ] Gated real-tool tests (`TIDEPOOL_IT_RA`, `TIDEPOOL_IT_GIT`, `TIDEPOOL_IT_ANDROID`, `TIDEPOOL_IT_IOS`): say which, and that none printed `SKIPPED:`
