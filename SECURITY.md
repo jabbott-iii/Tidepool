@@ -18,7 +18,7 @@ is supported as well.
 Report vulnerabilities privately, through GitHub's private vulnerability
 reporting:
 
-1. On the repository's **Security** tab, select **Report a
+1. On the repository's **Security and quality** tab, select **Report a
    vulnerability**, or go straight to
    <https://github.com/jabbott-iii/Tidepool/security/advisories/new>.
 2. Fill in the form. Only you, the maintainer, and the collaborators the
@@ -38,6 +38,10 @@ Include as much of this as you can:
   ideal.
 - The impact: what an attacker has to control, and what they gain.
 - A suggested fix, if you have one.
+
+Test only on your own machines, with your own data, and, for the
+workflows, in your own fork. Never test on someone else's machine or
+repository.
 
 Remove user names, paths, keys, passwords and other private data from any
 log or output you attach.
