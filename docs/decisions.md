@@ -5561,7 +5561,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0071 — Tidepool adopts Doctrina's portable rules and skills: six rules copied into `.claude/rules/` with Tidepool's values, ten skills copied as they are; the owner's GitHub account is an allowed publisher; no coverage or mutation command yet, and benchmarks still report without failing
 
-- **Status:** Accepted
+- **Status:** Accepted; ADR-0072 changes `commits.md`'s **Git access** from "read-only" to "commit on request", narrowed to commits the user asks for
 - **Date:** 2026-11-24
 - **Context:**
   - Doctrina (<https://github.com/jabbott-iii/Doctrina>) is the owner's
@@ -5694,3 +5694,56 @@ decides; the roadmap task that first depends on one asks for the decision.
   or mutation tool can run without a third-party crate or a change to
   ADR-0017; a crate the owner publishes is proposed; or a budget regression
   reaches `main` unnoticed.
+
+## ADR-0072 — Agents commit when the user asks; amending, rebasing, merging, tagging, pushing and rewriting history stay the user's
+
+- **Status:** Accepted
+- **Date:** 2026-11-24
+- **Context:**
+  - From the start, `AGENTS.md` rule 11 made Git read-only for agents:
+    an agent left every change uncommitted for human review and proposed a
+    commit message, and `.claude/settings.json` denied `git commit`.
+    ADR-0071 recorded the same rule as `commits.md`'s **Git access**,
+    "read-only".
+  - On 2026-11-24 a `/set-up-github` run left four commits for the user to
+    make. The user asked for the rule to allow committing at the user's
+    request, and for the agent to make those commits.
+  - Doctrina's `commits.md` has three levels of **Git access**:
+    "read-only", "stage on request", and "commit on request", which also
+    lets an agent push, force-push, amend, rebase, merge, or tag when the
+    user asks for that action.
+  - An agent never loosens its own permission settings, even when asked,
+    so the user changes `.claude/settings.json` themselves.
+- **Decision** (the user's, on 2026-11-24):
+  - The session the user talks to stages and commits only when the user
+    asks for it in the current conversation. It stages by path, never with
+    `git add -A` or `git add .`, checks what is staged before each commit,
+    and uses the message it proposed, with no attribution lines. A request
+    covers the commits it names, and never carries over to later work.
+  - Without a request, nothing changes: an agent leaves its changes
+    uncommitted and proposes a commit message.
+  - Amending, rebasing, merging, tagging, pushing, force-pushing, and
+    rewriting history stay the user's, even when asked, because the user
+    asked for commits only. `commits.md`'s **Git access** is "commit on
+    request", narrowed to that.
+  - A subagent commits nothing.
+  - `.claude/settings.json` asks before `git add` and `git commit`, where it
+    denied `git commit`, and denies `git commit --amend`.
+- **Consequences:**
+  - Good: finished work goes into commits with the messages `commits.md`
+    describes in one step, and each commit still waits for the user's
+    request and Claude Code's prompt.
+  - Bad: an agent's mistaken commit is the user's to undo, with a new
+    commit or `git reset`. The prompts are guardrails, not a security
+    boundary: a command can slip past a pattern, and then only the rule
+    holds. A commit from a working tree with changes the user hasn't seen
+    could carry them, which staging by path and checking what is staged
+    guard against.
+- **Alternatives considered:**
+  - "Stage on request": the user would still make every commit.
+  - Doctrina's whole "commit on request", with pushes and the rest on
+    request: the user asked for commits only, and a push to `main` runs CI
+    and CodeQL, and then publishes the demo page.
+  - Keeping Git read-only: the user asked to change it.
+- **Revisit when:** the user asks an agent to push, amend, or open a pull
+  request; or an agent commits something the user did not ask for.

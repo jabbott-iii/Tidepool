@@ -11,8 +11,10 @@ each value by its bold name. If a value still reads `[FILL IN: …]`, the rule i
 yet. Work out that value from the repository itself, and tell the user which values are missing
 so they can fill them in. Until **Git access** is filled in, treat it as "read-only".
 
-- **Git access:** read-only (`AGENTS.md` rule 11: agents never commit, amend, rebase, merge, tag, or
-  push)
+- **Git access:** commit on request, narrowed to commits (`AGENTS.md` rule 11, ADR-0072): the session
+  the user talks to stages and commits only when the user asks for it in the current conversation;
+  it never pushes, force-pushes, amends, rebases, merges, or tags, even when asked, and a subagent
+  commits nothing
 - **Done checks:** `cargo xtask ci`, run on Linux as `TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci`;
   the `Verify` commands of the roadmap task the work belongs to; and the "Before finishing" steps of
   each rule in this folder that applies

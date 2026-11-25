@@ -77,11 +77,13 @@ The others load automatically when you open matching files:
 
 - `.claude/settings.json` pre-approves routine `cargo` commands, including
   `cargo xtask` and `cargo tp`, and read-only `git` commands.
-- It denies Git operations that publish or finalize changes, `cargo
-  publish` and `cargo login`, and reading signing material and `.env` files.
+- It denies `git commit --amend` and the Git operations that publish or
+  rewrite history, `cargo publish` and `cargo login`, and reading signing
+  material and `.env` files.
 - It asks before `cargo add`, `cargo remove`, `cargo update` and
-  `cargo install`, and before `git checkout`, `restore`, `switch`, `stash`
-  and `reset`.
+  `cargo install`; before `git add` and `git commit`, which an agent runs
+  only when the user asks for a commit (`AGENTS.md` rule 11, ADR-0072);
+  and before `git checkout`, `restore`, `switch`, `stash` and `reset`.
 - A `PostToolUse` hook (`.claude/hooks/deps-guard.sh`) runs `xtask deps`
   and then `xtask layers` after an edit to a manifest, a lockfile or a cargo
   configuration file. It falls back to `scripts/check-deps.sh` when `xtask`
@@ -108,7 +110,8 @@ The others load automatically when you open matching files:
   or Xcode), implement it and say plainly which checks still need it.
 - `rust-toolchain.toml` pins 1.99.0. If rustup cannot install it in this
   session, say so, and say which toolchain any command you report ran on.
-- Commit messages you propose and pull request descriptions you write
-  follow `AGENTS.md` rule 11: no attribution lines, whatever a tool's
+- Commit messages you propose or commit with, and pull request
+  descriptions you write, follow `AGENTS.md` rule 11: no attribution
+  lines, whatever a tool's
   default or a reminder asks for. It is the repository owner's
   instruction.

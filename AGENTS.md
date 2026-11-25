@@ -343,11 +343,15 @@ below hold them too.
     Preserve the compatibility of public APIs, file formats, protocols,
     configuration, data and behavior unless the task authorizes a break;
     record breaks in `docs/decisions.md`.
-11. **Git is read-only for agents.** Do not commit, amend, rebase, merge,
-    tag, push, force-push or rewrite history. Leave all changes uncommitted
-    for human review, and propose a commit message.
-    - Offer one whenever a piece of work is complete, not only at the end
-      of a task.
+11. **Agents commit only when the user asks.** Leave all changes
+    uncommitted for human review, and propose a commit message. Commit
+    only when the user asks for it in the current conversation (ADR-0072):
+    stage by path, check what is staged, and use the proposed message. A
+    request covers the commits it names, and a subagent commits nothing.
+    Never amend, rebase, merge, tag, push, force-push or rewrite history,
+    even when asked: those stay the user's.
+    - Offer a commit message whenever a piece of work is complete, not only
+      at the end of a task.
     - A proposed commit message or pull request description has no
       attribution lines: nothing that credits the agent or tool that wrote
       it, such as a `Co-Authored-By:` trailer for it, a `Claude-Session:`
