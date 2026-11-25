@@ -35,3 +35,11 @@ rustc-ice-*.txt
 keystore.properties
 .env
 .env.*
+
+# Private keys and certificates, which AGENTS.md rule 7 names beside the
+# signing material above
+*.pem
+*.key
+
+# Claude Code's personal instructions (the shared ones are in CLAUDE.md)
+CLAUDE.local.md
