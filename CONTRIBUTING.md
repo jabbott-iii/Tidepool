@@ -179,6 +179,24 @@ cargo fmt --all
 cargo xtask ci
 ```
 
+On Linux, run the gate as CI does, so that the window tests run too:
+
+```bash
+TIDEPOOL_IT_X11=1 xvfb-run -a cargo xtask ci
+```
+
+The gate ends with a table of its steps and their times, then one line
+with its verdict. A passing run ends like this:
+
+```text
+ci: ok: 13 of 13 steps passed; not yet implemented: tools
+```
+
+A failing run ends with `ci: FAILED:` and names the steps that failed,
+and the output above the table says why. A test that printed `SKIPPED:`
+did not run, and the verdict counts it, as in `ci: ok (2 tests SKIPPED):`;
+a skip doesn't fail the gate, but it isn't a pass either.
+
 Then, as the change needs:
 
 - **A parser** (`codec`, `font`, `markdown`, `syntax`, `rpc`, `term`,
@@ -326,15 +344,20 @@ automatically, but their rules apply to everyone who writes docs here.
 
 ## Coding agents
 
-The repository is set up for coding agents: `AGENTS.md` holds the rules for
-any agent, and `CLAUDE.md` and `.claude/` add Claude Code's skills
-(`/next-task`, `/verify`, `/record-decision`, `/evaluate-dependency`,
-`/add-ffi-binding`, `/add-managed-tool`), subagents, path-scoped rules, a
-dependency hook and permission guardrails.
+The repository is set up for coding agents. `AGENTS.md` holds the rules for
+any agent, and its "Read before working" table says what to read before
+changing each area. An agent other than Claude Code also reads the rules in
+`.claude/rules/`, which Claude Code loads on its own. `CLAUDE.md` lists
+what `.claude/` adds for Claude Code: its skills, the subagents and what
+each owns, the rules and the files each applies to, a dependency hook, and
+permission guardrails. Some of the skills and rules are copies of
+Doctrina's portable ones, which ADR-0071 adopted.
 
-- Agents never commit, push or rewrite history: they leave their changes
-  uncommitted for a person to review, with a proposed commit message
-  that has no attribution lines (above).
+- Agents leave their changes uncommitted for a person to review, with a
+  proposed commit message that has no attribution lines (above). An
+  agent commits only when you ask it to, staging the files by path, and
+  never pushes, amends, rebases, merges, tags or rewrites history
+  (ADR-0072).
 - You are responsible for every line you submit, whoever or whatever wrote
   it. Review an agent's change as you would anyone's, and run the checks
   yourself.
