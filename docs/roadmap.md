@@ -3640,127 +3640,96 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
 
 ---
 
-## M15 — Lua plugins
+## M15 — Ferrolua plugins
 
-**Goal:** users extend Tidepool with plugins written in Lua, a small
-scripting language made to be embedded in other programs, run by
-Tidepool's own interpreter. A plugin reaches only what the plugin API
-gives it: it opens no file, socket, or program of its own, and it never
-makes the main thread wait (ADR-0061).
+**Goal:** users extend Tidepool with plugins written in Ferrolua, the
+owner's own scripting language, derived from Lua 5.5 (a small language
+made to be embedded in other programs), and run by Ferrolua's interpreter
+inside Tidepool. A plugin reaches only what the plugin API gives it: it
+opens no file, socket, or program of its own, and it never makes the
+main thread wait (ADR-0061, ADR-0073).
 
 Added on 2026-11-23 at the owner's request. M15 is the next free
 milestone number. It is listed before M14 so that the first release has
 plugins, and so that M14's fuzz campaign and security review cover them.
 
-- [ ] **M15.1 — lua: lexer, parser, and compiler**
-  - Depends: M0.2, M1.6
-  - Decide first:
-    - Accept ADR-0061 (plugins are Lua 5.5 scripts run by `tidepool-lua`,
-      an interpreter of our own with no way to reach the OS, on a thread
-      apart from the main thread), which is `Proposed`.
-    - Vendoring the official Lua 5.5 test suite as test-only fixtures,
-      once the user confirms its license (MIT, as lua.org/tests said on
-      2026-11-23; `docs/02-dependency-policy.md` → Assets).
-  - Do:
-    - Create `tidepool-lua` (`crates/lua`, layer 1, `core` only) with its
-      README, `LICENSE` and `NOTICE`; its rows in `AGENTS.md`'s workspace
-      map and in `docs/01-architecture.md`'s layers and dependency
-      matrix; the diagrams that draw them (ADR-0029); its path in
-      `.claude/rules/parsers.md`; and its owner among the subagents in
-      `CLAUDE.md`.
-    - The lexer and parser for the whole language of the Lua 5.5
-      reference manual, and the compiler to bytecode (the instructions
-      M15.2's virtual machine runs), with `Limits` for the source's size,
-      its nesting depth, and the manual's limits on a function's locals,
-      upvalues (the outer variables a closure captures), and constants.
-    - The fuzz target `lua-parse`, which parses and compiles.
-  - Accept:
-    - Every rule of the manual's complete syntax of Lua parses, with a
-      test for each rule; a syntax error names its line and the token it
-      found.
-    - Nesting past its limit is an error, never a stack overflow, and no
-      input panics.
-  - Verify: `cargo test -p tidepool-lua`;
-    `cargo xtask fuzz-smoke --target lua-parse --secs 60`
-  - Note (2026-11-23): the user accepted ADR-0061 as written, which
-    answers the first question of the `Decide first` line. The second,
-    vendoring the official Lua 5.5 test suite, is still open.
-  - Note (2026-11-23): the user chose to vendor the suite, which answers
-    the second question. ADR-0062 records how: this task downloads
-    `lua-5.5.1-tests.tar.gz` with the user's approval, checks its
-    SHA-256, and copies its Lua files, unchanged and without its C
-    sources, into `crates/lua/tests/lua-5.5.1-tests/`, with a
-    `NOTICE.md`.
+Note (2026-11-24, the user's choice, ADR-0073): Ferrolua
+(https://github.com/jabbott-iii/Ferrolua) runs plugins in place of an
+interpreter of Tidepool's own, and plugins are Ferrolua scripts, not Lua
+5.5. M15.2 (the virtual machine, collector and coroutines) and M15.3 (the
+sandboxed standard library) left this roadmap for Ferrolua's; their IDs
+are not reused. M15.1 now builds the crate over Ferrolua.
 
-- [ ] **M15.2 — lua: virtual machine, garbage collector, and coroutines**
-  - Depends: M15.1, M1.9
+- [ ] **M15.1 — script: the crate over Ferrolua, and its fuzz target**
+  - Note (2026-11-24, the user's choice, ADR-0073): this task was "lua:
+    lexer, parser, and compiler", whose two `Decide first` questions the
+    user answered on 2026-11-23 (ADR-0061, ADR-0062). Ferrolua builds the
+    interpreter now, and the Lua 5.5 test suite that ADR-0062 had this
+    task vendor is not imported. The task takes M15.2's bench suite and the
+    tests of the limits and the library from M15.2 and M15.3.
+  - Note (2026-11-24): of ADR-0073's requirements, Ferrolua's plan has
+    no way for another thread to stop a running call (3), and plans its
+    interpreter only on Linux x86-64 (7); its first crates.io release is
+    its M12, its last milestone.
+  - Depends: M0.2, M1.6, M1.9, and a Ferrolua release on crates.io that
+    meets ADR-0073's requirements
+  - Decide first: the Ferrolua version to pin, and, if it needs a newer
+    Rust than `rust-toolchain.toml` pins, moving Tidepool's toolchain
+    first, in a commit of its own (ADR-0073).
   - Do:
-    - Per the manual: the values, tables with an array part and a hash
-      part, metatables and metamethods, closures and their upvalues,
-      integer and float arithmetic, `error`, `pcall` and `xpcall` with
-      tracebacks, coroutines, and to-be-closed variables.
-    - Calls from Lua to Lua that do not recurse on Rust's own stack, so
-      deep recursion in a script cannot overflow it.
-    - The garbage collector, in safe Rust (ADR-0061): objects live in an
-      arena (a table of slots addressed by index), and an incremental
-      mark-and-sweep collector frees, in bounded steps, every object that
-      nothing reachable refers to, cycles included; weak tables and
-      `__gc` finalizers.
-    - The limits that stop any call cleanly: fuel (how many instructions
-      a call may run before it is stopped), a memory cap per state, a
-      call depth, and an interrupt that another thread can raise. A
-      limit's error ends the whole call: `pcall` cannot catch it.
-    - The fuzz target `lua-run`, which runs mutated programs under small
-      limits, and a `tidepool-bench` suite (calls, table inserts, string
-      building, and a full collection) with its baseline.
+    - Create `tidepool-script` (`crates/script`, layer 1, `core` as its
+      only workspace dependency) with its README, `LICENSE` and `NOTICE`;
+      its rows in `AGENTS.md`'s workspace map and in
+      `docs/01-architecture.md`'s layers and dependency matrix; the
+      diagrams that draw them (ADR-0029); and its owner among the
+      subagents in `CLAUDE.md`.
+    - Ferrolua's crates, in `tidepool-script`'s manifest alone, from
+      crates.io at exact versions (`=x.y.z`), each listed in
+      `xtask/deps-allowlist.txt` as `name version ADR-0073` and in
+      `docs/02-dependency-policy.md`. `ferrolua`'s `jit` feature stays
+      off, and no feature of `tidepool-script` turns it on.
+    - The wrapper: a plugin's state with ADR-0061's library and its
+      limits (memory, instructions per call, call depth, and a chunk's
+      size and nesting), whose values M15.4 sets; `print` to the
+      plugin's log; `require` through a loader that reads only the
+      plugin's own folder; and errors with their tracebacks. No Ferrolua
+      type appears in its public API.
+    - `LICENSES.txt` lists Ferrolua's MIT license and copyright notice
+      (`docs/05-release.md`); `cargo xtask site` counts Ferrolua's crates
+      as first party; `tidepool-script` joins `security-reviewer`'s
+      mandatory areas (`CLAUDE.md`, `.claude/agents/security-reviewer.md`).
+    - The fuzz target `script`, which loads and runs mutated scripts
+      through `tidepool-script` under small limits, and a
+      `tidepool-bench` suite (calls, table inserts, string building, and
+      a collection of loops) with its baseline.
   - Accept:
-    - The conformance scripts in `crates/lua/tests/` pass, each with its
-      expected output recorded from the reference `lua` 5.5 interpreter,
-      whose version the fixture names.
-    - `while true do end` stops at its fuel limit, a script that
-      allocates without end stops at its memory cap, and endless
-      recursion stops at the call depth, each with the error the host
-      sees.
-    - A cycle of tables is collected: memory returns to its level before
-      the cycle was made (property test).
-  - Verify: `cargo test -p tidepool-lua`;
-    `cargo xtask fuzz-smoke --target lua-run --secs 60`;
-    `cargo xtask bench lua`
-
-- [ ] **M15.3 — lua: the sandboxed standard library**
-  - Depends: M15.2
-  - Decide first: `os.clock` measures processor time and `os.date` local
-    time, but `lua` may use only `core`, which reads neither. Decide
-    whether `clock` counts the time since the state was made and `date`
-    gives UTC only, or whether the host passes both in.
-  - Do: the standard library ADR-0061 keeps: the basic functions without
-    `dofile` and `loadfile`, and `load` for source text only; `string`,
-    with Lua's patterns, and without `dump`; `table`, `math`, `utf8`, and
-    `coroutine`; and of `os`, only `time`, `difftime`, `clock`, and
-    `date`. There is no `io`, no `debug`, and no `package` loader:
-    `require` is the plugin host's (M15.5). Pattern matching, which
-    backtracks, charges fuel as it goes.
-  - Accept:
-    - Conformance scripts for each library pass, with their output
-      recorded as in M15.2.
-    - If M15.1 vendored the official suite: its files that need only the
-      language and the kept library pass, and each file skipped is
-      listed with its reason.
+    - Tests through `tidepool-script` of each of ADR-0073's
+      requirements.
     - A test lists the globals of a new state and fails on any name
       outside ADR-0061's list.
-    - A pattern crafted to backtrack stops at its fuel limit.
-  - Verify: `cargo test -p tidepool-lua`;
-    `cargo xtask fuzz-smoke --target lua-run --secs 60`
+    - `while true do end` stops at its instruction limit, a script that
+      allocates without end stops at its memory cap, endless recursion
+      stops at the call depth, and a pattern crafted to backtrack stops
+      at its instruction limit, each with the error the host sees, and
+      none caught by `pcall`.
+    - No input panics; `cargo xtask deps` passes with Ferrolua's crates
+      listed, and `Cargo.lock` holds no `ferrolua-jit`.
+  - Verify: `cargo test -p tidepool-script`;
+    `cargo xtask fuzz-smoke --target script --secs 60`;
+    `cargo xtask bench script`; `cargo xtask deps`; `cargo xtask layers`;
+    `cargo xtask crates`
 
 - [ ] **M15.4 — plugins: spec review**
-  - Depends: M15.3, M4.3, M4.6
+  - Note (2026-11-24, ADR-0073): this task depended on M15.3 until that
+    task left for Ferrolua's roadmap.
+  - Depends: M15.1, M4.3, M4.6
   - Decide first:
     - Which grants the first API has beyond ADR-0061's minimum, such as
       reading workspace files that are not open, and whether any grant
       reaches the files that the agents' deny-list keeps from them
       (`docs/subsystems/agents.md`).
-    - The limits' values: fuel per call, memory per plugin, and call
-      depth.
+    - The limits' values: instructions per call, memory per plugin, and
+      call depth.
     - Whether a save waits for a plugin that asks to change the buffer
       first (trimming whitespace on save, say), and for how long.
   - Do: write `docs/subsystems/plugins.md` with the user: the plugin
@@ -3776,14 +3745,14 @@ plugins, and so that M14's fuzz campaign and security review cover them.
   - Depends: M15.4, M4.7
   - Do:
     - `editor::plugins` per `docs/subsystems/plugins.md`, with `editor`'s
-      edge to `lua` in the dependency matrix: manifests read with
-      `codec::toml`; plugins found in the user config folder's `plugins/`
+      edge to `script` in the dependency matrix (ADR-0073): manifests
+      read with `codec::toml`; plugins found in the user config folder's `plugins/`
       and, in a trusted workspace only, in `.tidepool/plugins/`; each
       plugin off until the user enables it, asked once with its grants
       listed, and the choice kept in `settings.toml`.
     - The plugin thread, with its row in `docs/01-architecture.md` →
-      "Threading model": it owns one Lua state per plugin and runs one
-      call at a time. Plugin files are read on workers, and `require`
+      "Threading model": it owns one Ferrolua state per plugin and runs
+      one call at a time. Plugin files are read on workers, and `require`
       loads only from the plugin's own folder.
     - A plugin that fails is reported in a toast and the log, and is
       turned off after the spec's number of failures.
@@ -3793,9 +3762,9 @@ plugins, and so that M14's fuzz campaign and security review cover them.
   - Accept:
     - A plugin in an untrusted workspace never runs, and no plugin runs
       before it is enabled.
-    - A plugin stuck in `while true do end` is stopped at its fuel
-      limit, and meanwhile no keystroke takes longer than one 16 ms frame
-      (a `tidepool-bench` suite).
+    - A plugin stuck in `while true do end` is stopped at its
+      instruction limit, and meanwhile no keystroke takes longer than
+      one 16 ms frame (a `tidepool-bench` suite).
     - One plugin's error leaves the other plugins and Tidepool running.
   - Verify: `cargo test -p tidepool-editor plugins`;
     `cargo xtask bench plugins`
@@ -3815,8 +3784,8 @@ plugins, and so that M14's fuzz campaign and security review cover them.
       trailing whitespace on save.
   - Accept:
     - A test plugin for each module passes.
-    - An edit from Lua undoes as one step.
-    - A call on a closed buffer is an error in Lua, never a panic.
+    - An edit from a plugin undoes as one step.
+    - A call on a closed buffer is an error in the script, never a panic.
     - The samples work in the GUI and the TUI (golden scenes and TUI
       snapshots).
   - Verify: `cargo test -p tidepool-editor plugins`; `cargo xtask golden`
@@ -3833,15 +3802,24 @@ plugins, and so that M14's fuzz campaign and security review cover them.
     and key bindings.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-editor plugins`
 
-- [ ] **M15.8 — syntax/toolchain: Lua highlighting, lua-language-server, and the API's definitions**
-  - Depends: M15.6, M13.2, M5.3
+- [ ] **M15.8 — syntax/toolchain: Ferrolua highlighting, its language server, and the API's definitions**
+  - Note (2026-11-24, the user's choice, ADR-0073): this task was "Lua
+    highlighting, lua-language-server, and the API's definitions".
+    Plugins are Ferrolua scripts now, so it serves Ferrolua's language
+    and Ferrolua's own language server.
+  - Depends: M15.6, M13.2, M5.3, and a release of Ferrolua's language
+    server (its M9)
+  - Decide first: whether the pack's lexer is written as M13.2's rules,
+    or reuses Ferrolua's parser through `tidepool-script`, which would
+    give `syntax` an edge to `script`.
   - Do:
-    - A Lua language pack, its lexer written as M13.2's rules.
-    - lua-language-server as a managed tool, through `/add-managed-tool`,
-      after checking its current docs and release channel.
-    - Definition files for the `tidepool` API, in the annotation format
-      lua-language-server reads, generated from the host's bindings so
-      that they cannot drift from them; the pack points the server at
+    - A Ferrolua language pack.
+    - `ferrolua lsp` as a managed tool, through `/add-managed-tool`,
+      after checking Ferrolua's current docs and release channel; never
+      bundled (ADR-0002).
+    - Definition files for the `tidepool` API, in the declaration format
+      Ferrolua's type checker reads, generated from the host's bindings
+      so that they cannot drift from them; the pack points the server at
       them in a plugin's folder.
   - Accept: golden token streams for the pack; fake-tool tests for the
     server; a test generates the definitions again and fails when they
@@ -3860,7 +3838,9 @@ manifest did not declare.
 ## M14 — Production hardening and release
 
 - [ ] **M14.1 — fuzz campaign**
-  - Depends: M10.2, M9.3, M15.3
+  - Note (2026-11-24, ADR-0073): this task depended on M15.3 until that
+    task left for Ferrolua's roadmap.
+  - Depends: M10.2, M9.3, M15.1
   - Decide first: register item 30 (coverage-guided fuzzing) in
     `docs/02-dependency-policy.md`.
   - Do: nightly 30-minute fuzz smoke per target; review every `Limits`.

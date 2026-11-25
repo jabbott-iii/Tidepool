@@ -22,6 +22,14 @@ that adds one still lists it in this document, pins it (a Git dependency
 to a full commit hash), and adds its source to `xtask/deps-allowlist.txt`,
 and the user approves that change.
 
+The first planned is Ferrolua (<https://github.com/jabbott-iii/Ferrolua>,
+MIT), the owner's own scripting language and interpreter, which runs
+plugins (ADR-0073). Its crates are to come from crates.io at exact
+versions (`=x.y.z`), in `tidepool-script`'s manifest alone, each listed
+in `xtask/deps-allowlist.txt` with ADR-0073 (M15.1). Tidepool links its
+interpreter only: `ferrolua`'s `jit` feature, which brings in the one
+Ferrolua crate with `unsafe` code, stays off.
+
 Outside programs are a separate category: they are **managed tools**
 (ADR-0002). Tidepool installs, updates, configures and runs them as child
 processes. They are never linked, bundled or reimplemented.
@@ -90,7 +98,6 @@ license) and a row in the Toolchains panel. Details:
 | Saira 1.101: the static `Saira-Regular.ttf`, `Saira-Medium.ttf`, `Saira-SemiBold.ttf` and `Saira-Bold.ttf`, with the project's `OFL.txt` (`assets/fonts/saira/`, unchanged) | SIL OFL 1.1, Copyright 2020 The Saira Project Authors, with no Reserved Font Name. Checked on import (2026-11-17): `OFL.txt` is the OFL 1.1 text, and each file's `name` table gives the same copyright and license | github.com/Omnibus-Type/Saira, `Saira/fonts/ttf/` and `OFL.txt` at commit `c9d45ed` | UI chrome, matching jabbott.dev (ADR-0004); read by `font::ttf` (M2.8), and compiled into the binary by `font::bundled` (M2.5) |
 | JetBrains Mono 2.304: `JetBrainsMono-Regular.ttf`, `JetBrainsMono-Italic.ttf` and `JetBrainsMono-SemiBold.ttf`, with the project's `OFL.txt` (`assets/fonts/jetbrains-mono/`, unchanged) | SIL OFL 1.1, Copyright 2020 The JetBrains Mono Project Authors, with no Reserved Font Name. Checked on import (2026-11-17), as for Saira | github.com/JetBrains/JetBrainsMono, `fonts/ttf/` and `OFL.txt` at tag `v2.304` | Code and terminal (ADR-0004); read by `font::ttf` (M2.8), and compiled into the binary by `font::bundled` (M2.5) |
 | CommonMark spec examples | CC-BY-SA 4.0 (verify) | commonmark.org | Test-only fixtures, never in release binaries (M6.5) |
-| Lua 5.5.1 test suite: the Lua files of `lua-5.5.1-tests.tar.gz` (150,553 bytes, SHA-256 `da07b543872dc0bb2ff12aabd0c248578d78df3eb6b67efdc537a46d455c7f31`), unchanged, without its C sources; imported by M15.1 into `crates/lua/tests/lua-5.5.1-tests/`, with a `NOTICE.md` beside them (ADR-0062) | MIT, Copyright © 1994–2026 Lua.org, PUC-Rio, per lua.org/license.html and lua.org/tests (read 2026-11-23); checked again on import | lua.org/tests | Test-only fixtures for `tidepool-lua` (M15.2, M15.3), never in release binaries |
 | toml-test v2.2.0's TOML 1.1 cases: the `files-toml-1.1.0` list and the 895 files it names (`crates/codec/tests/toml-test/`, unchanged) | MIT, Copyright (c) 2018 TOML authors; the notice is beside them, in `crates/codec/tests/toml-test/NOTICE.md` (ADR-0026) | github.com/toml-lang/toml-test, commit `ce08da1` | Test-only fixtures for `codec::toml` (M1.7), never in release binaries |
 | RFC 8259 examples (`crates/codec/tests/json/rfc8259_image.json`, `rfc8259_locations.json`, ported from Nadir) | Revised BSD License, as IETF Code Components; the IETF Trust's legend is beside them, in `crates/codec/tests/json.rs` (ADR-0021) | IETF RFC 8259, section 13 | Test-only fixtures, never in release binaries |
 | GitHub's "CodeQL Advanced" starter workflow, as committed in `ed8edf4` (`xtask/tests/data/codeql-template.yml.txt`) | MIT, Copyright (c) 2020 GitHub; the notice is beside it, in `xtask/tests/data/NOTICE.md` | actions/starter-workflows, `code-scanning/codeql.yml`, as filled in by GitHub | Test-only fixture for `cargo xtask workflows` (M0.8), never in release binaries |
@@ -156,8 +163,9 @@ is true:
 ## Build-vs-buy register
 
 **Status** is one of: **Build** (we write it), **Managed** (a managed tool
-does it, ADR-0002), **Proposed** (awaiting user decision), **Approved**
-(user said yes, ADR recorded), **Rejected**.
+does it, ADR-0002), **First party** (a crate the owner publishes, ADR-0071),
+**Proposed** (awaiting user decision), **Approved** (user said yes, ADR
+recorded), **Rejected**.
 
 The **fallback** column is a crate we would evaluate if the **switch
 trigger** fires. It is not approved.
@@ -195,7 +203,7 @@ trigger** fires. It is not approved.
 | 29 | Fuzzing (stable, CI) | Build | Mutation fuzz smoke in `xtask` | — | — |
 | 30 | Coverage-guided fuzzing (optional, nightly) | **Proposed** | `cargo fuzz` with `libfuzzer-sys` in an excluded `fuzz/` workspace, dev-only | — | User decision in M14 (criterion 3) |
 | 31 | CLI parsing, logging, errors, time | Build | `tidepool-core::{cli, log, error, civil}` | `clap`, `tracing`, `thiserror`, `chrono` | Not expected |
-| 32 | Lua interpreter (plugins) | Build (M15) | `tidepool-lua`: Lua 5.5 in safe Rust, with no way to reach the OS but the plugin API (ADR-0061) | `mlua` (binds the C interpreter) | Not expected |
+| 32 | Scripting language and interpreter (plugins) | First party (M15.1) | Ferrolua, the owner's own language derived from Lua 5.5 and its interpreter in safe Rust, from crates.io at exact versions behind `tidepool-script`, without its JIT, with no way to reach the OS but the plugin API (ADR-0061, ADR-0073) | `mlua` (binds the C interpreter) | Not expected |
 
 ## Enforcement
 

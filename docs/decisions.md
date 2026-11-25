@@ -4164,7 +4164,10 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0061 — Plugins are Lua 5.5 scripts run by `tidepool-lua`, an interpreter of our own in safe Rust; a plugin reaches only the plugin API, runs on a plugin thread, and stays off until the user enables it
 
-- **Status:** Accepted
+- **Status:** Accepted; ADR-0073 replaces its interpreter, `tidepool-lua`,
+  and its Lua 5.5 with Ferrolua's crates and language, behind
+  `tidepool-script`; its sandbox rules, plugin API, plugin thread and
+  host stay
 - **Date:** 2026-11-23
 - **Context:**
   - On 2026-11-23 the owner asked for Lua as the scripting language of
@@ -4292,7 +4295,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0062 — The official Lua 5.5.1 test suite's Lua files are vendored unchanged as test-only fixtures of `tidepool-lua`, imported in M15.1
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0073
 - **Date:** 2026-11-23
 - **Context:**
   - M15.1's `Decide first` line asked whether to vendor the official Lua
@@ -5747,3 +5750,267 @@ decides; the roadmap task that first depends on one asks for the decision.
   - Keeping Git read-only: the user asked to change it.
 - **Revisit when:** the user asks an agent to push, amend, or open a pull
   request; or an agent commits something the user did not ask for.
+
+## ADR-0073 — Plugins run on Ferrolua, the owner's own scripting language and interpreter, from crates.io behind `tidepool-script`, interpreter only; Tidepool's interpreter tasks leave for Ferrolua's roadmap; ADR-0061's sandbox, host and plugin thread stay
+
+- **Status:** Accepted: on 2026-11-24 the user chose Ferrolua in place of
+  an interpreter of Tidepool's own, and chose the same day, from the
+  agent's options, the four points marked as theirs below. The rest is
+  the agent's draft, which carries ADR-0061's accepted requirements over
+  to Ferrolua.
+- **Date:** 2026-11-24
+- **Context:**
+  - ADR-0061 (plugins are Lua 5.5 scripts run by `tidepool-lua`, an
+    interpreter of Tidepool's own in safe Rust) plans the whole
+    interpreter in `crates/lua`, layer 1, with `core` only: the lexer,
+    parser and compiler (M15.1); the virtual machine, garbage collector
+    and coroutines (M15.2); and the sandboxed standard library (M15.3).
+    The overview sizes it XL (over 6,000 lines). ADR-0062 vendors the
+    official Lua 5.5.1 test suite into `crates/lua/tests/` in M15.1. No
+    M15 task is started, and `crates/lua` does not exist.
+  - On 2026-11-24 the user said: "Instead of building lua on this
+    project for customization and scripting, we will use ferralua." Asked
+    the same day, the user confirmed that this is Ferrolua
+    (<https://github.com/jabbott-iii/Ferrolua>, MIT license), whose only
+    collaborator on GitHub is the user's account.
+  - Ferrolua's plans, from its documents at its commit `43a891b` of
+    2026-11-24, which hold its rules, design, decision log and roadmap,
+    and no Cargo workspace, code, or crate on crates.io:
+    - a language of its own, derived from Lua 5.5: Lua's statements,
+      values and libraries, with Python's operators, indexes that start
+      at 0, and ranges that stop before their end (its ADR-0023,
+      accepted). Running Lua code unchanged is one of its non-goals. It
+      adds optional types, classes, compound assignment and a strict
+      mode;
+    - one crate for hosts to embed, `ferrolua`, over crates for the
+      syntax, bytecode, compiler, virtual machine and standard library;
+    - a just-in-time (JIT) compiler (one that turns bytecode into
+      machine code while a script runs), `ferrolua-jit`, for x86-64,
+      behind `ferrolua`'s `jit` feature, off by default (its ADR-0022,
+      accepted). Without the feature, no Ferrolua code with `unsafe` is
+      built (its `docs/specs/ferrolua.md`, invariant 5);
+    - memory freed by reference counting, with a loop collector that
+      runs at points the host fixes (its ADR-0018), and objects that
+      print as IDs, never as memory addresses (its ADR-0019);
+    - the virtual machine as the sandbox (its ADR-0014, proposed). A host
+      picks each state's libraries. Its `SAFE` preset is the base library
+      with `load` for source text only and without `dofile` and
+      `loadfile`; `string` without `dump`; `table`, `math`, `utf8` and
+      `coroutine`; and `os.time`, `os.clock`, `os.date` and
+      `os.difftime`. `io`, `debug`, `package`, the rest of `os`, and
+      precompiled chunks are off. `require` exists only with a loader the
+      host supplies, and C modules never load;
+    - limits on memory, on the instructions of each call from the host
+      (counting the work inside library calls and a table's probe steps),
+      on call depth, and on a chunk's size and nesting. A limit's error
+      passes every `pcall` to the host (its `docs/specs/sandbox.md`). No
+      way for another thread to stop a running call is planned;
+    - a state used from one thread at a time; whether it may move
+      between threads is settled in its M3.1;
+    - a `ferrolua` command with `run`, `check`, `lint`, `fmt` and `sast`,
+      and a language server and a debug adapter (its ADR-0015);
+    - the interpreter on Linux x86-64 first (its M2), with Linux and
+      macOS on AArch64 and Windows on x86-64 in its backlog (its
+      `docs/03-platforms.md`);
+    - a minimal embedding API in its M2.14, the full one in M3.1, limits
+      in M3.2 and the library allowlist in M3.13; its first crates.io
+      release in M12, its last milestone, after the JIT, the type
+      checker, the linter and the language server;
+    - Rust 1.100.0, with `rust-version = "1.100"`.
+  - Nadir, the owner's engine, chose Ferrolua for its scripting the same
+    day: from crates.io by exact versions, behind one crate, without the
+    JIT (its ADR-0079 and ADR-0082).
+  - Tidepool's rules that bear on it:
+    - no third-party crates (`AGENTS.md` rule 1, ADR-0001). A crate is
+      first party when every owner its registry lists, and the repository
+      it is built from, belong to the owner's GitHub account (ADR-0071).
+      It is still listed in `docs/02-dependency-policy.md`, and
+      `xtask/deps-allowlist.txt` admits it;
+    - `cargo xtask deps` approves a crates.io package only at the exact
+      version the allowlist lists with its ADR, declared as `=version`;
+      it approves no Git source;
+    - `unsafe` only in `sys` and `platform` (rule 4), which
+      `cargo xtask unsafe-audit` checks in this repository's files only;
+    - the targets: Linux x86_64, macOS 13 and later as a universal binary
+      (x86_64 and aarch64), and Windows 10 1809 and later on x86_64;
+    - Rust 1.99.0 in `rust-toolchain.toml`. Cargo refuses to build a
+      crate whose `rust-version` is newer than the toolchain;
+    - Tidepool is Apache-2.0, and each package carries `LICENSES.txt`
+      (`docs/05-release.md`). The MIT license asks that its copyright and
+      permission notice go with every copy, and Tidepool's binary would
+      hold a copy of Ferrolua's code;
+    - the demo page counts as third party every package that is not a
+      workspace member (`xtask/src/site.rs`).
+- **Decision** (the user chose Ferrolua on 2026-11-24, and, the same
+  day, Ferrolua's own language for plugins, crates.io by exact versions,
+  the interpreter without the JIT, and a thin `tidepool-script` crate):
+  - **Ferrolua runs plugins.** Tidepool writes no lexer, parser,
+    compiler, virtual machine, collector or standard library, and
+    `tidepool-lua` is not created.
+  - **Plugins are Ferrolua scripts** (the user's choice), in the language
+    of Ferrolua's `docs/specs/language.md`, not Lua 5.5. Where ADR-0061
+    says Lua 5.5, read Ferrolua's language. A plugin's folder keeps
+    `plugin.toml` and `init.lua`, unless Ferrolua settles on another
+    extension for its scripts, which use `.lua` today.
+  - **`tidepool-script`** (the user's choice; `crates/script`, layer 1,
+    with `core` as its only workspace dependency) is the one crate whose
+    manifest names Ferrolua. It makes each plugin's state with the
+    library and limits ADR-0061 keeps, sends `print` to the plugin's log,
+    gives `require` a loader that reads only the plugin's own folder, and
+    returns errors with their tracebacks. No Ferrolua type appears in its
+    public API, so replacing Ferrolua changes one crate. `editor::plugins`
+    stays the host, and `editor` gains an edge to `script` in the
+    dependency matrix, in place of ADR-0061's edge to `lua` (M15.5).
+  - **First party, from crates.io by exact versions** (the user's
+    choice). Ferrolua's crates count as first party under ADR-0071 while
+    the user's account is their only owner on crates.io
+    (`cargo owner --list`), their source is the Ferrolua repository, and
+    their tree holds only Ferrolua's crates. Each is declared as
+    `=x.y.z`, in `tidepool-script`'s manifest only, listed in
+    `xtask/deps-allowlist.txt` as `name version ADR-0073`, and listed in
+    `docs/02-dependency-policy.md`. Tidepool takes no Git or path
+    dependency on Ferrolua. Updating Ferrolua is a change of its own: it
+    runs the tree commands of `.claude/rules/dependencies.md` before and
+    after, and rereads the manifests of the crates Tidepool links for
+    `unsafe` and for dependencies from outside Ferrolua.
+  - **The interpreter only** (the user's choice). `ferrolua`'s `jit`
+    feature stays off, and no feature of `tidepool-script` turns it on, so
+    `Cargo.lock` holds no `ferrolua-jit`, and none of the Ferrolua code
+    that Tidepool links contains `unsafe`. Turning the JIT on needs an ADR
+    of its own.
+  - **What Ferrolua must give Tidepool,** each tested in Ferrolua and
+    again through `tidepool-script`:
+    1. A state with exactly ADR-0061's library, which Ferrolua's `SAFE`
+       preset is.
+    2. ADR-0061's limits: a memory cap for each state, an instruction
+       limit for each call (ADR-0061's fuel) that counts the work inside
+       library calls, a call depth, and limits on a chunk's size and
+       nesting, none of which `pcall` catches.
+    3. A way for another thread to stop a call that is running, as
+       ADR-0061 requires.
+    4. `require` only through the host's loader, never a C module, and
+       no precompiled chunks.
+    5. No memory address in anything a script can print or compute.
+    6. Errors that name the chunk and the line.
+    7. Every crate Tidepool links builds, and passes its tests, on
+       Tidepool's targets with Tidepool's pinned toolchain.
+    8. Fuzzing of its parser, compiler and virtual machine, which its
+       testing rule plans.
+  - **What stays from ADR-0061:** the plugin API and its grants, shown
+    before a plugin is enabled; the two plugin folders; every plugin off
+    until the user enables it, and a workspace's plugins only once it is
+    trusted; the plugin thread, which owns every plugin's state and runs
+    one call at a time; edits tagged with their buffer's version, and
+    dropped when stale; `editor::plugins` as the host; and no
+    marketplace. `os.clock` and `os.date` work as Ferrolua's library
+    makes them, so M15.3's question about them is closed.
+  - **The roadmap:**
+    - M15.1 becomes "script: the crate over Ferrolua, and its fuzz
+      target". It depends on M0.2, M1.6 and M1.9, and on a Ferrolua
+      release on crates.io that meets the requirements above. It takes
+      M15.2's bench suite, and the tests of the limits and of the library
+      from M15.2 and M15.3.
+    - M15.2 and M15.3 leave Tidepool's roadmap for Ferrolua's, with a
+      dated note under M15's heading; their IDs are not reused. M15.4 and
+      M14.1 depend on M15.1 in place of M15.3.
+    - M15.8 builds a Ferrolua language pack, runs `ferrolua lsp` as a
+      managed tool (an outside program, started through `toolchain` and
+      never bundled, ADR-0002), and writes the API's definitions in the
+      declaration format that Ferrolua's type checker reads, in place of
+      a Lua pack, lua-language-server, and its annotations. It also waits
+      for a release of Ferrolua's language server (its M9).
+  - **The toolchain:** if Ferrolua's release needs a newer Rust than
+    `rust-toolchain.toml` pins, Tidepool moves first, in a commit of its
+    own, before the one that adds the dependency.
+  - **The license:** from M15.1, each package's `LICENSES.txt` lists
+    Ferrolua's MIT license and copyright notice. `NOTICE` stays as it is,
+    since the MIT license asks nothing of it.
+  - **ADR-0062 is superseded:** nothing from lua.org is vendored, and its
+    row leaves "Assets" in `docs/02-dependency-policy.md`. Ferrolua's
+    conformance scripts, each checked against the output PUC-Rio Lua
+    5.5.1 (the reference interpreter) gives for its Lua twin, take its
+    place.
+- **Consequences:**
+  - Good:
+    - Tidepool drops its largest planned subsystem, an XL interpreter,
+      and M15 shrinks from eight tasks to six.
+    - The owner keeps one interpreter for both Tidepool and Nadir, not
+      two, and its conformance scripts check more than tests written
+      from the manual alone would.
+    - Plugin authors get Ferrolua's type checker, linter, formatter and
+      language server.
+    - Ferrolua's indexes count from 0, as Tidepool's byte offsets do
+      (ADR-0019), so the plugin API passes positions unchanged.
+    - The plugin thread makes and keeps every state, so Tidepool needs no
+      state that moves between threads.
+  - Bad:
+    - M15 waits on another repository. M15.1 cannot start until Ferrolua
+      publishes a release on crates.io that meets the requirements.
+      Ferrolua plans that release as its last milestone, so M15, and the
+      first release through M14.1 and M14.7, wait for all of Ferrolua's
+      plan unless it publishes earlier.
+    - Plugin authors cannot reuse Lua code unchanged, since Ferrolua's
+      operators, indexes and ranges differ from Lua's.
+    - Ferrolua's plan meets requirements 1, 2, 4, 5, 6 and 8, but not 3
+      (no way to stop a call from another thread) or 7: it plans the
+      interpreter only on Linux x86-64, keeps macOS on AArch64 and
+      Windows on x86-64 in its backlog, and has no macOS on x86-64 at
+      all. Its sandbox, its ADR-0014, is still proposed. Each gap needs a
+      change to Ferrolua's plan, or a new decision here, before M15.1.
+    - `Cargo.lock` will hold packages from outside the workspace for the
+      first time. A takeover of the user's crates.io account would reach
+      Tidepool. Exact versions, and updates reviewed as changes of their
+      own, are the defense.
+    - The two projects' sandbox rules must agree. A change to Ferrolua's
+      embedding API or sandbox means a change in `tidepool-script`, and
+      a `security-reviewer` review of it.
+    - The demo page would count Ferrolua's crates as third party, so
+      M15.1 counts them as first party.
+  - Follow-up work:
+    - Ferrolua, in its own tasks: requirements 3 and 7, and a release on
+      crates.io.
+    - Tidepool, in the change that records this ADR: the status lines of
+      ADR-0061 and ADR-0062; `AGENTS.md`; `README.md`;
+      `docs/00-overview.md` (goal 7, the marketplace non-goal, the scope
+      estimate, and the risks); `docs/02-dependency-policy.md` (the
+      first-party paragraph, register item 32, and the Lua test suite's
+      row in "Assets"); `docs/roadmap.md` (M15, M14.1);
+      `docs/features.jsonc`; and the `README.md` of `bench`, `editor`,
+      `syntax` and `toolchain`.
+    - Tidepool, in M15.1: the crate and its rows in `AGENTS.md`'s
+      workspace map, `docs/01-architecture.md` and `diagrams/`; the
+      allowlist lines; `LICENSES.txt` in `docs/05-release.md`; the demo
+      page's count; and `tidepool-script` among `security-reviewer`'s
+      mandatory areas.
+- **Alternatives considered:**
+  - Keeping ADR-0061, with Tidepool writing its own interpreter: against
+    the user's direction, and two interpreters by one author for nearly
+    the same language.
+  - Lua 5.5 run by Ferrolua: Ferrolua has no Lua 5.5 mode, and running
+    Lua code unchanged is one of its non-goals (its ADR-0023).
+  - Ferrolua from Git, pinned to a commit: M15 could start once
+    Ferrolua's M3 lands, before any release, but `cargo xtask deps`
+    approves no Git source, every fresh build would fetch from GitHub,
+    and Nadir takes Ferrolua from crates.io.
+  - Linking the JIT: faster plugins, but `unsafe` code and machine code
+    made at run time in the IDE's process, x86-64 only at first, and the
+    `com.apple.security.cs.allow-jit` entitlement under macOS's hardened
+    runtime, before any measured need.
+  - `editor` using `ferrolua` directly: one crate fewer, but Ferrolua's
+    types could reach `editor::plugins`, and replacing Ferrolua would
+    touch the editor.
+  - The wrapper under ADR-0061's name, `tidepool-lua`: the plugins'
+    language is no longer Lua.
+  - Copying Ferrolua's code into the workspace: two copies to keep in
+    step, and copied code is still a dependency.
+- **Revisit when:**
+  - Ferrolua cannot meet one of the requirements above, or a release
+    drops one;
+  - a Ferrolua crate that Tidepool links gains `unsafe`, a dependency
+    from outside Ferrolua, or a crates.io owner other than the user;
+  - every other dependency of M15.1 is ticked and no Ferrolua release on
+    crates.io meets the requirements yet;
+  - M15.1's bench suite shows the interpreter too slow for a plugin that
+    handles every keystroke in a 10,000-line file within the 16 ms
+    budget (the JIT question);
+  - or Ferrolua's license changes.

@@ -97,8 +97,9 @@ Not yet, with the roadmap task that adds it:
 - AI completion, chat and proposals — M9.4, M9.5.
 - mobile panels — M10.6, M11.6.
 - image and hex viewers — M13.4.
-- Lua plugins: the host, the API, the Plugins view, and the API's
-  definitions for lua-language-server — M15.5, M15.6, M15.7, M15.8.
+- Ferrolua plugins: the host, the API, the Plugins view, and the API's
+  definitions for Ferrolua's language server — M15.5, M15.6, M15.7,
+  M15.8.
 
 Tasks and their state are in [`docs/roadmap.md`](../../docs/roadmap.md).
 
