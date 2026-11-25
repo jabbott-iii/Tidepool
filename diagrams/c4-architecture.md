@@ -206,13 +206,13 @@ GitHub Actions. It starts no program but `cargo` (ADR-0017, ADR-0027).
   `main`, and deploys the page it builds to GitHub Pages, at
   <https://jabbott.dev/Tidepool/> once the repository's Pages source is
   "GitHub Actions" (ADR-0030).
-- `cargo` is the pinned toolchain, 1.99.0, from `rust-toolchain.toml`.
+- `cargo` is the pinned toolchain, 1.100.0, from `rust-toolchain.toml`.
 
 ```mermaid
 flowchart TB
     p_contrib(["Contributor<br/>works on Tidepool"])
     e_gha["GitHub Actions<br/>ci.yml on Linux (under<br/>xvfb-run), macOS and<br/>Windows; pages.yml"]
-    e_cargo["cargo<br/>the pinned toolchain,<br/>1.99.0"]
+    e_cargo["cargo<br/>the pinned toolchain,<br/>1.100.0"]
     e_pages["GitHub Pages<br/>jabbott.dev/Tidepool/"]
 
     subgraph b_dev["Dev-only, in the repository"]
@@ -272,7 +272,7 @@ flowchart LR
         c_xtask["xtask"]
         c_bench["tidepool-bench"]
         s_repo[("Manifests, lockfiles,<br/>.cargo/config.toml,<br/>source, READMEs,<br/>LICENSE and NOTICE<br/>copies, docs, workflows")]
-        s_ucd[("crates/text/ucd/17.0.0<br/>the Unicode data files")]
+        s_ucd[("crates/text/ucd/18.0.0<br/>the Unicode data files")]
         s_tables[("crates/text/src/pos/<br/>grapheme/tables.rs<br/>the generated tables")]
         s_fuzz[("fuzz/corpus/TARGET<br/>the seeds<br/>fuzz/crashes/TARGET<br/>the saved crashes")]
         s_site[("site/ the templates,<br/>docs/features.jsonc")]
@@ -829,7 +829,7 @@ flowchart LR
     s_git[(".git: HEAD, its loose ref<br/>or packed-refs")]
     s_out[("target/site, or --out DIR,<br/>marked .tidepool-site")]
     s_wf[(".github/workflows YAML files")]
-    s_ucd[("crates/text/ucd/17.0.0")]
+    s_ucd[("crates/text/ucd/18.0.0")]
     s_tables[("crates/text/src/pos/grapheme/tables.rs")]
     s_fuzz[("fuzz/, fuzz/corpus/, fuzz/crashes/")]
     s_golden[("tests/golden/SCENE.qoi<br/>the references")]

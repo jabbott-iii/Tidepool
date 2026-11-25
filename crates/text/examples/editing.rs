@@ -136,7 +136,7 @@ fn positions(out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
 
 /// The extended grapheme clusters of a text, and where the cursor stops.
 fn graphemes(out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
-    writeln!(out, "== Grapheme clusters (UAX #29, Unicode 17.0.0) ==")?;
+    writeln!(out, "== Grapheme clusters (UAX #29, Unicode 18.0.0) ==")?;
     let text = Rope::from(CLUSTERS);
     let spans: Vec<_> = text.graphemes_in(0..text.len())?.collect();
     writeln!(

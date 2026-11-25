@@ -136,11 +136,11 @@ const NOTICE: &str = include_str!("../../NOTICE");
 /// tables generated from it, copied from the real repository by
 /// [`Fixture::with_ucd`].
 const UCD_FILES: [&str; 6] = [
-    "crates/text/ucd/17.0.0/GraphemeBreakProperty.txt",
-    "crates/text/ucd/17.0.0/emoji-data.txt",
-    "crates/text/ucd/17.0.0/DerivedCoreProperties.txt",
-    "crates/text/ucd/17.0.0/GraphemeBreakTest.txt",
-    "crates/text/ucd/17.0.0/license.txt",
+    "crates/text/ucd/18.0.0/GraphemeBreakProperty.txt",
+    "crates/text/ucd/18.0.0/emoji-data.txt",
+    "crates/text/ucd/18.0.0/DerivedCoreProperties.txt",
+    "crates/text/ucd/18.0.0/GraphemeBreakTest.txt",
+    "crates/text/ucd/18.0.0/license.txt",
     "crates/text/src/pos/grapheme/tables.rs",
 ];
 
@@ -4189,7 +4189,7 @@ fn ci_fails_every_step_but_deps_each_for_its_own_reason() {
         "violation: scripts/tool.sh:2: expected `# Copyright 2026 Joseph Anthony Abbott III`",
         "violation: .github/workflows/ci.yml:34: `actions/cache@v6` is not pinned by a full commit \
          SHA",
-        "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/17.0.0 \
+        "violation: crates/text/src/pos/grapheme/tables.rs is not what crates/text/ucd/18.0.0 \
          generates (first difference at line 1); run cargo xtask ucd",
         "violation: tests/golden/notes.txt: not a reference",
     ] {

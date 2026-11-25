@@ -117,7 +117,7 @@ up on:
 ### Toolchain
 
 - **Rust through [rustup](https://rustup.rs).** `rust-toolchain.toml` pins
-  the version (1.99.0) and the `rustfmt` and `clippy` components; rustup
+  the version (1.100.0) and the `rustfmt` and `clippy` components; rustup
   installs them the first time you run `cargo` in the repository.
 - **Git.**
 
@@ -379,7 +379,7 @@ appendix of `LICENSE`, in that file's comment syntax, followed by a blank
 line; in a script it goes after the `#!` line, and in an HTML file after
 its doctype (ADR-0021, ADR-0030), and `cargo xtask headers` checks it. Material that is not the
 project's own keeps its own license and notice beside it, as the Unicode
-data does in `crates/text/ucd/17.0.0/license.txt` and the RFC 8259 examples
+data does in `crates/text/ucd/18.0.0/license.txt` and the RFC 8259 examples
 do in `crates/codec/tests/json.rs`. The files the check exempts are
 listed by path in it, each with its reason (`docs/04-quality.md` →
 "`headers`").

@@ -98,7 +98,7 @@ policy approves it.
 ├── crates/{core,sys,platform,codec,text,regex,gfx,font,markdown,rpc,toolchain,
 │           syntax,term,workspace,ui,lang,vcs,agent,mobile,editor,gui,tui,app,testkit}/
 │                             # each with a README.md, LICENSE and NOTICE (ADR-0023, ADR-0028)
-├── crates/text/ucd/17.0.0/   # the official Unicode data files `cargo xtask ucd` reads (ADR-0018)
+├── crates/text/ucd/18.0.0/   # the official Unicode data files `cargo xtask ucd` reads (ADR-0018)
 ├── xtask/
 ├── bench/
 ├── agents/                   # separate workspace: tp-agent-mock, tp-agent-local, tp-agent-claude

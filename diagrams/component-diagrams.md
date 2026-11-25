@@ -1097,7 +1097,7 @@ flowchart TB
 
     f_matrix[("docs/01-architecture.md<br/>the dependency<br/>matrix")]
     f_readmes[("docs/roadmap.md<br/>the root's Cargo.toml,<br/>LICENSE and NOTICE<br/>each member's<br/>Cargo.toml, README.md,<br/>LICENSE and NOTICE")]
-    f_ucd[("crates/text/ucd/17.0.0<br/>and the grapheme<br/>tables")]
+    f_ucd[("crates/text/ucd/18.0.0<br/>and the grapheme<br/>tables")]
     f_workflows[(".github/workflows")]
     f_features[("docs/features.jsonc")]
     f_golden[("tests/golden/*.qoi<br/>the references<br/>target/golden<br/>what the scenes drew,<br/>actual and diff images")]

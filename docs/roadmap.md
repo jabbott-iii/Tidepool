@@ -55,6 +55,13 @@ enforced by tooling from day one.
     `sh scripts/check-deps.sh`
   - Note: toolchain pinned to 1.99.0 (rustc 1.99.0 b940084d7 2026-09-28;
     clippy 0.1.99; rustfmt 1.10.0-stable).
+  - Note (2026-11-24, the user's request): toolchain moved to 1.100.0
+    (rustc 1.100.0 0ef1bc386 2026-11-09; clippy 0.1.100; rustfmt
+    1.11.0-stable), the newest 1.100 release on that date. Its Clippy
+    flags one more range loop (`needless_range_loop`), in
+    `workspace::folder::glob`, now an iterator. Its `std` uses Unicode
+    18.0.0, so the grapheme data and tables moved with it (M1.1's note,
+    ADR-0018).
 
 - [x] **M0.2 — core: errors, logging, test harness, hashing, CLI, time**
   - Depends: M0.1
@@ -745,6 +752,13 @@ is published from `main`.
     grapheme query can still take 0.5–3 s on a crafted 100 MB line (one
     100 MB cluster, or a long run of marks or regional indicators), so M4
     must bound cursor motion or run it off the main thread.
+  - Note (2026-11-24, the user's choice, with Rust 1.100.0, whose `std`
+    uses Unicode 18.0.0): the data moved to `crates/text/ucd/18.0.0/`, as
+    ADR-0018 asks, and the tables were generated again (1,641 ranges).
+    UAX #29 revision 49 changes GB9c to `Linker Extend* × Consonant`
+    (InCB values): no consonant is needed before the linker, and three
+    linkers are not GCB Extend. The state's GB9c part and the tests'
+    reference rules follow it, and `GraphemeBreakTest.txt` has 853 cases.
 
 - [x] **M1.2 — text: selections, transactions, undo tree**
   - Depends: M1.1

@@ -240,8 +240,7 @@ impl Glob {
             if current.list.is_empty() {
                 return false;
             }
-            for at in 0..current.list.len() {
-                let pc = current.list[at];
+            for &pc in &current.list {
                 let to = match program.get(pc) {
                     Some(Inst::Byte(want)) if byte == *want => pc + 1,
                     Some(Inst::One) if byte != b'/' => pc + 1,

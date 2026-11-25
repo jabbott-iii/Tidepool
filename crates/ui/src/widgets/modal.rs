@@ -484,7 +484,7 @@ pub fn flag_at(text: &str) -> Option<&'static str> {
 ///   U+007F to U+009F), the tab, the line feed, and the carriage return
 ///   among them;
 /// - Unicode's default-ignorable code points
-///   (`Default_Ignorable_Code_Point` in Unicode 17.0.0, which
+///   (`Default_Ignorable_Code_Point` in Unicode 18.0.0, which
 ///   `crates/text/ucd/` pins), which a renderer draws as nothing, but the
 ///   zero width non-joiner and joiner (U+200C, U+200D) and variation
 ///   selector 16 (U+FE0F), which emoji and some scripts need. Among them
@@ -527,7 +527,7 @@ pub const fn is_hidden(c: char) -> bool {
 }
 
 /// Returns `true` for Unicode's default-ignorable code points
-/// (`Default_Ignorable_Code_Point` in Unicode 17.0.0, which
+/// (`Default_Ignorable_Code_Point` in Unicode 18.0.0, which
 /// `crates/text/ucd/` pins), which a renderer draws as nothing, but the
 /// zero width non-joiner and joiner (U+200C, U+200D) and variation
 /// selector 16 (U+FE0F), which emoji and some scripts need. Among them
@@ -829,7 +829,7 @@ mod tests {
     fn the_invisible_characters_are_unicodes_default_ignorables_but_three() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../text/ucd/17.0.0/DerivedCoreProperties.txt"
+            "/../text/ucd/18.0.0/DerivedCoreProperties.txt"
         );
         let data = std::fs::read_to_string(path).expect("the pinned Unicode data");
         let mut ignorable = vec![false; 0x11_0000];
@@ -858,7 +858,7 @@ mod tests {
             assert_eq!(is_invisible(c), expected, "U+{code:04X}");
             count += usize::from(expected);
         }
-        // Unicode 17.0.0 has 4,174, none of them surrogates.
+        // Unicode 18.0.0 has 4,174, none of them surrogates.
         assert_eq!(count, 4_174 - kept.len());
     }
 

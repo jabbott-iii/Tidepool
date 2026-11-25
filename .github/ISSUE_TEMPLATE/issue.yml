@@ -97,7 +97,7 @@ body:
     attributes:
       label: Environment
       description: The OS and its version, the CPU, `rustc -V`, and for tool problems the tool's version (`rust-analyzer --version`, `git --version`, the SDK or Xcode version).
-      placeholder: Pop!_OS 24.04, x86_64, rustc 1.99.0
+      placeholder: Pop!_OS 24.04, x86_64, rustc 1.100.0
   - type: textarea
     id: logs
     attributes:

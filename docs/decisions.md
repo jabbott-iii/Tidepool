@@ -357,7 +357,9 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0018 — Unicode data: the official UCD files are kept in the repository, and `xtask ucd` generates the tables
 
-- **Status:** Accepted
+- **Status:** Accepted; on 2026-11-24, with Rust 1.100.0, whose `std` uses
+  Unicode 18.0.0, the files moved to `crates/text/ucd/18.0.0/` as its last
+  point asks, in place of 17.0.0's (M1.1's note)
 - **Date:** 2026-11-01
 - **Context:** `pos` finds extended grapheme cluster boundaries (UAX #29,
   roadmap M1.1). Those need three Unicode properties that `std` does not

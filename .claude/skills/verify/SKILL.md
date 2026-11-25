@@ -15,7 +15,7 @@ Run Tidepool's verification suite from the repository root and report
 exactly what happened.
 
 1. Say which toolchain runs: `rustc -V`. `rust-toolchain.toml` pins
-   1.99.0; if rustup cannot install it here, report that, and that every
+   1.100.0; if rustup cannot install it here, report that, and that every
    result below is from another toolchain.
 2. Run `cargo xtask ci`. If `xtask` does not build, report its error and
    run, in order, continuing after failures so every result is known:

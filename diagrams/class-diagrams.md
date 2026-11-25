@@ -5420,7 +5420,7 @@ classDiagram
   flag, `widgets::is_hidden` and `widgets::flag_at`, are public since
   M4.1, for the editor view (ADR-0063): control characters, the line and
   paragraph separators, the interlinear annotation characters, and
-  Unicode 17.0.0's `Default_Ignorable_Code_Point` less U+200C, U+200D,
+  Unicode 18.0.0's `Default_Ignorable_Code_Point` less U+200C, U+200D,
   and U+FE0F, which a unit test checks against the pinned data. It keeps
   tag characters only in the three RGI emoji tag sequences, the flags of
   England, Scotland, and Wales (UTS #51). A

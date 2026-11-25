@@ -95,7 +95,7 @@
     {
       "name": "The rope and positions",
       "area": "Text",
-      "summary": "Text lives in a rope, so an edit anywhere in a large file stays cheap. A position is a byte offset that converts to characters, lines and columns, and to UTF-16 for language servers; grapheme boundaries follow Unicode 17.0, from tables generated from the official data; and 10,000 random edit sequences are checked against a plain string.",
+      "summary": "Text lives in a rope, so an edit anywhere in a large file stays cheap. A position is a byte offset that converts to characters, lines and columns, and to UTF-16 for language servers; grapheme boundaries follow Unicode 18.0, from tables generated from the official data; and 10,000 random edit sequences are checked against a plain string.",
       "tasks": ["M1.1"],
       "ticked": ["M1.1"]
     },

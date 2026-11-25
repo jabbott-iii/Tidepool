@@ -366,7 +366,7 @@ mod tests {
             ("Cargo.toml", None),
             ("README.md", None),
             ("crates/codec/tests/json/settings.jsonc", None),
-            ("crates/text/ucd/17.0.0/GraphemeBreakTest.txt", None),
+            ("crates/text/ucd/18.0.0/GraphemeBreakTest.txt", None),
             ("tests/sample.rs.txt", None),
             // The page as plain text, served as it is, and the features.
             ("site/llms.txt", None),

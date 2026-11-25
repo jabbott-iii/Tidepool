@@ -197,7 +197,7 @@ pub(crate) const GOLDEN: Check = Check {
 };
 
 /// What `ucd` does, with and without `--check`.
-const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
+const UCD_ABOUT: &str = "crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/18.0.0 \
                          generates (without --check: write it)";
 
 /// `cargo xtask ucd --check`, the step of `ci`.

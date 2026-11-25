@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Extended grapheme cluster boundaries, as UAX #29 revision 47 defines them
-//! for Unicode 17.0.0 (ADR-0018), on a `&str` and on a [`Rope`].
+//! Extended grapheme cluster boundaries, as UAX #29 revision 49 defines them
+//! for Unicode 18.0.0 (ADR-0018), on a `&str` and on a [`Rope`].
 //!
 //! A boundary is a byte offset between two user-perceived characters. Byte 0
 //! and the length are boundaries, also of the empty text; an offset that is
@@ -47,8 +47,7 @@
 //! reset at a boundary, recognises exactly their left contexts. It has one
 //! part for each rule's pattern, and the parts step independently:
 //!
-//! - GB9c: an InCB consonant, then InCB Linker and Extend chars, at least
-//!   one of them a linker;
+//! - GB9c: an InCB Linker, then InCB Extend chars;
 //! - GB11: a pictograph, then Extend chars, then a ZWJ;
 //! - GB12 and GB13: a run of regional indicators, of which only the parity
 //!   counts.
@@ -227,8 +226,7 @@ struct State {
     ri_odd: bool,
     /// GB11: how much of `ExtPict Extend* ZWJ` the text ends in.
     emoji: Emoji,
-    /// GB9c: how much of `Consonant [Extend Linker]* Linker [Extend
-    /// Linker]*` (InCB values) the text ends in.
+    /// GB9c: whether the text ends in `Linker Extend*` (InCB values).
     conjunct: Conjunct,
 }
 
@@ -246,11 +244,9 @@ enum Emoji {
 /// The GB9c part of [`State`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Conjunct {
-    /// Not at the end of `Consonant [Extend Linker]*`.
+    /// Not at the end of `Linker Extend*`.
     None,
-    /// At the end of `Consonant Extend*`.
-    Consonant,
-    /// At the end of `Consonant [Extend Linker]* Linker [Extend Linker]*`.
+    /// At the end of `Linker Extend*`.
     Linked,
 }
 
@@ -274,11 +270,7 @@ const fn step(state: State, p: u8) -> State {
             Emoji::None
         },
         conjunct: match incb(p) {
-            INCB_CONSONANT => Conjunct::Consonant,
-            INCB_LINKER => match state.conjunct {
-                Conjunct::None => Conjunct::None,
-                Conjunct::Consonant | Conjunct::Linked => Conjunct::Linked,
-            },
+            INCB_LINKER => Conjunct::Linked,
             INCB_EXTEND => state.conjunct,
             _ => Conjunct::None,
         },
@@ -300,8 +292,6 @@ fn recover(before: impl IntoIterator<Item = u8>) -> State {
     // GB11: once the last char has been read and was an Extend or a ZWJ,
     // whether it was a ZWJ. Extend chars before it are skipped.
     let mut after: Option<bool> = None;
-    // GB9c: whether an InCB Linker has been read.
-    let mut linker = false;
     for p in before {
         if ri_odd.is_none() {
             if gcb(p) == REGIONAL_INDICATOR {
@@ -328,10 +318,8 @@ fn recover(before: impl IntoIterator<Item = u8>) -> State {
         }
         if conjunct.is_none() {
             match incb(p) {
-                INCB_LINKER => linker = true,
                 INCB_EXTEND => {}
-                INCB_CONSONANT if linker => conjunct = Some(Conjunct::Linked),
-                INCB_CONSONANT => conjunct = Some(Conjunct::Consonant),
+                INCB_LINKER => conjunct = Some(Conjunct::Linked),
                 _ => conjunct = Some(Conjunct::None),
             }
         }
@@ -340,7 +328,7 @@ fn recover(before: impl IntoIterator<Item = u8>) -> State {
         }
     }
     // At the start of the text, as from `START`: the run's parity, no
-    // pictograph and no consonant.
+    // pictograph and no linker.
     State {
         ri_odd: ri_odd.unwrap_or(odd),
         emoji: emoji.unwrap_or(Emoji::None),
@@ -490,8 +478,8 @@ impl Source for Rope {
 /// backward pass (see [`recover`]). It reads the chars before `byte` until
 /// the longest of the three patterns ends: the run of regional indicators,
 /// the char before `byte` and, if that is an Extend or a ZWJ, the Extend
-/// chars before it, and the run of InCB Linker and Extend chars. A CR or LF
-/// ends all three.
+/// chars before it, and the run of InCB Extend chars with the char before
+/// it. A CR or LF ends all three.
 fn state_at<S: Source + ?Sized>(src: &S, byte: usize) -> State {
     recover(src.chars_before(byte).map(|(_, c)| {
         work(1);

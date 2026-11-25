@@ -438,7 +438,7 @@ secrets or opens a socket (`docs/04-quality.md`).
 ## Conventions
 
 - **Toolchain and edition:** Rust edition 2024, stable pinned in
-  `rust-toolchain.toml` (1.99.0). `extern` blocks are
+  `rust-toolchain.toml` (1.100.0). `extern` blocks are
   `unsafe extern "C" { ... }`.
 - **Errors:** each crate has its own error enum implementing `Display` and
   `std::error::Error`. No `unwrap()` in library code; `expect("why")` only

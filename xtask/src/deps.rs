@@ -290,7 +290,7 @@ fn unresolved(shown: &str, error: &Error, found_more: bool) -> (Unresolved, Stri
 /// date, as it is right after a manifest edit. Cargo has worded this two
 /// ways: "the lock file X needs to be updated but --locked was passed to
 /// prevent this" (older releases) and "cannot update the lock file X
-/// because --locked was passed to prevent this" (the pinned 1.99).
+/// because --locked was passed to prevent this" (the pinned 1.100).
 fn is_stale_lockfile(stderr: &str) -> bool {
     stderr.lines().any(|line| {
         line.starts_with("error: ")

@@ -30,7 +30,7 @@ so they can fill them in.
 - **Crates:** the "Workspace map" in `AGENTS.md`, which names each member and what it is for, and
   each member's `README.md`, which says what it has; which crate may use which is the "Dependency
   matrix" in `docs/01-architecture.md`, which `cargo xtask layers` enforces
-- **Toolchain:** edition 2024, from `[workspace.package]` in the root `Cargo.toml`; Rust 1.99.0,
+- **Toolchain:** edition 2024, from `[workspace.package]` in the root `Cargo.toml`; Rust 1.100.0,
   pinned in `rust-toolchain.toml`; no `rust-version` is set, so the pinned toolchain is the only one
   supported
 - **Check commands:** `cargo xtask ci`, the gate, which runs `deps`, `cargo fmt --check`, clippy

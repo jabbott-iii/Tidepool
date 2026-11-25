@@ -394,7 +394,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(
-            "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/17.0.0 \
+            "  ucd           crates/text/src/pos/grapheme/tables.rs is what crates/text/ucd/18.0.0 \
              generates (without --check: write it)\n"
         ));
         assert!(
@@ -805,7 +805,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.ends_with("ranges (Unicode 17.0.0)\nucd: ok\n"),
+            text.ends_with("ranges (Unicode 18.0.0)\nucd: ok\n"),
             "{text}"
         );
 

@@ -17,7 +17,7 @@
 //!
 //! New in Tidepool; nothing here is ported from Nadir.
 //!
-//! The inputs are the official Unicode 17.0.0 files in [`DIR`], each pinned
+//! The inputs are the official Unicode 18.0.0 files in [`DIR`], each pinned
 //! by its SHA-256 in [`PINS`]. Before any of them is read, each directory
 //! below the root on the way to [`DIR`] and to [`OUTPUT`] must be missing
 //! or a directory, and not a symbolic link: a link is never followed, so
@@ -59,7 +59,7 @@ use crate::error::Error;
 use crate::walk;
 
 /// The directory of the Unicode data, relative to the repository root.
-pub(crate) const DIR: &str = "crates/text/ucd/17.0.0";
+pub(crate) const DIR: &str = "crates/text/ucd/18.0.0";
 
 /// The generated file, relative to the repository root.
 pub(crate) const OUTPUT: &str = "crates/text/src/pos/grapheme/tables.rs";
@@ -68,11 +68,11 @@ pub(crate) const OUTPUT: &str = "crates/text/src/pos/grapheme/tables.rs";
 const OUTPUT_DIR: &str = "crates/text/src/pos/grapheme";
 
 /// The Unicode version of [`DIR`].
-const VERSION: &str = "17.0.0";
+const VERSION: &str = "18.0.0";
 
-/// The version `emoji-data.txt` gives itself: Unicode's, without the update
-/// number.
-const EMOJI_VERSION: &str = "17.0";
+/// The version `emoji-data.txt` gives itself: since Unicode 18.0.0, the
+/// whole of Unicode's, as the other files give it (17.0.0's said `17.0`).
+const EMOJI_VERSION: &str = "18.0.0";
 
 /// The `Grapheme_Cluster_Break` file.
 const GCB_FILE: &str = "GraphemeBreakProperty.txt";
@@ -85,26 +85,26 @@ const DERIVED_FILE: &str = "DerivedCoreProperties.txt";
 
 /// Each file in [`DIR`] and the SHA-256 of the official file, computed once
 /// from the downloaded bytes with `tidepool_core::hash::sha256` and checked
-/// with `sha256sum` (2026-11-01). The three property files come first, in
+/// with `sha256sum` (2026-11-24). The three property files come first, in
 /// the order the generated file lists them; the conformance test (read only
 /// by tests) and the license are pinned too, so that they cannot change
 /// unnoticed either.
 const PINS: [(&str, &str); 5] = [
     (
         GCB_FILE,
-        "d6b51d1d2ae5c33b451b7ed994b48f1f4dc62b2272a5831e7fd418514a6bae89",
+        "0839dcb79e4ac639ecd538b1abf7c9d22e3f9dd265b7e182d33627aa4d75b45a",
     ),
     (
         EMOJI_FILE,
-        "2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b",
+        "80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1",
     ),
     (
         DERIVED_FILE,
-        "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08",
+        "09c928886a178fcafd93c29e4bd59073a058e5a100b716d425cb563ab50f68c9",
     ),
     (
         "GraphemeBreakTest.txt",
-        "e2d134d2c52919bace503ebb6a551c1855fe1a1faec18478c78fff254a1793ec",
+        "b0cf047ee94485bbdc846de2b902f5f8a815f6b674f9d04223cddadd91c9df31",
     ),
     (
         "license.txt",
@@ -872,14 +872,14 @@ mod tests {
 
     /// The smallest property files that pass every check. A line appended
     /// to `GCB` is its line 7.
-    const GCB: &str = "# GraphemeBreakProperty-17.0.0.txt\n\
+    const GCB: &str = "# GraphemeBreakProperty-18.0.0.txt\n\
                        # @missing: 0000..10FFFF; Other\n\
                        000D          ; CR # Cc       <control-000D>\n\
                        000A          ; LF # Cc       <control-000A>\n\
                        \n\
                        # Total code points: 2\n";
-    const EMOJI: &str = "# emoji-data.txt\n# Version: 17.0\n";
-    const DERIVED: &str = "# DerivedCoreProperties-17.0.0.txt\n\
+    const EMOJI: &str = "# emoji-data.txt\n# Version: 18.0.0\n";
+    const DERIVED: &str = "# DerivedCoreProperties-18.0.0.txt\n\
                            # @missing: 0000..10FFFF; InCB; None\n";
 
     /// The `Error::Doc` that `properties` gives, as (path, line, detail).
@@ -1033,11 +1033,11 @@ mod tests {
 
     #[test]
     fn first_lines_and_defaults_must_be_the_expected_ones() {
-        let (path, line, detail) = doc_error(&GCB.replacen("17.0.0", "16.0.0", 1), EMOJI, DERIVED);
+        let (path, line, detail) = doc_error(&GCB.replacen("18.0.0", "17.0.0", 1), EMOJI, DERIVED);
         assert_eq!((path, line), (gcb_path(), 1));
         assert_eq!(
             detail,
-            "the first line must be `# GraphemeBreakProperty-17.0.0.txt`"
+            "the first line must be `# GraphemeBreakProperty-18.0.0.txt`"
         );
         let (path, line, detail) = doc_error(
             &GCB.replace("# @missing: 0000..10FFFF; Other\n", ""),
@@ -1053,9 +1053,9 @@ mod tests {
         );
         assert_eq!((path, line), (format!("{DIR}/{DERIVED_FILE}"), 0));
         assert_eq!(detail, "no line is `# @missing: 0000..10FFFF; InCB; None`");
-        let (path, line, detail) = doc_error(GCB, &EMOJI.replace("17.0", "16.0"), DERIVED);
+        let (path, line, detail) = doc_error(GCB, &EMOJI.replace("18.0.0", "17.0"), DERIVED);
         assert_eq!((path, line), (format!("{DIR}/{EMOJI_FILE}"), 0));
-        assert_eq!(detail, "no line is `# Version: 17.0`");
+        assert_eq!(detail, "no line is `# Version: 18.0.0`");
         let (_, line, detail) = doc_error(GCB, &EMOJI.replace("emoji", "Emoji"), DERIVED);
         assert_eq!(
             (line, detail.as_str()),
@@ -1140,7 +1140,7 @@ mod tests {
             }
         }
         assert_eq!(expanded, props);
-        // Unicode 17.0.0 gives a table of this size (design estimate: 2-3k).
+        // Unicode 18.0.0 gives a table of this size (design estimate: 2-3k).
         assert!((1_000..5_000).contains(&ranges.len()), "{}", ranges.len());
     }
 
@@ -1221,14 +1221,14 @@ mod tests {
         assert!(!text.contains('\r'));
         assert!(text.ends_with("];\n") && !text.ends_with("\n\n"));
         assert!(text.starts_with(
-            "// @generated by `cargo xtask ucd` from crates/text/ucd/17.0.0. Do not edit by hand.\n\
+            "// @generated by `cargo xtask ucd` from crates/text/ucd/18.0.0. Do not edit by hand.\n\
              //\n\
              // Sources and their SHA-256:\n\
              //   GraphemeBreakProperty.txt  ab\n\
              //   emoji-data.txt             cd\n\
              //\n"
         ));
-        assert!(text.contains("pub(crate) const UNICODE_VERSION: (u8, u8, u8) = (17, 0, 0);\n"));
+        assert!(text.contains("pub(crate) const UNICODE_VERSION: (u8, u8, u8) = (18, 0, 0);\n"));
         assert!(text.contains(
             "pub(crate) static RANGES: [(u32, u32, u8); 4] = [\n    \
              (0x0000, 0x0009, CONTROL),\n    \
@@ -1243,8 +1243,8 @@ mod tests {
     #[test]
     fn the_versions_agree() {
         assert!(DIR.ends_with(VERSION));
-        assert!(VERSION.starts_with(&format!("{EMOJI_VERSION}.")));
-        assert_eq!(VERSION.replace('.', ", "), "17, 0, 0");
+        assert_eq!(EMOJI_VERSION, VERSION);
+        assert_eq!(VERSION.replace('.', ", "), "18, 0, 0");
     }
 
     #[test]
@@ -1269,7 +1269,7 @@ mod tests {
         );
         assert!(
             generated.starts_with(&format!("{OUTPUT}: "))
-                && generated.ends_with(" ranges (Unicode 17.0.0)"),
+                && generated.ends_with(" ranges (Unicode 18.0.0)"),
             "{generated}"
         );
     }

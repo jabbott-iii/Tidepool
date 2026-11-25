@@ -118,4 +118,4 @@ command, and what to run for each kind of change.
 Apache-2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The bundled fonts in
 [`assets/fonts/`](assets/fonts/) are licensed under the SIL Open Font License 1.1 (each
 directory's `OFL.txt`), and the Unicode data under the
-Unicode License v3 (`crates/text/ucd/17.0.0/license.txt`).
+Unicode License v3 (`crates/text/ucd/18.0.0/license.txt`).

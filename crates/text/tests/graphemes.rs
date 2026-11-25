@@ -35,7 +35,7 @@ use tidepool_text::pos::grapheme::{
 };
 
 /// Unicode's conformance test for the extended grapheme cluster rules.
-const TEST_FILE: &str = include_str!("../ucd/17.0.0/GraphemeBreakTest.txt");
+const TEST_FILE: &str = include_str!("../ucd/18.0.0/GraphemeBreakTest.txt");
 
 /// One line of [`TEST_FILE`]: its number, its text and the byte offsets
 /// marked `÷` (0 and the length among them).
@@ -49,7 +49,7 @@ struct Case {
 fn cases() -> Vec<Case> {
     assert_eq!(
         TEST_FILE.lines().next(),
-        Some("# GraphemeBreakTest-17.0.0.txt")
+        Some("# GraphemeBreakTest-18.0.0.txt")
     );
     let mut cases = Vec::new();
     for (index, line) in TEST_FILE.lines().enumerate() {
@@ -86,8 +86,8 @@ fn cases() -> Vec<Case> {
             boundaries,
         });
     }
-    assert_eq!(cases.len(), 766);
-    assert!(TEST_FILE.contains("\n# Lines: 766\n"));
+    assert_eq!(cases.len(), 853);
+    assert!(TEST_FILE.contains("\n# Lines: 853\n"));
     cases
 }
 
@@ -275,5 +275,5 @@ fn windows_inside_long_runs_agree_with_iterating_from_the_start() {
 #[test]
 fn the_tables_follow_std_unicode_version() {
     assert_eq!(UNICODE_VERSION, char::UNICODE_VERSION);
-    assert_eq!(UNICODE_VERSION, (17, 0, 0));
+    assert_eq!(UNICODE_VERSION, (18, 0, 0));
 }

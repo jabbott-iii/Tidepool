@@ -49,10 +49,10 @@ use crate::{Rope, TextError};
 // The conformance test file.
 
 /// Unicode's conformance test for the extended grapheme cluster rules.
-const TEST_FILE: &str = include_str!("../../../ucd/17.0.0/GraphemeBreakTest.txt");
+const TEST_FILE: &str = include_str!("../../../ucd/18.0.0/GraphemeBreakTest.txt");
 
 /// The number of cases in [`TEST_FILE`].
-const CASES: usize = 766;
+const CASES: usize = 853;
 
 /// One line of [`TEST_FILE`].
 struct Case {
@@ -67,10 +67,10 @@ struct Case {
 fn cases() -> Vec<Case> {
     assert_eq!(
         TEST_FILE.lines().next(),
-        Some("# GraphemeBreakTest-17.0.0.txt"),
-        "the test file is the one for Unicode 17.0.0"
+        Some("# GraphemeBreakTest-18.0.0.txt"),
+        "the test file is the one for Unicode 18.0.0"
     );
-    assert!(TEST_FILE.contains("\n# Lines: 766\n"));
+    assert!(TEST_FILE.contains("\n# Lines: 853\n"));
     let mut cases = Vec::new();
     for (index, line) in TEST_FILE.lines().enumerate() {
         let line_number = index + 1;
@@ -329,12 +329,14 @@ fn context_samples(samples: &[char]) -> Vec<char> {
 
 /// Patterns that GB9c and GB11 join, as alternatives for each place: a
 /// conjunct `Consonant [Extend Linker]* Linker [Extend Linker]* Consonant`
-/// and an emoji ZWJ sequence `ExtPict Extend* ZWJ ExtPict`.
+/// (InCB values), whose last consonant GB9c joins after `Linker Extend*`,
+/// and an emoji ZWJ sequence `ExtPict Extend* ZWJ ExtPict`. U+1CF5 is a
+/// linker that is not GCB Extend.
 const MOTIFS: [&[&[char]]; 2] = [
     &[
         &['\u{915}', '\u{995}'],
         &['\u{94D}', '\u{9CD}', '\u{300}', '\u{200D}'],
-        &['\u{94D}', '\u{9CD}'],
+        &['\u{94D}', '\u{9CD}', '\u{1CF5}'],
         &['\u{94D}', '\u{300}', '\u{200D}', '\u{1F3FB}'],
         &['\u{915}', '\u{937}', '\u{995}'],
     ],
@@ -378,7 +380,7 @@ fn sample_text(rng: &mut Pcg32, samples: &[char], context: &[char]) -> String {
     text.into_iter().collect()
 }
 
-/// The rule of UAX #29 section 3.1.1 (revision 47) that decides the
+/// The rule of UAX #29 section 3.1.1 (revision 49) that decides the
 /// position before `p[i]`, for `0 < i < p.len()`, read literally from the
 /// rules in order, and whether it is a boundary. Shares no code with the
 /// engine but the packed values.
@@ -415,15 +417,9 @@ fn reference(p: &[u8], i: usize) -> (&'static str, bool) {
     if a == PREPEND {
         return ("GB9b", false);
     }
-    // GB9c: Consonant [Extend Linker]* Linker [Extend Linker]* × Consonant.
-    let linked = (0..i).any(|k| {
-        let between = &p[k + 1..i];
-        incb(p[k]) == INCB_CONSONANT
-            && between
-                .iter()
-                .all(|&x| incb(x) == INCB_EXTEND || incb(x) == INCB_LINKER)
-            && between.iter().any(|&x| incb(x) == INCB_LINKER)
-    });
+    // GB9c: Linker Extend* × Consonant (InCB values).
+    let linked = (0..i)
+        .any(|k| incb(p[k]) == INCB_LINKER && p[k + 1..i].iter().all(|&x| incb(x) == INCB_EXTEND));
     if incb(p[i]) == INCB_CONSONANT && linked {
         return ("GB9c", false);
     }
@@ -514,7 +510,7 @@ fn all_states() -> Vec<State> {
     let mut states = Vec::new();
     for ri_odd in [false, true] {
         for emoji in [Emoji::None, Emoji::Pict, Emoji::PictZwj] {
-            for conjunct in [Conjunct::None, Conjunct::Consonant, Conjunct::Linked] {
+            for conjunct in [Conjunct::None, Conjunct::Linked] {
                 states.push(State {
                     ri_odd,
                     emoji,
@@ -691,9 +687,9 @@ fn recovery_stops_at_a_char_that_forgets_the_state() {
             assert!(read > 1, "value {p:#04x} does not forget the state");
         }
     }
-    // InCB None or Consonant, not a regional indicator, and either
+    // InCB None, Consonant or Linker, not a regional indicator, and either
     // Extended_Pictographic (13 GCB values) or neither Extend nor ZWJ (11).
-    assert_eq!(forgetting, 13 * 2 + 11 * 2);
+    assert_eq!(forgetting, 13 * 3 + 11 * 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -756,7 +752,7 @@ fn table_is_sorted_and_merged() {
     assert_eq!(lookup('\u{E0000}'), CONTROL);
 }
 
-/// Spot checks of the classes against the Unicode 17.0.0 files.
+/// Spot checks of the classes against the Unicode 18.0.0 files.
 #[test]
 fn class_spot_checks() {
     let expected = [
@@ -770,6 +766,7 @@ fn class_spot_checks() {
         ('\u{0915}', INCB_CONSONANT),
         ('\u{094D}', EXTEND | INCB_LINKER),
         ('\u{1B44}', EXTEND | INCB_LINKER),
+        ('\u{1CF5}', INCB_LINKER),
         ('\u{0300}', EXTEND | INCB_EXTEND),
         ('\u{200C}', EXTEND),
         ('\u{200D}', ZWJ | INCB_EXTEND),
@@ -1071,14 +1068,15 @@ fn spans_and_work(rope: &Rope, range: Range<usize>) -> (Vec<Range<usize>>, u64) 
 }
 
 /// The facts about today's table that the stated costs rely on: every InCB
-/// Linker or Extend char is GCB Extend or ZWJ, so a step back before a
-/// consonant or a pictograph stays in the run of extending chars; and
-/// regional indicators have InCB None, so a step back between two of them
-/// reads only their run.
+/// Extend char is GCB Extend or ZWJ, so a step back before a consonant or a
+/// pictograph stays in the run of extending chars and the char before it;
+/// and regional indicators have InCB None, so a step back between two of
+/// them reads only their run. Since revision 49, GB9c reads only `Linker
+/// Extend*` back, so a linker need not be GCB Extend, and three are not.
 #[test]
 fn the_costs_rely_on_these_facts_about_the_table() {
     for &(first, _, p) in &tables::RANGES {
-        if matches!(p & INCB_MASK, INCB_LINKER | INCB_EXTEND) {
+        if p & INCB_MASK == INCB_EXTEND {
             assert!(matches!(p & GCB_MASK, EXTEND | ZWJ), "{first:#x}: {p:#x}");
         }
         if p & GCB_MASK == REGIONAL_INDICATOR {
@@ -1225,9 +1223,9 @@ fn a_window_inside_a_run_of_marks_reads_only_the_window() {
 
 /// GB9c and GB11: the step back reads the run of extending chars just
 /// before the position, and nothing before it, however long the line. The
-/// run is read even where the rule's own pattern ends sooner (ZWNJ is
-/// Extend but InCB None; a ZWJ before the ZWJ ends GB11's pattern), because
-/// the pass recovers all three parts of the state.
+/// run is read even where the rule's own pattern ends sooner (GB9c's ends
+/// at the linker before the consonant; a ZWJ before the ZWJ ends GB11's
+/// pattern), because the pass recovers all three parts of the state.
 #[test]
 fn conjuncts_and_zwj_sequences_step_back_over_their_marks() {
     let line = "\u{1F1FA}\u{1F1F8}\u{301}".repeat(2_000);
@@ -1244,8 +1242,9 @@ fn conjuncts_and_zwj_sequences_step_back_over_their_marks() {
             (
                 format!("\u{915}{}\u{94D}", marks('\u{200C}')),
                 '\u{915}',
-                run > 0,
+                false,
             ),
+            (format!("\u{94D}{}", marks('\u{301}')), '\u{915}', false),
             (
                 format!("\u{1F600}{}\u{200D}", marks('\u{301}')),
                 '\u{1F600}',

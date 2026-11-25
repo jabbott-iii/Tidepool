@@ -30,7 +30,7 @@ roadmap needs.
 Built, with the roadmap task that built it:
 
 - `rope` and `pos`, with grapheme boundaries (UAX #29) from tables that
-  `cargo xtask ucd` generates from `ucd/17.0.0/` — M1.1.
+  `cargo xtask ucd` generates from `ucd/18.0.0/` — M1.1.
 - `selection`, `transaction` and `history` — M1.2. From M4.2 an edit
   inside one leaf counts only the bytes it changes, a change set of two or
   more edits that each stay inside one leaf applies in one walk of the
@@ -223,6 +223,6 @@ cargo xtask fuzz-smoke --target encoding
 
 Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The Unicode data in `ucd/17.0.0/` is Unicode, Inc.'s, under the Unicode
-License v3 in `ucd/17.0.0/license.txt`; the grapheme tables generated from
+The Unicode data in `ucd/18.0.0/` is Unicode, Inc.'s, under the Unicode
+License v3 in `ucd/18.0.0/license.txt`; the grapheme tables generated from
 it, `src/pos/grapheme/tables.rs`, keep that notice.

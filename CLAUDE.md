@@ -108,7 +108,7 @@ The others load automatically when you open matching files:
 - When an acceptance criterion needs an OS, tool or device this session
   can't run (Claude Code sessions are usually Linux without the Android SDK
   or Xcode), implement it and say plainly which checks still need it.
-- `rust-toolchain.toml` pins 1.99.0. If rustup cannot install it in this
+- `rust-toolchain.toml` pins 1.100.0. If rustup cannot install it in this
   session, say so, and say which toolchain any command you report ran on.
 - Commit messages you propose or commit with, and pull request
   descriptions you write, follow `AGENTS.md` rule 11: no attribution

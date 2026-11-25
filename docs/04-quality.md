@@ -450,7 +450,7 @@ The design is ADR-0027's; the engine's rustdoc
 | `cargo xtask layers` | A crate declares a workspace crate its matrix row doesn't allow (normal, dev or build dependency) or a path crate that isn't a member, members and matrix rows don't match, or `docs/01-architecture.md` breaks the rules below for how the matrix is written |
 | `cargo xtask unsafe-audit` | `unsafe` outside `sys`/`platform`, a block or `unsafe impl` without `// SAFETY:`, the `unsafe_code` lint relaxed in source outside their crate roots, a `pub unsafe fn` without `# Safety`, an `extern` block outside `sys`, an exported macro in `sys`/`platform` that takes its caller's tokens and holds `unsafe` in any form, a library crate root other than theirs without `#![doc(test(attr(forbid(unsafe_code))))]`, exactly so, at crate level (ADR-0036), a proc-macro crate, `unsafe` in a code block of the documentation outside `sys`/`platform`, or a `doc =` value or included file it cannot read (ADR-0037), an exported macro outside `sys`/`platform` that lets a `tt` or `ident` fragment reach braces or an item it writes, a macro that defines a macro, or `include_str` as a name of its own outside `sys`/`platform` (ADR-0038), or one of the listed ways of bringing in code it did not read |
 | `cargo xtask headers` | A source file (Rust, shell script, workflow, HTML, CSS, JavaScript) does not start with the Apache-2.0 header of `LICENSE`'s appendix in its comment syntax, then a blank line (after a script's `#!` line or an HTML file's doctype), unless it is exempt by path; a source file is over 8 MiB or not UTF-8; or anything under the root is a symbolic link (ADR-0021, ADR-0030) |
-| `cargo xtask ucd [--check]` | A file in `crates/text/ucd/17.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
+| `cargo xtask ucd [--check]` | A file in `crates/text/ucd/18.0.0/` is missing, a symbolic link, not a regular file, over 4 MiB, not UTF-8 or not matching its SHA-256 pin; a property file does not parse (a wrong first line, `@missing` default or `# Total code points:` count, an unknown value, a code point assigned twice); a code point is both ZWJ and Extended_Pictographic; or, with `--check` (the `ci` step), `crates/text/src/pos/grapheme/tables.rs` is missing, a link or not what the files generate. Without `--check` it writes that file when it changed |
 | `cargo xtask tools` | Not yet implemented (M5.1). Planned: a `toolchains/*.toml` descriptor lacks a pinned version, HTTPS official source, SHA-256 (for downloads) or license |
 | `cargo xtask theme` | A pair of colors that a theme in `themes/` lists in its `[[contrast.use]]` falls below its minimum, unrounded: 4.5:1 for `normal` text, 3:1 for `large` text and UI glyphs, by WCAG 2.x's formula; a translucent surface is composited over a translucent color; a `solid` value is translucent, given for an opaque value, or more than one level a channel from its value over `bg` as `core` composites it; `colors.bg` is missing or translucent; `[colors]` or `[contrast]` is missing or not a table, a color is not a table, or has no `value` or one that is not a string or does not parse (which is its one violation: what names it adds none), `[contrast]` has a key but `text`, `on` and `use`, its `text`, `on` or `use` is missing, empty or names no color of the file, an entry of `use` is not a table, lacks `text`, `on` or `size`, names in `text` or `over` no color of the file, has a `size` but `normal` and `large` or a key it does not have; a theme does not parse within its limits (1 MiB, 8 levels); `themes/` is missing, a symbolic link or not a directory, holds no `.toml` file, or holds a link, or something named like a theme that is not a regular file or whose name is not UTF-8. It prints each theme's contrast table in the Markdown of `docs/subsystems/ui-and-theme.md` → Contrast, which a test compares with it byte for byte, and how many pairs it checked (ADR-0047). A step of `ci` |
 | `cargo xtask golden [--bless <scene>...]` | A scene's command fails; a scene differs from its reference by more than its crate's tolerance, or has no reference, or a reference of another size or that does not decode; a reference no scene drew, or anything else in `tests/golden/`; a scene file that is not a PAM it reads, or a scene name two crates draw; a member with a `golden` test and no row in `SCENES`, or a row whose member has no such test; drawing crates drew nothing and there are no references; `cargo metadata` fails; or `target/golden/`, `tests/golden/` or a directory on the way to either is a symbolic link, or cannot be read or written. With `--bless`, also a name that no scene drew; then nothing is written ("Golden frames", ADR-0044). A step of `ci`, without `--bless`. TUI snapshots join with M7 |
@@ -918,7 +918,7 @@ network through its tool.
   - No target may set an `edition` of its own: an `edition` key in
     `[lib]`, or in any table of `[[bin]]`, `[[test]]`, `[[bench]]` or
     `[[example]]`, is one violation per target, named by its table and its
-    `name` if it has one. Cargo 1.99 still accepts one, with a warning, and
+    `name` if it has one. Cargo 1.100 still accepts one, with a warning, and
     compiles that target under it, whatever the package inherits.
   - The root `Cargo.toml` must set `edition = "2024"` in
     `[workspace.package]`, the edition every member inherits. It is read
@@ -1455,7 +1455,7 @@ network through its tool.
 
 **`ucd`**
 
-- Inputs: the five files in `crates/text/ucd/17.0.0/` (ADR-0018). They are
+- Inputs: the five files in `crates/text/ucd/18.0.0/` (ADR-0018). They are
   `GraphemeBreakProperty.txt`, `emoji-data.txt`,
   `DerivedCoreProperties.txt`, `GraphemeBreakTest.txt` (read only by
   `tidepool-text`'s tests) and `license.txt`, each pinned by its SHA-256 in
@@ -1489,7 +1489,7 @@ network through its tool.
   different output is a violation that names the first different line.
 - Directories: each directory below the repository root on the way to the
   inputs or the output must be a real directory. That is `crates`,
-  `crates/text`, `crates/text/ucd`, `crates/text/ucd/17.0.0`,
+  `crates/text`, `crates/text/ucd`, `crates/text/ucd/18.0.0`,
   `crates/text/src`, `crates/text/src/pos` and
   `crates/text/src/pos/grapheme`. They are checked shallowest first,
   before anything is read.
