@@ -4167,7 +4167,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 ## ADR-0061 — Plugins are Lua 5.5 scripts run by `tidepool-lua`, an interpreter of our own in safe Rust; a plugin reaches only the plugin API, runs on a plugin thread, and stays off until the user enables it
 
 - **Status:** Accepted; ADR-0073 replaces its interpreter, `tidepool-lua`,
-  and its Lua 5.5 with Ferrolua's crates and language, behind
+  and its Lua 5.5 with Lunaferra's crates and language, behind
   `tidepool-script`; its sandbox rules, plugin API, plugin thread and
   host stay
 - **Date:** 2026-11-23
@@ -5759,7 +5759,12 @@ decides; the roadmap task that first depends on one asks for the decision.
   an interpreter of Tidepool's own, and chose the same day, from the
   agent's options, the four points marked as theirs below. The rest is
   the agent's draft, which carries ADR-0061's accepted requirements over
-  to Ferrolua.
+  to Ferrolua. On 2026-11-25 the user said that Ferrolua is renamed
+  Lunaferra (<https://github.com/jabbott-iii/Lunaferra>), and its
+  crates and command with it (`lunaferra`, `lunaferra-jit`,
+  `lunaferra lsp`); that day only its GitHub repository had the new
+  name. This record keeps the names it was written with; the other
+  documents use the new ones.
 - **Date:** 2026-11-24
 - **Context:**
   - ADR-0061 (plugins are Lua 5.5 scripts run by `tidepool-lua`, an

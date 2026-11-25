@@ -100,7 +100,7 @@ Built, with the roadmap task that built it:
 Not yet, with the roadmap task that adds it:
 
 - suites for project search (M4.4), predictive
-  text and its latency (M9.4), plugin scripts through Ferrolua (M15.1),
+  text and its latency (M9.4), plugin scripts through Lunaferra (M15.1),
   plugins (M15.5), and the performance pass (M14.3).
 
 Tasks and their state are in [`docs/roadmap.md`](../docs/roadmap.md).

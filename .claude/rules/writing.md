@@ -23,7 +23,7 @@ so they can fill them in.
   in `**/*.rs`; user-facing text in code (errors, log messages, help text, interface labels); and
   commit messages and pull requests
 - **Project name:** Tidepool
-- **Names to spell exactly:** jabbott.dev, Nadir, Doctrina, Ferrolua, rust-analyzer, rustup, Xlib,
+- **Names to spell exactly:** jabbott.dev, Nadir, Doctrina, Lunaferra, rust-analyzer, rustup, Xlib,
   X11, XWayland, Xvfb, AppKit, Win32, ConPTY, Saira, JetBrains Mono, Mermaid, CodeQL, Dependabot,
   CommonMark, TrueType, QOI, Lua, Xcode, bundletool, Claude Code, and the Tidepool Agent Protocol
   (TAP)

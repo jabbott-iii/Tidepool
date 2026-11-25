@@ -3654,11 +3654,11 @@ builds both samples, and runs them on an emulator, all inside Tidepool.
 
 ---
 
-## M15 — Ferrolua plugins
+## M15 — Lunaferra plugins
 
-**Goal:** users extend Tidepool with plugins written in Ferrolua, the
+**Goal:** users extend Tidepool with plugins written in Lunaferra, the
 owner's own scripting language, derived from Lua 5.5 (a small language
-made to be embedded in other programs), and run by Ferrolua's interpreter
+made to be embedded in other programs), and run by Lunaferra's interpreter
 inside Tidepool. A plugin reaches only what the plugin API gives it: it
 opens no file, socket, or program of its own, and it never makes the
 main thread wait (ADR-0061, ADR-0073).
@@ -3667,27 +3667,27 @@ Added on 2026-11-23 at the owner's request. M15 is the next free
 milestone number. It is listed before M14 so that the first release has
 plugins, and so that M14's fuzz campaign and security review cover them.
 
-Note (2026-11-24, the user's choice, ADR-0073): Ferrolua
-(https://github.com/jabbott-iii/Ferrolua) runs plugins in place of an
-interpreter of Tidepool's own, and plugins are Ferrolua scripts, not Lua
+Note (2026-11-24, the user's choice, ADR-0073): Lunaferra
+(https://github.com/jabbott-iii/Lunaferra) runs plugins in place of an
+interpreter of Tidepool's own, and plugins are Lunaferra scripts, not Lua
 5.5. M15.2 (the virtual machine, collector and coroutines) and M15.3 (the
-sandboxed standard library) left this roadmap for Ferrolua's; their IDs
-are not reused. M15.1 now builds the crate over Ferrolua.
+sandboxed standard library) left this roadmap for Lunaferra's; their IDs
+are not reused. M15.1 now builds the crate over Lunaferra.
 
-- [ ] **M15.1 — script: the crate over Ferrolua, and its fuzz target**
+- [ ] **M15.1 — script: the crate over Lunaferra, and its fuzz target**
   - Note (2026-11-24, the user's choice, ADR-0073): this task was "lua:
     lexer, parser, and compiler", whose two `Decide first` questions the
-    user answered on 2026-11-23 (ADR-0061, ADR-0062). Ferrolua builds the
+    user answered on 2026-11-23 (ADR-0061, ADR-0062). Lunaferra builds the
     interpreter now, and the Lua 5.5 test suite that ADR-0062 had this
     task vendor is not imported. The task takes M15.2's bench suite and the
     tests of the limits and the library from M15.2 and M15.3.
-  - Note (2026-11-24): of ADR-0073's requirements, Ferrolua's plan has
+  - Note (2026-11-24): of ADR-0073's requirements, Lunaferra's plan has
     no way for another thread to stop a running call (3), and plans its
     interpreter only on Linux x86-64 (7); its first crates.io release is
     its M12, its last milestone.
-  - Depends: M0.2, M1.6, M1.9, and a Ferrolua release on crates.io that
+  - Depends: M0.2, M1.6, M1.9, and a Lunaferra release on crates.io that
     meets ADR-0073's requirements
-  - Decide first: the Ferrolua version to pin, and, if it needs a newer
+  - Decide first: the Lunaferra version to pin, and, if it needs a newer
     Rust than `rust-toolchain.toml` pins, moving Tidepool's toolchain
     first, in a commit of its own (ADR-0073).
   - Do:
@@ -3697,19 +3697,19 @@ are not reused. M15.1 now builds the crate over Ferrolua.
       `docs/01-architecture.md`'s layers and dependency matrix; the
       diagrams that draw them (ADR-0029); and its owner among the
       subagents in `CLAUDE.md`.
-    - Ferrolua's crates, in `tidepool-script`'s manifest alone, from
+    - Lunaferra's crates, in `tidepool-script`'s manifest alone, from
       crates.io at exact versions (`=x.y.z`), each listed in
       `xtask/deps-allowlist.txt` as `name version ADR-0073` and in
-      `docs/02-dependency-policy.md`. `ferrolua`'s `jit` feature stays
+      `docs/02-dependency-policy.md`. `lunaferra`'s `jit` feature stays
       off, and no feature of `tidepool-script` turns it on.
     - The wrapper: a plugin's state with ADR-0061's library and its
       limits (memory, instructions per call, call depth, and a chunk's
       size and nesting), whose values M15.4 sets; `print` to the
       plugin's log; `require` through a loader that reads only the
-      plugin's own folder; and errors with their tracebacks. No Ferrolua
+      plugin's own folder; and errors with their tracebacks. No Lunaferra
       type appears in its public API.
-    - `LICENSES.txt` lists Ferrolua's MIT license and copyright notice
-      (`docs/05-release.md`); `cargo xtask site` counts Ferrolua's crates
+    - `LICENSES.txt` lists Lunaferra's MIT license and copyright notice
+      (`docs/05-release.md`); `cargo xtask site` counts Lunaferra's crates
       as first party; `tidepool-script` joins `security-reviewer`'s
       mandatory areas (`CLAUDE.md`, `.claude/agents/security-reviewer.md`).
     - The fuzz target `script`, which loads and runs mutated scripts
@@ -3726,8 +3726,8 @@ are not reused. M15.1 now builds the crate over Ferrolua.
       stops at the call depth, and a pattern crafted to backtrack stops
       at its instruction limit, each with the error the host sees, and
       none caught by `pcall`.
-    - No input panics; `cargo xtask deps` passes with Ferrolua's crates
-      listed, and `Cargo.lock` holds no `ferrolua-jit`.
+    - No input panics; `cargo xtask deps` passes with Lunaferra's crates
+      listed, and `Cargo.lock` holds no `lunaferra-jit`.
   - Verify: `cargo test -p tidepool-script`;
     `cargo xtask fuzz-smoke --target script --secs 60`;
     `cargo xtask bench script`; `cargo xtask deps`; `cargo xtask layers`;
@@ -3735,7 +3735,7 @@ are not reused. M15.1 now builds the crate over Ferrolua.
 
 - [ ] **M15.4 — plugins: spec review**
   - Note (2026-11-24, ADR-0073): this task depended on M15.3 until that
-    task left for Ferrolua's roadmap.
+    task left for Lunaferra's roadmap.
   - Depends: M15.1, M4.3, M4.6
   - Decide first:
     - Which grants the first API has beyond ADR-0061's minimum, such as
@@ -3765,7 +3765,7 @@ are not reused. M15.1 now builds the crate over Ferrolua.
       plugin off until the user enables it, asked once with its grants
       listed, and the choice kept in `settings.toml`.
     - The plugin thread, with its row in `docs/01-architecture.md` →
-      "Threading model": it owns one Ferrolua state per plugin and runs
+      "Threading model": it owns one Lunaferra state per plugin and runs
       one call at a time. Plugin files are read on workers, and `require`
       loads only from the plugin's own folder.
     - A plugin that fails is reported in a toast and the log, and is
@@ -3816,23 +3816,23 @@ are not reused. M15.1 now builds the crate over Ferrolua.
     and key bindings.
   - Verify: `cargo xtask golden`; `cargo test -p tidepool-editor plugins`
 
-- [ ] **M15.8 — syntax/toolchain: Ferrolua highlighting, its language server, and the API's definitions**
+- [ ] **M15.8 — syntax/toolchain: Lunaferra highlighting, its language server, and the API's definitions**
   - Note (2026-11-24, the user's choice, ADR-0073): this task was "Lua
     highlighting, lua-language-server, and the API's definitions".
-    Plugins are Ferrolua scripts now, so it serves Ferrolua's language
-    and Ferrolua's own language server.
-  - Depends: M15.6, M13.2, M5.3, and a release of Ferrolua's language
+    Plugins are Lunaferra scripts now, so it serves Lunaferra's language
+    and Lunaferra's own language server.
+  - Depends: M15.6, M13.2, M5.3, and a release of Lunaferra's language
     server (its M9)
   - Decide first: whether the pack's lexer is written as M13.2's rules,
-    or reuses Ferrolua's parser through `tidepool-script`, which would
+    or reuses Lunaferra's parser through `tidepool-script`, which would
     give `syntax` an edge to `script`.
   - Do:
-    - A Ferrolua language pack.
-    - `ferrolua lsp` as a managed tool, through `/add-managed-tool`,
-      after checking Ferrolua's current docs and release channel; never
+    - A Lunaferra language pack.
+    - `lunaferra lsp` as a managed tool, through `/add-managed-tool`,
+      after checking Lunaferra's current docs and release channel; never
       bundled (ADR-0002).
     - Definition files for the `tidepool` API, in the declaration format
-      Ferrolua's type checker reads, generated from the host's bindings
+      Lunaferra's type checker reads, generated from the host's bindings
       so that they cannot drift from them; the pack points the server at
       them in a plugin's folder.
   - Accept: golden token streams for the pack; fake-tool tests for the
@@ -3853,7 +3853,7 @@ manifest did not declare.
 
 - [ ] **M14.1 — fuzz campaign**
   - Note (2026-11-24, ADR-0073): this task depended on M15.3 until that
-    task left for Ferrolua's roadmap.
+    task left for Lunaferra's roadmap.
   - Depends: M10.2, M9.3, M15.1
   - Decide first: register item 30 (coverage-guided fuzzing) in
     `docs/02-dependency-policy.md`.

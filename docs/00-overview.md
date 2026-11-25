@@ -28,8 +28,8 @@ until Tidepool's own development uses it.** Dogfooding starts at M4.
    offline predictive text that works with no agent installed.
 6. One visual identity: jabbott.dev's dark "capsuleer" design language
    (ADR-0004, `docs/subsystems/ui-and-theme.md`).
-7. Plugins in Ferrolua, the owner's own scripting language derived from
-   Lua 5.5, run by Ferrolua's interpreter inside Tidepool, which reach
+7. Plugins in Lunaferra, the owner's own scripting language derived from
+   Lua 5.5, run by Lunaferra's interpreter inside Tidepool, which reach
    only what the plugin API gives them and never make typing wait
    (ADR-0061, ADR-0073, M15).
 8. Small enough for one engineer and a coding agent to hold in their heads.
@@ -115,7 +115,7 @@ S ≈ <1k lines, M ≈ 1–3k, L ≈ 3–6k, XL ≈ 6k+.
 | `vcs`, `term` | M each | git over the CLI; VT parser and PTY terminal |
 | `editor` | XL | Editor view, vim mode, panels: files, search, problems, git, toolchains, devices, chat |
 | `agent` | M | TAP host, context assembly, consent, predictive engine |
-| `script` + plugin host | S + M | A wrapper over Ferrolua, the owner's own language and interpreter in Rust, which builds the interpreter (ADR-0073); manifests, the plugin thread, the API, and its view (ADR-0061) |
+| `script` + plugin host | S + M | A wrapper over Lunaferra, the owner's own language and interpreter in Rust, which builds the interpreter (ADR-0073); manifests, the plugin thread, the API, and its view (ADR-0061) |
 | `mobile` | L | Android and iOS pipelines, signing orchestration |
 | `gui`, `tui` | M each | Frontends over the same `ui` draw lists |
 | `xtask` + harnesses | M | CI checks, goldens, fuzz smoke, benches |
@@ -136,8 +136,8 @@ itself early (M4), and adds one capability area per milestone.
 | Opening an untrusted project runs its code (build scripts, proc macros, Gradle) | Workspace trust, untrusted by default (ADR-0014) |
 | iOS needs macOS and Xcode | Remote-Mac builds over SSH; clear messages when no Mac is configured (ADR-0008) |
 | Android and Apple tooling changes | Version detection, gated real-tool tests, re-check official docs at the start of M10 and M11 |
-| Plugins run third-party code inside the IDE | Ferrolua's interpreter, without its JIT, with no files, sockets, or programs beyond the plugin API; instruction and memory limits on every call; off until enabled; a workspace's plugins only once it is trusted (ADR-0061, ADR-0073, ADR-0014) |
-| Ferrolua is not on crates.io, or misses one of Tidepool's requirements, when M15.1 is due | ADR-0073 lists the requirements for Ferrolua's roadmap; `tidepool-script` tests each one; exact versions, and each update reviewed as a change of its own |
+| Plugins run third-party code inside the IDE | Lunaferra's interpreter, without its JIT, with no files, sockets, or programs beyond the plugin API; instruction and memory limits on every call; off until enabled; a workspace's plugins only once it is trusted (ADR-0061, ADR-0073, ADR-0014) |
+| Lunaferra is not on crates.io, or misses one of Tidepool's requirements, when M15.1 is due | ADR-0073 lists the requirements for Lunaferra's roadmap; `tidepool-script` tests each one; exact versions, and each update reviewed as a change of its own |
 | AI leaks secrets or applies bad edits | IDE-side context assembly with a deny-list, consent, edits as reviewable proposals (ADR-0009) |
 | Vim mode scope creep | A defined subset with a conformance table; Vimscript is a non-goal (ADR-0006) |
 | One maintainer | Small tasks with acceptance criteria and verification commands; Claude Code agents with narrow briefs |

@@ -22,13 +22,13 @@ that adds one still lists it in this document, pins it (a Git dependency
 to a full commit hash), and adds its source to `xtask/deps-allowlist.txt`,
 and the user approves that change.
 
-The first planned is Ferrolua (<https://github.com/jabbott-iii/Ferrolua>,
+The first planned is Lunaferra (<https://github.com/jabbott-iii/Lunaferra>,
 MIT), the owner's own scripting language and interpreter, which runs
 plugins (ADR-0073). Its crates are to come from crates.io at exact
 versions (`=x.y.z`), in `tidepool-script`'s manifest alone, each listed
 in `xtask/deps-allowlist.txt` with ADR-0073 (M15.1). Tidepool links its
-interpreter only: `ferrolua`'s `jit` feature, which brings in the one
-Ferrolua crate with `unsafe` code, stays off.
+interpreter only: `lunaferra`'s `jit` feature, which brings in the one
+Lunaferra crate with `unsafe` code, stays off.
 
 Outside programs are a separate category: they are **managed tools**
 (ADR-0002). Tidepool installs, updates, configures and runs them as child
@@ -203,7 +203,7 @@ trigger** fires. It is not approved.
 | 29 | Fuzzing (stable, CI) | Build | Mutation fuzz smoke in `xtask` | — | — |
 | 30 | Coverage-guided fuzzing (optional, nightly) | **Proposed** | `cargo fuzz` with `libfuzzer-sys` in an excluded `fuzz/` workspace, dev-only | — | User decision in M14 (criterion 3) |
 | 31 | CLI parsing, logging, errors, time | Build | `tidepool-core::{cli, log, error, civil}` | `clap`, `tracing`, `thiserror`, `chrono` | Not expected |
-| 32 | Scripting language and interpreter (plugins) | First party (M15.1) | Ferrolua, the owner's own language derived from Lua 5.5 and its interpreter in safe Rust, from crates.io at exact versions behind `tidepool-script`, without its JIT, with no way to reach the OS but the plugin API (ADR-0061, ADR-0073) | `mlua` (binds the C interpreter) | Not expected |
+| 32 | Scripting language and interpreter (plugins) | First party (M15.1) | Lunaferra, the owner's own language derived from Lua 5.5 and its interpreter in safe Rust, from crates.io at exact versions behind `tidepool-script`, without its JIT, with no way to reach the OS but the plugin API (ADR-0061, ADR-0073) | `mlua` (binds the C interpreter) | Not expected |
 
 ## Enforcement
 

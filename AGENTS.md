@@ -215,15 +215,15 @@ or file is there.
   `.app`/`.xcarchive`/`.ipa` (iOS on macOS or a remote Mac).
 - **AI:** language agents over the Tidepool Agent Protocol, plus offline
   predictive text.
-- **Plugins:** scripts in Ferrolua, the owner's own language derived
-  from Lua 5.5, run by Ferrolua's interpreter, that reach only what the
+- **Plugins:** scripts in Lunaferra, the owner's own language derived
+  from Lua 5.5, run by Lunaferra's interpreter, that reach only what the
   plugin API gives them (ADR-0061, ADR-0073, M15, planned before the
   release in M14).
 - **Targets:** Linux x86_64 (X11/XWayland), macOS 13+ (universal), Windows
   10 1809+ x86_64. Development order Linux → macOS → Windows.
 - **Built from the ground up:** zero third-party crates. We write our own OS
   bindings, rasterizer, font renderer, UI toolkit, text engine, parsers,
-  protocols, and terminal emulator. Plugins run on Ferrolua, the owner's
+  protocols, and terminal emulator. Plugins run on Lunaferra, the owner's
   own interpreter, taken from crates.io as first-party code (ADR-0073).
 
 ## Read before working

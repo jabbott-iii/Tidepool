@@ -258,9 +258,9 @@
       "tasks": ["M13.4"]
     },
     {
-      "name": "Ferrolua plugins",
+      "name": "Lunaferra plugins",
       "area": "Plugins",
-      "summary": "Users will extend Tidepool with plugins written in Ferrolua, a scripting language by Tidepool's own author, derived from Lua 5.5 with Python's operators and indexes from 0. Its interpreter, built into Tidepool, will give a plugin no file, socket, or program of its own: only commands, key bindings, buffers, events, and its own settings, through an API that never makes typing wait. Each plugin will stay off until the user enables it, a workspace's plugins will run only once the workspace is trusted, and plugin authors will get Ferrolua highlighting, its language server, and definitions of the API.",
+      "summary": "Users will extend Tidepool with plugins written in Lunaferra, a scripting language by Tidepool's own author, derived from Lua 5.5 with Python's operators and indexes from 0. Its interpreter, built into Tidepool, will give a plugin no file, socket, or program of its own: only commands, key bindings, buffers, events, and its own settings, through an API that never makes typing wait. Each plugin will stay off until the user enables it, a workspace's plugins will run only once the workspace is trusted, and plugin authors will get Lunaferra highlighting, its language server, and definitions of the API.",
       "tasks": ["M15.1", "M15.4", "M15.5", "M15.6", "M15.7", "M15.8"]
     },
     {

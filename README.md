@@ -5,7 +5,7 @@ have a native GUI in the style of [jabbott.dev](https://jabbott.dev), a
 terminal UI with vim-style modal editing, and first-class Rust and Markdown
 support. It will also build and sign Android and iOS apps, offer AI
 features through plugged-in language agents, and run plugins written in
-Ferrolua, its author's scripting language derived from Lua 5.5.
+Lunaferra, its author's scripting language derived from Lua 5.5.
 
 **Status:** in development, at version 0.1. The guarded
 workspace and its checks, the contribution workflow, license headers, the
