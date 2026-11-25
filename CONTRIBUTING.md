@@ -289,23 +289,31 @@ reference agents in `docs/subsystems/agents.md`, and `cargo xtask
 features` reads `docs/features.jsonc` with the roadmap's task lines.
 
 How to write them is in
-[`.claude/rules/docs-writing.md`](.claude/rules/docs-writing.md). Use
-plain words, and explain each term the first time it appears. Keep the
-exact numbers and limits. Write in American English, with the serial
-comma. Only Claude Code loads that file automatically, but its rules
-apply to everyone who writes docs here.
+[`.claude/rules/writing.md`](.claude/rules/writing.md), and how to keep
+the roadmap, the decision records, and the other documents in shape is in
+[`.claude/rules/roadmap-and-docs.md`](.claude/rules/roadmap-and-docs.md).
+Use plain words, and explain each term the first time it appears. Keep
+the exact numbers and limits. Write in American English, with the serial
+comma. Both are copies of rules from
+[Doctrina](https://github.com/jabbott-iii/Doctrina), with Tidepool's
+values in their "Project details" (ADR-0071). Only Claude Code loads them
+automatically, but their rules apply to everyone who writes docs here.
 
 ## Commits and pull requests
 
 - A commit follows [Conventional Commits
   1.0.0](https://www.conventionalcommits.org/en/v1.0.0/): its subject
-  gives the type, the area as its scope, and a summary that names the
-  roadmap task, as in `feat(text): rope, positions, and UAX #29 graphemes
-  (M1.1)` or `docs: accept ADR-0017 (xtask runs cargo itself)`. A
+  gives the type, the area as its scope (left out when the change spans
+  several), and a summary in the imperative that ends with the roadmap
+  task's ID, as in `feat(workspace): bind a save's answer to its question
+  (M4.12)` or `docs: accept ADR-0017 (xtask runs cargo itself)`. A
   breaking change adds `!` before the colon and a `BREAKING CHANGE:`
-  footer. [`.claude/rules/docs-writing.md`](.claude/rules/docs-writing.md)
-  → "Commit messages" has the types and the rest. Commits before
-  2026-11-22 use the older form, with the area first.
+  footer that names its ADR.
+  [`.claude/rules/commits.md`](.claude/rules/commits.md) has the types and
+  the rest. Commits keep the form of their time: the area first before
+  2026-11-22, and a noun phrase that may name two areas, as in
+  `feat(platform,workspace): a save's answer bound to its question
+  (M4.12)`, until ADR-0071 (2026-11-24).
 - A commit message or pull request description credits no coding agent or
   tool: no `Co-Authored-By:` line for one, and no "Generated with …"
   line. Naming a tool the change is about is fine, and Dependabot's own

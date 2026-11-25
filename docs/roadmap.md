@@ -3935,3 +3935,5 @@ the release checklist is complete.
 | Undo history that survives a restart, and history pruning | Undo must persist, or history memory shows in profiles (ADR-0020) |
 | `codec`: the YAML subset, CSV and INI (`docs/subsystems/text-and-formats.md`) | A viewer, a validator or a language pack needs to parse them, not only highlight them |
 | A command that opens a folder from a typed path, and switching folders while one is open | Users ask to open a folder from inside Tidepool (ADR-0070) |
+| Test coverage measured with Rust's own `llvm-tools` component, a floor that only rises, and mutation testing written here, as `.claude/rules/testing.md` asks; none runs today (ADR-0071) | The user decides how `xtask` or CI may run a program other than `cargo` (ADR-0017), or a review finds a change that no test catches |
+| A check that fails when a benchmark goes over its budget, as `.claude/rules/testing.md` asks, where `cargo xtask bench` only marks a slower median (ADR-0035, ADR-0071) | A budget regression reaches `main` unnoticed, or a runner of the owner's own can measure on the reference machine |

@@ -23,7 +23,7 @@ decides; the roadmap task that first depends on one asks for the decision.
 
 ## ADR-0001 — Zero third-party crates: Rust `std` plus hand-written OS bindings
 
-- **Status:** Accepted
+- **Status:** Accepted; ADR-0071 counts a crate from the owner's own GitHub account as first party, not third party, once it is listed in the dependency policy
 - **Date:** 2026-10-31
 - **Context:** The user's rule: Tidepool "cannot have any dependencies
   outside of what is absolutely necessary."
@@ -5558,3 +5558,139 @@ decides; the roadmap task that first depends on one asks for the decision.
   change, or none shows for one that someone can; users ask to hide
   ignored files or to split editors downward; or macOS (M11.8) or
   Windows (M12.2) add file metadata.
+
+## ADR-0071 — Tidepool adopts Doctrina's portable rules and skills: six rules copied into `.claude/rules/` with Tidepool's values, ten skills copied as they are; the owner's GitHub account is an allowed publisher; no coverage or mutation command yet, and benchmarks still report without failing
+
+- **Status:** Accepted
+- **Date:** 2026-11-24
+- **Context:**
+  - Doctrina (<https://github.com/jabbott-iii/Doctrina>) is the owner's
+    library of portable rules and skills for coding agents. A repository
+    copies a rule into its `.claude/rules/`, keeps the rule's general text
+    as it is, and fills in its "Project details", one value a bullet, which
+    the rest of the rule refers to by bold names such as **Git access**. A
+    skill is copied exactly: it has no values of its own, and refers to the
+    rules' values by those names.
+  - On 2026-11-24 the user asked to import Doctrina's `rules/rust.md`,
+    `commits.md`, `roadmap-and-docs.md`, `dependencies.md`, `testing.md`,
+    and `writing.md`, and every skill in its `skills/`, which were read at
+    Doctrina's commit `3afa240268a22ebb0c55b7bece9a77b70f159c27` (its `main`
+    that day). The same day, before the import, the user removed Tidepool's
+    own `.claude/rules/docs-writing.md`, `docs-and-roadmap.md`, and
+    `dependencies.md`, whose jobs the new rules take over.
+  - Four things conflicted, since a copy keeps Doctrina's general text:
+    - Doctrina has a `next-task` skill, and so did Tidepool.
+    - `testing.md` asks for a coverage command with a floor, a mutation
+      command, and performance budgets that fail the build. The coverage and
+      mutation tools it names (cargo-llvm-cov, cargo-mutants) are
+      third-party crates, which `AGENTS.md` rule 1 rules out; Rust's own
+      `llvm-tools` component would need a program other than `cargo` run
+      from `xtask`, which ADR-0017 does not allow; and ADR-0035 has `cargo
+      xtask bench` mark a slower median without failing, since the budgets
+      are measured on the reference machine, not on CI's runners.
+    - `dependencies.md` counts packages from its **Allowed publishers** as
+      first party, so that they need no exception, while `AGENTS.md` rule 1
+      and `docs/02-dependency-policy.md` let no crate from outside this
+      workspace in, the owner's own included ("Port the code instead").
+    - `commits.md` writes a summary line in the imperative (`fix(core):
+      reject varints …`) and leaves the scope out when a change spans
+      several areas, where the removed `docs-writing.md` wrote a noun
+      phrase, the way the roadmap names tasks (`feat(text): encodings and
+      atomic save (M1.3)`), and two areas as `(platform,core)`.
+- **Decision** (the user chose, on 2026-11-24, to replace Tidepool's
+  `next-task` with Doctrina's, to adopt `testing.md` with values that say
+  "none" where Tidepool has no tool, to make the owner's own accounts the
+  **Allowed publishers**, and to adopt Doctrina's commit form):
+  - **Six rules,** copied into `.claude/rules/` with their general text
+    unchanged and every "Project details" value filled in for Tidepool:
+    `writing.md`, `commits.md`, `dependencies.md`, and `testing.md`, which
+    Claude Code loads in every session, and `rust.md` and
+    `roadmap-and-docs.md`, which it loads for the files their `paths` name.
+    Tidepool's other rules (`ai-context.md`, `ci-workflows.md`,
+    `parsers.md`, `toolchains-and-secrets.md`, `ui-style.md`, and
+    `unsafe-and-ffi.md`) stay as they are.
+  - **Ten skills,** copied into `.claude/skills/` exactly: `build-course`,
+    `build-language-packs`, `draw-diagrams`, `fix-doc-drift`, `next-task`,
+    `phase-gates`, `security-sweep`, `set-up-github`, `simplify-code`, and
+    `sweep-code`. Doctrina's `next-task` replaces Tidepool's: the steps only
+    Tidepool's had (the subagent that owns each crate, the mandatory
+    `security-reviewer`, license headers, crate READMEs) are in `CLAUDE.md`
+    and `AGENTS.md` already. Tidepool keeps its own `add-ffi-binding`,
+    `add-managed-tool`, `evaluate-dependency`, `record-decision`, and
+    `verify`.
+  - **A copy changes only in its "Project details".** A change to a rule's
+    general text, or to a skill, is made in Doctrina and copied here again,
+    as Doctrina's `AGENTS.md` says.
+  - **Commits** follow `commits.md` from this record on: a summary line in
+    the imperative, one scope or none, `chore` for the rules, skills, and
+    settings in `.claude/`, and the task ID at its end. Earlier commits keep
+    their forms.
+  - **The owner's GitHub account, `https://github.com/jabbott-iii`, is the
+    Allowed publishers.** A crate whose every owner and whose source are
+    that account's is first party, and needs no exception once it passes the
+    checks in `dependencies.md`, its whole tree being first party. It is
+    still listed in `docs/02-dependency-policy.md`, pinned (a Git dependency
+    to a full commit hash), and admitted by `xtask/deps-allowlist.txt` in
+    the change that adds it, which the user approves; `cargo xtask deps` is
+    unchanged, and refuses any source that the allowlist does not name.
+    Third-party crates stay out, as ADR-0001 says.
+  - **`testing.md` is adopted with two departures,** which its values state:
+    no **Coverage command**, **Coverage floor**, or **Mutation command**,
+    since none can run without a third-party crate or a change to ADR-0017;
+    and **Performance budgets** that `cargo xtask bench` reports against its
+    baseline and never fails on, as ADR-0035 has it.
+- **Consequences:**
+  - Good: Tidepool's rules for writing, commits, dependencies, tests, Rust,
+    and its documents are the ones the owner's other repositories use, and
+    the skills (`/security-sweep`, `/sweep-code`, `/simplify-code`,
+    `/fix-doc-drift`, `/draw-diagrams`, `/phase-gates`,
+    `/build-language-packs`, `/set-up-github`, `/build-course`, and
+    `/next-task`) are there for the user to start; each is user-only.
+  - Bad: nothing here checks that a copy still matches Doctrina. Doctrina's
+    own check compares `.claude/rules/` with its `rules/` and
+    `.claude/skills/` with its `skills/`, which Tidepool does not have; a
+    check needs a checkout of Doctrina at a known commit beside this one.
+  - `build-course` relies on `teaching-materials.md`, which is not imported,
+    so it says so and stops when started. `phase-gates` finds **Gate
+    evidence** "none", since Tidepool's milestones keep free-form exit
+    criteria.
+  - Roadmap tasks written from now on put their `Note:` and `⏳ needs` lines
+    first, under the title, as `roadmap-and-docs.md` shapes a task; existing
+    tasks keep their order until they are changed. New decision records name
+    the user's choice on the decision line itself.
+  - Commit summaries change form, so `git log --oneline` shows three forms:
+    the area first before 2026-11-22, a noun phrase until this record, then
+    the imperative.
+  - A crate the owner publishes may now be proposed instead of porting its
+    code, a change from "Port the code instead" in
+    `docs/02-dependency-policy.md`; until one is, `Cargo.lock` holds only
+    workspace packages, as before.
+  - Nothing measures test coverage or catches untested mutations; reviews
+    may make mutations by hand and report them, as M4.12's did. A budget can
+    still regress without failing a check.
+  - Some of the removed rules' lines are not restated by a copy: the
+    checklist for a new member (most of it checked by `cargo xtask crates`
+    and `unsafe-audit`, and stated in `AGENTS.md`), that a `build.rs` may
+    only emit `cargo:` directives and compile no C, and the roadmap's old
+    task order. `writing.md` asks that text shown in capitals be written in
+    normal case and uppercased by styling; `ui`'s widgets uppercase their
+    labels as they paint them, but some of the shell's labels are written in
+    capitals in `editor::shell::commands`, which is left until that code
+    changes.
+- **Alternatives considered:**
+  - Keeping Tidepool's `next-task` beside Doctrina's other skills: two
+    versions of one skill, drifting apart.
+  - Planning to enforce the budgets, superseding ADR-0035: CI's runners are
+    not the reference machine, so limits there need wide margins or a runner
+    of the owner's own.
+  - Leaving `testing.md` out: the skills that read its values would find
+    them missing.
+  - **Allowed publishers** "none": every crate outside the workspace stays
+    third party, as rule 1 said.
+  - Holding off on `commits.md`, keeping the noun-phrase form: the skills
+    that read **Git access** and the other commit values would find them
+    missing.
+- **Revisit when:** Doctrina changes a rule or skill copied here; a coverage
+  or mutation tool can run without a third-party crate or a change to
+  ADR-0017; a crate the owner publishes is proposed; or a budget regression
+  reaches `main` unnoticed.

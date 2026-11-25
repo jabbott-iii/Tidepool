@@ -7,9 +7,20 @@
 > approved it, and it is recorded in the register in this document.
 
 The approved set of third-party crates is **empty** (ADR-0001). `Cargo.lock`
-must contain only workspace packages. `cargo xtask deps` fails otherwise
-(M0.3); `scripts/check-deps.sh` is the narrower check the Claude Code hook
-falls back to when `xtask` cannot be built.
+holds only workspace packages today. `cargo xtask deps` fails on any
+package whose source `xtask/deps-allowlist.txt` does not name (M0.3);
+`scripts/check-deps.sh` is the narrower check the Claude Code hook falls
+back to when `xtask` cannot be built.
+
+A crate the owner publishes is **first party**, not third party
+(ADR-0071): every owner the registry lists, and the repository it is
+built from, belong to the owner's GitHub account,
+`https://github.com/jabbott-iii` (`.claude/rules/dependencies.md` →
+"When a package is first party" says how to check both). It needs no
+exception when the crates it brings in are first party too. The change
+that adds one still lists it in this document, pins it (a Git dependency
+to a full commit hash), and adds its source to `xtask/deps-allowlist.txt`,
+and the user approves that change.
 
 Outside programs are a separate category: they are **managed tools**
 (ADR-0002). Tidepool installs, updates, configures and runs them as child
@@ -35,8 +46,9 @@ DEFLATE, PNG, QOI, TOML, JSON, VT/ECMA-48, the APK and AAB formats) and
 implementing it ourselves is **not** a dependency. That is the intended path.
 
 Depending on another repository's crates across repositories (for example,
-a path or git dependency on Nadir's `codec`) **does** count. Port the code
-instead.
+a path or git dependency on Nadir's `codec`) **does** count. A crate from
+the owner's own account is first party (above, ADR-0071); anyone else's is
+third party, and its code is ported instead.
 
 ### OS libraries we rely on (not dependencies, but listed for audit)
 
@@ -210,7 +222,9 @@ trigger** fires. It is not approved.
   workflow may use, pinned by commit SHA, and that no workflow's token gets
   more than its row allows (ADR-0022; `docs/04-quality.md` →
   "`workflows`").
-- **Path-scoped rule** `.claude/rules/dependencies.md` loads when an agent
-  opens a Cargo manifest.
+- **Rules for agents:** `.claude/rules/dependencies.md`, a copy of
+  Doctrina's portable rule with Tidepool's values (ADR-0071), loads in
+  every Claude Code session, and `.claude/rules/rust.md` when an agent
+  opens Rust code or a Cargo manifest.
 - **Claude Code permissions** ask before `cargo add`, `cargo remove`,
   `cargo update` and `cargo install`.

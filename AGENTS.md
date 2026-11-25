@@ -229,6 +229,7 @@ or file is there.
 | If you are touching… | Read first |
 | :- | :- |
 | Anything | `docs/00-overview.md`, then `docs/01-architecture.md`, then the crate's `README.md` |
+| Anything, as an agent other than Claude Code | The rules in `.claude/rules/`, which Claude Code loads on its own: six of them are copies of Doctrina's portable rules, with Tidepool's values in their "Project details" (ADR-0071) |
 | `Cargo.toml`, `Cargo.lock`, a new crate | `docs/02-dependency-policy.md` |
 | `crates/core` | `docs/subsystems/core.md` |
 | `crates/sys`, `crates/platform` | `docs/subsystems/sys-and-platform.md`, `docs/03-platforms.md` |
@@ -270,10 +271,15 @@ below hold them too.
 
 1. **No third-party crates.** Do not add any crate outside this workspace to
    any `[dependencies]`, `[dev-dependencies]` or `[build-dependencies]`
-   table, unless `docs/02-dependency-policy.md` lists it as `Approved`. If
-   you believe one is needed, stop, run `/evaluate-dependency`, and ask the
-   user. `cargo xtask deps` enforces this, and the Claude Code hook runs it
-   after every manifest edit.
+   table, unless `docs/02-dependency-policy.md` lists it as `Approved`. A
+   crate whose every owner and whose source are the owner's GitHub
+   account, `https://github.com/jabbott-iii`, is first party (ADR-0071): it
+   needs no exception, but passes the checks in
+   `.claude/rules/dependencies.md`, and the change that adds it lists it in
+   `docs/02-dependency-policy.md` too. If you believe a crate is needed,
+   stop, run `/evaluate-dependency`, and ask the user. `cargo xtask deps`
+   enforces this, and the Claude Code hook runs it after every manifest
+   edit.
 2. **Outside programs go through `toolchain`.** Only `tidepool-toolchain`
    finds, installs, updates or spawns external programs. The one exception
    is the dev-only `xtask`, which runs `cargo` itself and nothing else
